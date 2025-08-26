@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/docker/cagent/internal/telemetry"
 	"github.com/docker/cagent/pkg/remote"
 	"github.com/google/go-containerregistry/pkg/crane"
 	"github.com/spf13/cobra"
@@ -19,6 +20,7 @@ func NewPullCmd() *cobra.Command {
 		Long:  `Pull an artifact from Docker Hub`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			telemetry.TrackCommand("pull", args)
 			return runPullCommand(args[0])
 		},
 	}

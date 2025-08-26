@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss/v2"
 
 	"github.com/docker/cagent/internal/app"
+	"github.com/docker/cagent/internal/telemetry"
 	"github.com/docker/cagent/internal/tui/components/statusbar"
 	"github.com/docker/cagent/internal/tui/dialog"
 	chatpage "github.com/docker/cagent/internal/tui/page/chat"
@@ -76,6 +77,7 @@ func New(a *app.App) tea.Model {
 
 // Init initializes the application
 func (a *appModel) Init() tea.Cmd {
+	telemetry.TrackCommand("tui", []string{"init"})
 	return tea.Batch(
 		// Initialize dialog system
 		a.dialog.Init(),

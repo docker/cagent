@@ -10,6 +10,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/docker/cagent/internal/telemetry"
 	"github.com/spf13/cobra"
 )
 
@@ -34,6 +35,10 @@ func newCatalogListCmd() *cobra.Command {
 		Short: "List catalog entries",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Track catalog list with "list" as the first argument for telemetry
+			telemetryArgs := append([]string{"list"}, args...)
+			telemetry.TrackCommand("catalog", telemetryArgs)
+
 			var org string
 			if len(args) == 0 {
 				org = "agentcatalog"

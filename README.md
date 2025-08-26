@@ -52,7 +52,7 @@ Many examples can be found [here](/examples/README.md)!
 
 [Prebuilt binaries](https://github.com/docker/cagent/releases) for Windows, macOS and Linux can be found on the releases page of the [project's GitHub repository](https://github.com/docker/cagent/releases)
 
-Once you've downloaded the appropriate binary for your platform, you may need to give it executable permissions.  
+Once you've downloaded the appropriate binary for your platform, you may need to give it executable permissions.
 On macOS and Linux, this is done with the following command:
 
 ```sh
@@ -78,7 +78,7 @@ export ANTHROPIC_API_KEY=your_api_key_here
 export GOOGLE_API_KEY=your_api_key_here
 ```
 
-###  Run Agents!
+### Run Agents!
 
 ```bash
 # Run an agent!
@@ -188,11 +188,13 @@ cagent pull agentcatalog/pirate
 
 `cagent run agentcatalog_pirate.yaml` will run your newly pulled agent
 
-
 ## Usage
 
 More details on the usage and configuration of `cagent` can be found in [USAGE.md](/docs/USAGE.md)
 
+## Telemetry
+
+We track anonymous usage data to improve the tool. See [TELEMETRY.md](/docs/TELEMETRY.md) for details.
 
 ## Contributing
 

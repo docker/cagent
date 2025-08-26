@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/docker/cagent/internal/telemetry"
 	"github.com/docker/cagent/pkg/evaluation"
 	"github.com/docker/cagent/pkg/teamloader"
 )
@@ -23,6 +24,8 @@ func NewEvalCmd() *cobra.Command {
 }
 
 func runEvalCommand(cmd *cobra.Command, args []string) error {
+	telemetry.TrackCommand("eval", args)
+
 	agents, err := teamloader.Load(cmd.Context(), args[0], runConfig)
 	if err != nil {
 		return err

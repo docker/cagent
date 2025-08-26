@@ -3,6 +3,7 @@ package root
 import (
 	"fmt"
 
+	"github.com/docker/cagent/internal/telemetry"
 	"github.com/spf13/cobra"
 )
 
@@ -15,6 +16,7 @@ func NewFeedbackCmd() *cobra.Command {
 		Short: "Send feedback about cagent",
 		Long:  `Submit feedback or report issues with cagent`,
 		Run: func(cmd *cobra.Command, args []string) {
+			telemetry.TrackCommand("feedback", args)
 			fmt.Println("Feel free to give feedback:\n", FeedbackLink)
 		},
 	}

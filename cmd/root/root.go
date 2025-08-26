@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 
+	"github.com/docker/cagent/internal/config"
+	"github.com/docker/cagent/internal/telemetry"
 	"github.com/spf13/cobra"
 )
 
@@ -13,6 +16,29 @@ var (
 	debugMode  bool
 	enableOtel bool
 )
+
+// isFirstRun checks if this is the first time cagent is being run
+// It creates a marker file in the user's config directory
+func isFirstRun() bool {
+	configDir := config.GetConfigDir()
+	markerFile := filepath.Join(configDir, ".cagent_first_run")
+
+	// Check if marker file exists
+	if _, err := os.Stat(markerFile); err == nil {
+		return false // File exists, not first run
+	}
+
+	// Create marker file to indicate this run has happened
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		return false // Can't create config dir, assume not first run
+	}
+
+	if err := os.WriteFile(markerFile, []byte(""), 0o644); err != nil {
+		return false // Can't create marker file, assume not first run
+	}
+
+	return true // Successfully created marker, this is first run
+}
 
 // NewRootCmd creates the root command for cagent
 func NewRootCmd() *cobra.Command {
@@ -25,6 +51,7 @@ func NewRootCmd() *cobra.Command {
 				_, _ = cmd.OutOrStdout().Write([]byte("\nFor any feedback, please visit: " + FeedbackLink + "\n\n"))
 			}
 
+			telemetry.SetGlobalTelemetryDebugMode(debugMode)
 			if debugMode {
 				slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 					Level: slog.LevelDebug,
@@ -61,7 +88,25 @@ func NewRootCmd() *cobra.Command {
 }
 
 func Execute() {
-	if err := NewRootCmd().Execute(); err != nil {
+	// Set the version for automatic telemetry initialization
+	telemetry.SetGlobalTelemetryVersion(Version)
+
+	// Print startup message only on first installation/setup
+	if isFirstRun() {
+		startupMsg := fmt.Sprintf(`
+Welcome to cagent! 🚀
+
+For any feedback, please visit: %s
+
+We collect anonymous usage data to help improve cagent. To disable:
+  - Set environment variable: TELEMETRY_ENABLED=false
+
+`, FeedbackLink)
+		_, _ = os.Stdout.WriteString(startupMsg)
+	}
+
+	rootCmd := NewRootCmd()
+	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

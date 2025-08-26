@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/docker/cagent/internal/telemetry"
 	"github.com/docker/cagent/pkg/mcpserver"
 	"github.com/docker/cagent/pkg/servicecore"
 	"github.com/spf13/cobra"
@@ -42,7 +43,9 @@ and maintain conversational sessions.`,
 	return cmd
 }
 
-func runMCPCommand(*cobra.Command, []string) error {
+func runMCPCommand(_ *cobra.Command, args []string) error {
+	telemetry.TrackCommand("mcp", args)
+
 	// Default agents directory to current working directory if not specified
 	resolvedAgentsDir := agentsDir
 	if resolvedAgentsDir == "" {

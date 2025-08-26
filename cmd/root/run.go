@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/otel"
 
 	"github.com/docker/cagent/internal/app"
+	"github.com/docker/cagent/internal/telemetry"
 	"github.com/docker/cagent/internal/tui"
 	"github.com/docker/cagent/pkg/chat"
 	"github.com/docker/cagent/pkg/content"
@@ -77,6 +78,9 @@ func NewTuiCmd() *cobra.Command {
 }
 
 func runCommand(_ *cobra.Command, args []string, exec bool) error {
+	// Track the run command
+	telemetry.TrackCommand("run", args)
+
 	ctx := context.Background()
 
 	slog.Debug("Starting agent", "agent", agentName, "debug_mode", debugMode)
@@ -254,6 +258,13 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt *runtime.Runtim
 
 		// Create a cancellable context for this agentic loop and wire Ctrl+C to cancel it
 		loopCtx, loopCancel := context.WithCancel(ctx)
+
+		// Ensure telemetry is initialized and add to context so runtime can access it
+		telemetry.EnsureGlobalTelemetryInitialized()
+		if telemetryClient := telemetry.GetGlobalTelemetryClient(); telemetryClient != nil {
+			loopCtx = telemetry.WithClient(loopCtx, telemetryClient)
+		}
+
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, os.Interrupt)
 		go func() {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/docker/cagent/internal/telemetry"
 	"github.com/docker/cagent/pkg/config"
 	"github.com/spf13/cobra"
 )
@@ -21,6 +22,8 @@ func NewReadmeCmd() *cobra.Command {
 }
 
 func readmeAgentCommand(_ *cobra.Command, args []string) error {
+	telemetry.TrackCommand("readme", args)
+
 	agentFilename := args[0]
 
 	// Get current working directory as the base directory for security validation

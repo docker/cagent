@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/cagent/internal/telemetry"
 	"github.com/docker/cagent/pkg/agent"
 	"github.com/docker/cagent/pkg/chat"
 	"github.com/docker/cagent/pkg/modelsdev"
@@ -111,10 +112,15 @@ func (r *Runtime) CurrentAgent() *agent.Agent {
 	return r.team.Agent(r.currentAgent)
 }
 
-func (r *Runtime) finalizeEventChannel(sess *session.Session, events chan Event) {
+func (r *Runtime) finalizeEventChannel(ctx context.Context, sess *session.Session, events chan Event) {
 	defer close(events)
 
 	events <- StreamStopped()
+
+	// End telemetry session tracking
+	if telemetryClient := telemetry.FromContext(ctx); telemetryClient != nil {
+		telemetryClient.RecordSessionEnd(ctx)
+	}
 
 	if sess.Title == "" && len(sess.GetAllMessages()) > 0 {
 		r.generateSessionTitle(context.Background(), sess, events)
@@ -127,9 +133,15 @@ func (r *Runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 	events := make(chan Event, 128)
 
 	go func() {
+		// Start telemetry session tracking
+		if telemetryClient := telemetry.FromContext(ctx); telemetryClient != nil {
+			telemetryClient.RecordSessionStart(ctx, r.currentAgent, sess.ID)
+		}
+
 		if sess.SendUserMessage {
 			events <- UserMessage(sess.GetMessages(r.CurrentAgent())[len(sess.GetMessages(r.CurrentAgent()))-1].Content)
 		}
+
 		events <- StreamStarted()
 		a := r.team.Agent(r.currentAgent)
 
@@ -143,7 +155,7 @@ func (r *Runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 		model := a.Model()
 		modelID := model.ID()
 
-		defer r.finalizeEventChannel(sess, events)
+		defer r.finalizeEventChannel(ctx, sess, events)
 
 		ctx, sessionSpan := r.startSpan(ctx, "runtime.session", trace.WithAttributes(
 			attribute.String("agent", r.currentAgent),
@@ -175,6 +187,10 @@ func (r *Runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 				slog.Error("Failed to get agent tools", "agent", a.Name(), "error", err)
 				sessionSpan.RecordError(err)
 				sessionSpan.SetStatus(codes.Error, "failed to get tools")
+				// Track error in telemetry
+				if telemetryClient := telemetry.FromContext(ctx); telemetryClient != nil {
+					telemetryClient.RecordError(ctx, err.Error())
+				}
 				events <- Error(fmt.Sprintf("failed to get tools: %v", err))
 				return
 			}
@@ -190,13 +206,17 @@ func (r *Runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 				streamSpan.RecordError(err)
 				streamSpan.SetStatus(codes.Error, "creating chat completion")
 				slog.Error("Failed to create chat completion stream", "agent", a.Name(), "error", err)
+				// Track error in telemetry
+				if telemetryClient := telemetry.FromContext(ctx); telemetryClient != nil {
+					telemetryClient.RecordError(ctx, err.Error())
+				}
 				events <- Error(fmt.Sprintf("creating chat completion: %v", err))
 				streamSpan.End()
 				return
 			}
 
 			slog.Debug("Processing stream", "agent", a.Name())
-			calls, content, stopped, err := r.handleStream(stream, a, sess, m, events)
+			calls, content, stopped, err := r.handleStream(ctx, stream, a, sess, m, events)
 			if err != nil {
 				// Treat context cancellation as a graceful stop
 				if errors.Is(err, context.Canceled) {
@@ -207,6 +227,10 @@ func (r *Runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 				streamSpan.RecordError(err)
 				streamSpan.SetStatus(codes.Error, "error handling stream")
 				slog.Error("Error handling stream", "agent", a.Name(), "error", err)
+				// Track error in telemetry
+				if telemetryClient := telemetry.FromContext(ctx); telemetryClient != nil {
+					telemetryClient.RecordError(ctx, err.Error())
+				}
 				events <- Error(err.Error())
 				streamSpan.End()
 				return
@@ -300,7 +324,7 @@ func (r *Runtime) Run(ctx context.Context, sess *session.Session) ([]session.Mes
 }
 
 // handleStream handles the stream processing
-func (r *Runtime) handleStream(stream chat.MessageStream, a *agent.Agent, sess *session.Session, m *modelsdev.Model, events chan Event) (calls []tools.ToolCall, content string, stopped bool, err error) {
+func (r *Runtime) handleStream(ctx context.Context, stream chat.MessageStream, a *agent.Agent, sess *session.Session, m *modelsdev.Model, events chan Event) (calls []tools.ToolCall, content string, stopped bool, err error) {
 	defer stream.Close()
 
 	var fullContent strings.Builder
@@ -327,6 +351,15 @@ func (r *Runtime) handleStream(stream chat.MessageStream, a *agent.Agent, sess *
 
 			sess.InputTokens = response.Usage.InputTokens + response.Usage.CachedInputTokens
 			sess.OutputTokens = response.Usage.OutputTokens + response.Usage.CachedOutputTokens
+
+			// Record telemetry for token usage
+			if telemetryClient := telemetry.FromContext(ctx); telemetryClient != nil {
+				modelName := "unknown"
+				if m != nil {
+					modelName = m.Name
+				}
+				telemetryClient.RecordTokenUsage(ctx, modelName, int64(sess.InputTokens), int64(sess.OutputTokens), sess.Cost)
+			}
 		}
 
 		if len(response.Choices) == 0 {
@@ -523,7 +556,15 @@ func (r *Runtime) runTool(ctx context.Context, tool tools.Tool, toolCall tools.T
 	defer span.End()
 
 	events <- ToolCall(toolCall, a.Name())
+	start := time.Now()
 	res, err := tool.Handler(ctx, toolCall)
+	duration := time.Since(start)
+
+	// Record telemetry for tool call
+	if telemetryClient := telemetry.FromContext(ctx); telemetryClient != nil {
+		telemetryClient.RecordToolCall(ctx, toolCall.Function.Name, sess.ID, a.Name(), duration, err)
+	}
+
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
 			slog.Debug("Tool handler canceled by context", "tool", toolCall.Function.Name, "agent", a.Name(), "session_id", sess.ID)
@@ -564,7 +605,15 @@ func (r *Runtime) runAgentTool(ctx context.Context, handler ToolHandler, sess *s
 	defer span.End()
 
 	events <- ToolCall(toolCall, a.Name())
+	start := time.Now()
 	res, err := handler(ctx, sess, toolCall, events)
+	duration := time.Since(start)
+
+	// Record telemetry for runtime tool call
+	if telemetryClient := telemetry.FromContext(ctx); telemetryClient != nil {
+		telemetryClient.RecordToolCall(ctx, toolCall.Function.Name, sess.ID, a.Name(), duration, err)
+	}
+
 	var output string
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {

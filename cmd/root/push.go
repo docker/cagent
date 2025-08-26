@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/docker/cagent/internal/telemetry"
 	"github.com/docker/cagent/pkg/content"
 	"github.com/docker/cagent/pkg/oci"
 	"github.com/docker/cagent/pkg/remote"
@@ -21,6 +22,7 @@ The local identifier can be either a reference (tag) or a digest that was return
 from the build command.`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			telemetry.TrackCommand("push", args)
 			return runPushCommand(args[0], args[1])
 		},
 	}

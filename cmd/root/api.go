@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/docker/cagent/internal/telemetry"
 	latest "github.com/docker/cagent/pkg/config/v1"
 	"github.com/docker/cagent/pkg/server"
 	"github.com/docker/cagent/pkg/session"
@@ -28,6 +29,7 @@ func NewApiCmd() *cobra.Command {
 		Long:  `Start the API server that exposes the agent via an HTTP API`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			telemetry.TrackCommand("api", args)
 			return runHttp(cmd, false, args)
 		},
 	}

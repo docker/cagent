@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/docker/cagent/internal/creator"
+	"github.com/docker/cagent/internal/telemetry"
 	"github.com/docker/cagent/pkg/runtime"
 )
 
@@ -21,6 +22,8 @@ func NewNewCmd() *cobra.Command {
 		Short: "Create a new agent configuration",
 		Long:  `Create a new agent configuration by asking questions and generating a YAML file`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			telemetry.TrackCommand("new", args)
+
 			ctx := cmd.Context()
 
 			var model string         // final model name
