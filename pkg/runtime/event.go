@@ -151,7 +151,6 @@ func (e *ErrorEvent) isEvent() {}
 type ShellOutputEvent struct {
 	Type   string `json:"type"`
 	Output string `json:"error"`
-	AgentContext
 }
 
 func ShellOutput(output string) Event {
@@ -160,7 +159,8 @@ func ShellOutput(output string) Event {
 		Output: output,
 	}
 }
-func (e *ShellOutputEvent) isEvent() {}
+func (e *ShellOutputEvent) isEvent()             {}
+func (e *ShellOutputEvent) GetAgentName() string { return "" }
 
 type TokenUsageEvent struct {
 	Type  string `json:"type"`
