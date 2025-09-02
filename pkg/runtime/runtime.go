@@ -133,13 +133,6 @@ func (r *Runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 		events <- StreamStarted()
 		a := r.team.Agent(r.currentAgent)
 
-		// Ensure any toolsets (e.g., MCP clients/processes) are torn down when this run finishes
-		// so that subsequent runs start from a clean state and no goroutines remain hanging.
-		defer func() {
-			if err := a.StopToolSets(); err != nil {
-				slog.Error("Failed to stop tool sets on run completion", "agent", a.Name(), "error", err)
-			}
-		}()
 		model := a.Model()
 		modelID := model.ID()
 
