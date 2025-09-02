@@ -40,7 +40,7 @@ func TestShellTool_Tools(t *testing.T) {
 	tools, err := tool.Tools(t.Context())
 
 	require.NoError(t, err)
-	assert.Len(t, tools, 1)
+	assert.Len(t, tools, 2)
 
 	// Verify bash function
 	assert.Equal(t, "shell", tools[0].Function.Name)
@@ -77,7 +77,6 @@ func TestShellTool_HandlerEcho(t *testing.T) {
 	// Get handler from tool
 	tls, err := tool.Tools(t.Context())
 	require.NoError(t, err)
-	require.Len(t, tls, 1)
 
 	handler := tls[0].Handler
 
@@ -113,7 +112,6 @@ func TestShellTool_HandlerWithCwd(t *testing.T) {
 	// Get handler from tool
 	tls, err := tool.Tools(t.Context())
 	require.NoError(t, err)
-	require.Len(t, tls, 1)
 
 	handler := tls[0].Handler
 
@@ -154,7 +152,6 @@ func TestShellTool_HandlerError(t *testing.T) {
 	// Get handler from tool
 	tls, err := tool.Tools(t.Context())
 	require.NoError(t, err)
-	require.Len(t, tls, 1)
 
 	handler := tls[0].Handler
 
@@ -189,7 +186,6 @@ func TestShellTool_InvalidArguments(t *testing.T) {
 	// Get handler from tool
 	tls, err := tool.Tools(t.Context())
 	require.NoError(t, err)
-	require.Len(t, tls, 1)
 
 	handler := tls[0].Handler
 

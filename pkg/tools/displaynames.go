@@ -43,6 +43,8 @@ func DisplayName(tool string) string {
 	// shell tools
 	case "shell":
 		return "Run Shell Command"
+	case "get_command_output":
+		return "Get Command Output"
 
 	// think tools
 	case "think":
