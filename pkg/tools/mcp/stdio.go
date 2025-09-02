@@ -10,10 +10,8 @@ import (
 	"io"
 	"log/slog"
 	"os/exec"
-	"runtime"
 	"sync"
 	"sync/atomic"
-	"syscall"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -79,13 +77,10 @@ func (c *stdioMCPClient) Initialize(ctx context.Context, request mcp.InitializeR
 
 	ctxCmd, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	cmd := exec.CommandContext(ctxCmd, c.command, c.args...)
+	// Place child in its own process group to avoid terminal signals killing it
+	configureProcessGroup(cmd)
 	cmd.Env = c.env
-	cmd.Cancel = func() error {
-		if runtime.GOOS == "windows" {
-			return cmd.Process.Kill()
-		}
-		return cmd.Process.Signal(syscall.SIGTERM)
-	}
+	cmd.Cancel = func() error { return cancelProcess(cmd) }
 
 	var stderr bytes.Buffer
 	if slog.Default().Handler().Enabled(ctx, slog.LevelDebug) {
