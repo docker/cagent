@@ -12,7 +12,7 @@ Here's what you need to know:
 
 ##### Prerequisites
 
-- Go 1.24 or higher
+- Go 1.25 or higher
 - API key for your chosen AI provider (OpenAI, Anthropic, Gemini, etc.)
 - [Task 3.44 or higher](https://taskfile.dev/installation/)
 - [`golangci-lint`](https://golangci-lint.run/docs/welcome/install/#binaries`)

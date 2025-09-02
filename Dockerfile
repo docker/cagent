@@ -6,7 +6,7 @@ FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.6.1 AS xx
 # osxcross contains the MacOSX cross toolchain for xx
 FROM crazymax/osxcross:14.5-r0-debian AS osxcross
 
-FROM golang:1.24-alpine@sha256:daae04ebad0c21149979cd8e9db38f565ecefd8547cf4a591240dc1972cf1399 AS build-agent
+FROM golang:1.25.0-alpine@sha256:f18a072054848d87a8077455f0ac8a25886f2397f88bfdd222d6fafbb5bba440 AS build-agent
 RUN apk add --no-cache build-base
 WORKDIR /app
 COPY . ./
@@ -15,7 +15,7 @@ RUN --mount=type=cache,target=/root/.cache \
     --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=1 go build -trimpath -ldflags "-s -w -X 'github.com/docker/cagent/cmd/root.Version=$GIT_TAG' -X 'github.com/docker/cagent/cmd/root.Commit=$GIT_COMMIT' -X 'github.com/docker/cagent/cmd/root.BuildTime=$BUILD_DATE'" -o /agent .
 
-FROM --platform=$BUILDPLATFORM golang:1.24.2-alpine3.21 AS builder-base
+FROM --platform=$BUILDPLATFORM golang:1.25.0-alpine3.22 AS builder-base
 WORKDIR /src
 COPY --from=xx / /
 ARG TARGETPLATFORM TARGETOS TARGETARCH
