@@ -148,6 +148,20 @@ func Error(msg string) Event {
 }
 func (e *ErrorEvent) isEvent() {}
 
+type ShellOutputEvent struct {
+	Type   string `json:"type"`
+	Output string `json:"error"`
+	AgentContext
+}
+
+func ShellOutput(output string) Event {
+	return &ShellOutputEvent{
+		Type:   "shell",
+		Output: output,
+	}
+}
+func (e *ShellOutputEvent) isEvent() {}
+
 type TokenUsageEvent struct {
 	Type  string `json:"type"`
 	Usage *Usage `json:"usage"`

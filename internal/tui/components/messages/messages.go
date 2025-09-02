@@ -37,6 +37,7 @@ type Model interface {
 	ClearMessages()
 	ScrollToBottom() tea.Cmd
 	FocusToolInConfirmation() tea.Cmd
+	AddShellOutputMessage(content string) tea.Cmd
 }
 
 // renderedItem represents a cached rendered message with position information
@@ -484,6 +485,27 @@ func (m *model) AddUserMessage(content string) tea.Cmd {
 func (m *model) AddErrorMessage(content string) tea.Cmd {
 	msg := types.Message{
 		Type:    types.MessageTypeError,
+		Content: content,
+	}
+
+	wasAtBottom := m.isAtBottom()
+	m.messages = append(m.messages, msg)
+
+	view := m.createMessageView(&msg)
+	m.views = append(m.views, view)
+
+	if wasAtBottom {
+		return tea.Batch(view.Init(), func() tea.Msg {
+			m.scrollToBottom()
+			return nil
+		})
+	}
+	return view.Init()
+}
+
+func (m *model) AddShellOutputMessage(content string) tea.Cmd {
+	msg := types.Message{
+		Type:    types.MessageTypeShellOutput,
 		Content: content,
 	}
 

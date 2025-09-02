@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"os/exec"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea/v2"
 
@@ -41,6 +43,14 @@ func (a *App) Team() *team.Team {
 // Run one agent loop
 func (a *App) Run(ctx context.Context, message string) {
 	go func() {
+		// Special shell command
+		if strings.HasPrefix(message, "!") {
+			out, _ := exec.CommandContext(ctx, "/bin/sh", "-c", message[1:]).CombinedOutput()
+			a.events <- runtime.ShellOutput("$ " + message[1:] + "\n" + string(out))
+			return
+		}
+
+		// User message
 		a.session.AddMessage(session.UserMessage(a.agentFilename, message))
 		for event := range a.runtime.RunStream(ctx, a.session) {
 			a.events <- event

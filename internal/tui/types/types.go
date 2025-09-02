@@ -9,6 +9,7 @@ const (
 	MessageTypeUser MessageType = iota
 	MessageTypeAssistant
 	MessageTypeError
+	MessageTypeShellOutput
 	MessageTypeSeparator
 	MessageTypeToolCall
 	MessageTypeToolResult

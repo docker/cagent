@@ -100,6 +100,11 @@ func (mv *messageModel) Render(int) string {
 		}
 
 		return strings.TrimRight(rendered, "\n\r\t ")
+	case types.MessageTypeShellOutput:
+		if rendered, err := mv.renderer.Render(fmt.Sprintf("```console\n%s\n```", msg.Content)); err == nil {
+			return strings.TrimRight(rendered, "\n\r\t ")
+		}
+		return msg.Content
 	case types.MessageTypeSeparator:
 		return styles.MutedStyle.Render("•" + strings.Repeat("─", mv.width-3) + "•")
 	case types.MessageTypeError:
