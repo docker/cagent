@@ -9,7 +9,6 @@ models:
 
 agents:
   root:
-    name: steve
     model: model
     description: Product Manager - Leads the development team and coordinates iterations
     instruction: |
@@ -58,7 +57,6 @@ agents:
         args: [-y, '@upstash/context7-mcp']
 
   designer:
-    name: designer
     model: model
     description: UI/UX Designer - Creates user interface designs and wireframes
     instruction: |
@@ -95,7 +93,6 @@ agents:
         args: [-y, '@upstash/context7-mcp']
 
   awesome_engineer:
-    name: awesome_engineer
     model: model
     description: Awesome Engineer - Implements user interfaces based on designs
     instruction: |
