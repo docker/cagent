@@ -107,7 +107,7 @@ func NewNewCmd() *cobra.Command {
 						fmt.Println()
 						llmIsTyping = true
 					}
-					fmt.Printf("%s", e.Choice.Delta.Content)
+					fmt.Printf("%s", e.Content)
 				case *runtime.ToolCallEvent:
 					if llmIsTyping {
 						fmt.Println()

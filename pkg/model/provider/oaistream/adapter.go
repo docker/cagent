@@ -78,8 +78,9 @@ func (a *StreamAdapter) Recv() (chat.MessageStreamResponse, error) {
 			Index:        choice.Index,
 			FinishReason: finishReason,
 			Delta: chat.MessageDelta{
-				Role:    choice.Delta.Role,
-				Content: choice.Delta.Content,
+				Role:             choice.Delta.Role,
+				Content:          choice.Delta.Content,
+				ReasoningContent: choice.Delta.ReasoningContent,
 			},
 		}
 

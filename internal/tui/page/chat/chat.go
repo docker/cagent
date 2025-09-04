@@ -65,6 +65,7 @@ type KeyMap struct {
 	Tab    key.Binding
 	Quit   key.Binding
 	Cancel key.Binding
+	Copy   key.Binding
 }
 
 // DefaultKeyMap returns the default key bindings
@@ -203,7 +204,10 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := p.messages.AddAssistantMessage()
 		return p, tea.Batch(cmd, p.messages.ScrollToBottom(), spinnerCmd)
 	case *runtime.AgentChoiceEvent:
-		cmd := p.messages.AppendToLastMessage(msg.AgentName, msg.Choice.Delta.Content)
+		cmd := p.messages.AppendToLastMessage(msg.AgentName, types.MessageTypeAssistant, msg.Content)
+		return p, tea.Batch(cmd, p.messages.ScrollToBottom())
+	case *runtime.AgentChoiceReasoningEvent:
+		cmd := p.messages.AppendToLastMessage(msg.AgentName, types.MessageTypeAssistantReasoning, msg.Content)
 		return p, tea.Batch(cmd, p.messages.ScrollToBottom())
 	case *runtime.SessionTitleEvent:
 		p.sessionTitle = msg.Title
@@ -249,7 +253,7 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return p, tea.Batch(cmd, p.messages.ScrollToBottom(), spinnerCmd)
 	case *runtime.ToolCallResponseEvent:
 		spinnerCmd := p.setWorking(true)
-		cmd := p.messages.AddToolResult(msg.ToolCall, msg.Response, types.ToolStatusCompleted)
+		cmd := p.messages.AddToolResult(msg, types.ToolStatusCompleted)
 		return p, tea.Batch(cmd, p.messages.ScrollToBottom(), spinnerCmd)
 	}
 

@@ -68,7 +68,8 @@ func (a *streamAdapter) Recv() (chat.MessageStreamResponse, error) {
 		switch deltaVariant := eventVariant.Delta.AsAny().(type) {
 		case anthropic.TextDelta:
 			response.Choices[0].Delta.Content = deltaVariant.Text
-
+		case anthropic.ThinkingDelta:
+			response.Choices[0].Delta.ReasoningContent = deltaVariant.Thinking
 		case anthropic.InputJSONDelta:
 			inputBytes := deltaVariant.PartialJSON
 			toolCall := tools.ToolCall{

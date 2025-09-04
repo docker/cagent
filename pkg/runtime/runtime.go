@@ -209,7 +209,7 @@ func (r *Runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 			}
 
 			slog.Debug("Processing stream", "agent", a.Name())
-			calls, content, stopped, err := r.handleStream(ctx, stream, a, sess, m, events)
+			calls, content, reasoningContent, stopped, err := r.handleStream(ctx, stream, a, sess, m, events)
 			if err != nil {
 				// Treat context cancellation as a graceful stop
 				if errors.Is(err, context.Canceled) {
@@ -238,10 +238,11 @@ func (r *Runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 
 			// Add assistant message to conversation history
 			assistantMessage := chat.Message{
-				Role:      chat.MessageRoleAssistant,
-				Content:   content,
-				ToolCalls: calls,
-				CreatedAt: time.Now().Format(time.RFC3339),
+				Role:             chat.MessageRoleAssistant,
+				Content:          content,
+				ReasoningContent: reasoningContent,
+				ToolCalls:        calls,
+				CreatedAt:        time.Now().Format(time.RFC3339),
 			}
 
 			sess.AddMessage(session.NewAgentMessage(a, &assistantMessage))
@@ -317,10 +318,11 @@ func (r *Runtime) Run(ctx context.Context, sess *session.Session) ([]session.Mes
 }
 
 // handleStream handles the stream processing
-func (r *Runtime) handleStream(ctx context.Context, stream chat.MessageStream, a *agent.Agent, sess *session.Session, m *modelsdev.Model, events chan Event) (calls []tools.ToolCall, content string, stopped bool, err error) {
+func (r *Runtime) handleStream(ctx context.Context, stream chat.MessageStream, a *agent.Agent, sess *session.Session, m *modelsdev.Model, events chan Event) (calls []tools.ToolCall, content, reasoningContent string, stopped bool, err error) {
 	defer stream.Close()
 
 	var fullContent strings.Builder
+	var fullReasoningContent strings.Builder
 	var toolCalls []tools.ToolCall
 	// Track which tool call indices we've already emitted partial events for
 	emittedPartialEvents := make(map[string]bool)
@@ -331,7 +333,7 @@ func (r *Runtime) handleStream(ctx context.Context, stream chat.MessageStream, a
 			break
 		}
 		if err != nil {
-			return nil, "", true, fmt.Errorf("error receiving from stream: %w", err)
+			return nil, "", "", true, fmt.Errorf("error receiving from stream: %w", err)
 		}
 
 		if response.Usage != nil {
@@ -360,7 +362,7 @@ func (r *Runtime) handleStream(ctx context.Context, stream chat.MessageStream, a
 		}
 		choice := response.Choices[0]
 		if choice.FinishReason == chat.FinishReasonStop {
-			return toolCalls, fullContent.String(), true, nil
+			return toolCalls, fullContent.String(), fullReasoningContent.String(), true, nil
 		}
 
 		// Handle tool calls
@@ -415,13 +417,18 @@ func (r *Runtime) handleStream(ctx context.Context, stream chat.MessageStream, a
 			continue
 		}
 
+		if choice.Delta.ReasoningContent != "" {
+			events <- AgentChoiceReasoning(a.Name(), choice.Delta.ReasoningContent)
+			fullReasoningContent.WriteString(choice.Delta.ReasoningContent)
+		}
+
 		if choice.Delta.Content != "" {
-			events <- AgentChoice(a.Name(), choice)
+			events <- AgentChoice(a.Name(), choice.Delta.Content)
 			fullContent.WriteString(choice.Delta.Content)
 		}
 	}
 
-	return toolCalls, fullContent.String(), false, nil
+	return toolCalls, fullContent.String(), fullReasoningContent.String(), false, nil
 }
 
 // processToolCalls handles the execution of tool calls for an agent

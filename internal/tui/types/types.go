@@ -8,6 +8,8 @@ type MessageType int
 const (
 	MessageTypeUser MessageType = iota
 	MessageTypeAssistant
+	MessageTypeAssistantReasoning
+	MessageTypeSpinner
 	MessageTypeError
 	MessageTypeShellOutput
 	MessageTypeSeparator

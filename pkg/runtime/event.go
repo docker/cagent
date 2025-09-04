@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"github.com/docker/cagent/pkg/chat"
 	"github.com/docker/cagent/pkg/tools"
 )
 
@@ -120,19 +119,34 @@ func (e *StreamStartedEvent) GetAgentName() string {
 func (e *StreamStartedEvent) isEvent() {}
 
 type AgentChoiceEvent struct {
-	Type   string                   `json:"type"`
-	Choice chat.MessageStreamChoice `json:"choice"`
+	Type    string `json:"type"`
+	Content string `json:"content"`
 	AgentContext
 }
 
-func AgentChoice(agentName string, choice chat.MessageStreamChoice) Event { //nolint:gocritic
+func AgentChoice(agentName string, content string) Event { //nolint:gocritic
 	return &AgentChoiceEvent{
 		Type:         "agent_choice",
-		Choice:       choice,
+		Content:      content,
 		AgentContext: AgentContext{AgentName: agentName},
 	}
 }
 func (e *AgentChoiceEvent) isEvent() {}
+
+type AgentChoiceReasoningEvent struct {
+	Type    string `json:"type"`
+	Content string `json:"content"`
+	AgentContext
+}
+
+func AgentChoiceReasoning(agentName string, content string) Event { //nolint:gocritic
+	return &AgentChoiceReasoningEvent{
+		Type:         "agent_choice_reasoning",
+		Content:      content,
+		AgentContext: AgentContext{AgentName: agentName},
+	}
+}
+func (e *AgentChoiceReasoningEvent) isEvent() {}
 
 type ErrorEvent struct {
 	Type  string `json:"type"`

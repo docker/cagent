@@ -86,10 +86,11 @@ const (
 
 // MessageDelta represents a delta/chunk in a streaming response
 type MessageDelta struct {
-	Role         string              `json:"role,omitempty"`
-	Content      string              `json:"content,omitempty"`
-	FunctionCall *tools.FunctionCall `json:"function_call,omitempty"`
-	ToolCalls    []tools.ToolCall    `json:"tool_calls,omitempty"`
+	Role             string              `json:"role,omitempty"`
+	Content          string              `json:"content,omitempty"`
+	ReasoningContent string              `json:"reasoning_content,omitempty"`
+	FunctionCall     *tools.FunctionCall `json:"function_call,omitempty"`
+	ToolCalls        []tools.ToolCall    `json:"tool_calls,omitempty"`
 }
 
 // MessageStreamChoice represents a choice in a streaming response

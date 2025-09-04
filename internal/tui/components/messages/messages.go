@@ -17,6 +17,7 @@ import (
 	"github.com/docker/cagent/internal/tui/core"
 	"github.com/docker/cagent/internal/tui/core/layout"
 	"github.com/docker/cagent/internal/tui/types"
+	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/tools"
 )
 
@@ -32,8 +33,8 @@ type Model interface {
 	AddAssistantMessage() tea.Cmd
 	AddSeparatorMessage() tea.Cmd
 	AddOrUpdateToolCall(agentName string, toolCall tools.ToolCall, status types.ToolStatus) tea.Cmd
-	AddToolResult(toolCall tools.ToolCall, result string, status types.ToolStatus) tea.Cmd
-	AppendToLastMessage(agentName string, content string) tea.Cmd
+	AddToolResult(msg *runtime.ToolCallResponseEvent, status types.ToolStatus) tea.Cmd
+	AppendToLastMessage(agentName string, messageType types.MessageType, content string) tea.Cmd
 	ClearMessages()
 	ScrollToBottom() tea.Cmd
 	AddShellOutputMessage(content string) tea.Cmd
@@ -477,7 +478,7 @@ func (m *model) AddShellOutputMessage(content string) tea.Cmd {
 // AddAssistantMessage adds an assistant message to the chat
 func (m *model) AddAssistantMessage() tea.Cmd {
 	return m.addMessage(&types.Message{
-		Type: types.MessageTypeAssistant,
+		Type: types.MessageTypeSpinner,
 	})
 }
 
@@ -505,7 +506,7 @@ func (m *model) addMessage(msg *types.Message) tea.Cmd {
 
 // AddSeparatorMessage adds a separator message to the chat
 func (m *model) AddSeparatorMessage() tea.Cmd {
-	m.removeLastEmptyAssistantMessage()
+	m.removeSpinner()
 	msg := types.Message{
 		Type: types.MessageTypeSeparator,
 	}
@@ -535,7 +536,7 @@ func (m *model) AddOrUpdateToolCall(agentName string, toolCall tools.ToolCall, s
 	}
 
 	// If not found by ID, remove last empty assistant message
-	m.removeLastEmptyAssistantMessage()
+	m.removeSpinner()
 
 	// Create new tool call
 	msg := types.Message{
@@ -553,14 +554,14 @@ func (m *model) AddOrUpdateToolCall(agentName string, toolCall tools.ToolCall, s
 }
 
 // AddToolResult adds tool result to the most recent matching tool call
-func (m *model) AddToolResult(toolCall tools.ToolCall, result string, status types.ToolStatus) tea.Cmd {
+func (m *model) AddToolResult(msg *runtime.ToolCallResponseEvent, status types.ToolStatus) tea.Cmd {
 	for i := len(m.messages) - 1; i >= 0; i-- {
-		msg := &m.messages[i]
-		if msg.ToolCall.ID == toolCall.ID {
-			msg.Content = result
-			msg.ToolStatus = status
+		toolMessage := &m.messages[i]
+		if toolMessage.ToolCall.ID == msg.ToolCall.ID {
+			toolMessage.Content = msg.Response
+			toolMessage.ToolStatus = status
 			// Update the corresponding view
-			view := m.createToolCallView(msg)
+			view := m.createToolCallView(toolMessage)
 			m.views[i] = view
 			return view.Init()
 		}
@@ -569,14 +570,16 @@ func (m *model) AddToolResult(toolCall tools.ToolCall, result string, status typ
 }
 
 // AppendToLastMessage appends content to the last message (for streaming)
-func (m *model) AppendToLastMessage(agentName, content string) tea.Cmd {
+func (m *model) AppendToLastMessage(agentName string, messageType types.MessageType, content string) tea.Cmd {
+	m.removeSpinner()
+
 	if len(m.messages) == 0 {
 		return nil
 	}
 	lastIdx := len(m.messages) - 1
 	lastMsg := &m.messages[lastIdx]
 
-	if lastMsg.Type == types.MessageTypeAssistant {
+	if lastMsg.Type == messageType {
 		wasAtBottom := m.isAtBottom()
 		lastMsg.Content += content
 		lastMsg.Sender = agentName
@@ -599,7 +602,7 @@ func (m *model) AppendToLastMessage(agentName, content string) tea.Cmd {
 	} else {
 		// Create new assistant message
 		msg := types.Message{
-			Type:    types.MessageTypeAssistant,
+			Type:    messageType,
 			Content: content,
 			Sender:  agentName,
 		}
@@ -653,13 +656,13 @@ func (m *model) createMessageView(msg *types.Message) layout.Model {
 	return view
 }
 
-// removeLastEmptyAssistantMessage removes the last message if it's an assistant message with empty content
-func (m *model) removeLastEmptyAssistantMessage() {
+// removeSpinner removes the last message if it's an assistant message with empty content
+func (m *model) removeSpinner() {
 	if len(m.messages) > 0 {
 		lastIdx := len(m.messages) - 1
 		lastMessage := m.messages[lastIdx]
 
-		if lastMessage.Type == types.MessageTypeAssistant && strings.Trim(lastMessage.Content, "\r\n\t ") == "" {
+		if lastMessage.Type == types.MessageTypeSpinner {
 			m.messages = m.messages[:lastIdx]
 			if len(m.views) > lastIdx {
 				m.views = m.views[:lastIdx]

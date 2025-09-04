@@ -45,8 +45,7 @@ func New(msg *types.Message, renderer *glamour.TermRenderer) Model {
 
 // Init initializes the message view
 func (mv *messageModel) Init() tea.Cmd {
-	// Start spinner for empty assistant messages
-	if mv.message.Type == types.MessageTypeAssistant && mv.message.Content == "" {
+	if mv.message.Type == types.MessageTypeSpinner {
 		return mv.spinner.Tick
 	}
 	return nil
@@ -54,8 +53,7 @@ func (mv *messageModel) Init() tea.Cmd {
 
 // Update handles messages and updates the message view state
 func (mv *messageModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Handle spinner updates for empty assistant messages
-	if mv.message.Type == types.MessageTypeAssistant && mv.message.Content == "" {
+	if mv.message.Type == types.MessageTypeSpinner {
 		var cmd tea.Cmd
 		mv.spinner, cmd = mv.spinner.Update(msg)
 		return mv, cmd
@@ -75,6 +73,8 @@ func (mv *messageModel) View() string {
 func (mv *messageModel) Render(int) string {
 	msg := mv.message
 	switch msg.Type {
+	case types.MessageTypeSpinner:
+		return mv.spinner.View()
 	case types.MessageTypeUser:
 		if rendered, err := mv.renderer.Render("> " + msg.Content); err == nil {
 			return strings.TrimRight(rendered, "\n\r\t ")
@@ -92,6 +92,12 @@ func (mv *messageModel) Render(int) string {
 		}
 
 		return strings.TrimRight(rendered, "\n\r\t ")
+	case types.MessageTypeAssistantReasoning:
+		if msg.Content == "" {
+			return mv.spinner.View()
+		}
+		text := senderPrefix(msg.Sender) + msg.Content
+		return styles.MutedStyle.Italic(true).Render("Thinking: " + text)
 	case types.MessageTypeShellOutput:
 		if rendered, err := mv.renderer.Render(fmt.Sprintf("```console\n%s\n```", msg.Content)); err == nil {
 			return strings.TrimRight(rendered, "\n\r\t ")
