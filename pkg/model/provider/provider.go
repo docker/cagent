@@ -13,6 +13,7 @@ import (
 	"github.com/docker/cagent/pkg/model/provider/gemini"
 	"github.com/docker/cagent/pkg/model/provider/openai"
 	"github.com/docker/cagent/pkg/model/provider/options"
+	"github.com/docker/cagent/pkg/model/provider/requesty"
 	"github.com/docker/cagent/pkg/tools"
 )
 
@@ -40,6 +41,9 @@ func New(ctx context.Context, cfg *latest.ModelConfig, env environment.Provider,
 	switch cfg.Provider {
 	case "openai":
 		return openai.NewClient(ctx, cfg, env, opts...)
+
+	case "requesty":
+		return requesty.NewClient(ctx, cfg, env, opts...)
 
 	case "anthropic":
 		return anthropic.NewClient(ctx, cfg, env, opts...)

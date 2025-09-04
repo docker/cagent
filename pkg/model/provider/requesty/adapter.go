@@ -1,0 +1,120 @@
+package requesty
+
+import (
+	"github.com/sashabaranov/go-openai"
+
+	"github.com/docker/cagent/pkg/chat"
+	"github.com/docker/cagent/pkg/tools"
+)
+
+// streamAdapter adapts the OpenAI stream to our interface for Requesty
+type streamAdapter struct {
+	stream           *openai.ChatCompletionStream
+	lastFinishReason chat.FinishReason
+	toolCalls        map[int]string
+}
+
+func newStreamAdapter(stream *openai.ChatCompletionStream) *streamAdapter {
+	return &streamAdapter{
+		stream:    stream,
+		toolCalls: make(map[int]string),
+	}
+}
+
+// Recv gets the next completion chunk
+func (a *streamAdapter) Recv() (chat.MessageStreamResponse, error) {
+	openaiResponse, err := a.stream.Recv()
+	if err != nil {
+		return chat.MessageStreamResponse{}, err
+	}
+
+	// Convert the OpenAI response to our generic format
+	response := chat.MessageStreamResponse{
+		ID:      openaiResponse.ID,
+		Object:  openaiResponse.Object,
+		Created: openaiResponse.Created,
+		Model:   openaiResponse.Model,
+		Choices: make([]chat.MessageStreamChoice, len(openaiResponse.Choices)),
+	}
+
+	if openaiResponse.Usage != nil {
+		cachedTokens := 0
+		if openaiResponse.Usage.PromptTokensDetails != nil {
+			cachedTokens = openaiResponse.Usage.PromptTokensDetails.CachedTokens
+		}
+		response.Usage = &chat.Usage{
+			InputTokens:        openaiResponse.Usage.PromptTokens,
+			OutputTokens:       openaiResponse.Usage.CompletionTokens,
+			CachedInputTokens:  cachedTokens,
+			CachedOutputTokens: 0,
+		}
+		// Use the tracked finish reason instead of hardcoding stop
+		finishReason := a.lastFinishReason
+		if finishReason == "" {
+			finishReason = chat.FinishReasonStop
+		}
+		response.Choices = append(response.Choices, chat.MessageStreamChoice{
+			FinishReason: finishReason,
+		})
+	}
+
+	// Convert the choices
+	for i := range openaiResponse.Choices {
+		choice := &openaiResponse.Choices[i]
+		if choice.FinishReason == openai.FinishReasonStop {
+			choice.FinishReason = openai.FinishReasonNull
+		}
+
+		finishReason := chat.FinishReason(choice.FinishReason)
+		// Track the finish reason for when we get usage info
+		if finishReason != chat.FinishReasonNull && finishReason != "" {
+			a.lastFinishReason = finishReason
+		}
+
+		response.Choices[i] = chat.MessageStreamChoice{
+			Index:        choice.Index,
+			FinishReason: finishReason,
+			Delta: chat.MessageDelta{
+				Role:    choice.Delta.Role,
+				Content: choice.Delta.Content,
+			},
+		}
+
+		// Convert function call if present
+		if choice.Delta.FunctionCall != nil {
+			response.Choices[i].Delta.FunctionCall = &tools.FunctionCall{
+				Name:      choice.Delta.FunctionCall.Name,
+				Arguments: choice.Delta.FunctionCall.Arguments,
+			}
+		}
+
+		// Convert tool calls if present
+		if len(choice.Delta.ToolCalls) > 0 {
+			response.Choices[i].Delta.ToolCalls = make([]tools.ToolCall, len(choice.Delta.ToolCalls))
+			for j, toolCall := range choice.Delta.ToolCalls {
+				id := toolCall.ID
+				if existing, ok := a.toolCalls[*toolCall.Index]; ok {
+					id = existing
+				} else {
+					a.toolCalls[*toolCall.Index] = id
+				}
+
+				response.Choices[i].Delta.ToolCalls[j] = tools.ToolCall{
+					ID:   id,
+					Type: tools.ToolType(toolCall.Type),
+					Function: tools.FunctionCall{
+						Name:      toolCall.Function.Name,
+						Arguments: toolCall.Function.Arguments,
+					},
+				}
+			}
+		}
+	}
+
+	return response, nil
+}
+
+// Close closes the stream
+func (a *streamAdapter) Close() {
+	a.stream.Close()
+}

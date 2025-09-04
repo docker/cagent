@@ -92,6 +92,7 @@ type ModelConfig struct {
 	PresencePenalty   float64           `json:"presence_penalty,omitempty" yaml:"presence_penalty,omitempty"`
 	BaseURL           string            `json:"base_url,omitempty" yaml:"base_url,omitempty"`
 	ParallelToolCalls *bool             `json:"parallel_tool_calls,omitempty" yaml:"parallel_tool_calls,omitempty"`
+	Headers           map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
 	Env               map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
 	TokenKey          string            `json:"token_key,omitempty" yaml:"token_key,omitempty"`
 }
