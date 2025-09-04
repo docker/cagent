@@ -165,6 +165,104 @@ models:
     model: ai/qwen3
 ```
 
+#### DMR (Docker Model Runner) provider usage
+
+If `base_url` is omitted, cagent will use `http://localhost:12434/engines/llama.cpp/v1` by default
+
+You can pass DMR runtime (e.g. llama.cpp) options using  
+```
+models:
+  provider: dmr
+  provider_opts: 
+    runtime_flags: 
+```  
+The context length is taken from `max_tokens` at the model level:
+
+```yaml
+models:
+  local-qwen:
+    provider: dmr
+    model: ai/qwen3
+    max_tokens: 8192
+    # base_url: omitted -> auto-discovery via Docker Model plugin
+    provider_opts:
+      runtime_flags: ["--ngl=33", "--top-p=0.9"]
+```
+
+`runtime_flags` also accepts a single string with comma or space separation:
+
+```yaml
+models:
+  local-qwen:
+    provider: dmr
+    model: ai/qwen3
+    max_tokens: 8192
+    provider_opts:
+      runtime_flags: "--ngl=33 --top-p=0.9"
+```
+
+Explicit `base_url` example with multiline runtime_flags string:
+
+```yaml
+models:
+  local-qwen:
+    provider: dmr
+    model: ai/qwen3
+    base_url: http://127.0.0.1:12434/engines/llama.cpp/v1
+    provider_opts:
+      runtime_flags: |
+        --ngl=33
+        --top-p=0.9
+```
+
+Requirements and notes:
+
+- Docker Model plugin must be available for auto-configure/auto-discovery
+  - Verify with: `docker model status --json`
+- Configuration is best-effort; failures fall back to the default base URL
+- `provider_opts` is currently scoped to the `dmr` provider only
+- `runtime_flags` are passed after `--` to the inference runtime (e.g., llama.cpp)
+
+Parameter mapping and precedence (DMR):
+
+- `ModelConfig` fields are translated into engine-specific runtime flags. For e.g. with the `llama.cpp` backend:
+  - `temperature` → `--temp`
+  - `top_p` → `--top-p`
+  - `frequency_penalty` → `--frequency-penalty`
+  - `presence_penalty` → `--presence-penalty`
+  ...
+- `provider_opts.runtime_flags` always take priority over derived flags on conflict. When a conflict is detected, cagent logs a warning indicating the overridden flag. `max_tokens` is the only exception for now
+
+Examples:
+
+```yaml
+models:
+  local-qwen:
+    provider: dmr
+    model: ai/qwen3
+    temperature: 0.5            # derives --temp 0.5
+    top_p: 0.9                  # derives --top-p 0.9
+    max_tokens: 8192            # sets --context-size=8192
+    provider_opts:
+      runtime_flags: ["--temp", "0.7", "--threads", "8"]  # overrides derived --temp, sets --threads
+```
+
+```yaml
+models:
+  local-qwen:
+    provider: dmr
+    model: ai/qwen3
+    provider_opts:
+      runtime_flags: "--ngl=33 --repeat-penalty=1.2"  # string accepted as well
+```
+
+Troubleshooting:
+
+- Plugin not found: cagent will log a debug message and use the default base URL
+- Endpoint empty in status: ensure the Model Runner is running, or set `base_url` manually
+- Flag parsing: if using a single string, quote properly in YAML; you can also use a list
+
+
 ### Alloy models
 
 "Alloy models" essentially means using more than one model in the same chat context. Not at the same time, but "randomly" throughout the conversation to try to take advantage of the strong points of each model.

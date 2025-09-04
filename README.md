@@ -183,6 +183,22 @@ models:
 
 You'll find a curated list of agents examples, spread into 3 categories, [Basic](https://github.com/docker/cagent/tree/main/examples#basic-configurations), [Advanced](https://github.com/docker/cagent/tree/main/examples#advanced-configurations) and [multi-agents](https://github.com/docker/cagent/tree/main/examples#multi-agent-configurations) in the `/examples/` directory.
 
+### DMR provider options
+
+When using the `dmr` provider, you can use the `provider_opts` key for DMR runtime-specific (e.g. llama.cpp) options:
+
+```yaml
+models:
+  local-qwen:
+    provider: dmr
+    model: ai/qwen3
+    max_tokens: 8192
+    provider_opts:
+      runtime_flags: ["--ngl=33", "--repeat-penalty=1.2", ...]  # or comma/space-separated string
+```
+
+The default base_url `cagent` will use for dmr providers is `http://localhost:12434/engines/llama.cpp/v1`. DMR itself might need to be enabled via [Docker Desktop's settings](https://docs.docker.com/ai/model-runner/get-started/#enable-dmr-in-docker-desktop) on MacOS and Windows, and via command line on [Docker CE on Linux](https://docs.docker.com/ai/model-runner/get-started/#enable-dmr-in-docker-engine).
+
 ## Quickly generate agents and agent teams with `cagent new`
 
 Using the command `cagent new` you can quickly generate agents or multi-agent teams using a single prompt!  

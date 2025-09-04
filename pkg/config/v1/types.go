@@ -114,6 +114,8 @@ type ModelConfig struct {
 	ParallelToolCalls *bool             `json:"parallel_tool_calls,omitempty" yaml:"parallel_tool_calls,omitempty"`
 	Env               map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
 	TokenKey          string            `json:"token_key,omitempty" yaml:"token_key,omitempty"`
+	// ProviderOpts allows provider-specific options. Currently used for "dmr" provider only.
+	ProviderOpts map[string]any `json:"provider_opts,omitempty" yaml:"provider_opts,omitempty"`
 }
 
 // Config represents the entire configuration file

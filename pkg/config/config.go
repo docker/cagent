@@ -130,9 +130,11 @@ func migrateToLatestConfig(c any) v1.Config {
 }
 
 func validateConfig(cfg *v1.Config) error {
-	for _, model := range cfg.Models {
-		if model.ParallelToolCalls == nil {
-			model.ParallelToolCalls = boolPtr(true)
+	for name := range cfg.Models {
+		if cfg.Models[name].ParallelToolCalls == nil {
+			m := cfg.Models[name]
+			m.ParallelToolCalls = boolPtr(true)
+			cfg.Models[name] = m
 		}
 	}
 

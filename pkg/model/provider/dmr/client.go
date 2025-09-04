@@ -1,10 +1,15 @@
 package dmr
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
+	"os/exec"
+	"strconv"
+	"strings"
 
 	"github.com/sashabaranov/go-openai"
 
@@ -39,11 +44,33 @@ func NewClient(_ context.Context, cfg *latest.ModelConfig, opts ...options.Opt) 
 		opt(&globalOptions)
 	}
 
-	// Set default base_url for DMR models if not provided
+	// Resolve base_url for DMR models. If not provided, configure with the docker model plugin, else fallback.
 	baseURL := cfg.BaseURL
 	if baseURL == "" {
-		baseURL = "http://localhost:12434/engines/llama.cpp/v1"
-		slog.Debug("Using default DMR base_url", "base_url", baseURL)
+		endpoint, engine, err := getDockerModelEndpointAndEngine()
+		if err != nil {
+			slog.Debug("docker model status query failed", "error", err)
+		}
+
+		// Build runtime flags from ModelConfig and engine
+		contextSize, providerRuntimeFlags := parseDMRProviderOpts(cfg)
+		configFlags := buildRuntimeFlagsFromModelConfig(engine, cfg)
+		finalFlags, warnings := mergeRuntimeFlagsPreferUser(configFlags, providerRuntimeFlags)
+		for _, w := range warnings {
+			slog.Warn(w)
+		}
+		slog.Debug("DMR provider_opts parsed", "model", cfg.Model, "context_size", contextSize, "runtime_flags", finalFlags, "engine", engine)
+		if err := configureDockerModel(cfg.Model, contextSize, finalFlags); err != nil {
+			slog.Debug("docker model configure skipped or failed", "error", err)
+		}
+
+		if endpoint != "" {
+			baseURL = endpoint
+			slog.Debug("Using docker model endpoint for DMR base_url", "base_url", baseURL)
+		} else {
+			baseURL = "http://localhost:12434/engines/llama.cpp/v1"
+			slog.Debug("Using default DMR base_url", "base_url", baseURL)
+		}
 	}
 
 	slog.Debug("Creating DMR client config", "base_url", baseURL)
@@ -79,6 +106,82 @@ func convertMultiContent(multiContent []chat.MessagePart) []openai.ChatMessagePa
 		openaiMultiContent[i] = openaiPart
 	}
 	return openaiMultiContent
+}
+
+// mergeRuntimeFlagsPreferUser merges derived engine flags (the ones under `models:` e.g. `temperature`)
+// and user-provided runtime flags (the ones under `models:provider_opts:runtime_flags:`).
+// If both specify the same flag key (e.g., --temp), the `models:provider_opts:runtime_flags:` value is preferred and a warning is returned.
+// The result preserves order: all non-conflicting derived flags first, followed by all user flags.
+func mergeRuntimeFlagsPreferUser(derived, user []string) (out, warnings []string) {
+	type flagKV struct {
+		key  string
+		val  *string
+		orig []string
+	}
+	parse := func(tokens []string) []flagKV {
+		var out []flagKV
+		for i := 0; i < len(tokens); i++ {
+			tok := tokens[i]
+			if strings.HasPrefix(tok, "-") {
+				// handle --key=value or -k=value
+				if idx := strings.Index(tok, "="); idx != -1 {
+					k := tok[:idx]
+					v := tok[idx+1:]
+					out = append(out, flagKV{key: k, val: &v, orig: []string{tok}})
+					continue
+				}
+				// handle spaced value: --key value
+				if i+1 < len(tokens) && !strings.HasPrefix(tokens[i+1], "-") {
+					v := tokens[i+1]
+					out = append(out, flagKV{key: tok, val: &v, orig: []string{tok, v}})
+					i++
+				} else {
+					// boolean/flag without value
+					out = append(out, flagKV{key: tok, val: nil, orig: []string{tok}})
+				}
+			} else {
+				// orphan value; keep as-is
+				v := tok
+				out = append(out, flagKV{key: tok, val: &v, orig: []string{tok}})
+			}
+		}
+		return out
+	}
+	der := parse(derived)
+	usr := parse(user)
+
+	// Index derived by key
+	derivedIdx := map[string]int{}
+	for i, kv := range der {
+		// Only index proper flags (start with '-') to avoid colliding with orphan values
+		if strings.HasPrefix(kv.key, "-") {
+			derivedIdx[kv.key] = i
+		}
+	}
+
+	conflicts := map[string]bool{}
+	for _, kv := range usr {
+		if strings.HasPrefix(kv.key, "-") {
+			if _, ok := derivedIdx[kv.key]; ok {
+				conflicts[kv.key] = true
+			}
+		}
+	}
+
+	for i, kv := range der {
+		if strings.HasPrefix(kv.key, "-") && conflicts[kv.key] {
+			warnings = append(warnings, "Overriding runtime flag "+kv.key+" with value from provider_opts.runtime_flags")
+			continue // skip derived conflicting flag
+		}
+		out = append(out, kv.orig...)
+		// also append any non-flag or orphan tokens (they are already in kv.orig)
+		_ = i
+	}
+	// Append all user flags at the end
+	for _, kv := range usr {
+		out = append(out, kv.orig...)
+	}
+	return out, warnings
 }
 
 func convertMessages(messages []chat.Message) []openai.ChatCompletionMessage {
@@ -215,17 +318,22 @@ func (c *Client) CreateChatCompletionStream(
 		slog.Debug("Adding tools to DMR request", "tool_count", len(requestTools))
 		request.Tools = make([]openai.Tool, len(requestTools))
 		for i, tool := range requestTools {
-			request.Tools[i] = openai.Tool{
-				Type: openai.ToolTypeFunction,
-				Function: &openai.FunctionDefinition{
-					Name:        tool.Function.Name,
-					Description: tool.Function.Description,
-					Strict:      tool.Function.Strict,
-					Parameters:  tool.Function.Parameters,
-				},
+			fd := &openai.FunctionDefinition{
+				Name:        tool.Function.Name,
+				Description: tool.Function.Description,
+				Strict:      tool.Function.Strict,
 			}
 			if len(tool.Function.Parameters.Properties) == 0 {
-				request.Tools[i].Function.Parameters = json.RawMessage("{}")
+				fd.Parameters = map[string]any{
+					"type":       "object",
+					"properties": map[string]any{},
+				}
+			} else {
+				fd.Parameters = sanitizeToolParameters(tool.Function.Parameters)
+			}
+			request.Tools[i] = openai.Tool{
+				Type:     openai.ToolTypeFunction,
+				Function: fd,
 			}
 			slog.Debug("Added tool to DMR request", "tool_name", tool.Function.Name)
 		}
@@ -275,6 +383,181 @@ func (c *Client) CreateChatCompletion(
 	return response.Choices[0].Message.Content, nil
 }
 
+// sanitizeToolParameters ensures the tool parameter schema is safe for engines using Jinja-like templates.
+// In particular, it avoids shadowing built-in mapping methods like `keys()` by removing a literal "keys"
+// field from property schemas if present, and guarantees the outer structure is an object with a properties map.
+func sanitizeToolParameters(p tools.FunctionParamaters) any {
+	// Start with a safe container
+	out := map[string]any{
+		"type":       "object",
+		"properties": map[string]any{},
+	}
+	if p.Type != "" {
+		out["type"] = p.Type
+	}
+	// Copy required if present
+	if len(p.Required) > 0 {
+		out["required"] = p.Required
+	}
+	propsOut := out["properties"].(map[string]any)
+	for propName, rawSchema := range p.Properties {
+		// Try to coerce each property's schema to a map for sanitization
+		var schemaMap map[string]any
+		switch v := rawSchema.(type) {
+		case map[string]any:
+			schemaMap = v
+		default:
+			// best-effort JSON roundtrip to map
+			b, err := json.Marshal(rawSchema)
+			if err == nil {
+				_ = json.Unmarshal(b, &schemaMap)
+			}
+		}
+		if schemaMap == nil {
+			// Keep original if we couldn't coerce
+			propsOut[propName] = rawSchema
+			continue
+		}
+		// Remove literal "keys" field if present to avoid shadowing `.keys()` in templates
+		delete(schemaMap, "keys")
+		propsOut[propName] = schemaMap
+	}
+	return out
+}
+
 func (c *Client) ID() string {
 	return c.config.Provider + "/" + c.config.Model
+}
+
+func parseDMRProviderOpts(cfg *latest.ModelConfig) (contextSize int, runtimeFlags []string) {
+	if cfg == nil {
+		return 0, nil
+	}
+
+	// Context length is now sourced from the standard max_tokens field
+	contextSize = cfg.MaxTokens
+
+	if len(cfg.ProviderOpts) > 0 {
+		if v, ok := cfg.ProviderOpts["runtime_flags"]; ok {
+			switch t := v.(type) {
+			case []any:
+				for _, item := range t {
+					runtimeFlags = append(runtimeFlags, fmt.Sprint(item))
+				}
+			case []string:
+				runtimeFlags = append(runtimeFlags, t...)
+			case string:
+				parts := strings.Fields(strings.ReplaceAll(t, ",", " "))
+				runtimeFlags = append(runtimeFlags, parts...)
+			}
+		}
+	}
+
+	return contextSize, runtimeFlags
+}
+
+func configureDockerModel(model string, contextSize int, runtimeFlags []string) error {
+	args := buildDockerModelConfigureArgs(model, contextSize, runtimeFlags)
+
+	cmd := exec.Command("docker", args...)
+	slog.Debug("Running docker model configure", "model", model, "args", args)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return errors.New(strings.TrimSpace(stderr.String()))
+	}
+	slog.Debug("docker model configure completed", "model", model)
+	return nil
+}
+
+// buildDockerModelConfigureArgs returns the argument vector passed to `docker` for model configuration.
+// It formats context size and runtime flags consistently with the CLI contract.
+func buildDockerModelConfigureArgs(model string, contextSize int, runtimeFlags []string) []string {
+	args := []string{"model", "configure"}
+	if contextSize > 0 {
+		args = append(args, "--context-size="+strconv.Itoa(contextSize))
+	}
+	args = append(args, model)
+	if len(runtimeFlags) > 0 {
+		args = append(args, "--")
+		args = append(args, runtimeFlags...)
+	}
+	return args
+}
+
+func getDockerModelEndpointAndEngine() (endpoint, engine string, err error) {
+	cmd := exec.Command("docker", "model", "status", "--json")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return "", "", errors.New(strings.TrimSpace(stderr.String()))
+	}
+	type status struct {
+		Running  bool              `json:"running"`
+		Backends map[string]string `json:"backends"`
+		Endpoint string            `json:"endpoint"`
+		Engine   string            `json:"engine"`
+	}
+	var st status
+	if err := json.Unmarshal(stdout.Bytes(), &st); err != nil {
+		return "", "", err
+	}
+	endpoint = strings.TrimSpace(st.Endpoint)
+	// TODO(krissetto): temporary override for the internal dmr endpoint that `docker model status --json` currently returns
+	if endpoint == "http://model-runner.docker.internal/engines/v1/" {
+		endpoint = "http://localhost:12434/engines/llama.cpp/v1"
+	}
+	engine = strings.TrimSpace(st.Engine)
+	if engine == "" {
+		if st.Backends != nil {
+			if _, ok := st.Backends["llama.cpp"]; ok {
+				engine = "llama.cpp"
+			} else {
+				for k := range st.Backends {
+					engine = k
+					break
+				}
+			}
+		}
+	}
+	if engine == "" {
+		engine = "llama.cpp"
+	}
+	return endpoint, engine, nil
+}
+
+// buildRuntimeFlagsFromModelConfig converts standard ModelConfig fields into backend-specific
+// runtime flags that the model-runner understands when launching the engine.
+// Currently supports the default engine "llama.cpp". Unknown/unsupported fields are ignored.
+func buildRuntimeFlagsFromModelConfig(engine string, cfg *latest.ModelConfig) []string {
+	var flags []string
+	if cfg == nil {
+		return flags
+	}
+	eng := strings.TrimSpace(engine)
+	if eng == "" {
+		eng = "llama.cpp"
+	}
+	switch eng {
+	// runtime flags mapping for more engines can be added here as needed
+	case "llama.cpp":
+		if cfg.Temperature > 0 {
+			flags = append(flags, "--temp", strconv.FormatFloat(cfg.Temperature, 'f', -1, 64))
+		}
+		if cfg.TopP > 0 {
+			flags = append(flags, "--top-p", strconv.FormatFloat(cfg.TopP, 'f', -1, 64))
+		}
+		if cfg.FrequencyPenalty > 0 {
+			flags = append(flags, "--frequency-penalty", strconv.FormatFloat(cfg.FrequencyPenalty, 'f', -1, 64))
+		}
+		if cfg.PresencePenalty > 0 {
+			flags = append(flags, "--presence-penalty", strconv.FormatFloat(cfg.PresencePenalty, 'f', -1, 64))
+		}
+		// Note: Context size already handled via --context-size during `docker model configure`
+	default:
+		// Unknown engine: no flags
+	}
+	return flags
 }
