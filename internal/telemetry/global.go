@@ -30,14 +30,6 @@ var (
 	globalTelemetryDebugMode  = false
 )
 
-// SetGlobalToolTelemetryClient sets the global client for tool telemetry
-// This allows other packages to record tool events without context passing
-// This is now optional - if not called, automatic initialization will happen
-func SetGlobalToolTelemetryClient(client *Client, logger *slog.Logger) {
-	globalToolTelemetryClient = client
-	// Logger is now handled internally by automatic initialization
-}
-
 // GetGlobalTelemetryClient returns the global telemetry client for adding to context
 func GetGlobalTelemetryClient() *Client {
 	ensureGlobalTelemetryInitialized()
@@ -87,7 +79,9 @@ func ensureGlobalTelemetryInitialized() {
 		globalToolTelemetryClient = client
 
 		if debugMode {
-			logger.Info("Auto-initialized telemetry", "enabled", enabled, "debug", debugMode)
+			// Use the telemetry logger wrapper for consistency
+			telemetryLogger := NewTelemetryLogger(logger)
+			telemetryLogger.Info("Auto-initialized telemetry", "enabled", enabled, "debug", debugMode)
 		}
 	})
 }

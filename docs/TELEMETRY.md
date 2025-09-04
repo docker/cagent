@@ -1,6 +1,6 @@
 # Telemetry for cagent
 
-The telemetry system in `cagent` collects **anonymous usage data** to help improve the tool. All events are processed **asynchronously** in the background and never block command execution. Telemetry can be disabled at any time.
+The telemetry system in `cagent` collects **anonymous usage data** to help improve the tool. All events are processed **synchronously** when recorded. Telemetry can be disabled at any time.
 
 On first startup, `cagent` displays a notice about telemetry collection and how to disable it, so users are always informed.
 
@@ -68,7 +68,7 @@ The system uses structured, type-safe events:
 - **Token events**: Track LLM token usage by model, session, and cost
 - **Session events**: Track agent session lifecycle with separate start/end events and aggregate metrics
 
-Events are queued in a buffered channel (1000 events) and processed asynchronously by a background goroutine. Use `client.Shutdown(ctx)` at program exit to flush remaining events.
+Events are processed synchronously when `Track()` is called, sending HTTP requests immediately.
 
 ### Configuration
 

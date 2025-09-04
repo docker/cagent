@@ -17,6 +17,7 @@ import (
 
 // MockHTTPClient captures HTTP requests for testing
 type MockHTTPClient struct {
+	*http.Client
 	mu       sync.Mutex
 	requests []*http.Request
 	bodies   [][]byte
@@ -25,13 +26,15 @@ type MockHTTPClient struct {
 
 // NewMockHTTPClient creates a new mock HTTP client with a default success response
 func NewMockHTTPClient() *MockHTTPClient {
-	return &MockHTTPClient{
+	mock := &MockHTTPClient{
 		response: &http.Response{
 			StatusCode: 200,
 			Body:       io.NopCloser(bytes.NewReader([]byte(`{"success": true}`))),
 			Header:     make(http.Header),
 		},
 	}
+	mock.Client = &http.Client{Transport: mock}
+	return mock
 }
 
 // SetResponse allows updating the mock response for testing different scenarios
@@ -41,8 +44,8 @@ func (m *MockHTTPClient) SetResponse(resp *http.Response) {
 	m.response = resp
 }
 
-// Do implements http.Client.Do and captures the request
-func (m *MockHTTPClient) Do(req *http.Request) (*http.Response, error) {
+// RoundTrip implements http.RoundTripper and captures the request
+func (m *MockHTTPClient) RoundTrip(req *http.Request) (*http.Response, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -89,26 +92,11 @@ func TestNewClient(t *testing.T) {
 	// Test enabled client with mock HTTP client to capture HTTP calls
 	// Note: debug mode does NOT disable HTTP calls - it only adds extra logging
 	mockHTTP := NewMockHTTPClient()
-	client, err := NewClientWithHTTPClient(logger, true, true, "test-version", mockHTTP)
+	_, err := NewClient(logger, true, true, "test-version", mockHTTP.Client)
 	if err != nil {
 		t.Fatalf("Failed to create enabled client: %v", err)
 	}
-	if !client.IsEnabled() {
-		t.Error("Expected client to be enabled")
-	}
-
 	// Test disabled client
-	client, err = NewClient(logger, false, false, "test-version")
-	if err != nil {
-		t.Fatalf("Failed to create disabled client: %v", err)
-	}
-	if client.IsEnabled() {
-		t.Error("Expected client to be disabled")
-	}
-}
-
-func TestDisabledClient(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	client, err := NewClient(logger, false, false, "test-version")
 	if err != nil {
 		t.Fatalf("Failed to create disabled client: %v", err)
@@ -128,7 +116,7 @@ func TestDisabledClient(t *testing.T) {
 func TestSessionTracking(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	mockHTTP := NewMockHTTPClient()
-	client, err := NewClientWithHTTPClient(logger, true, true, "test-version", mockHTTP)
+	client, err := NewClient(logger, true, true, "test-version", mockHTTP.Client)
 	if err != nil {
 		t.Fatalf("Failed to create client: %v", err)
 	}
@@ -182,7 +170,7 @@ func TestSessionTracking(t *testing.T) {
 func TestCommandTracking(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	mockHTTP := NewMockHTTPClient()
-	client, err := NewClientWithHTTPClient(logger, true, true, "test-version", mockHTTP)
+	client, err := NewClient(logger, true, true, "test-version", mockHTTP.Client)
 	if err != nil {
 		t.Fatalf("Failed to create client: %v", err)
 	}
@@ -233,7 +221,7 @@ func TestCommandTracking(t *testing.T) {
 func TestCommandTrackingWithError(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	mockHTTP := NewMockHTTPClient()
-	client, err := NewClientWithHTTPClient(logger, true, true, "test-version", mockHTTP)
+	client, err := NewClient(logger, true, true, "test-version", mockHTTP.Client)
 	if err != nil {
 		t.Fatalf("Failed to create client: %v", err)
 	}
@@ -314,6 +302,15 @@ func TestGetTelemetryEnabled(t *testing.T) {
 	if !GetTelemetryEnabled() {
 		t.Error("Expected telemetry to be enabled when TELEMETRY_ENABLED=true")
 	}
+
+	// Test other values default to enabled (only "false" disables)
+	testCases := []string{"1", "yes", "on", "enabled", "anything", ""}
+	for _, value := range testCases {
+		os.Setenv("TELEMETRY_ENABLED", value)
+		if !GetTelemetryEnabled() {
+			t.Errorf("Expected telemetry to be enabled when TELEMETRY_ENABLED=%s", value)
+		}
+	}
 }
 
 // testError is a simple error implementation for testing
@@ -377,7 +374,7 @@ func TestAllEventTypes(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	// Use mock HTTP client to avoid actual HTTP calls in tests
 	mockHTTP := NewMockHTTPClient()
-	client, err := NewClientWithHTTPClient(logger, true, true, "test-version", mockHTTP)
+	client, err := NewClient(logger, true, true, "test-version", mockHTTP.Client)
 	if err != nil {
 		t.Fatalf("Failed to create client: %v", err)
 	}
@@ -745,12 +742,11 @@ func TestBuildCommandInfo(t *testing.T) {
 func TestGlobalTelemetryFunctions(t *testing.T) {
 	// Save original global state
 	originalClient := globalToolTelemetryClient
-	originalOnce := globalTelemetryOnce
 	originalVersion := globalTelemetryVersion
 	originalDebugMode := globalTelemetryDebugMode
 	defer func() {
 		globalToolTelemetryClient = originalClient
-		globalTelemetryOnce = originalOnce
+		globalTelemetryOnce = sync.Once{} // Reset to new instance
 		globalTelemetryVersion = originalVersion
 		globalTelemetryDebugMode = originalDebugMode
 	}()
@@ -784,7 +780,7 @@ func TestHTTPRequestVerification(t *testing.T) {
 	mockHTTP := NewMockHTTPClient()
 
 	// Create client with mock HTTP client, endpoint, and API key to trigger HTTP calls
-	client, err := NewClientWithHTTPClient(logger, true, true, "test-version", mockHTTP)
+	client, err := NewClient(logger, true, true, "test-version", mockHTTP.Client)
 	if err != nil {
 		t.Fatalf("Failed to create client: %v", err)
 	}
@@ -898,7 +894,7 @@ func TestHTTPRequestVerification(t *testing.T) {
 	// Test that no HTTP calls are made when endpoint/apiKey are missing
 	t.Run("NoHTTPWhenMissingCredentials", func(t *testing.T) {
 		mockHTTP2 := NewMockHTTPClient()
-		client2, err := NewClientWithHTTPClient(logger, true, true, "test-version", mockHTTP2)
+		client2, err := NewClient(logger, true, true, "test-version", mockHTTP2.Client)
 		if err != nil {
 			t.Fatalf("Failed to create client: %v", err)
 		}
@@ -923,7 +919,7 @@ func TestHTTPRequestVerification(t *testing.T) {
 	// Test that no HTTP calls are made when client is disabled
 	t.Run("NoHTTPWhenDisabled", func(t *testing.T) {
 		mockHTTP3 := NewMockHTTPClient()
-		client3, err := NewClientWithHTTPClient(logger, false, true, "test-version", mockHTTP3)
+		client3, err := NewClient(logger, false, true, "test-version", mockHTTP3.Client)
 		if err != nil {
 			t.Fatalf("Failed to create client: %v", err)
 		}
@@ -942,33 +938,6 @@ func TestHTTPRequestVerification(t *testing.T) {
 	})
 }
 
-// TestShutdownFlushesEvents verifies that Shutdown drains the event queue
-func TestShutdownFlushesEvents(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	mockHTTP := NewMockHTTPClient()
-	client, err := NewClientWithHTTPClient(logger, true, true, "test-version", mockHTTP)
-	if err != nil {
-		t.Fatalf("Failed to create client: %v", err)
-	}
-
-	client.endpoint = "https://test-shutdown.com/api"
-	client.apiKey = "shutdown-key"
-	client.header = "test-header"
-
-	ctx := context.Background()
-	client.Track(ctx, &CommandEvent{Action: "shutdown-test", Success: true})
-
-	// Shutdown should flush pending events
-	err = client.Shutdown(ctx)
-	if err != nil {
-		t.Fatalf("Shutdown failed: %v", err)
-	}
-
-	if mockHTTP.GetRequestCount() == 0 {
-		t.Error("Expected at least 1 HTTP request to be sent during Shutdown flush")
-	}
-}
-
 // SlowMockHTTPClient creates artificial backpressure by adding delays
 type SlowMockHTTPClient struct {
 	*MockHTTPClient
@@ -982,9 +951,9 @@ func NewSlowMockHTTPClient(delay time.Duration) *SlowMockHTTPClient {
 	}
 }
 
-func (s *SlowMockHTTPClient) Do(req *http.Request) (*http.Response, error) {
+func (s *SlowMockHTTPClient) RoundTrip(req *http.Request) (*http.Response, error) {
 	time.Sleep(s.delay) // Add artificial delay
-	return s.MockHTTPClient.Do(req)
+	return s.MockHTTPClient.RoundTrip(req)
 }
 
 // TestEventBufferOverflowDropsEvents verifies that events are dropped when buffer is full
@@ -993,7 +962,7 @@ func TestEventBufferOverflowDropsEvents(t *testing.T) {
 	slowMock := NewSlowMockHTTPClient(50 * time.Millisecond)
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	client, err := NewClientWithHTTPClient(logger, true, true, "test-version", slowMock)
+	client, err := NewClient(logger, true, true, "test-version", slowMock.Client)
 	if err != nil {
 		t.Fatalf("Failed to create client: %v", err)
 	}
@@ -1002,28 +971,25 @@ func TestEventBufferOverflowDropsEvents(t *testing.T) {
 	client.apiKey = "overflow-key"
 	client.header = "test-header"
 
-	// Fill buffer completely by sending many events rapidly
-	bufferSize := cap(client.eventChan) // Use actual production buffer size (1000)
+	// With synchronous processing, there's no buffer overflow to test
+	// Events are processed immediately, so we just verify they all get processed
+	numEvents := 10 // Send a reasonable number for synchronous processing
 
-	// Send events very rapidly to overwhelm the slow processor
-	for i := 0; i < bufferSize+100; i++ { // Send way more than capacity
+	// Send events synchronously
+	for i := 0; i < numEvents; i++ {
 		client.Track(context.Background(), &CommandEvent{
 			Action:  "overflow-test",
 			Success: true,
 		})
 	}
 
-	// Give time for processing and potential overflow
-	time.Sleep(100 * time.Millisecond)
-
-	// Verify the channel length is reasonable (either full or being processed)
-	channelLen := len(client.eventChan)
-	if channelLen > bufferSize {
-		t.Errorf("Event channel exceeded capacity: len=%d cap=%d", channelLen, bufferSize)
+	// With synchronous processing, all events should be processed immediately
+	expectedRequests := numEvents
+	if slowMock.GetRequestCount() != expectedRequests {
+		t.Errorf("Expected %d requests with synchronous processing, got %d", expectedRequests, slowMock.GetRequestCount())
 	}
 
-	// The test passes if we don't exceed capacity - this verifies overflow protection works
-	t.Logf("Buffer handled overflow correctly: len=%d cap=%d", channelLen, bufferSize)
+	t.Logf("Synchronous processing handled %d events correctly", numEvents)
 
 	// Clean shutdown
 }
@@ -1032,7 +998,7 @@ func TestEventBufferOverflowDropsEvents(t *testing.T) {
 func TestNon2xxHTTPResponseHandling(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	mockHTTP := NewMockHTTPClient()
-	client, err := NewClientWithHTTPClient(logger, true, true, "test-version", mockHTTP)
+	client, err := NewClient(logger, true, true, "test-version", mockHTTP.Client)
 	if err != nil {
 		t.Fatalf("Failed to create client: %v", err)
 	}

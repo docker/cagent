@@ -2,11 +2,10 @@ package telemetry
 
 import (
 	"context"
-	"fmt"
 	"time"
 )
 
-// Track records a structured telemetry event with type-safe properties (non-blocking)
+// Track records a structured telemetry event with type-safe properties (synchronous)
 // This is the only method for telemetry tracking, all event-specific methods are wrappers around this one
 func (tc *Client) Track(ctx context.Context, structuredEvent StructuredEvent) {
 	eventType := structuredEvent.GetEventType()
@@ -20,33 +19,23 @@ func (tc *Client) Track(ctx context.Context, structuredEvent StructuredEvent) {
 		return
 	}
 
-	// Send event to background processor (non-blocking)
 	if !tc.enabled {
 		return
 	}
 
 	// Debug logging to track event flow
 	if tc.debugMode {
-		tc.logger.Debug("📤 Queuing telemetry event", "event_type", eventType, "channel_length", len(tc.eventChan))
+		tc.logger.Debug("Processing telemetry event synchronously", "event_type", eventType)
 	}
 
-	select {
-	case tc.eventChan <- EventWithContext{
-		eventName:  string(eventType),
-		properties: properties,
-	}:
-		// Event queued successfully
-		if tc.debugMode {
-			tc.logger.Debug("✅ Event queued successfully", "event_type", eventType, "channel_length", len(tc.eventChan))
-		}
-	default:
-		// Channel full - drop event to avoid blocking
-		if tc.debugMode {
-			fmt.Printf("⚠️  Telemetry event dropped (buffer full): %s\n", eventType)
-		}
-		// Log dropped event for visibility
-		tc.logger.Warn("Telemetry event dropped", "reason", "buffer_full", "event_name", eventType)
+	event := tc.createEvent(string(eventType), properties)
+
+	if tc.debugMode {
+		tc.printEvent(&event)
 	}
+
+	// Always send the event synchronously
+	tc.sendEvent(&event)
 }
 
 // RecordSessionStart initializes session tracking

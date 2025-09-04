@@ -48,7 +48,6 @@ jobs:
       - name: Run tests
         run: task test
         env:
-          TELEMETRY_ENABLED: true
           TELEMETRY_API_KEY: ${{ secrets.TELEMETRY_API_KEY }}
           TELEMETRY_ENDPOINT: ${{ secrets.TELEMETRY_ENDPOINT }}
           TELEMETRY_HEADER: ${{ secrets.TELEMETRY_HEADER }}
@@ -93,7 +92,6 @@ jobs:
       - name: Build
         run: task build
         env:
-          TELEMETRY_ENABLED: true
           TELEMETRY_API_KEY: ${{ secrets.TELEMETRY_API_KEY }}
           TELEMETRY_ENDPOINT: ${{ secrets.TELEMETRY_ENDPOINT }}
           TELEMETRY_HEADER: ${{ secrets.TELEMETRY_HEADER }}

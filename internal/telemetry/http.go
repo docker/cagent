@@ -45,30 +45,28 @@ func (tc *Client) printEvent(event *EventPayload) {
 		tc.logger.Error("Failed to marshal telemetry event", "error", err)
 		return
 	}
-	tc.logger.Info("🔍 TELEMETRY EVENT", "event", string(output))
+	tc.logger.Info("event", "event", string(output))
 }
 
 // sendEvent sends a single event to Docker events API and handles logging
 func (tc *Client) sendEvent(event *EventPayload) {
 	// Send to Docker events API if conditions are met
 	if tc.apiKey != "" && tc.endpoint != "" && tc.enabled {
-		tc.logger.Debug("Sending telemetry event via HTTP", "event", event.Event, "endpoint", tc.endpoint)
+		tc.logger.Debug("Sending telemetry event via HTTP", "event_type", event.Event, "endpoint", tc.endpoint)
 
 		// Perform HTTP request inline
 		if err := tc.performHTTPRequest(event); err != nil {
-			tc.logger.Debug("Failed to send telemetry event to Docker API", "error", err, "event", event.Event)
+			tc.logger.Debug("Failed to send telemetry event to Docker API", "error", err, "event_type", event.Event)
 		} else {
-			tc.logger.Debug("Successfully sent telemetry event via HTTP", "event", event.Event)
+			tc.logger.Debug("Successfully sent telemetry event via HTTP", "event_type", event.Event)
 		}
 	} else {
 		tc.logger.Debug("Skipping HTTP telemetry event - missing endpoint or API key or disabled",
-			"event", event.Event,
+			"event_type", event.Event,
 			"has_endpoint", tc.endpoint != "",
 			"has_api_key", tc.apiKey != "",
 			"enabled", tc.enabled)
 	}
-
-	// Event processing (OpenTelemetry tracing handled in run.go)
 
 	// Log the event
 	logArgs := []any{
@@ -85,7 +83,7 @@ func (tc *Client) sendEvent(event *EventPayload) {
 		logArgs = append(logArgs, "session_id", sessionID)
 	}
 
-	tc.logger.Debug("Telemetry event recorded", logArgs...)
+	tc.logger.Debug("Event recorded", logArgs...)
 
 	// Enhanced debug logging with full event structure
 	if tc.logger.Enabled(context.Background(), slog.LevelDebug) {

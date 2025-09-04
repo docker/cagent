@@ -33,12 +33,13 @@ func getSystemInfo() (osName, osVersion, osLanguage string) {
 	return osInfo, "", osLang
 }
 
-// GetTelemetryEnabled checks if telemetry should be enabled based on environment or build-time config
 func GetTelemetryEnabled() bool {
 	if env := os.Getenv("TELEMETRY_ENABLED"); env != "" {
-		return env == "true"
+		// Only disable if explicitly set to "false"
+		return env != "false"
 	}
-	return TelemetryEnabled == "true"
+	// Default to true (telemetry enabled)
+	return true
 }
 
 func getTelemetryEndpoint() string {

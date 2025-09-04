@@ -1,7 +1,6 @@
 package telemetry
 
 import (
-	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -34,12 +33,6 @@ type EventPayload struct {
 	Source         string    `json:"source"`
 
 	Properties map[string]any `json:"properties,omitempty"`
-}
-
-// EventWithContext wraps an event with its context for async processing
-type EventWithContext struct {
-	eventName  string
-	properties map[string]any
 }
 
 // COMMAND EVENTS
@@ -265,7 +258,7 @@ type HTTPClient interface {
 
 // Client provides simplified telemetry functionality for cagent
 type Client struct {
-	logger     *slog.Logger
+	logger     *telemetryLogger
 	enabled    bool
 	debugMode  bool // Print to stdout instead of sending
 	httpClient HTTPClient
@@ -275,14 +268,6 @@ type Client struct {
 	version    string // App version for User-Agent and events
 	mu         sync.RWMutex
 
-	// Session tracking (consolidated)
+	// Session tracking
 	session SessionState
-
-	// Async processing
-	eventChan chan EventWithContext
-	stopChan  chan struct{}
-	done      chan struct{}
-
-	// HTTP request tracking
-	requestCount int64 // Atomic counter for active requests
 }
