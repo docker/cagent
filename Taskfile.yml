@@ -12,7 +12,7 @@ vars:
     sh: date -u +"%Y-%m-%dT%H:%M:%SZ"
   GO_SOURCES: "**/*.go"
   BUILD_ARGS: '--build-arg GIT_TAG="{{.GIT_TAG}}" --build-arg GIT_COMMIT="{{.GIT_COMMIT}}" --build-arg BUILD_DATE="{{.BUILD_DATE}}" --build-arg TELEMETRY_ENDPOINT="{{.TELEMETRY_ENDPOINT}}" --build-arg TELEMETRY_API_KEY="{{.TELEMETRY_API_KEY}}" --build-arg TELEMETRY_HEADER="{{.TELEMETRY_HEADER}}"'
-  LDFLAGS: '-X "github.com/docker/cagent/cmd/root.Version={{.GIT_TAG}}" -X "github.com/docker/cagent/cmd/root.Commit={{.GIT_COMMIT}}" -X "github.com/docker/cagent/cmd/root.BuildTime={{.BUILD_DATE}}" -X "github.com/docker/cagent/internal/telemetry.TelemetryEndpoint={{.TELEMETRY_ENDPOINT}}" -X "github.com/docker/cagent/internal/telemetry.TelemetryAPIKey={{.TELEMETRY_API_KEY}}" -X "github.com/docker/cagent/internal/telemetry.TelemetryHeader={{.TELEMETRY_HEADER}}"'
+  LDFLAGS: '-X "github.com/docker/cagent/internal/version.Version={{.GIT_TAG}}" -X "github.com/docker/cagent/internal/version.Commit={{.GIT_COMMIT}}" -X "github.com/docker/cagent/internal/version.BuildTime={{.BUILD_DATE}}" -X "github.com/docker/cagent/internal/telemetry.TelemetryEndpoint={{.TELEMETRY_ENDPOINT}}" -X "github.com/docker/cagent/internal/telemetry.TelemetryAPIKey={{.TELEMETRY_API_KEY}}" -X "github.com/docker/cagent/internal/telemetry.TelemetryHeader={{.TELEMETRY_HEADER}}"'
 
 tasks:
   default:

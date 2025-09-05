@@ -10,6 +10,7 @@ import (
 
 	"github.com/docker/cagent/internal/config"
 	"github.com/docker/cagent/internal/telemetry"
+	"github.com/docker/cagent/internal/version"
 	"github.com/spf13/cobra"
 )
 
@@ -106,7 +107,7 @@ func NewRootCmd() *cobra.Command {
 
 func Execute() {
 	// Set the version for automatic telemetry initialization
-	telemetry.SetGlobalTelemetryVersion(Version)
+	telemetry.SetGlobalTelemetryVersion(version.Version)
 
 	// Print startup message only on first installation/setup
 	if isFirstRun() {

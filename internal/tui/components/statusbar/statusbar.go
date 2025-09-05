@@ -4,8 +4,10 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/v2/key"
+	"github.com/charmbracelet/lipgloss/v2"
 	"github.com/docker/cagent/internal/tui/core"
 	"github.com/docker/cagent/internal/tui/styles"
+	"github.com/docker/cagent/internal/version"
 )
 
 // StatusBar represents the status bar component that displays key bindings help
@@ -47,27 +49,41 @@ func (s *StatusBar) formatHelpString(bindings []key.Binding) string {
 
 // View renders the status bar
 func (s *StatusBar) View() string {
-	if s.help == nil {
-		return ""
+	versionText := styles.MutedStyle.Render(version.Version)
+
+	var helpText string
+	if s.help != nil {
+		help := s.help.Help()
+		if help != nil {
+			shortcuts := help.ShortHelp()
+			if len(shortcuts) > 0 {
+				helpText = s.formatHelpString(shortcuts)
+			}
+		}
 	}
 
-	help := s.help.Help()
-	if help == nil {
-		return ""
+	// If no help text, just show version aligned right
+	if helpText == "" {
+		return styles.BaseStyle.
+			Width(s.width).
+			PaddingLeft(1).
+			PaddingRight(1).
+			Align(lipgloss.Right).
+			Render(versionText)
 	}
 
-	shortcuts := help.ShortHelp()
-	if len(shortcuts) == 0 {
-		return ""
+	helpStyled := styles.BaseStyle.PaddingLeft(1).Render(helpText)
+	versionStyled := styles.BaseStyle.PaddingRight(1).Render(versionText)
+
+	helpWidth := lipgloss.Width(helpStyled)
+	versionWidth := lipgloss.Width(versionStyled)
+	availableSpace := s.width - helpWidth - versionWidth
+
+	if availableSpace < 0 {
+		availableSpace = 1
 	}
 
-	statusText := s.formatHelpString(shortcuts)
-	if statusText == "" {
-		return ""
-	}
+	spacer := strings.Repeat(" ", availableSpace)
 
-	return styles.BaseStyle.
-		Width(s.width).
-		PaddingLeft(1).
-		Render(statusText)
+	return helpStyled + spacer + versionStyled
 }
