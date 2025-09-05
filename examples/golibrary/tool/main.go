@@ -43,7 +43,7 @@ func main() {
 			Provider: "openai",
 			Model:    "gpt-4o",
 		},
-		environment.NewDefaultProvider(),
+		environment.NewDefaultProvider(ctx),
 	)
 	if err != nil {
 		log.Fatal(err)

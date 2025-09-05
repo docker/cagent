@@ -3,8 +3,6 @@ package v2
 import (
 	"errors"
 	"strings"
-
-	"github.com/docker/cagent/pkg/config/types"
 )
 
 // Config represents the entire configuration file
@@ -12,7 +10,6 @@ type Config struct {
 	Agents   map[string]AgentConfig `json:"agents,omitempty" yaml:"agents,omitempty"`
 	Models   map[string]ModelConfig `json:"models,omitempty" yaml:"models,omitempty"`
 	Metadata Metadata               `json:"metadata,omitempty" yaml:"metadata,omitempty"`
-	Env      map[string]string      `json:"env,omitempty" yaml:"env,omitempty"`
 }
 
 // AgentConfig represents a single agent configuration
@@ -28,17 +25,16 @@ type AgentConfig struct {
 
 // ModelConfig represents the configuration for a model
 type ModelConfig struct {
-	Provider          string            `json:"provider,omitempty" yaml:"provider,omitempty"`
-	Model             string            `json:"model,omitempty" yaml:"model,omitempty"`
-	Temperature       float64           `json:"temperature,omitempty" yaml:"temperature,omitempty"`
-	MaxTokens         int               `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
-	TopP              float64           `json:"top_p,omitempty" yaml:"top_p,omitempty"`
-	FrequencyPenalty  float64           `json:"frequency_penalty,omitempty" yaml:"frequency_penalty,omitempty"`
-	PresencePenalty   float64           `json:"presence_penalty,omitempty" yaml:"presence_penalty,omitempty"`
-	BaseURL           string            `json:"base_url,omitempty" yaml:"base_url,omitempty"`
-	ParallelToolCalls *bool             `json:"parallel_tool_calls,omitempty" yaml:"parallel_tool_calls,omitempty"`
-	Env               map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
-	TokenKey          string            `json:"token_key,omitempty" yaml:"token_key,omitempty"`
+	Provider          string  `json:"provider,omitempty" yaml:"provider,omitempty"`
+	Model             string  `json:"model,omitempty" yaml:"model,omitempty"`
+	Temperature       float64 `json:"temperature,omitempty" yaml:"temperature,omitempty"`
+	MaxTokens         int     `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
+	TopP              float64 `json:"top_p,omitempty" yaml:"top_p,omitempty"`
+	FrequencyPenalty  float64 `json:"frequency_penalty,omitempty" yaml:"frequency_penalty,omitempty"`
+	PresencePenalty   float64 `json:"presence_penalty,omitempty" yaml:"presence_penalty,omitempty"`
+	BaseURL           string  `json:"base_url,omitempty" yaml:"base_url,omitempty"`
+	ParallelToolCalls *bool   `json:"parallel_tool_calls,omitempty" yaml:"parallel_tool_calls,omitempty"`
+	TokenKey          string  `json:"token_key,omitempty" yaml:"token_key,omitempty"`
 	// ProviderOpts allows provider-specific options. Currently used for "dmr" provider only.
 	ProviderOpts map[string]any `json:"provider_opts,omitempty" yaml:"provider_opts,omitempty"`
 }
@@ -66,15 +62,13 @@ type ScriptShellToolConfig struct {
 
 // Toolset represents a tool configuration
 type Toolset struct {
-	Type     string             `json:"type,omitempty" yaml:"type,omitempty"`
-	Ref      string             `json:"ref,omitempty" yaml:"ref,omitempty"`
-	Config   any                `json:"config,omitempty" yaml:"config,omitempty"`
-	Command  string             `json:"command,omitempty" yaml:"command,omitempty"`
-	Remote   Remote             `json:"remote,omitempty" yaml:"remote,omitempty"`
-	Args     []string           `json:"args,omitempty" yaml:"args,omitempty"`
-	Env      map[string]string  `json:"env,omitempty" yaml:"env,omitempty"`
-	Envfiles types.StringOrList `json:"env_file,omitempty" yaml:"env_file,omitempty"`
-	Tools    []string           `json:"tools,omitempty" yaml:"tools,omitempty"`
+	Type    string   `json:"type,omitempty" yaml:"type,omitempty"`
+	Ref     string   `json:"ref,omitempty" yaml:"ref,omitempty"`
+	Config  any      `json:"config,omitempty" yaml:"config,omitempty"`
+	Command string   `json:"command,omitempty" yaml:"command,omitempty"`
+	Remote  Remote   `json:"remote,omitempty" yaml:"remote,omitempty"`
+	Args    []string `json:"args,omitempty" yaml:"args,omitempty"`
+	Tools   []string `json:"tools,omitempty" yaml:"tools,omitempty"`
 
 	// For the think tool
 	Shared bool `json:"shared,omitempty" yaml:"shared,omitempty"`

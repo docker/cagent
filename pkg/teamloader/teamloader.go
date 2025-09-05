@@ -82,8 +82,10 @@ func Load(ctx context.Context, path string, runConfig config.RuntimeConfig) (*te
 	if err != nil {
 		return nil, err
 	}
+
+	// Make env file paths absolute relative to the agent config file.
 	fileName := filepath.Base(path)
-	absEnvFiles, err := environment.AbsolutePaths(parentDir, runConfig.EnvFiles)
+	runConfig.EnvFiles, err = environment.AbsolutePaths(parentDir, runConfig.EnvFiles)
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +106,7 @@ func Load(ctx context.Context, path string, runConfig config.RuntimeConfig) (*te
 			agent.WithAddDate(agentConfig.AddDate),
 			agent.WithAddEnvironmentInfo(agentConfig.AddEnvironmentInfo),
 		}
-		models, err := getModelsForAgent(ctx, cfg, &agentConfig, absEnvFiles, options.WithGateway(runConfig.ModelsGateway))
+		models, err := getModelsForAgent(ctx, cfg, &agentConfig, runConfig)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get models: %w", err)
 		}
@@ -116,7 +118,7 @@ func Load(ctx context.Context, path string, runConfig config.RuntimeConfig) (*te
 		if !ok {
 			return nil, fmt.Errorf("agent '%s' not found in configuration", name)
 		}
-		agentTools, err := getToolsForAgent(&a, parentDir, sharedTools, models[0], absEnvFiles)
+		agentTools, err := getToolsForAgent(&a, parentDir, sharedTools, models[0])
 		if err != nil {
 			return nil, fmt.Errorf("failed to get tools: %w", err)
 		}
@@ -149,7 +151,7 @@ func Load(ctx context.Context, path string, runConfig config.RuntimeConfig) (*te
 	return team.New(team.WithID(fileName), team.WithAgents(agents...)), nil
 }
 
-func getModelsForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentConfig, absEnvFiles []string, opts ...options.Opt) ([]provider.Provider, error) {
+func getModelsForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentConfig, runtimeConfig config.RuntimeConfig) ([]provider.Provider, error) {
 	var models []provider.Provider
 
 	for name := range strings.SplitSeq(a.Model, ",") {
@@ -158,31 +160,12 @@ func getModelsForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentC
 			return nil, fmt.Errorf("model '%s' not found in configuration", name)
 		}
 
-		providers := []environment.Provider{
-			environment.NewKeyValueProvider(modelCfg.Env),
-			environment.NewKeyValueProvider(cfg.Env),
-			environment.NewEnvFilesProvider(absEnvFiles),
-			environment.NewOsEnvProvider(), // TODO(dga): Which env should take precedence? OS or config?
-			environment.NewNoFailProvider(
-				environment.NewOnePasswordProvider(),
-			),
-		}
+		env := environment.NewMultiProvider(
+			environment.NewEnvFilesProvider(runtimeConfig.EnvFiles),
+			environment.NewDefaultProvider(ctx),
+		)
 
-		// Append pass provider at the end if available
-		passProvider, err := environment.NewPassProvider()
-		if err == nil {
-			providers = append(providers, passProvider)
-		}
-
-		// Append keychain provider if available
-		keychainProvider, err := environment.NewKeychainProvider()
-		if err == nil {
-			providers = append(providers, keychainProvider)
-		}
-
-		env := environment.NewMultiProvider(providers...)
-
-		model, err := provider.New(ctx, &modelCfg, env, opts...)
+		model, err := provider.New(ctx, &modelCfg, env, options.WithGateway(runtimeConfig.ModelsGateway))
 		if err != nil {
 			return nil, err
 		}
@@ -194,7 +177,7 @@ func getModelsForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentC
 }
 
 // getToolsForAgent returns the tool definitions for an agent based on its configuration
-func getToolsForAgent(a *latest.AgentConfig, parentDir string, sharedTools map[string]tools.ToolSet, model provider.Provider, absEnvFiles []string) ([]tools.ToolSet, error) {
+func getToolsForAgent(a *latest.AgentConfig, parentDir string, sharedTools map[string]tools.ToolSet, model provider.Provider) ([]tools.ToolSet, error) {
 	var t []tools.ToolSet
 
 	if len(a.SubAgents) > 0 {
@@ -263,11 +246,6 @@ func getToolsForAgent(a *latest.AgentConfig, parentDir string, sharedTools map[s
 			t = append(t, builtin.NewFilesystemTool([]string{wd}, builtin.WithAllowedTools(toolset.Tools)))
 
 		case toolset.Type == "mcp" && toolset.Ref != "":
-			env, err := toolsetEnv(toolset.Env, append(absEnvFiles, toolset.Envfiles...), parentDir)
-			if err != nil {
-				return nil, err
-			}
-
 			serverName := strings.TrimPrefix(toolset.Ref, "docker:")
 			args := []string{"mcp", "gateway", "run", "--servers=" + serverName}
 
@@ -294,37 +272,16 @@ func getToolsForAgent(a *latest.AgentConfig, parentDir string, sharedTools map[s
 			args = append(args, "--catalog=https://desktop.docker.com/mcp/catalog/v2/catalog.yaml")
 
 			// TODO(dga): If the server's docker image had the right annotations, we could run it directly with `docker run` or with the MCP gateway as a go library.
-			t = append(t, mcp.NewToolsetCommand("docker", args, env, toolset.Tools))
+			t = append(t, mcp.NewToolsetCommand("docker", args, os.Environ(), toolset.Tools))
 
 		case toolset.Type == "mcp" && toolset.Command != "":
-			// Expand env first because it's used when expanding command and args.
-			env, err := toolsetEnv(toolset.Env, append(absEnvFiles, toolset.Envfiles...), parentDir)
-			if err != nil {
-				return nil, err
-			}
-
-			// Expand command.
-			command := environment.Expand(toolset.Command, append(os.Environ(), env...))
-
-			// Expand args.
-			var args []string
-			for _, arg := range toolset.Args {
-				args = append(args, environment.Expand(arg, append(os.Environ(), env...)))
-			}
-
-			t = append(t, mcp.NewToolsetCommand(command, args, env, toolset.Tools))
+			t = append(t, mcp.NewToolsetCommand(toolset.Command, toolset.Args, os.Environ(), toolset.Tools))
 
 		case toolset.Type == "mcp" && toolset.Remote.URL != "":
-			// Expand env first because it's used when expanding headers.
-			env, err := toolsetEnv(toolset.Env, toolset.Envfiles, parentDir)
-			if err != nil {
-				return nil, err
-			}
-
 			// Expand headers.
 			headers := map[string]string{}
 			for k, v := range toolset.Remote.Headers {
-				headers[k] = environment.Expand(v, append(os.Environ(), env...))
+				headers[k] = environment.Expand(v, os.Environ())
 			}
 
 			mcpc, err := mcp.NewToolsetRemote(toolset.Remote.URL, toolset.Remote.TransportType, headers, toolset.Tools)
@@ -340,30 +297,4 @@ func getToolsForAgent(a *latest.AgentConfig, parentDir string, sharedTools map[s
 	}
 
 	return t, nil
-}
-
-func toolsetEnv(env map[string]string, envFiles []string, parentDir string) ([]string, error) {
-	var envSlice []string
-
-	for k, v := range env {
-		v = environment.Expand(v, os.Environ())
-		envSlice = append(envSlice, fmt.Sprintf("%s=%s", k, v))
-	}
-
-	absoluteEnvFiles, err := environment.AbsolutePaths(parentDir, envFiles)
-	if err != nil {
-		return nil, err
-	}
-
-	keyValues, err := environment.ReadEnvFiles(absoluteEnvFiles)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, kv := range keyValues {
-		v := environment.Expand(kv.Value, os.Environ())
-		envSlice = append(envSlice, fmt.Sprintf("%s=%s", kv.Key, v))
-	}
-
-	return envSlice, nil
 }

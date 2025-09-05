@@ -92,7 +92,11 @@ func loadConfig(path string) (*latest.Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
-	config := migrateToLatestConfig(oldConfig)
+
+	config, err := migrateToLatestConfig(oldConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to migrate config: %w", err)
+	}
 
 	if err := validateConfig(&config); err != nil {
 		return nil, err
@@ -112,18 +116,25 @@ func parseCurrentVersion(data []byte, version any) (any, error) {
 	}
 }
 
-func migrateToLatestConfig(c any) latest.Config {
+func migrateToLatestConfig(c any) (latest.Config, error) {
+	var err error
 	for {
 		if old, ok := c.(v0.Config); ok {
-			c = v1.UpgradeFrom(old)
+			c, err = v1.UpgradeFrom(old)
+			if err != nil {
+				return latest.Config{}, err
+			}
 			continue
 		}
 		if old, ok := c.(v1.Config); ok {
-			c = latest.UpgradeFrom(old)
+			c, err = latest.UpgradeFrom(old)
+			if err != nil {
+				return latest.Config{}, err
+			}
 			continue
 		}
 
-		return c.(latest.Config)
+		return c.(latest.Config), nil
 	}
 }
 

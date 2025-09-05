@@ -82,7 +82,7 @@ func CreateAgent(ctx context.Context, baseDir, prompt string, runConfig config.R
 			Model:     "claude-sonnet-4-0",
 			MaxTokens: 64000,
 		},
-		environment.NewDefaultProvider(),
+		environment.NewDefaultProvider(ctx),
 		options.WithGateway(runConfig.ModelsGateway),
 	)
 	if err != nil {
@@ -180,7 +180,7 @@ func StreamCreateAgent(ctx context.Context, baseDir, prompt string, runConfig co
 			Model:     modelName,
 			MaxTokens: maxTokens,
 		},
-		environment.NewDefaultProvider(),
+		environment.NewDefaultProvider(ctx),
 		options.WithGateway(runConfig.ModelsGateway),
 	)
 	if err != nil {

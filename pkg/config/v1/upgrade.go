@@ -5,7 +5,7 @@ import (
 	v0 "github.com/docker/cagent/pkg/config/v0"
 )
 
-func UpgradeFrom(old v0.Config) Config {
+func UpgradeFrom(old v0.Config) (Config, error) {
 	var config Config
 	types.CloneThroughJSON(old, &config)
 
@@ -48,8 +48,7 @@ func UpgradeFrom(old v0.Config) Config {
 		toolsets = append(toolsets, newAgent.Toolsets...)
 		newAgent.Toolsets = toolsets
 		config.Agents[name] = newAgent
-
 	}
 
-	return config
+	return config, nil
 }

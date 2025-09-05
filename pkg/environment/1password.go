@@ -6,47 +6,36 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"sync"
 
 	"github.com/1password/onepassword-sdk-go"
 )
 
 type OnePasswordProvider struct {
-	onceSecrets    sync.Once
-	secrets        onepassword.SecretsAPI
-	onceSecretsErr error
+	secrets onepassword.SecretsAPI
 }
 
-func NewOnePasswordProvider() *OnePasswordProvider {
-	return &OnePasswordProvider{}
+func NewOnePasswordProvider(ctx context.Context) (*OnePasswordProvider, error) {
+	opToken := os.Getenv("OP_SERVICE_ACCOUNT_TOKEN")
+	if opToken == "" {
+		return nil, errors.New("OP_SERVICE_ACCOUNT_TOKEN environment variable is required for 1Password integration")
+	}
+
+	client, err := onepassword.NewClient(ctx,
+		onepassword.WithServiceAccountToken(opToken),
+		onepassword.WithIntegrationInfo("cagent 1Password Integration", "v1.0.0"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to 1Password: %w", err)
+	}
+
+	return &OnePasswordProvider{
+		secrets: client.Secrets(),
+	}, nil
 }
 
 func (p *OnePasswordProvider) Get(ctx context.Context, name string) (string, error) {
-	p.onceSecrets.Do(func() {
-		opToken := os.Getenv("OP_SERVICE_ACCOUNT_TOKEN")
-		if opToken == "" {
-			p.onceSecretsErr = errors.New("OP_SERVICE_ACCOUNT_TOKEN environment variable is required for 1Password integration")
-			return
-		}
-
-		path := "op://cagent/" + name + "/password"
-		slog.Debug("Looking for environment variable in 1Password", "path", path)
-
-		client, err := onepassword.NewClient(ctx,
-			onepassword.WithServiceAccountToken(opToken),
-			onepassword.WithIntegrationInfo("cagent 1Password Integration", "v1.0.0"),
-		)
-		if err != nil {
-			p.onceSecretsErr = fmt.Errorf("failed to connect to 1Password: %w", err)
-			return
-		}
-
-		p.secrets = client.Secrets()
-	})
-
-	if p.onceSecretsErr != nil {
-		return "", p.onceSecretsErr
-	}
+	path := "op://cagent/" + name + "/password"
+	slog.Debug("Looking for environment variable in 1Password", "path", path)
 
 	secret, err := p.secrets.Resolve(ctx, "op://cagent/"+name+"/password")
 	if err != nil {
