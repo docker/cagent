@@ -229,3 +229,42 @@ func StreamCreateAgent(ctx context.Context, baseDir, prompt string, runConfig la
 
 	return rt.RunStream(ctx, sess), nil
 }
+
+// WriteStubAgentFile writes a fallback YAML file when model generation fails.
+// It picks a sensible default model based on available provider credentials.
+func WriteStubAgentFile(path string) error {
+	// Pick a default provider/model based on environment or sane fallback
+	provider := "anthropic"
+	model := "claude-sonnet-4-0"
+
+	if os.Getenv("OPENAI_API_KEY") != "" {
+		provider = "openai"
+		model = "gpt-4o-mini"
+	} else if os.Getenv("GOOGLE_API_KEY") != "" {
+		provider = "google"
+		model = "gemini-2.5-flash"
+	} else if os.Getenv("ANTHROPIC_API_KEY") != "" {
+		// already default, but still explicit
+		provider = "anthropic"
+		model = "claude-sonnet-4-0"
+	} else {
+		// no API keys, assume Docker Model Runner
+		provider = "dmr"
+		model = "ai/qwen3:latest"
+	}
+
+	stub := fmt.Sprintf(`version: "1"
+
+agents:
+  root:
+    model: %s/%s
+    description: "TODO: Add description"
+    instruction: "TODO: Add instructions"
+`, provider, model)
+
+	if err := os.WriteFile(path, []byte(stub), 0644); err != nil {
+		return fmt.Errorf("failed to write stub agent file: %w", err)
+	}
+	fmt.Printf("stub agent file created at %s\n", path)
+	return nil
+}
