@@ -3,6 +3,8 @@ package v1
 import (
 	"errors"
 	"strings"
+
+	"github.com/docker/cagent/pkg/config/types"
 )
 
 // ScriptShellToolConfig represents a custom shell tool configuration
@@ -22,15 +24,15 @@ type ScriptShellToolConfig struct {
 
 // Toolset represents a tool configuration
 type Toolset struct {
-	Type     string            `json:"type,omitempty" yaml:"type,omitempty"`
-	Ref      string            `json:"ref,omitempty" yaml:"ref,omitempty"`
-	Config   any               `json:"config,omitempty" yaml:"config,omitempty"`
-	Command  string            `json:"command,omitempty" yaml:"command,omitempty"`
-	Remote   Remote            `json:"remote,omitempty" yaml:"remote,omitempty"`
-	Args     []string          `json:"args,omitempty" yaml:"args,omitempty"`
-	Env      map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
-	Envfiles StringOrList      `json:"env_file,omitempty" yaml:"env_file,omitempty"`
-	Tools    []string          `json:"tools,omitempty" yaml:"tools,omitempty"`
+	Type     string             `json:"type,omitempty" yaml:"type,omitempty"`
+	Ref      string             `json:"ref,omitempty" yaml:"ref,omitempty"`
+	Config   any                `json:"config,omitempty" yaml:"config,omitempty"`
+	Command  string             `json:"command,omitempty" yaml:"command,omitempty"`
+	Remote   Remote             `json:"remote,omitempty" yaml:"remote,omitempty"`
+	Args     []string           `json:"args,omitempty" yaml:"args,omitempty"`
+	Env      map[string]string  `json:"env,omitempty" yaml:"env,omitempty"`
+	Envfiles types.StringOrList `json:"env_file,omitempty" yaml:"env_file,omitempty"`
+	Tools    []string           `json:"tools,omitempty" yaml:"tools,omitempty"`
 
 	// For the think tool
 	Shared bool `json:"shared,omitempty" yaml:"shared,omitempty"`
@@ -126,32 +128,8 @@ type Config struct {
 	Metadata Metadata               `json:"metadata,omitempty" yaml:"metadata,omitempty"`
 }
 
-type RuntimeConfig struct {
-	EnvFiles      []string
-	ModelsGateway string
-	ToolsGateway  string
-}
-
 type Metadata struct {
 	Author  string `json:"author,omitempty" yaml:"author,omitempty"`
 	License string `json:"license,omitempty" yaml:"license,omitempty"`
 	Readme  string `json:"readme,omitempty" yaml:"readme,omitempty"`
-}
-
-type StringOrList []string
-
-func (sm *StringOrList) UnmarshalYAML(unmarshal func(any) error) error {
-	var multi []string
-	if err := unmarshal(&multi); err != nil {
-		var single string
-		if err := unmarshal(&single); err != nil {
-			return err
-		}
-
-		*sm = []string{single}
-		return nil
-	}
-
-	*sm = multi
-	return nil
 }

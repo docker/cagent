@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/docker/cagent/internal/telemetry"
-	latest "github.com/docker/cagent/pkg/config/v1"
+	"github.com/docker/cagent/pkg/config"
 	"github.com/docker/cagent/pkg/server"
 	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/teamloader"
@@ -18,7 +18,7 @@ import (
 var (
 	listenAddr string
 	sessionDb  string
-	runConfig  latest.RuntimeConfig
+	runConfig  config.RuntimeConfig
 )
 
 // NewApiCmd creates a new api command

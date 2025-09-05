@@ -1,16 +1,20 @@
 package v0
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/docker/cagent/pkg/config/types"
+)
 
 // Toolset represents a tool configuration
 type Toolset struct {
-	Type     string            `json:"type,omitempty" yaml:"type,omitempty"`
-	Command  string            `json:"command,omitempty" yaml:"command,omitempty"`
-	Remote   Remote            `json:"remote,omitempty" yaml:"remote,omitempty"`
-	Args     []string          `json:"args,omitempty" yaml:"args,omitempty"`
-	Env      map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
-	Envfiles StringOrList      `json:"env_file,omitempty" yaml:"env_file,omitempty"`
-	Tools    []string          `json:"tools,omitempty" yaml:"tools,omitempty"`
+	Type     string             `json:"type,omitempty" yaml:"type,omitempty"`
+	Command  string             `json:"command,omitempty" yaml:"command,omitempty"`
+	Remote   Remote             `json:"remote,omitempty" yaml:"remote,omitempty"`
+	Args     []string           `json:"args,omitempty" yaml:"args,omitempty"`
+	Env      map[string]string  `json:"env,omitempty" yaml:"env,omitempty"`
+	Envfiles types.StringOrList `json:"env_file,omitempty" yaml:"env_file,omitempty"`
+	Tools    []string           `json:"tools,omitempty" yaml:"tools,omitempty"`
 }
 
 type Remote struct {
@@ -108,27 +112,4 @@ type Config struct {
 	Agents map[string]AgentConfig `json:"agents,omitempty" yaml:"agents,omitempty"`
 	Models map[string]ModelConfig `json:"models,omitempty" yaml:"models,omitempty"`
 	Env    map[string]string      `json:"env,omitempty" yaml:"env,omitempty"`
-}
-
-type RuntimeConfig struct {
-	EnvFiles []string
-	Gateway  string
-}
-
-type StringOrList []string
-
-func (sm *StringOrList) UnmarshalYAML(unmarshal func(any) error) error {
-	var multi []string
-	if err := unmarshal(&multi); err != nil {
-		var single string
-		if err := unmarshal(&single); err != nil {
-			return err
-		}
-
-		*sm = []string{single}
-		return nil
-	}
-
-	*sm = multi
-	return nil
 }

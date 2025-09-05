@@ -1,4 +1,4 @@
-version: "1"
+version: "2"
 
 models:
   gpt4_vision:

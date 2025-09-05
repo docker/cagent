@@ -1,15 +1,13 @@
 package v1
 
 import (
-	"encoding/json"
-	"fmt"
-
+	"github.com/docker/cagent/pkg/config/types"
 	v0 "github.com/docker/cagent/pkg/config/v0"
 )
 
 func UpgradeFrom(old v0.Config) Config {
 	var config Config
-	cloneThroughJSON(old, &config)
+	types.CloneThroughJSON(old, &config)
 
 	// model.Type --> model.Provider
 	for name := range old.Models {
@@ -54,15 +52,4 @@ func UpgradeFrom(old v0.Config) Config {
 	}
 
 	return config
-}
-
-func cloneThroughJSON(oldConfig, newConfig any) {
-	o, err := json.Marshal(oldConfig)
-	if err != nil {
-		panic(fmt.Sprintf("marshalling old: %v", err))
-	}
-
-	if err := json.Unmarshal(o, newConfig); err != nil {
-		panic(fmt.Sprintf("unmarshalling new: %v", err))
-	}
 }

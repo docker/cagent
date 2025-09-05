@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	latest "github.com/docker/cagent/pkg/config/v1"
+	latest "github.com/docker/cagent/pkg/config/v2"
 	"github.com/docker/cagent/pkg/tools"
 )
 

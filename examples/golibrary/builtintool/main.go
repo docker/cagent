@@ -6,7 +6,7 @@ import (
 	"log"
 
 	"github.com/docker/cagent/pkg/agent"
-	latest "github.com/docker/cagent/pkg/config/v1"
+	latest "github.com/docker/cagent/pkg/config/v2"
 	"github.com/docker/cagent/pkg/environment"
 	"github.com/docker/cagent/pkg/model/provider/openai"
 	"github.com/docker/cagent/pkg/runtime"

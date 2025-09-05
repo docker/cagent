@@ -3,11 +3,10 @@ package root
 import (
 	"testing"
 
+	"github.com/docker/cagent/pkg/config"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	latest "github.com/docker/cagent/pkg/config/v1"
 )
 
 func TestGatewayLogic(t *testing.T) {
@@ -152,7 +151,7 @@ func TestGatewayLogic(t *testing.T) {
 			}
 
 			// Reset global variables
-			runConfig = latest.RuntimeConfig{}
+			runConfig = config.RuntimeConfig{}
 			gwConfig = gatewayConfig{}
 
 			// Create a test command with gateway flags

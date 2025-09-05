@@ -24,7 +24,7 @@ import (
 
 	"github.com/docker/cagent/internal/creator"
 	"github.com/docker/cagent/pkg/config"
-	latest "github.com/docker/cagent/pkg/config/v1"
+	latest "github.com/docker/cagent/pkg/config/v2"
 	"github.com/docker/cagent/pkg/content"
 	"github.com/docker/cagent/pkg/desktop"
 	"github.com/docker/cagent/pkg/oci"
@@ -40,7 +40,7 @@ type Server struct {
 	runtimes     map[string]*runtime.Runtime
 	sessionStore session.Store
 	agentsDir    string
-	runConfig    latest.RuntimeConfig
+	runConfig    config.RuntimeConfig
 	teams        map[string]*team.Team
 	autoRunTools bool
 }
@@ -66,7 +66,7 @@ func WithAutoRunTools(autoRunTools bool) Opt {
 	}
 }
 
-func New(sessionStore session.Store, runConfig latest.RuntimeConfig, teams map[string]*team.Team, opts ...Opt) *Server {
+func New(sessionStore session.Store, runConfig config.RuntimeConfig, teams map[string]*team.Team, opts ...Opt) *Server {
 	e := echo.New()
 	e.Use(middleware.CORS())
 	s := &Server{

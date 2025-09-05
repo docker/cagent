@@ -8,11 +8,12 @@ import (
 
 	v0 "github.com/docker/cagent/pkg/config/v0"
 	v1 "github.com/docker/cagent/pkg/config/v1"
+	latest "github.com/docker/cagent/pkg/config/v2"
 	"gopkg.in/yaml.v3"
 )
 
 // LoadConfigSecure loads the configuration from a file with path validation
-func LoadConfigSecure(path, allowedDir string) (*v1.Config, error) {
+func LoadConfigSecure(path, allowedDir string) (*latest.Config, error) {
 	validatedPath, err := ValidatePathInDirectory(path, allowedDir)
 	if err != nil {
 		return nil, fmt.Errorf("path validation failed: %w", err)
@@ -76,7 +77,7 @@ func ValidatePathInDirectory(path, allowedDir string) (string, error) {
 	return absTargetPath, nil
 }
 
-func loadConfig(path string) (*v1.Config, error) {
+func loadConfig(path string) (*latest.Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
@@ -103,33 +104,30 @@ func loadConfig(path string) (*v1.Config, error) {
 func parseCurrentVersion(data []byte, version any) (any, error) {
 	switch version {
 	case nil, "0", 0:
-		var old v0.Config
-		if err := yaml.Unmarshal(data, &old); err != nil {
-			return nil, err
-		}
-		return old, nil
-
+		return v0.Load(data)
+	case "1", 1:
+		return v1.Load(data)
 	default:
-		var old v1.Config
-		if err := yaml.Unmarshal(data, &old); err != nil {
-			return nil, err
-		}
-		return old, nil
+		return latest.Load(data)
 	}
 }
 
-func migrateToLatestConfig(c any) v1.Config {
+func migrateToLatestConfig(c any) latest.Config {
 	for {
 		if old, ok := c.(v0.Config); ok {
 			c = v1.UpgradeFrom(old)
 			continue
 		}
+		if old, ok := c.(v1.Config); ok {
+			c = latest.UpgradeFrom(old)
+			continue
+		}
 
-		return c.(v1.Config)
+		return c.(latest.Config)
 	}
 }
 
-func validateConfig(cfg *v1.Config) error {
+func validateConfig(cfg *latest.Config) error {
 	for name := range cfg.Models {
 		if cfg.Models[name].ParallelToolCalls == nil {
 			m := cfg.Models[name]
@@ -163,12 +161,12 @@ func validateConfig(cfg *v1.Config) error {
 	return nil
 }
 
-func autoRegisterModel(cfg *v1.Config, provider, model string) {
+func autoRegisterModel(cfg *latest.Config, provider, model string) {
 	if cfg.Models == nil {
-		cfg.Models = make(map[string]v1.ModelConfig)
+		cfg.Models = make(map[string]latest.ModelConfig)
 	}
 
-	cfg.Models[provider+"/"+model] = v1.ModelConfig{
+	cfg.Models[provider+"/"+model] = latest.ModelConfig{
 		Provider: provider,
 		Model:    model,
 	}

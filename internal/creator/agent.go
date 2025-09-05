@@ -10,7 +10,8 @@ import (
 	"strings"
 
 	"github.com/docker/cagent/pkg/agent"
-	latest "github.com/docker/cagent/pkg/config/v1"
+	"github.com/docker/cagent/pkg/config"
+	latest "github.com/docker/cagent/pkg/config/v2"
 	"github.com/docker/cagent/pkg/environment"
 	"github.com/docker/cagent/pkg/model/provider"
 	"github.com/docker/cagent/pkg/model/provider/anthropic"
@@ -73,7 +74,7 @@ func (f *fsToolset) customWriteFileHandler(ctx context.Context, toolCall tools.T
 	return f.originalWriteFileHandler(ctx, toolCall)
 }
 
-func CreateAgent(ctx context.Context, baseDir, prompt string, runConfig latest.RuntimeConfig) (out, path string, err error) {
+func CreateAgent(ctx context.Context, baseDir, prompt string, runConfig config.RuntimeConfig) (out, path string, err error) {
 	llm, err := anthropic.NewClient(
 		ctx,
 		&latest.ModelConfig{
@@ -120,7 +121,7 @@ func CreateAgent(ctx context.Context, baseDir, prompt string, runConfig latest.R
 	return messages[len(messages)-1].Message.Content, fsToolset.path, nil
 }
 
-func StreamCreateAgent(ctx context.Context, baseDir, prompt string, runConfig latest.RuntimeConfig, providerName, modelNameOverride string, maxTokensOverride int) (<-chan runtime.Event, error) {
+func StreamCreateAgent(ctx context.Context, baseDir, prompt string, runConfig config.RuntimeConfig, providerName, modelNameOverride string, maxTokensOverride int) (<-chan runtime.Event, error) {
 	defaultModels := map[string]string{
 		"openai":    "gpt-5-mini",
 		"anthropic": "claude-sonnet-4-0",
@@ -199,7 +200,7 @@ func StreamCreateAgent(ctx context.Context, baseDir, prompt string, runConfig la
 			suggestedMaxTokens = 16000
 		}
 		instructions += fmt.Sprintf(`
-		version: "1"
+		version: "2"
 		models:
 			%s:
 				provider: %s

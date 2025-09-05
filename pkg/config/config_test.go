@@ -120,3 +120,8 @@ func TestMigrate_v1_memory(t *testing.T) {
 	assert.Equal(t, "dev_memory.db", cfg.Agents["root"].Toolsets[0].Path)
 	assert.Equal(t, "mcp", cfg.Agents["root"].Toolsets[1].Type)
 }
+
+func TestMigrate_v1(t *testing.T) {
+	_, err := loadConfig("testdata/v1.yaml")
+	require.NoError(t, err)
+}

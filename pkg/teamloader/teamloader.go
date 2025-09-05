@@ -11,7 +11,7 @@ import (
 
 	"github.com/docker/cagent/pkg/agent"
 	"github.com/docker/cagent/pkg/config"
-	latest "github.com/docker/cagent/pkg/config/v1"
+	latest "github.com/docker/cagent/pkg/config/v2"
 	"github.com/docker/cagent/pkg/environment"
 	"github.com/docker/cagent/pkg/memory"
 	"github.com/docker/cagent/pkg/memory/database/sqlite"
@@ -25,7 +25,7 @@ import (
 )
 
 // LoadTeams loads all agent teams from the given directory or file path
-func LoadTeams(ctx context.Context, agentsPathOrDirectory string, runConfig latest.RuntimeConfig) (map[string]*team.Team, error) {
+func LoadTeams(ctx context.Context, agentsPathOrDirectory string, runConfig config.RuntimeConfig) (map[string]*team.Team, error) {
 	teams := make(map[string]*team.Team)
 
 	agentPaths, err := FindAgentPaths(agentsPathOrDirectory)
@@ -76,7 +76,7 @@ func FindAgentPaths(agentsPathOrDirectory string) ([]string, error) {
 	return agents, nil
 }
 
-func Load(ctx context.Context, path string, runConfig latest.RuntimeConfig) (*team.Team, error) {
+func Load(ctx context.Context, path string, runConfig config.RuntimeConfig) (*team.Team, error) {
 	parentDir := filepath.Dir(path)
 	cfg, err := config.LoadConfigSecure(path, parentDir)
 	if err != nil {

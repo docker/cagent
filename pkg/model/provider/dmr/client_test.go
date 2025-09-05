@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	latest "github.com/docker/cagent/pkg/config/v1"
+	latest "github.com/docker/cagent/pkg/config/v2"
 )
 
 func TestNewClientWithDefaultBaseURL(t *testing.T) {
