@@ -21,13 +21,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - `./bin/cagent run <config.yaml>` - Run agent with configuration
 - `./bin/cagent run <config.yaml> -a <agent_name>` - Run specific agent
-- `./bin/cagent mcp server --port 8080 --path /mcp --agents-dir <config_dir>` - Start MCP server mode
 - `./bin/cagent init` - Initialize new project
-
-### MCP Testing
-
-- `cd examples/mcptesting && go run test-mcp-client.go` - Test MCP server functionality
-- Test client verifies agent listing, pulling, and invocation via MCP protocol
 
 ### Single Test Execution
 
@@ -72,7 +66,7 @@ cagent is a multi-agent AI system with hierarchical agent structure and pluggabl
 
 #### Command Layer (`cmd/root/`)
 
-- **Multiple interfaces**: CLI (`run.go`), TUI (`tui.go`), API (`api.go`), MCP server (`mcp.go`)
+- **Multiple interfaces**: CLI (`run.go`), TUI (`tui.go`), API (`api.go`)
 - **Interactive commands**: `/exit`, `/reset`, `/eval` during sessions
 - **Debug support**: `--debug` flag for detailed logging
 - **MCP server mode**: SSE-based transport for external MCP clients like Claude Code

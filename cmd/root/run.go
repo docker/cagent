@@ -33,6 +33,7 @@ import (
 )
 
 var (
+	agentsDir      string
 	autoApprove    bool
 	attachmentPath string
 	workingDir     string

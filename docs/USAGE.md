@@ -11,7 +11,7 @@ agents with specialized capabilities and tools. It features:
 - **🏗️ Multi-tenant architecture** with client isolation and session management
 - **🔧 Rich tool ecosystem** via Model Context Protocol (MCP) integration
 - **🤖 Hierarchical agent system** with intelligent task delegation
-- **🌐 Multiple interfaces** including CLI, TUI, API server, and MCP server
+- **🌐 Multiple interfaces** including CLI, TUI and API server
 - **📦 Agent distribution** via Docker registry integration
 - **🔒 Security-first design** with proper client scoping and resource isolation
 - **⚡ Event-driven streaming** for real-time interactions
@@ -39,10 +39,6 @@ cagent provides multiple interfaces and deployment modes:
 $ cagent run config.yaml
 $ cagent run config.yaml -a agent_name  # Run specific agent
 $ cagent run config.yaml --debug        # Enable debug logging
-
-# MCP Server Mode (for external clients like Claude Code)
-$ cagent mcp server --agents-dir ./config_directory
-$ cagent mcp server --port 8080 --path /mcp --agents-dir ./config
 
 # API Server (HTTP REST API)
 $ cagent api config.yaml
@@ -547,50 +543,6 @@ cagent supports distributing via, and running agents from, Docker registries:
 - File agents: `my-agent.yaml` (relative path)
 - Store agents: `docker.io/username/my-agent:latest` (full Docker reference)
 
-
-### Session Management
-
-**MCP Server Sessions:**
-
-- Client-isolated sessions
-- Session creation and management via MCP tools
-- Real-time streaming responses
-- Session timeout and cleanup
-
-## Best Practices
-
-### Agent Design
-
-1. **Single Responsibility**: Each agent should have a clear, focused purpose
-2. **Clear Instructions**: Provide detailed, specific instructions for each agent
-3. **Appropriate Tools**: Give agents only the tools they need
-4. **Hierarchy Design**: Use sub-agents for specialized tasks and clear delegation paths
-5. **Model Selection**: Choose appropriate models for different capabilities (reasoning vs creativity)
-
-### Configuration Management
-
-1. **Validation**: Always validate your configuration before running
-2. **Environment Variables**: Use environment variables for sensitive data
-3. **Modularity**: Break complex configurations into smaller, reusable pieces
-4. **Documentation**: Document your agent configurations and tool permissions
-5. **Version Control**: Track agent configurations in git for reproducibility
-
-### Tool Usage
-
-1. **Minimal Permissions**: Give tools only necessary permissions
-2. **Error Handling**: Consider how agents will handle tool failures
-3. **Security**: Be cautious with shell access and file system permissions
-4. **Testing**: Test tool combinations thoroughly in isolation
-5. **MCP Tool Lifecycle**: Properly handle MCP tool start/stop lifecycle
-
-### Production Deployment
-
-1. **MCP Server Mode**: Use MCP server for external integrations
-2. **Session Limits**: Configure appropriate session limits and timeouts
-3. **Monitoring**: Enable debug logging for troubleshooting
-4. **Resource Management**: Monitor memory and CPU usage for concurrent sessions
-5. **Client Isolation**: Ensure proper client scoping in multi-tenant deployments
-
 ## Troubleshooting
 
 ### Common Issues
@@ -638,9 +590,6 @@ Enable debug logging for detailed information:
 ```bash
 # CLI mode
 ./bin/cagent run config.yaml --debug
-
-# MCP server
-./bin/cagent mcp server --agents-dir ./config --debug
 ```
 
 ### Log Analysis
@@ -655,29 +604,9 @@ Check logs for:
 - Session creation and cleanup events
 - Client isolation boundary violations
 
-### Testing MCP Integration
-
-Test MCP server functionality:
-
-```bash
-# Start MCP server
-./bin/cagent mcp server --agents-dir ./examples/config --port 8080 --debug
-
-# Test with curl (check server is running)
-curl -N http://localhost:8080/mcp/sse
-
-# Run MCP test client
-cd examples/mcptesting
-go run test-mcp-client.go
-```
-
 ### Agent Store Issues
 
 ```bash
-# Check agent resolution
-./bin/cagent mcp server --agents-dir ./config --debug
-# Look for "Agent resolved" messages in logs
-
 # Test Docker registry connectivity
 docker pull docker.io/username/agent:latest
 
@@ -686,37 +615,6 @@ docker pull docker.io/username/agent:latest
 ```
 
 ## Integration Examples
-
-### MCP Client Integration
-
-Using cagent agents from external MCP clients:
-
-```javascript
-// Example: Using cagent from Claude Code or Cursor
-const mcp = require("@modelcontextprotocol/client");
-
-// Connect to cagent MCP server
-const client = new mcp.Client({
-  url: "http://localhost:8080/mcp/sse",
-  transport: "sse",
-});
-
-// List available agents
-const agents = await client.callTool("list_agents", {});
-
-// Create a session with a specific agent
-const session = await client.callTool("create_agent_session", {
-  agent_spec: "developer",
-  initial_message: "Help me debug this Python code",
-});
-
-// Send messages to the agent
-const response = await client.callTool("send_message", {
-  session_id: session.session_id,
-  message:
-    "def fibonacci(n): return n if n <= 1 else fibonacci(n-1) + fibonacci(n-2)",
-});
-```
 
 ### Custom Memory Strategies
 

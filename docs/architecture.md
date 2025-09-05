@@ -106,19 +106,9 @@ graph TB
 
 ## Component Architecture
 
-### 1. Transport Layer (`cmd/root/`, `pkg/mcpserver/`)
+### 1. Transport Layer (`cmd/root/`)
 
 The transport layer provides multiple interfaces for interacting with cagent:
-
-#### MCP Server (`pkg/mcpserver/`)
-
-- Full MCP (Model Context Protocol) implementation with SSE transport
-- Multi-tenant client isolation with proper lifecycle management
-- Tool handlers for agent operations: invoke_agent, list_agents, create_agent_session
-- Session management tools: send_message, list_agent_sessions, close_agent_session
-- Advanced session operations: get_agent_session_info, get_agent_session_history
-- Docker registry integration: pull_agent for downloading agent images
-- Structured responses with explicit agent_ref formatting
 
 #### CLI Interface (`cmd/root/run.go`)
 
@@ -131,21 +121,6 @@ The transport layer provides multiple interfaces for interacting with cagent:
 
 - Terminal user interface for interactive agent sessions
 - Local agent execution with enhanced UX
-
-### 2. ServiceCore Layer (`pkg/servicecore/`)
-
-The ServiceCore layer provides the core business logic with multi-tenant architecture:
-
-```mermaid
-graph LR
-    CLIENT[MCP/HTTP Client] --> MANAGER[ServiceManager]
-    MANAGER --> RESOLVER[Agent Resolver]
-    MANAGER --> EXECUTOR[Runtime Executor]
-    RESOLVER --> FILES[File Agents]
-    RESOLVER --> STORE[Store Agents]
-    EXECUTOR --> RUNTIME[Runtime Creation]
-    EXECUTOR --> SESSION[Session Management]
-```
 
 #### ServiceManager Interface
 
