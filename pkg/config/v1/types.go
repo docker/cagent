@@ -22,6 +22,12 @@ type ScriptShellToolConfig struct {
 	WorkingDir string            `json:"working_dir,omitempty" yaml:"working_dir,omitempty"`
 }
 
+// PostEditConfig represents a post-edit command configuration
+type PostEditConfig struct {
+	Path string `json:"path" yaml:"path"`
+	Cmd  string `json:"cmd" yaml:"cmd"`
+}
+
 // Toolset represents a tool configuration
 type Toolset struct {
 	Type     string             `json:"type,omitempty" yaml:"type,omitempty"`
@@ -41,6 +47,9 @@ type Toolset struct {
 
 	// For the script tool
 	Shell map[string]ScriptShellToolConfig `json:"shell,omitempty" yaml:"shell,omitempty"`
+
+	// For the filesystem tool - post-edit commands
+	PostEdit []PostEditConfig `json:"post_edit,omitempty" yaml:"post_edit,omitempty"`
 }
 
 type Remote struct {
