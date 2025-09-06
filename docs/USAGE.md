@@ -39,6 +39,11 @@ cagent provides multiple interfaces and deployment modes:
 $ cagent run config.yaml
 $ cagent run config.yaml -a agent_name  # Run specific agent
 $ cagent run config.yaml --debug        # Enable debug logging
+$ cagent run config.yaml --hide-output-for=file-ops,shell  # Hide verbose tool output
+
+# Non-interactive execution
+$ cagent run config.yaml "message" --tui=false --yolo
+$ cagent exec config.yaml --yolo        # Execute with default instructions
 
 # API Server (HTTP REST API)
 $ cagent api config.yaml
@@ -64,6 +69,38 @@ During CLI sessions, you can use special commands:
 | `/reset`   | Clear conversation history                  |
 | `/eval`    | Save current conversation for evaluation    |
 | `/compact` | Compact conversation to lower context usage |
+
+#### Output Control
+
+Control the verbosity of tool execution output:
+
+```bash
+# Hide output from all file operations
+$ cagent run config.yaml --hide-output-for=file-ops
+
+# Hide output from shell commands (see commands but not their output)
+$ cagent run config.yaml --hide-output-for=shell
+
+# Hide output from specific tools
+$ cagent run config.yaml --hide-output-for=read_file,write_file,think
+
+# Hide output from all tools
+$ cagent run config.yaml --hide-output-for=all
+
+# Combine with other flags for clean automation
+$ cagent run config.yaml "message" --tui=false --yolo --hide-output-for=file-ops,shell
+```
+
+**Available options:**
+- `all` - Hide output from all tools
+- `file-ops` - Hide output from file operations (read_file, write_file, list_files, etc.)
+- Specific tool names: `shell`, `read_file`, `write_file`, `think`, etc.
+- Comma-separated combinations for granular control
+
+**What you see:**
+- ✅ Tool calls: `shell(cmd: "ls -la", cwd: ".")`
+- ✅ Agent responses and reasoning
+- ❌ Verbose tool output: Shows `shell response → (output hidden)` instead of full command output
 
 #### MCP Server Mode
 

@@ -38,6 +38,7 @@ var (
 	attachmentPath string
 	workingDir     string
 	useTUI         bool
+	hideOutputFor  string
 )
 
 // NewRunCmd creates a new run command
@@ -62,6 +63,9 @@ func NewRunCmd() *cobra.Command {
 	cmd.PersistentFlags().BoolVar(&autoApprove, "yolo", false, "Automatically approve all tool calls without prompting")
 	cmd.PersistentFlags().StringVar(&attachmentPath, "attach", "", "Attach an image file to the message")
 	cmd.PersistentFlags().BoolVar(&useTUI, "tui", true, "Run the agent with a Terminal User Interface (TUI)")
+	allOptions := GetAllHideOutputOptions()
+	helpText := fmt.Sprintf("Hide output for specific tools (comma-separated). Available: %s", strings.Join(allOptions, ","))
+	cmd.PersistentFlags().StringVar(&hideOutputFor, "hide-output-for", "", helpText)
 	addGatewayFlags(cmd)
 
 	return cmd
@@ -82,6 +86,11 @@ func NewTuiCmd() *cobra.Command {
 func runCommand(_ *cobra.Command, args []string, exec bool) error {
 	// Track the run command
 	telemetry.TrackCommand("run", args)
+
+	// Validate hide-output-for options
+	if err := ValidateHideOutputOptions(hideOutputFor); err != nil {
+		return err
+	}
 
 	ctx := context.Background()
 
@@ -363,7 +372,7 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt *runtime.Runtim
 					fmt.Println()
 					llmIsTyping = false
 				}
-				printToolCallResponse(e.ToolCall, e.Response)
+				printToolCallResponse(e.ToolCall, e.Response, hideOutputFor)
 				// Clear the confirmed ID after the tool completes
 				if e.ToolCall.ID == lastConfirmedToolCallID {
 					lastConfirmedToolCallID = ""
