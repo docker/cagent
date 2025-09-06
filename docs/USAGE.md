@@ -162,6 +162,31 @@ models:
     model: ai/qwen3
 ```
 
+#### Azure OpenAI (via the OpenAI provider)
+
+The OpenAI provider will detect and use AzureOpenAI if any `providers_opts` starting with `azure_` exist.
+
+When using Azure OpenAI:
+- **base_url**: use your resource root only, without the `/openai/...` path. Example: `https://YOUR_RESOURCE.openai.azure.com/`.
+- **model**: set to your desired model name. If `provider_opts.azure_deployment_name` is not specified, this will also be used as your Azure deployment name.
+- **auth**: by default we use `AZURE_OPENAI_API_KEY` when the `base_url` points to Azure. You can also set `token_key: SOME_CUSTOM_NAME` explicitly.
+- **API version**: set `provider_opts.azure_api_version` to the model's API version you are using (e.g., `2024-10-21`). This is required.
+- **deployment_name**: If you deployment name differs from the model name, set `provider_opts.azure_deployment_name`.
+
+```yaml
+models:
+  azure-model:
+    provider: openai
+    model: gpt-4.1-mini
+    base_url: https://YOUR_RESOURCE.openai.azure.com/ # required
+    token_key: CUSTOM_AZURE_OPENAI_API_KEY # only needed if you store the api key in an env var that's not AZURE_OPENAI_API_KEY
+    provider_opts:
+      azure_api_version: 2024-12-01-preview  # required
+      # Optional: if your deployment name differs from the model name, set the deployment name here instead
+      azure_deployment_name: my-gpt-4-1-mini-deployment
+
+```
+
 #### DMR (Docker Model Runner) provider usage
 
 If `base_url` is omitted, cagent will use `http://localhost:12434/engines/llama.cpp/v1` by default

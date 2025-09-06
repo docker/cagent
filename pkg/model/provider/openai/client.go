@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -45,20 +46,74 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 		opt(&globalOptions)
 	}
 
+	isAzureOpenAI := false
+	if cfg.ProviderOpts != nil {
+		for k := range cfg.ProviderOpts {
+			if strings.HasPrefix(k, "azure_") {
+				isAzureOpenAI = true
+				slog.Debug("Azure OpenAI detected", "provider_opt", k)
+				break
+			}
+		}
+	}
+
+	if isAzureOpenAI && strings.TrimSpace(cfg.BaseURL) == "" {
+		errMsg := "base_url is required for Azure OpenAI"
+		slog.Error("OpenAI client creation failed", "error", "base_url is required for Azure OpenAI", "model", cfg.Model)
+		return nil, errors.New(errMsg)
+	}
+
 	var openaiConfig openai.ClientConfig
 	if gateway := globalOptions.Gateway(); gateway == "" {
 		key := cfg.TokenKey
 		if key == "" {
-			key = "OPENAI_API_KEY"
+			if isAzureOpenAI {
+				key = "AZURE_OPENAI_API_KEY"
+			} else {
+				key = "OPENAI_API_KEY"
+			}
 		}
 		authToken := env.Get(ctx, key)
 		if authToken == "" {
+			if key == cfg.TokenKey {
+				errMsg := fmt.Sprintf("%s key configured in model config is required", key)
+				return nil, errors.New(errMsg)
+			}
+			if isAzureOpenAI {
+				return nil, errors.New("AZURE_OPENAI_API_KEY environment variable is required")
+			}
 			return nil, errors.New("OPENAI_API_KEY environment variable is required")
 		}
 
-		openaiConfig = openai.DefaultConfig(authToken)
-		if cfg.BaseURL != "" {
-			openaiConfig.BaseURL = cfg.BaseURL
+		// Configure Azure vs standard OpenAI
+		if cfg.BaseURL != "" && isAzureOpenAI {
+			azureBase := strings.ToLower(strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/"))
+			openaiConfig = openai.DefaultAzureConfig(authToken, azureBase)
+			// api-version is required by Azure; enforce presence via provider_opts.azure_api_version
+			if cfg.ProviderOpts == nil {
+				return nil, errors.New("provider_opts.azure_api_version is required for Azure OpenAI")
+			}
+			if v, ok := cfg.ProviderOpts["azure_api_version"]; !ok {
+				return nil, errors.New("provider_opts.azure_api_version is required for Azure OpenAI")
+			} else {
+				if s, ok := v.(string); !ok || s == "" {
+					return nil, errors.New("provider_opts.azure_api_version is required for Azure OpenAI")
+				} else {
+					openaiConfig.APIVersion = s
+				}
+			}
+			// allow overriding deployment name (Azure uses deployment name in URL path)
+			if v, ok := cfg.ProviderOpts["azure_deployment_name"]; ok {
+				if s, ok := v.(string); ok && s != "" {
+					name := s
+					openaiConfig.AzureModelMapperFunc = func(string) string { return name }
+				}
+			}
+		} else {
+			openaiConfig = openai.DefaultConfig(authToken)
+			if cfg.BaseURL != "" {
+				openaiConfig.BaseURL = cfg.BaseURL
+			}
 		}
 	} else {
 		authToken := desktop.GetToken(ctx)

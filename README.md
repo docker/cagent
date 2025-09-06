@@ -123,12 +123,17 @@ all theses keys are optional, you will likely need at least one of these, though
 # For OpenAI models
 export OPENAI_API_KEY=your_api_key_here
 
+# For Azure OpenAI (via OpenAI provider)
+export AZURE_OPENAI_API_KEY=your_api_key_here
+
 # For Anthropic models
 export ANTHROPIC_API_KEY=your_api_key_here
 
 # For Gemini models
 export GOOGLE_API_KEY=your_api_key_here
 ```
+
+> Azure OpenAI configuration details are in the [USAGE](./docs/USAGE.md#azure-openai-via-the-openai-provider) docs
 
 ### Run Agents!
 
