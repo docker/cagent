@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/tools"
@@ -273,17 +274,23 @@ func printTokenUsageStep(usage *runtime.Usage) {
 	fmt.Println()
 }
 
-func printToolCall(toolCall tools.ToolCall, colorFunc ...func(format string, a ...any) string) {
+func printToolCall(toolCall tools.ToolCall, showTimestamp bool, colorFunc ...func(format string, a ...any) string) {
 	c := gray
 	if len(colorFunc) > 0 && colorFunc[0] != nil {
 		c = colorFunc[0]
 	}
-	fmt.Printf("\n%s\n", c("%s%s", bold(toolCall.Function.Name), formatToolCallArguments(toolCall.Function.Arguments)))
+
+	timestampPrefix := ""
+	if showTimestamp {
+		timestampPrefix = fmt.Sprintf("[%s] ", time.Now().Format("2006-01-02 15:04:05"))
+	}
+
+	fmt.Printf("\n%s\n", c("%s%s%s", timestampPrefix, bold(toolCall.Function.Name), formatToolCallArguments(toolCall.Function.Arguments)))
 }
 
-func printToolCallWithConfirmation(toolCall tools.ToolCall, scanner *bufio.Scanner) ConfirmationResult {
+func printToolCallWithConfirmation(toolCall tools.ToolCall, showTimestamp bool, scanner *bufio.Scanner) ConfirmationResult {
 	fmt.Printf("\n%s\n", bold(yellow("🛠️ Tool call requires confirmation 🛠️")))
-	printToolCall(toolCall, color.New(color.FgWhite).SprintfFunc())
+	printToolCall(toolCall, showTimestamp, color.New(color.FgWhite).SprintfFunc())
 	fmt.Printf("\n%s", bold(yellow("Can I run this tool? ([y]es/[a]ll/[n]o): ")))
 
 	// Try single-character input from stdin in raw mode (no Enter required)

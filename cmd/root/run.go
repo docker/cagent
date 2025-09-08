@@ -40,6 +40,7 @@ var (
 	useTUI              bool
 	hideOutputFor       string
 	showTokensEveryStep bool
+	showTimestamps      bool
 )
 
 // NewRunCmd creates a new run command
@@ -68,6 +69,7 @@ func NewRunCmd() *cobra.Command {
 	helpText := fmt.Sprintf("Hide output for specific tools (comma-separated). Available: %s", strings.Join(allOptions, ","))
 	cmd.PersistentFlags().StringVar(&hideOutputFor, "hide-output-for", "", helpText)
 	cmd.PersistentFlags().BoolVar(&showTokensEveryStep, "show-tokens-every-step", false, "Show token usage after every AI API call")
+	cmd.PersistentFlags().BoolVar(&showTimestamps, "show-timestamps", false, "Show datetime timestamp before every tool call")
 	addGatewayFlags(cmd)
 
 	return cmd
@@ -341,7 +343,7 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt *runtime.Runtim
 					fmt.Println()
 					llmIsTyping = false
 				}
-				result := printToolCallWithConfirmation(e.ToolCall, scannerConfirmations)
+				result := printToolCallWithConfirmation(e.ToolCall, showTimestamps, scannerConfirmations)
 				// If interrupted, skip resuming; the runtime will notice context cancellation and stop
 				if loopCtx.Err() != nil {
 					continue
@@ -368,7 +370,7 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt *runtime.Runtim
 				}
 				// Only print if this wasn't already shown during confirmation
 				if e.ToolCall.ID != lastConfirmedToolCallID {
-					printToolCall(e.ToolCall)
+					printToolCall(e.ToolCall, showTimestamps)
 				}
 			case *runtime.ToolCallResponseEvent:
 				if llmIsTyping {

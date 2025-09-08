@@ -26,6 +26,7 @@ func NewExecCmd() *cobra.Command {
 	helpText := fmt.Sprintf("Hide output for specific tools (comma-separated). Available: %s", strings.Join(allOptions, ","))
 	cmd.PersistentFlags().StringVar(&hideOutputFor, "hide-output-for", "", helpText)
 	cmd.PersistentFlags().BoolVar(&showTokensEveryStep, "show-tokens-every-step", false, "Show token usage after every AI API call")
+	cmd.PersistentFlags().BoolVar(&showTimestamps, "show-timestamps", false, "Show datetime timestamp before every tool call")
 	addGatewayFlags(cmd)
 
 	return cmd
