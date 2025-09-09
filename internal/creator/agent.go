@@ -123,10 +123,11 @@ func CreateAgent(ctx context.Context, baseDir, prompt string, runConfig config.R
 
 func StreamCreateAgent(ctx context.Context, baseDir, prompt string, runConfig config.RuntimeConfig, providerName, modelNameOverride string, maxTokensOverride int) (<-chan runtime.Event, error) {
 	defaultModels := map[string]string{
-		"openai":    "gpt-5-mini",
-		"anthropic": "claude-sonnet-4-0",
-		"google":    "gemini-2.5-flash",
-		"dmr":       "ai/qwen3:latest",
+		"openai":     "gpt-5-mini",
+		"anthropic":  "claude-sonnet-4-0",
+		"google":     "gemini-2.5-flash",
+		"dmr":        "ai/qwen3:latest",
+		"openrouter": "anthropic/claude-sonnet-4",
 	}
 
 	var modelName string
@@ -159,6 +160,9 @@ func StreamCreateAgent(ctx context.Context, baseDir, prompt string, runConfig co
 		}
 		if os.Getenv("GOOGLE_API_KEY") != "" {
 			usableProviders = append(usableProviders, "google")
+		}
+		if os.Getenv("OPENROUTER_API_KEY") != "" {
+			usableProviders = append(usableProviders, "openrouter")
 		}
 		// DMR runs locally by default; include it when not using a gateway
 		usableProviders = append(usableProviders, "dmr")

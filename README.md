@@ -96,7 +96,7 @@ See [the USAGE docs](./docs/USAGE.md#tool-configuration) for more detailed infor
 - **🔄 Smart delegation** - Agents can automatically route tasks to the most suitable specialist.
 - **📝 YAML configuration** - Declarative model and agent configuration.
 - **💭 Advanced reasoning** - Built-in "think", "todo" and "memory" tools for complex problem-solving.
-- **🌐 Multiple AI providers** - Support for OpenAI, Anthropic, Gemini and [Docker Model Runner](https://docs.docker.com/ai/model-runner/).
+- **🌐 Multiple AI providers** - Support for OpenAI, Anthropic, OpenRouter, Gemini and [Docker Model Runner](https://docs.docker.com/ai/model-runner/).
 
 ## 🚀 Quick Start 🚀
 
@@ -128,6 +128,9 @@ export ANTHROPIC_API_KEY=your_api_key_here
 
 # For Gemini models
 export GOOGLE_API_KEY=your_api_key_here
+
+# For OpenRouter models
+export OPENROUTER_API_KEY=your_api_key_here
 ```
 
 ### Run Agents!
@@ -208,12 +211,13 @@ To use the feature, you must have an Anthropic, OpenAI or Google API key availab
 
 You can choose what provider and model gets used by passing the `--model provider/modelname` flag to `cagent new`
 
-If `--model` is unspecified, `cagent new` will automatically choose between these 3 providers in order based on the first api key it finds in your environment.
+If `--model` is unspecified, `cagent new` will automatically choose between these providers in order based on the first api key it finds in your environment.
 
 ```sh
-export ANTHROPIC_API_KEY=your_api_key_here  # first choice. default model claude-sonnet-4-0
-export OPENAI_API_KEY=your_api_key_here     # if anthropic key not set. default model gpt-5-mini
-export GOOGLE_API_KEY=your_api_key_here     # if anthropic and openai keys are not set. default model gemini-2.5-flash
+export ANTHROPIC_API_KEY=your_api_key_here   # default model claude-sonnet-4-0
+export OPENAI_API_KEY=your_api_key_here      # default model gpt-5-mini
+export GOOGLE_API_KEY=your_api_key_here      # default model gemini-2.5-flash
+export OPENROUTER_API_KEY=your_api_key_here  # default model depends on your OpenRouter route
 ```
 
 `--max-tokens` can be specified to override the context limit used.  

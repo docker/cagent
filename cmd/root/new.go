@@ -37,7 +37,7 @@ func NewNewCmd() *cobra.Command {
 			if idx := strings.Index(modelParam, "/"); idx > 0 {
 				candidate := strings.ToLower(modelParam[:idx])
 				switch candidate {
-				case "anthropic", "openai", "google", "dmr":
+				case "anthropic", "openai", "openrouter", "google", "dmr":
 					derivedProvider = candidate
 					model = modelParam[idx+1:]
 				}
@@ -48,7 +48,7 @@ func NewNewCmd() *cobra.Command {
 				modelProvider = derivedProvider
 			} else {
 				if runConfig.ModelsGateway == "" {
-					// Prefer Anthropic, then OpenAI, then Google based on available API keys
+					// Prefer Anthropic, then OpenAI, then Google, then OpenRouter based on available API keys
 					// default to DMR if no provider credentials are found
 					switch {
 					case os.Getenv("ANTHROPIC_API_KEY") != "":
@@ -60,6 +60,9 @@ func NewNewCmd() *cobra.Command {
 					case os.Getenv("GOOGLE_API_KEY") != "":
 						modelProvider = "google"
 						fmt.Printf("%s\n\n", gray("GOOGLE_API_KEY found, using Google"))
+					case os.Getenv("OPENROUTER_API_KEY") != "":
+						modelProvider = "openrouter"
+						fmt.Printf("%s\n\n", gray("OPENROUTER_API_KEY found, using OpenRouter"))
 					default:
 						modelProvider = "dmr"
 						fmt.Printf("%s\n\n", yellow("⚠️ No provider credentials found, defaulting to Docker Model Runner (DMR)"))
@@ -133,7 +136,7 @@ func NewNewCmd() *cobra.Command {
 		},
 	}
 	addGatewayFlags(cmd)
-	cmd.PersistentFlags().StringVar(&modelParam, "model", "", "Model to use, optionally as provider/model where provider is one of: anthropic, openai, google, dmr. If omitted, provider is auto-selected based on available credentials or gateway")
+	cmd.PersistentFlags().StringVar(&modelParam, "model", "", "Model to use, optionally as provider/model where provider is one of: anthropic, openai, openrouter, google, dmr. If omitted, provider is auto-selected based on available credentials or gateway")
 	cmd.PersistentFlags().IntVar(&maxTokensParam, "max-tokens", 0, "Override max_tokens for the selected model (0 = default)")
 
 	return cmd
