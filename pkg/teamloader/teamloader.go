@@ -85,14 +85,23 @@ func checkRequiredEnvVars(ctx context.Context, cfg *latest.Config, env environme
 
 	// Models
 	if runtimeConfig.ModelsGateway == "" {
-		for _, model := range cfg.Models {
-			switch model.Provider {
-			case "openai":
-				requiredEnv["OPENAI_API_KEY"] = true
-			case "anthropic":
-				requiredEnv["ANTHROPIC_API_KEY"] = true
-			case "google":
-				requiredEnv["GOOGLE_API_KEY"] = true
+		for name := range cfg.Models {
+			model := cfg.Models[name]
+			// Use the token environment variable from the alias if available
+			if alias, exists := provider.ProviderAliases[model.Provider]; exists {
+				if alias.TokenEnvVar != "" {
+					requiredEnv[alias.TokenEnvVar] = true
+				}
+			} else {
+				// Fallback to hardcoded mappings for unknown providers
+				switch model.Provider {
+				case "openai":
+					requiredEnv["OPENAI_API_KEY"] = true
+				case "anthropic":
+					requiredEnv["ANTHROPIC_API_KEY"] = true
+				case "google":
+					requiredEnv["GOOGLE_API_KEY"] = true
+				}
 			}
 		}
 
@@ -110,7 +119,7 @@ func checkRequiredEnvVars(ctx context.Context, cfg *latest.Config, env environme
 	}
 
 	// Tools
-	if runtimeConfig.ToolsGateway == "" {
+	if runtimeConfig.ToolsGateway == "" && !environment.IsInContainer() {
 		for _, agent := range cfg.Agents {
 			for i := range agent.Toolsets {
 				toolSet := agent.Toolsets[i]

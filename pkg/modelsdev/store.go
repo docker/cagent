@@ -120,7 +120,7 @@ func (s *Store) GetModel(ctx context.Context, id string) (*Model, error) {
 		id = actualID
 	}
 
-	parts := strings.Split(id, "/")
+	parts := strings.SplitN(id, "/", 2)
 	if len(parts) != 2 {
 		return nil, fmt.Errorf("invalid model ID: %q", id)
 	}

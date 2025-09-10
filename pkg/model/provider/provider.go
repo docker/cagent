@@ -16,6 +16,26 @@ import (
 	"github.com/docker/cagent/pkg/tools"
 )
 
+// Alias defines the configuration for a provider alias
+type Alias struct {
+	ApiType     string // The actual API type to use (openai, anthropic, etc.)
+	BaseURL     string // Default base URL for the provider
+	TokenEnvVar string // Environment variable name for the API token
+}
+
+// ProviderAliases maps provider names to their corresponding configurations
+var ProviderAliases = map[string]Alias{
+	"requesty": {
+		ApiType:     "openai",
+		BaseURL:     "https://router.requesty.ai/v1",
+		TokenEnvVar: "REQUESTY_API_KEY",
+	},
+	"azure": {
+		ApiType:     "openai",
+		TokenEnvVar: "AZURE_API_KEY",
+	},
+}
+
 // Provider defines the interface for model providers
 type Provider interface {
 	// ID returns the model provider ID
@@ -37,21 +57,69 @@ type Provider interface {
 func New(ctx context.Context, cfg *latest.ModelConfig, env environment.Provider, opts ...options.Opt) (Provider, error) {
 	slog.Debug("Creating model provider", "type", cfg.Provider, "model", cfg.Model)
 
-	switch cfg.Provider {
+	// Apply provider alias defaults to the config
+	enhancedCfg := applyProviderDefaults(cfg)
+	apiType := ""
+	if alias, exists := ProviderAliases[cfg.Provider]; exists {
+		apiType = alias.ApiType
+	}
+
+	// Resolve the actual API type from aliases or direct specification
+	providerType := resolveProviderType(cfg.Provider, apiType)
+
+	switch providerType {
 	case "openai":
-		return openai.NewClient(ctx, cfg, env, opts...)
+		return openai.NewClient(ctx, enhancedCfg, env, opts...)
 
 	case "anthropic":
-		return anthropic.NewClient(ctx, cfg, env, opts...)
+		return anthropic.NewClient(ctx, enhancedCfg, env, opts...)
 
 	case "google":
-		return gemini.NewClient(ctx, cfg, env, opts...)
+		return gemini.NewClient(ctx, enhancedCfg, env, opts...)
 
 	case "dmr":
-		return dmr.NewClient(ctx, cfg, opts...)
+		return dmr.NewClient(ctx, enhancedCfg, opts...)
 
 	default:
-		slog.Error("Unknown provider type", "type", cfg.Provider)
-		return nil, fmt.Errorf("unknown provider type: %s", cfg.Provider)
+		slog.Error("Unknown provider type", "type", providerType)
+		return nil, fmt.Errorf("unknown provider type: %s", providerType)
 	}
+}
+
+// applyProviderDefaults applies default configuration from provider aliases to the model config
+// This sets default base URLs and token keys if not already specified
+func applyProviderDefaults(cfg *latest.ModelConfig) *latest.ModelConfig {
+	// Create a copy to avoid modifying the original
+	enhancedCfg := *cfg
+
+	// Check if provider has alias configuration
+	if alias, exists := ProviderAliases[cfg.Provider]; exists {
+		// Set default base URL if not already specified
+		if enhancedCfg.BaseURL == "" && alias.BaseURL != "" {
+			enhancedCfg.BaseURL = alias.BaseURL
+		}
+
+		// Set default token key if not already specified
+		if enhancedCfg.TokenKey == "" && alias.TokenEnvVar != "" {
+			enhancedCfg.TokenKey = alias.TokenEnvVar
+		}
+	}
+
+	return &enhancedCfg
+}
+
+// resolveProviderType resolves the actual API type from the provider name and optional apiType
+func resolveProviderType(provider, apiType string) string {
+	// If apiType is explicitly provided, use it
+	if apiType != "" {
+		return apiType
+	}
+
+	// Check if provider has an alias mapping
+	if resolved, exists := ProviderAliases[provider]; exists {
+		return resolved.ApiType
+	}
+
+	// Fall back to the provider name itself
+	return provider
 }

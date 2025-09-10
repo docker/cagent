@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -35,11 +36,6 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 		return nil, errors.New("model configuration is required")
 	}
 
-	if cfg.Provider != "openai" {
-		slog.Error("OpenAI client creation failed", "error", "model type must be 'openai'", "actual_type", cfg.Provider)
-		return nil, errors.New("model type must be 'openai'")
-	}
-
 	var globalOptions options.ModelOptions
 	for _, opt := range opts {
 		opt(&globalOptions)
@@ -53,12 +49,30 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 		}
 		authToken := env.Get(ctx, key)
 		if authToken == "" {
-			return nil, errors.New("OPENAI_API_KEY environment variable is required")
+			return nil, fmt.Errorf("%s environment variable is required", key)
 		}
 
-		openaiConfig = openai.DefaultConfig(authToken)
+		if cfg.Provider == "azure" {
+			openaiConfig = openai.DefaultAzureConfig(authToken, cfg.BaseURL)
+		} else {
+			openaiConfig = openai.DefaultConfig(authToken)
+		}
+
 		if cfg.BaseURL != "" {
 			openaiConfig.BaseURL = cfg.BaseURL
+		}
+
+		// TODO: Move this logic to ProviderAliases as a config function
+		if cfg.ProviderOpts != nil {
+			switch cfg.Provider { //nolint:gocritic
+			case "azure":
+				if apiVersion, exists := cfg.ProviderOpts["api_version"]; exists {
+					slog.Debug("Setting API version", "api_version", apiVersion)
+					if apiVersionStr, ok := apiVersion.(string); ok {
+						openaiConfig.APIVersion = apiVersionStr
+					}
+				}
+			}
 		}
 	} else {
 		authToken := desktop.GetToken(ctx)

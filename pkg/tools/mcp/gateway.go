@@ -48,6 +48,17 @@ func (t *GatewayToolset) Instructions() string {
 }
 
 func (t *GatewayToolset) configureOnce(ctx context.Context) error {
+	if environment.IsInContainer() {
+		var err error
+		// TODO(dga): This is very temporary. Make the URL configurable.
+		t.cmdToolset, err = NewToolsetRemote("http://gateway:8811", "streaming", nil, t.toolFilter)
+		if err != nil {
+			return fmt.Errorf("creating remote MCP toolset: %w", err)
+		}
+
+		return nil
+	}
+
 	mcpServerName := gateway.ParseServerRef(t.ref)
 
 	// Check which secrets (env vars) are required by the MCP server.
