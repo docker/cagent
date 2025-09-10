@@ -39,7 +39,7 @@ Many more examples can be found [here](/examples/README.md)!
 
 ### Improving an agent with MCP tools
 
-`cagent` supports MCP servers, enabling agents to use a wide variety of external tools and services.  
+`cagent` supports MCP servers, enabling agents to use a wide variety of external tools and services.
 
 It supports three transport types: `stdio`, `http` and `sse`.
 
@@ -62,9 +62,9 @@ agents:
         ref: docker:duckduckgo # stdio transport
 ```
 
-When using a containerized server via the Docker MCP gateway, you can configure any required settings/secrets/authentication using the [Docker MCP Toolkit](https://docs.docker.com/ai/mcp-catalog-and-toolkit/toolkit/#example-use-the-github-official-mcp-server) in Docker Desktop.  
+When using a containerized server via the Docker MCP gateway, you can configure any required settings/secrets/authentication using the [Docker MCP Toolkit](https://docs.docker.com/ai/mcp-catalog-and-toolkit/toolkit/#example-use-the-github-official-mcp-server) in Docker Desktop.
 
-Aside from the containerized MCP severs the Docker MCP Gateway provides, any standard MCP server can be used with cagent!  
+Aside from the containerized MCP severs the Docker MCP Gateway provides, any standard MCP server can be used with cagent!
 
 Here's an example similar to the above but adding `read_file` and `write_file` tools from the `rust-mcp-filesystem` MCP server:
 
@@ -194,7 +194,7 @@ models:
     model: ai/qwen3
     max_tokens: 8192
     provider_opts:
-      runtime_flags: ["--ngl=33", "--repeat-penalty=1.2", ...]  # or comma/space-separated string
+      runtime_flags: ["--ngl=33", "--repeat-penalty=1.2", ...] # or comma/space-separated string
 ```
 
 The default base_url `cagent` will use for dmr providers is `http://localhost:12434/engines/llama.cpp/v1`. DMR itself might need to be enabled via [Docker Desktop's settings](https://docs.docker.com/ai/model-runner/get-started/#enable-dmr-in-docker-desktop) on MacOS and Windows, and via command line on [Docker CE on Linux](https://docs.docker.com/ai/model-runner/get-started/#enable-dmr-in-docker-engine).
@@ -268,6 +268,10 @@ cagent pull creek/pirate
 `cagent` will pull the image, extract the yaml file and place it in your working directory for ease of use.
 
 `cagent run creek.yaml` will run your newly pulled agent
+
+## Add a new model provider
+
+More details on how to add a new model provider can be found in [PROVIDERS.md](/docs/PROVIDERS.md)
 
 ## Usage
 
