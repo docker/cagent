@@ -130,6 +130,36 @@ This provides visibility into:
 
 ## 🔧 Configuration Reference
 
+### YAML Include Support
+
+cagent supports `!include` tags to include external YAML files, enabling better organization and reusability:
+
+```yaml
+# Include shared models
+models: !include shared-models.yaml
+
+# Include common toolsets  
+toolsets: !include development-toolsets.yaml
+
+# Include in nested structures
+agents:
+  root:
+    toolsets: !include common/dev-tools.yaml
+```
+
+**Benefits:**
+- **Modularity**: Split large configurations into focused files
+- **Reusability**: Share common configurations across multiple agents
+- **Maintainability**: Update shared components in one place
+- **Organization**: Keep related configurations together
+
+**Security Features:**
+- Path validation prevents directory traversal attacks
+- Circular include detection prevents infinite loops
+- Sandbox restrictions when using secure loading
+
+📖 **[Complete Include Documentation](INCLUDE_FEATURE.md)** - See detailed examples, best practices, and security information.
+
 ### Agent Properties
 
 | Property               | Type    | Description                                                     | Required |

@@ -1,6 +1,6 @@
 package v2
 
-import "github.com/stretchr/testify/assert/yaml"
+import "gopkg.in/yaml.v3"
 
 func Load(data []byte) (Config, error) {
 	var cfg Config
