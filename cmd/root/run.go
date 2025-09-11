@@ -33,12 +33,13 @@ import (
 )
 
 var (
-	agentsDir      string
-	autoApprove    bool
-	attachmentPath string
-	workingDir     string
-	useTUI         bool
-	hideOutputFor  string
+	agentsDir           string
+	autoApprove         bool
+	attachmentPath      string
+	workingDir          string
+	useTUI              bool
+	hideOutputFor       string
+	showTokensEveryStep bool
 )
 
 // NewRunCmd creates a new run command
@@ -66,6 +67,7 @@ func NewRunCmd() *cobra.Command {
 	allOptions := GetAllHideOutputOptions()
 	helpText := fmt.Sprintf("Hide output for specific tools (comma-separated). Available: %s", strings.Join(allOptions, ","))
 	cmd.PersistentFlags().StringVar(&hideOutputFor, "hide-output-for", "", helpText)
+	cmd.PersistentFlags().BoolVar(&showTokensEveryStep, "show-tokens-every-step", false, "Show token usage after every AI API call")
 	addGatewayFlags(cmd)
 
 	return cmd
@@ -306,6 +308,7 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt *runtime.Runtim
 		lastAgent := rt.CurrentAgent().Name()
 		llmIsTyping := false
 		var lastConfirmedToolCallID string
+		var lastTokenUsage *runtime.Usage
 		for event := range rt.RunStream(loopCtx, sess) {
 			if event.GetAgentName() != "" && (firstLoop || lastAgent != event.GetAgentName()) {
 				if !firstLoop {
@@ -389,6 +392,18 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt *runtime.Runtim
 					lastErr = fmt.Errorf("%s", e.Error)
 					printError(lastErr)
 				}
+			case *runtime.TokenUsageEvent:
+				// Track the latest token usage for display at the end
+				lastTokenUsage = e.Usage
+
+				// Show token usage after every step if flag is enabled
+				if showTokensEveryStep {
+					if llmIsTyping {
+						fmt.Println()
+						llmIsTyping = false
+					}
+					printTokenUsageStep(e.Usage)
+				}
 			}
 		}
 
@@ -396,6 +411,12 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt *runtime.Runtim
 		if loopCtx.Err() != nil {
 			fmt.Println(yellow("\n⚠️  agent stopped  ⚠️"))
 		}
+
+		// Display token usage and cost at the end of non-TUI runs
+		if lastTokenUsage != nil {
+			printTokenUsageSummary(lastTokenUsage)
+		}
+
 		return nil
 	}
 

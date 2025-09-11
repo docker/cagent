@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/tools"
 	"github.com/fatih/color"
 	"golang.org/x/term"
@@ -227,6 +228,49 @@ func printError(err error) {
 
 func printAgentName(agentName string) {
 	fmt.Printf("\n%s\n", blue("--- Agent: %s ---", bold(agentName)))
+}
+
+func printTokenUsageSummary(usage *runtime.Usage) {
+	totalTokens := usage.InputTokens + usage.OutputTokens
+
+	fmt.Printf("\n%s\n", gray("--- Token Usage Summary ---"))
+	fmt.Printf("%s %s\n", gray("Input tokens:"), bold(fmt.Sprintf("%d", usage.InputTokens)))
+	fmt.Printf("%s %s\n", gray("Output tokens:"), bold(fmt.Sprintf("%d", usage.OutputTokens)))
+	fmt.Printf("%s %s\n", gray("Total tokens:"), bold(fmt.Sprintf("%d", totalTokens)))
+
+	if usage.Cost > 0 {
+		fmt.Printf("%s %s\n", gray("Total cost:"), bold(fmt.Sprintf("$%.6f", usage.Cost)))
+	}
+
+	if usage.ContextLength > 0 && usage.ContextLimit > 0 {
+		contextPercent := float64(usage.ContextLength) / float64(usage.ContextLimit) * 100
+		fmt.Printf("%s %d / %d (%.1f%%)\n",
+			gray("Context usage:"),
+			usage.ContextLength,
+			usage.ContextLimit,
+			contextPercent)
+	}
+}
+
+func printTokenUsageStep(usage *runtime.Usage) {
+	totalTokens := usage.InputTokens + usage.OutputTokens
+
+	fmt.Printf("\n%s", gray("🔢 Tokens: "))
+	fmt.Printf("%s in + %s out = %s total",
+		bold(fmt.Sprintf("%d", usage.InputTokens)),
+		bold(fmt.Sprintf("%d", usage.OutputTokens)),
+		bold(fmt.Sprintf("%d", totalTokens)))
+
+	if usage.Cost > 0 {
+		fmt.Printf(" | Cost: %s", bold(fmt.Sprintf("$%.6f", usage.Cost)))
+	}
+
+	if usage.ContextLength > 0 && usage.ContextLimit > 0 {
+		contextPercent := float64(usage.ContextLength) / float64(usage.ContextLimit) * 100
+		fmt.Printf(" | Context: %.1f%%", contextPercent)
+	}
+
+	fmt.Println()
 }
 
 func printToolCall(toolCall tools.ToolCall, colorFunc ...func(format string, a ...any) string) {
