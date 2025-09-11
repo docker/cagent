@@ -122,7 +122,7 @@ func ValidateHideOutputOptions(hideOutputFor string) error {
 }
 
 // shouldHideOutput checks if output should be hidden for a given tool
-func shouldHideOutput(toolName string, hideOutputFor string) bool {
+func shouldHideOutput(toolName, hideOutputFor string) bool {
 	if hideOutputFor == "" {
 		return false
 	}
