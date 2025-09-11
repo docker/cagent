@@ -261,6 +261,12 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt *runtime.Runtim
 	// will be non-zero if the agent failed.
 	var lastErr error
 
+	// Track if this is a one-shot run (user provided a command/instruction)
+	isOneShotRun := len(args) == 2
+
+	// Track the latest token usage across all loops for interactive mode
+	var globalLastTokenUsage *runtime.Usage
+
 	oneLoop := func(text string, scannerConfirmations *bufio.Scanner) error {
 		userInput := strings.TrimSpace(text)
 		if userInput == "" {
@@ -397,6 +403,7 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt *runtime.Runtim
 			case *runtime.TokenUsageEvent:
 				// Track the latest token usage for display at the end
 				lastTokenUsage = e.Usage
+				globalLastTokenUsage = e.Usage // Also update global tracking for interactive mode
 
 				// Show token usage after every step if flag is enabled
 				if showTokensEveryStep {
@@ -414,8 +421,8 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt *runtime.Runtim
 			fmt.Println(yellow("\n⚠️  agent stopped  ⚠️"))
 		}
 
-		// Display token usage and cost at the end of non-TUI runs
-		if lastTokenUsage != nil {
+		// Display token usage and cost at the end of one-shot runs only
+		if lastTokenUsage != nil && isOneShotRun {
 			printTokenUsageSummary(lastTokenUsage)
 		}
 
@@ -438,6 +445,19 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt *runtime.Runtim
 			}
 		}
 	} else {
+		// Interactive mode - set up global signal handler for Ctrl+C
+		globalSigCh := make(chan os.Signal, 1)
+		signal.Notify(globalSigCh, os.Interrupt)
+		go func() {
+			<-globalSigCh
+			// Display token summary if available
+			if globalLastTokenUsage != nil {
+				printTokenUsageSummary(globalLastTokenUsage)
+			}
+			os.Exit(0)
+		}()
+		defer signal.Stop(globalSigCh)
+
 		printWelcomeMessage()
 		scanner := bufio.NewScanner(os.Stdin)
 		firstQuestion := true
