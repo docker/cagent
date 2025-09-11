@@ -43,6 +43,7 @@ $ cagent run config.yaml --hide-output-for=file-ops,shell  # Hide verbose tool o
 
 # Non-interactive execution (shows token usage summary at end)
 $ cagent run config.yaml "message" --tui=false --yolo
+$ cagent run config.yaml --show-timestamps --show-tokens-every-step  # Debugging
 $ cagent exec config.yaml --yolo        # Execute with default instructions
 
 # API Server (HTTP REST API)
@@ -670,11 +671,20 @@ cagent supports distributing via, and running agents from, Docker registries:
 
 ### Debug Mode
 
-Enable debug logging for detailed information:
+Enable debug logging and additional monitoring:
 
 ```bash
-# CLI mode
+# Basic debug logging
 ./bin/cagent run config.yaml --debug
+
+# Add timestamps to tool calls
+./bin/cagent run config.yaml --show-timestamps
+
+# Show token usage after each API call
+./bin/cagent run config.yaml --show-tokens-every-step
+
+# Combine for comprehensive monitoring
+./bin/cagent run config.yaml --debug --show-timestamps --show-tokens-every-step
 ```
 
 ### Log Analysis
