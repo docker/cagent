@@ -625,6 +625,82 @@ func TestFilesystemTool_StartStop(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestFilesystemTool_PostEditCommands(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	testFile := filepath.Join(tmpDir, "test.go")
+	testContent := `package main
+
+func main() {
+	fmt.Println("hello")
+}`
+
+	postEditConfigs := []PostEditConfig{
+		{
+			Path: "*.go",
+			Cmd:  "touch $path.formatted",
+		},
+	}
+	tool := NewFilesystemTool([]string{tmpDir}, WithPostEditCommands(postEditConfigs))
+
+	formattedFile := testFile + ".formatted"
+	t.Run("write_file", func(t *testing.T) {
+		handler := getToolHandler(t, tool, "write_file")
+
+		// Use proper JSON marshaling for the arguments
+		args := map[string]any{
+			"path":    testFile,
+			"content": testContent,
+		}
+		argsBytes, err := json.Marshal(args)
+		require.NoError(t, err)
+
+		toolCall := tools.ToolCall{
+			Function: tools.FunctionCall{
+				Arguments: string(argsBytes),
+			},
+		}
+
+		result, err := handler(t.Context(), toolCall)
+		require.NoError(t, err)
+		assert.Contains(t, result.Output, "File written successfully")
+
+		_, err = os.Stat(formattedFile)
+		require.NoError(t, err, "Post-edit command should have created formatted file")
+		require.NoError(t, os.Remove(formattedFile))
+	})
+
+	t.Run("edit_file", func(t *testing.T) {
+		editHandler := getToolHandler(t, tool, "edit_file")
+
+		editArgs := map[string]any{
+			"path": testFile,
+			"edits": []map[string]any{
+				{
+					"oldText": "fmt.Println",
+					"newText": "fmt.Printf",
+				},
+			},
+		}
+		editArgsBytes, err := json.Marshal(editArgs)
+		require.NoError(t, err)
+
+		editCall := tools.ToolCall{
+			Function: tools.FunctionCall{
+				Arguments: string(editArgsBytes),
+			},
+		}
+
+		editResult, err := editHandler(t.Context(), editCall)
+		require.NoError(t, err)
+		assert.Contains(t, editResult.Output, "File edited successfully")
+
+		// Check that post-edit was run again
+		_, err = os.Stat(formattedFile)
+		require.NoError(t, err, "Post-edit command should have run after edit")
+	})
+}
+
 // Helper functions
 
 func getToolHandler(t *testing.T, tool *FilesystemTool, toolName string) tools.ToolHandler {
