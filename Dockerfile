@@ -32,7 +32,7 @@ RUN --mount=type=bind,from=osxcross,src=/osxsdk,target=/xx-sdk \
     --mount=source=/tmp/.ldflags,target=/tmp/.ldflags,from=ldflags <<EOT
     set -ex
     xx-go build -trimpath -ldflags "$(cat /tmp/.ldflags)" -o /binaries/cagent-$TARGETOS-$TARGETARCH .
-    xx-verify --static /binaries/cagent-darwin-$TARGETARCH
+    xx-verify --static /binaries/cagent-$TARGETOS-$TARGETARCH
 EOT
 
 FROM builder-base AS builder-linux
@@ -44,7 +44,7 @@ RUN --mount=type=cache,target=/root/.cache,id=docker-ai-$TARGETPLATFORM \
     --mount=source=/tmp/.ldflags,target=/tmp/.ldflags,from=ldflags <<EOT
     set -ex
     xx-go build -trimpath -ldflags "-linkmode=external -extldflags '-static' $(cat /tmp/.ldflags)" -o /binaries/cagent-$TARGETOS-$TARGETARCH .
-    xx-verify --static /binaries/cagent-linux-$TARGETARCH
+    xx-verify --static /binaries/cagent-$TARGETOS-$TARGETARCH
 EOT
 
 FROM builder-base AS builder-windows
@@ -56,7 +56,7 @@ RUN --mount=type=cache,target=/root/.cache,id=docker-ai-$TARGETPLATFORM \
     set -ex
     CC="zig cc -target x86_64-windows-gnu" CXX="zig c++ -target x86_64-windows-gnu"  xx-go build -trimpath -ldflags "$(cat /tmp/.ldflags)" -o /binaries/cagent-$TARGETOS-$TARGETARCH .
     mv /binaries/cagent-$TARGETOS-$TARGETARCH /binaries/cagent-$TARGETOS-$TARGETARCH.exe
-    xx-verify --static /binaries/cagent-windows-$TARGETARCH.exe
+    xx-verify --static /binaries/cagent-$TARGETOS-$TARGETARCH.exe
 EOT
 
 FROM builder-$TARGETOS AS builder
