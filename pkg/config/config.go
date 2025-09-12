@@ -83,12 +83,18 @@ func loadConfig(path string) (*latest.Config, error) {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
+	// Process includes before parsing
+	processedData, err := processIncludes(data, filepath.Dir(path))
+	if err != nil {
+		return nil, fmt.Errorf("failed to process includes: %w", err)
+	}
+
 	var raw map[string]any
-	if err := yaml.Unmarshal(data, &raw); err != nil {
+	if err := yaml.Unmarshal(processedData, &raw); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
-	oldConfig, err := parseCurrentVersion(data, raw["version"])
+	oldConfig, err := parseCurrentVersion(processedData, raw["version"])
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
@@ -185,4 +191,127 @@ func autoRegisterModel(cfg *latest.Config, provider, model string) {
 
 func boolPtr(b bool) *bool {
 	return &b
+}
+
+// processIncludes processes !include tags in YAML data
+func processIncludes(data []byte, baseDir string) ([]byte, error) {
+	var node yaml.Node
+	if err := yaml.Unmarshal(data, &node); err != nil {
+		return nil, fmt.Errorf("failed to parse YAML for include processing: %w", err)
+	}
+
+	if err := processIncludeNode(&node, baseDir, make(map[string]bool)); err != nil {
+		return nil, err
+	}
+
+	processedData, err := yaml.Marshal(&node)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal processed YAML: %w", err)
+	}
+
+	return processedData, nil
+}
+
+// processIncludeNode recursively processes include tags in a YAML node
+func processIncludeNode(node *yaml.Node, baseDir string, visited map[string]bool) error {
+	switch node.Kind {
+	case yaml.DocumentNode:
+		for _, child := range node.Content {
+			if err := processIncludeNode(child, baseDir, visited); err != nil {
+				return err
+			}
+		}
+	case yaml.MappingNode:
+		for i := 0; i < len(node.Content); i += 2 {
+			valueNode := node.Content[i+1]
+
+			// Check for !include tag
+			if valueNode.Tag == "!include" {
+				if err := processIncludeTag(valueNode, baseDir, visited); err != nil {
+					return err
+				}
+			} else {
+				// Recursively process the value node
+				if err := processIncludeNode(valueNode, baseDir, visited); err != nil {
+					return err
+				}
+			}
+		}
+	case yaml.SequenceNode:
+		for _, child := range node.Content {
+			// Check for !include tag in sequence items
+			if child.Tag == "!include" {
+				if err := processIncludeTag(child, baseDir, visited); err != nil {
+					return err
+				}
+			} else {
+				// Recursively process the child node
+				if err := processIncludeNode(child, baseDir, visited); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// processIncludeTag handles the actual include processing for a single node
+func processIncludeTag(node *yaml.Node, baseDir string, visited map[string]bool) error {
+	includePath := strings.TrimSpace(node.Value)
+	if includePath == "" {
+		return fmt.Errorf("empty include path")
+	}
+
+	// Resolve include path
+	var fullPath string
+	if filepath.IsAbs(includePath) {
+		fullPath = includePath
+	} else {
+		fullPath = filepath.Join(baseDir, includePath)
+	}
+
+	// Validate path security
+	validatedPath, err := ValidatePathInDirectory(fullPath, baseDir)
+	if err != nil {
+		return fmt.Errorf("include path validation failed for '%s': %w", includePath, err)
+	}
+
+	// Check for circular includes
+	absPath, _ := filepath.Abs(validatedPath)
+	if visited[absPath] {
+		return fmt.Errorf("circular include detected: %s", includePath)
+	}
+
+	// Read included file
+	includeData, err := os.ReadFile(validatedPath)
+	if err != nil {
+		return fmt.Errorf("failed to read include file '%s': %w", includePath, err)
+	}
+
+	// Parse included YAML
+	var includeNode yaml.Node
+	if err := yaml.Unmarshal(includeData, &includeNode); err != nil {
+		return fmt.Errorf("failed to parse include file '%s': %w", includePath, err)
+	}
+
+	// Track this file as visited for circular detection
+	newVisited := make(map[string]bool)
+	for k, v := range visited {
+		newVisited[k] = v
+	}
+	newVisited[absPath] = true
+
+	// Process includes in the included file
+	includeBaseDir := filepath.Dir(validatedPath)
+	if err := processIncludeNode(&includeNode, includeBaseDir, newVisited); err != nil {
+		return err
+	}
+
+	// Replace the !include node with the content
+	if len(includeNode.Content) > 0 && includeNode.Content[0] != nil {
+		*node = *includeNode.Content[0]
+	}
+
+	return nil
 }

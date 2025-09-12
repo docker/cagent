@@ -1,0 +1,4 @@
+# Common development toolsets for code-related agents
+- type: shell
+- type: filesystem  
+- type: todo

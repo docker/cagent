@@ -113,7 +113,7 @@ func NewNewCmd() *cobra.Command {
 						fmt.Println()
 						llmIsTyping = false
 					}
-					printToolCall(e.ToolCall)
+					printToolCall(e.ToolCall, false)
 				case *runtime.ToolCallResponseEvent:
 					if llmIsTyping {
 						fmt.Println()

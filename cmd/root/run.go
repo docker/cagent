@@ -33,11 +33,14 @@ import (
 )
 
 var (
-	agentsDir      string
-	autoApprove    bool
-	attachmentPath string
-	workingDir     string
-	useTUI         bool
+	agentsDir           string
+	autoApprove         bool
+	attachmentPath      string
+	workingDir          string
+	useTUI              bool
+	hideOutputFor       string
+	showTokensEveryStep bool
+	showTimestamps      bool
 )
 
 // NewRunCmd creates a new run command
@@ -62,6 +65,11 @@ func NewRunCmd() *cobra.Command {
 	cmd.PersistentFlags().BoolVar(&autoApprove, "yolo", false, "Automatically approve all tool calls without prompting")
 	cmd.PersistentFlags().StringVar(&attachmentPath, "attach", "", "Attach an image file to the message")
 	cmd.PersistentFlags().BoolVar(&useTUI, "tui", true, "Run the agent with a Terminal User Interface (TUI)")
+	allOptions := GetAllHideOutputOptions()
+	helpText := fmt.Sprintf("Hide output for specific tools (comma-separated). Available: %s", strings.Join(allOptions, ","))
+	cmd.PersistentFlags().StringVar(&hideOutputFor, "hide-output-for", "", helpText)
+	cmd.PersistentFlags().BoolVar(&showTokensEveryStep, "show-tokens-every-step", false, "Show token usage after every AI API call")
+	cmd.PersistentFlags().BoolVar(&showTimestamps, "show-timestamps", false, "Show datetime timestamp before every tool call")
 	addGatewayFlags(cmd)
 
 	return cmd
@@ -82,6 +90,11 @@ func NewTuiCmd() *cobra.Command {
 func runCommand(_ *cobra.Command, args []string, exec bool) error {
 	// Track the run command
 	telemetry.TrackCommand("run", args)
+
+	// Validate hide-output-for options
+	if err := ValidateHideOutputOptions(hideOutputFor); err != nil {
+		return err
+	}
 
 	ctx := context.Background()
 
@@ -248,6 +261,12 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt *runtime.Runtim
 	// will be non-zero if the agent failed.
 	var lastErr error
 
+	// Track if this is a one-shot run (user provided a command/instruction)
+	isOneShotRun := len(args) == 2
+
+	// Track the latest token usage across all loops for interactive mode
+	var globalLastTokenUsage *runtime.Usage
+
 	oneLoop := func(text string, scannerConfirmations *bufio.Scanner) error {
 		userInput := strings.TrimSpace(text)
 		if userInput == "" {
@@ -297,6 +316,7 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt *runtime.Runtim
 		lastAgent := rt.CurrentAgent().Name()
 		llmIsTyping := false
 		var lastConfirmedToolCallID string
+		var lastTokenUsage *runtime.Usage
 		for event := range rt.RunStream(loopCtx, sess) {
 			if event.GetAgentName() != "" && (firstLoop || lastAgent != event.GetAgentName()) {
 				if !firstLoop {
@@ -329,7 +349,7 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt *runtime.Runtim
 					fmt.Println()
 					llmIsTyping = false
 				}
-				result := printToolCallWithConfirmation(e.ToolCall, scannerConfirmations)
+				result := printToolCallWithConfirmation(e.ToolCall, showTimestamps, scannerConfirmations)
 				// If interrupted, skip resuming; the runtime will notice context cancellation and stop
 				if loopCtx.Err() != nil {
 					continue
@@ -356,14 +376,14 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt *runtime.Runtim
 				}
 				// Only print if this wasn't already shown during confirmation
 				if e.ToolCall.ID != lastConfirmedToolCallID {
-					printToolCall(e.ToolCall)
+					printToolCall(e.ToolCall, showTimestamps)
 				}
 			case *runtime.ToolCallResponseEvent:
 				if llmIsTyping {
 					fmt.Println()
 					llmIsTyping = false
 				}
-				printToolCallResponse(e.ToolCall, e.Response)
+				printToolCallResponse(e.ToolCall, e.Response, hideOutputFor)
 				// Clear the confirmed ID after the tool completes
 				if e.ToolCall.ID == lastConfirmedToolCallID {
 					lastConfirmedToolCallID = ""
@@ -380,6 +400,19 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt *runtime.Runtim
 					lastErr = fmt.Errorf("%s", e.Error)
 					printError(lastErr)
 				}
+			case *runtime.TokenUsageEvent:
+				// Track the latest token usage for display at the end
+				lastTokenUsage = e.Usage
+				globalLastTokenUsage = e.Usage // Also update global tracking for interactive mode
+
+				// Show token usage after every step if flag is enabled
+				if showTokensEveryStep {
+					if llmIsTyping {
+						fmt.Println()
+						llmIsTyping = false
+					}
+					printTokenUsageStep(e.Usage)
+				}
 			}
 		}
 
@@ -387,6 +420,12 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt *runtime.Runtim
 		if loopCtx.Err() != nil {
 			fmt.Println(yellow("\n⚠️  agent stopped  ⚠️"))
 		}
+
+		// Display token usage and cost at the end of one-shot runs only
+		if lastTokenUsage != nil && isOneShotRun {
+			printTokenUsageSummary(lastTokenUsage)
+		}
+
 		return nil
 	}
 
@@ -406,6 +445,19 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt *runtime.Runtim
 			}
 		}
 	} else {
+		// Interactive mode - set up global signal handler for Ctrl+C
+		globalSigCh := make(chan os.Signal, 1)
+		signal.Notify(globalSigCh, os.Interrupt)
+		go func() {
+			<-globalSigCh
+			// Display token summary if available
+			if globalLastTokenUsage != nil {
+				printTokenUsageSummary(globalLastTokenUsage)
+			}
+			os.Exit(0)
+		}()
+		defer signal.Stop(globalSigCh)
+
 		printWelcomeMessage()
 		scanner := bufio.NewScanner(os.Stdin)
 		firstQuestion := true

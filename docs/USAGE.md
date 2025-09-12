@@ -39,6 +39,12 @@ cagent provides multiple interfaces and deployment modes:
 $ cagent run config.yaml
 $ cagent run config.yaml -a agent_name  # Run specific agent
 $ cagent run config.yaml --debug        # Enable debug logging
+$ cagent run config.yaml --hide-output-for=file-ops,shell  # Hide verbose tool output
+
+# Non-interactive execution (shows token usage summary at end)
+$ cagent run config.yaml "message" --tui=false --yolo
+$ cagent run config.yaml --show-timestamps --show-tokens-every-step  # Debugging
+$ cagent exec config.yaml --yolo        # Execute with default instructions
 
 # API Server (HTTP REST API)
 $ cagent api config.yaml
@@ -65,6 +71,56 @@ During CLI sessions, you can use special commands:
 | `/eval`    | Save current conversation for evaluation    |
 | `/compact` | Compact conversation to lower context usage |
 
+#### Output Control
+
+Control the verbosity of tool execution output:
+
+```bash
+# Hide output from all file operations
+$ cagent run config.yaml --hide-output-for=file-ops
+
+# Hide output from shell commands (see commands but not their output)
+$ cagent run config.yaml --hide-output-for=shell
+
+# Hide output from specific tools
+$ cagent run config.yaml --hide-output-for=read_file,write_file,think
+
+# Hide output from all tools
+$ cagent run config.yaml --hide-output-for=all
+
+# Combine with other flags for clean automation
+$ cagent run config.yaml "message" --tui=false --yolo --hide-output-for=file-ops,shell
+```
+
+**Available options:**
+- `all` - Hide output from all tools
+- `file-ops` - Hide output from file operations (read_file, write_file, list_files, etc.)
+- Specific tool names: `shell`, `read_file`, `write_file`, `think`, etc.
+- Comma-separated combinations for granular control
+
+**What you see:**
+- ✅ Tool calls: `shell(cmd: "ls -la", cwd: ".")`
+- ✅ Agent responses and reasoning
+- ❌ Verbose tool output: Shows `shell response → (output hidden)` instead of full command output
+
+#### Token Usage Display
+
+Non-TUI runs automatically show a token usage summary at the end:
+
+```
+--- Token Usage Summary ---
+Input tokens: 29
+Output tokens: 23
+Total tokens: 52
+Total cost: $0.000018
+Context usage: 52 / 128000 (0.0%)
+```
+
+This provides visibility into:
+- **Input/Output tokens**: Breakdown of token consumption
+- **Total cost**: Calculated cost based on model pricing
+- **Context usage**: How much of the model's context window was used
+
 #### MCP Server Mode
 
 - **External client integration**: Works with Claude Code, Cursor, and other MCP clients
@@ -74,6 +130,36 @@ During CLI sessions, you can use special commands:
 - **Multi-client support**: Handle multiple concurrent MCP clients
 
 ## 🔧 Configuration Reference
+
+### YAML Include Support
+
+cagent supports `!include` tags to include external YAML files, enabling better organization and reusability:
+
+```yaml
+# Include shared models
+models: !include shared-models.yaml
+
+# Include common toolsets  
+toolsets: !include development-toolsets.yaml
+
+# Include in nested structures
+agents:
+  root:
+    toolsets: !include common/dev-tools.yaml
+```
+
+**Benefits:**
+- **Modularity**: Split large configurations into focused files
+- **Reusability**: Share common configurations across multiple agents
+- **Maintainability**: Update shared components in one place
+- **Organization**: Keep related configurations together
+
+**Security Features:**
+- Path validation prevents directory traversal attacks
+- Circular include detection prevents infinite loops
+- Sandbox restrictions when using secure loading
+
+📖 **[Complete Include Documentation](INCLUDE_FEATURE.md)** - See detailed examples, best practices, and security information.
 
 ### Agent Properties
 
@@ -585,11 +671,20 @@ cagent supports distributing via, and running agents from, Docker registries:
 
 ### Debug Mode
 
-Enable debug logging for detailed information:
+Enable debug logging and additional monitoring:
 
 ```bash
-# CLI mode
+# Basic debug logging
 ./bin/cagent run config.yaml --debug
+
+# Add timestamps to tool calls
+./bin/cagent run config.yaml --show-timestamps
+
+# Show token usage after each API call
+./bin/cagent run config.yaml --show-tokens-every-step
+
+# Combine for comprehensive monitoring
+./bin/cagent run config.yaml --debug --show-timestamps --show-tokens-every-step
 ```
 
 ### Log Analysis
