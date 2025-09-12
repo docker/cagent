@@ -1,15 +1,17 @@
 # syntax=docker/dockerfile:1
 
 # xx is a helper for cross-compilation
-FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.7.0 AS xx
+FROM --platform=$BUILDPLATFORM crazymax/xx:zig AS xx
 
 # osxcross contains the MacOSX cross toolchain for xx
 FROM crazymax/osxcross:14.5-r0-debian AS osxcross
 
 FROM --platform=$BUILDPLATFORM golang:1.25.0-alpine3.22 AS builder-base
+RUN apk add clang file
 COPY --from=xx / /
 ENV CGO_ENABLED=1
 ARG TARGETPLATFORM TARGETOS TARGETARCH
+RUN xx-apk add xx-c-essentials
 WORKDIR /src
 
 FROM builder-base AS ldflags
@@ -24,7 +26,6 @@ RUN --mount=type=secret,id=telemetry_api_key,env=TELEMETRY_API_KEY \
 EOT
 
 FROM builder-base AS builder-darwin
-RUN apk add clang
 COPY . ./
 RUN --mount=type=bind,from=osxcross,src=/osxsdk,target=/xx-sdk \
     --mount=type=cache,target=/root/.cache,id=docker-ai-$TARGETPLATFORM \
@@ -32,30 +33,32 @@ RUN --mount=type=bind,from=osxcross,src=/osxsdk,target=/xx-sdk \
     --mount=source=/tmp/.ldflags,target=/tmp/.ldflags,from=ldflags <<EOT
     set -ex
     xx-go build -trimpath -ldflags "$(cat /tmp/.ldflags)" -o /binaries/cagent-$TARGETOS-$TARGETARCH .
+    file /binaries/cagent-$TARGETOS-$TARGETARCH
     xx-verify --static /binaries/cagent-$TARGETOS-$TARGETARCH
 EOT
 
 FROM builder-base AS builder-linux
-RUN apk add clang
-RUN xx-apk add libx11-dev musl-dev gcc
+RUN xx-apk add libx11-dev
 COPY . ./
 RUN --mount=type=cache,target=/root/.cache,id=docker-ai-$TARGETPLATFORM \
     --mount=type=cache,target=/go/pkg/mod \
     --mount=source=/tmp/.ldflags,target=/tmp/.ldflags,from=ldflags <<EOT
     set -ex
     xx-go build -trimpath -ldflags "-linkmode=external -extldflags '-static' $(cat /tmp/.ldflags)" -o /binaries/cagent-$TARGETOS-$TARGETARCH .
+    file /binaries/cagent-$TARGETOS-$TARGETARCH
     xx-verify --static /binaries/cagent-$TARGETOS-$TARGETARCH
 EOT
 
 FROM builder-base AS builder-windows
-RUN apk add zig build-base
+RUN apk add zig
 COPY . ./
 RUN --mount=type=cache,target=/root/.cache,id=docker-ai-$TARGETPLATFORM \
     --mount=type=cache,target=/go/pkg/mod \
     --mount=source=/tmp/.ldflags,target=/tmp/.ldflags,from=ldflags <<EOT
     set -ex
-    CC="zig cc -target x86_64-windows-gnu" CXX="zig c++ -target x86_64-windows-gnu"  xx-go build -trimpath -ldflags "$(cat /tmp/.ldflags)" -o /binaries/cagent-$TARGETOS-$TARGETARCH .
+    xx-go build -trimpath -ldflags "$(cat /tmp/.ldflags)" -o /binaries/cagent-$TARGETOS-$TARGETARCH .
     mv /binaries/cagent-$TARGETOS-$TARGETARCH /binaries/cagent-$TARGETOS-$TARGETARCH.exe
+    file /binaries/cagent-$TARGETOS-$TARGETARCH.exe
     xx-verify --static /binaries/cagent-$TARGETOS-$TARGETARCH.exe
 EOT
 
