@@ -130,6 +130,10 @@ export ANTHROPIC_API_KEY=your_api_key_here
 export GOOGLE_API_KEY=your_api_key_here
 ```
 
+### Docker Desktop Integration
+
+`cagent` includes optional Docker Desktop integration for enhanced AI Gateway features. For minimal deployments or environments without Docker Desktop, you can build without this dependency by using "no_docker_desktop" Go build tag.
+
 ### Run Agents!
 
 ```bash

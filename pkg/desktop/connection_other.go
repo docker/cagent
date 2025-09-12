@@ -1,5 +1,5 @@
-//go:build !windows
-// +build !windows
+//go:build !no_docker_desktop && !windows
+// +build !no_docker_desktop,!windows
 
 package desktop
 
