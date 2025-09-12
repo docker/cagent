@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # xx is a helper for cross-compilation
-FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.6.1 AS xx
+FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.7.0 AS xx
 
 # osxcross contains the MacOSX cross toolchain for xx
 FROM crazymax/osxcross:14.5-r0-debian AS osxcross
