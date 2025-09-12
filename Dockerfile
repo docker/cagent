@@ -33,7 +33,7 @@ RUN --mount=type=bind,from=osxcross,src=/osxsdk,target=/xx-sdk \
     --mount=type=secret,id=telemetry_api_key \
     --mount=type=secret,id=telemetry_endpoint \
     --mount=type=secret,id=telemetry_header <<EOT
-    set -x
+    set -ex
     TELEMETRY_API_KEY=$(cat /run/secrets/telemetry_api_key 2>/dev/null || echo "")
     TELEMETRY_ENDPOINT=$(cat /run/secrets/telemetry_endpoint 2>/dev/null || echo "")
     TELEMETRY_HEADER=$(cat /run/secrets/telemetry_header 2>/dev/null || echo "")
@@ -50,7 +50,7 @@ RUN --mount=type=cache,target=/root/.cache,id=docker-ai-$TARGETPLATFORM \
     --mount=type=secret,id=telemetry_api_key \
     --mount=type=secret,id=telemetry_endpoint \
     --mount=type=secret,id=telemetry_header <<EOT
-    set -x
+    set -ex
     TELEMETRY_API_KEY=$(cat /run/secrets/telemetry_api_key 2>/dev/null || echo "")
     TELEMETRY_ENDPOINT=$(cat /run/secrets/telemetry_endpoint 2>/dev/null || echo "")
     TELEMETRY_HEADER=$(cat /run/secrets/telemetry_header 2>/dev/null || echo "")
@@ -66,7 +66,7 @@ RUN --mount=type=cache,target=/root/.cache,id=docker-ai-$TARGETPLATFORM \
     --mount=type=secret,id=telemetry_api_key \
     --mount=type=secret,id=telemetry_endpoint \
     --mount=type=secret,id=telemetry_header <<EOT
-    set -x
+    set -ex
     TELEMETRY_API_KEY=$(cat /run/secrets/telemetry_api_key 2>/dev/null || echo "")
     TELEMETRY_ENDPOINT=$(cat /run/secrets/telemetry_endpoint 2>/dev/null || echo "")
     TELEMETRY_HEADER=$(cat /run/secrets/telemetry_header 2>/dev/null || echo "")
