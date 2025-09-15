@@ -267,3 +267,19 @@ func (e *StreamStoppedEvent) GetAgentName() string {
 }
 
 func (e *StreamStoppedEvent) isEvent() {}
+
+type AuthorizationRequiredEvent struct {
+	Type string `json:"type"`
+}
+
+func AuthorizationRequired() Event {
+	return &AuthorizationRequiredEvent{
+		Type: "authorization_required",
+	}
+}
+
+func (e *AuthorizationRequiredEvent) isEvent() {}
+
+func (e *AuthorizationRequiredEvent) GetAgentName() string {
+	return ""
+}

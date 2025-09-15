@@ -1,5 +1,6 @@
 *
 !/go.mod
 !/go.sum
+!./**/*.template
 !./**/*.go
 !./**/*.txt

@@ -16,12 +16,14 @@ type StreamAdapter struct {
 	stream           *openai.ChatCompletionStream
 	lastFinishReason chat.FinishReason
 	toolCalls        map[int]string
+	trackUsage       bool
 }
 
-func NewStreamAdapter(stream *openai.ChatCompletionStream) *StreamAdapter {
+func NewStreamAdapter(stream *openai.ChatCompletionStream, trackUsage bool) *StreamAdapter {
 	return &StreamAdapter{
-		stream:    stream,
-		toolCalls: make(map[int]string),
+		stream:     stream,
+		toolCalls:  make(map[int]string),
+		trackUsage: trackUsage,
 	}
 }
 
@@ -64,7 +66,7 @@ func (a *StreamAdapter) Recv() (chat.MessageStreamResponse, error) {
 	// Convert the choices
 	for i := range openaiResponse.Choices {
 		choice := &openaiResponse.Choices[i]
-		if choice.FinishReason == openai.FinishReasonStop {
+		if a.trackUsage && choice.FinishReason == openai.FinishReasonStop {
 			choice.FinishReason = openai.FinishReasonNull
 		}
 

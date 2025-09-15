@@ -11,7 +11,7 @@ vars:
   BUILD_DATE:
     sh: date -u +"%Y-%m-%dT%H:%M:%SZ"
   GO_SOURCES: "**/*.go"
-  BUILD_ARGS: '--build-arg GIT_TAG="{{.GIT_TAG}}" --build-arg GIT_COMMIT="{{.GIT_COMMIT}}" --build-arg BUILD_DATE="{{.BUILD_DATE}}" --build-arg TELEMETRY_ENDPOINT="{{.TELEMETRY_ENDPOINT}}" --build-arg TELEMETRY_API_KEY="{{.TELEMETRY_API_KEY}}" --build-arg TELEMETRY_HEADER="{{.TELEMETRY_HEADER}}"'
+  BUILD_ARGS: '--build-arg GIT_TAG="{{.GIT_TAG}}" --build-arg GIT_COMMIT="{{.GIT_COMMIT}}" --build-arg BUILD_DATE="{{.BUILD_DATE}}" --secret id=telemetry_api_key,env=TELEMETRY_API_KEY --secret id=telemetry_endpoint,env=TELEMETRY_ENDPOINT --secret id=telemetry_header,env=TELEMETRY_HEADER'
   LDFLAGS: '-X "github.com/docker/cagent/internal/version.Version={{.GIT_TAG}}" -X "github.com/docker/cagent/internal/version.Commit={{.GIT_COMMIT}}" -X "github.com/docker/cagent/internal/version.BuildTime={{.BUILD_DATE}}" -X "github.com/docker/cagent/internal/telemetry.TelemetryEndpoint={{.TELEMETRY_ENDPOINT}}" -X "github.com/docker/cagent/internal/telemetry.TelemetryAPIKey={{.TELEMETRY_API_KEY}}" -X "github.com/docker/cagent/internal/telemetry.TelemetryHeader={{.TELEMETRY_HEADER}}"'
 
 tasks:
@@ -24,6 +24,7 @@ tasks:
       - go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.BINARY_NAME}} {{.MAIN_PKG}}
     sources:
       - "{{.GO_SOURCES}}"
+      - "**/*.template"
       - "**/*.txt"
       - "go.mod"
       - "go.sum"
@@ -63,3 +64,7 @@ tasks:
   cross:
     desc: Build binaries for multiple platforms
     cmd: docker buildx build --target=cross {{.BUILD_ARGS}} --platform linux/amd64,linux/arm64,darwin/amd64,darwin/arm64,windows/amd64 --output=./dist .
+
+  build-image:
+    desc: Build Docker image
+    cmd: docker buildx build -t docker/cagent:latest {{.BUILD_ARGS}} .

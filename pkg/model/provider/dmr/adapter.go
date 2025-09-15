@@ -8,6 +8,6 @@ import (
 )
 
 // newStreamAdapter returns the shared OpenAI stream adapter implementation
-func newStreamAdapter(stream *openai.ChatCompletionStream) chat.MessageStream {
-	return oaistream.NewStreamAdapter(stream)
+func newStreamAdapter(stream *openai.ChatCompletionStream, trackUsage bool) chat.MessageStream {
+	return oaistream.NewStreamAdapter(stream, trackUsage)
 }

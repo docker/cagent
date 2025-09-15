@@ -85,6 +85,10 @@ improvements to the code. It can also fix issues and implement new features!
 
 More info about the architecture behind `cagent` can be found [here](/docs/architecture.md)
 
+## Add a new model provider
+
+More details on how to add a new model provider can be found in [PROVIDERS.md](/docs/PROVIDERS.md)
+
 ## Opening issues
 
 Issues can be opened on our repo [here](https://github.com/docker/cagent/issues).  

@@ -291,6 +291,11 @@ func (c *Client) CreateChatCompletionStream(
 		return nil, errors.New("at least one message is required")
 	}
 
+	trackUsage := true
+	if c.config.TrackUsage != nil && *c.config.TrackUsage == false {
+		trackUsage = false
+	}
+
 	request := openai.ChatCompletionRequest{
 		Model:            c.config.Model,
 		Messages:         convertMessages(messages),
@@ -300,7 +305,7 @@ func (c *Client) CreateChatCompletionStream(
 		PresencePenalty:  float32(c.config.PresencePenalty),
 		Stream:           true,
 		StreamOptions: &openai.StreamOptions{
-			IncludeUsage: true,
+			IncludeUsage: trackUsage,
 		},
 	}
 
@@ -356,7 +361,7 @@ func (c *Client) CreateChatCompletionStream(
 	}
 
 	slog.Debug("DMR chat completion stream created successfully", "model", c.config.Model)
-	return newStreamAdapter(stream), nil
+	return newStreamAdapter(stream, trackUsage), nil
 }
 
 func (c *Client) CreateChatCompletion(

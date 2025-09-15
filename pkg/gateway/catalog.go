@@ -30,6 +30,7 @@ func RequiredEnvVars(ctx context.Context, serverName, catalogURL string) ([]Secr
 	return server.Secrets, nil
 }
 
+// TODO(dga): cache the catalog.
 func readCatalog(ctx context.Context, url string) (Catalog, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {

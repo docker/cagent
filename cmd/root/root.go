@@ -105,6 +105,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.AddCommand(NewDebugCmd())
 	cmd.AddCommand(NewFeedbackCmd())
 	cmd.AddCommand(NewCatalogCmd())
+	cmd.AddCommand(NewBuildCmd())
 
 	return cmd
 }

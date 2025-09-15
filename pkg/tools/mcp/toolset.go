@@ -29,10 +29,10 @@ func NewToolsetCommand(command string, args, env, toolFilter []string) *Toolset 
 }
 
 // NewToolsetRemote creates a new MCP toolset from a remote MCP Server.
-func NewToolsetRemote(url, transport string, headers map[string]string, toolFilter []string) (*Toolset, error) {
-	slog.Debug("Creating Remote MCP toolset", "url", url, "transport", transport, "headers", headers, "toolFilter", toolFilter)
+func NewToolsetRemote(url, transport string, headers map[string]string, toolFilter []string, redirectURI string) (*Toolset, error) {
+	slog.Debug("Creating Remote MCP toolset", "url", url, "transport", transport, "headers", headers, "toolFilter", toolFilter, "redirectURI", redirectURI)
 
-	mcpc, err := NewRemoteClient(url, transport, headers)
+	mcpc, err := NewRemoteClient(url, transport, headers, redirectURI)
 	if err != nil {
 		slog.Error("Failed to create remote MCP client", "error", err)
 		return nil, fmt.Errorf("failed to create remote mcp client: %w", err)

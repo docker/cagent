@@ -7,18 +7,17 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/docker/cagent/pkg/agent"
 	"github.com/docker/cagent/pkg/config"
 	latest "github.com/docker/cagent/pkg/config/v2"
 	"github.com/docker/cagent/pkg/environment"
-	"github.com/docker/cagent/pkg/gateway"
 	"github.com/docker/cagent/pkg/memory"
 	"github.com/docker/cagent/pkg/memory/database/sqlite"
 	"github.com/docker/cagent/pkg/model/provider"
 	"github.com/docker/cagent/pkg/model/provider/options"
+	"github.com/docker/cagent/pkg/secrets"
 	"github.com/docker/cagent/pkg/team"
 	"github.com/docker/cagent/pkg/tools"
 	"github.com/docker/cagent/pkg/tools/builtin"
@@ -79,84 +78,18 @@ func FindAgentPaths(agentsPathOrDirectory string) ([]string, error) {
 
 // checkRequiredEnvVars checks which environment variables are required by the models and tools.
 // This allows exiting early with a proper error message instead of failing later when trying to use a model or tool.
-// TODO(dga): This code contains lots of duplication and ought to be refactored.
 func checkRequiredEnvVars(ctx context.Context, cfg *latest.Config, env environment.Provider, runtimeConfig config.RuntimeConfig) error {
-	requiredEnv := map[string]bool{}
-
-	// Models
-	if runtimeConfig.ModelsGateway == "" {
-		for name := range cfg.Models {
-			model := cfg.Models[name]
-			// Use the token environment variable from the alias if available
-			if alias, exists := provider.ProviderAliases[model.Provider]; exists {
-				if alias.TokenEnvVar != "" {
-					requiredEnv[alias.TokenEnvVar] = true
-				}
-			} else {
-				// Fallback to hardcoded mappings for unknown providers
-				switch model.Provider {
-				case "openai":
-					requiredEnv["OPENAI_API_KEY"] = true
-				case "anthropic":
-					requiredEnv["ANTHROPIC_API_KEY"] = true
-				case "google":
-					requiredEnv["GOOGLE_API_KEY"] = true
-				}
-			}
-		}
-
-		for _, agent := range cfg.Agents {
-			model := agent.Model
-			switch {
-			case strings.HasPrefix(model, "openai/"):
-				requiredEnv["OPENAI_API_KEY"] = true
-			case strings.HasPrefix(model, "anthropic/"):
-				requiredEnv["ANTHROPIC_API_KEY"] = true
-			case strings.HasPrefix(model, "google/"):
-				requiredEnv["GOOGLE_API_KEY"] = true
-			}
-		}
-	}
-
-	// Tools
-	if runtimeConfig.ToolsGateway == "" && !environment.IsInContainer() {
-		for _, agent := range cfg.Agents {
-			for i := range agent.Toolsets {
-				toolSet := agent.Toolsets[i]
-
-				if toolSet.Type == "mcp" && toolSet.Ref != "" {
-					mcpServerName := gateway.ParseServerRef(toolSet.Ref)
-
-					secrets, err := gateway.RequiredEnvVars(ctx, mcpServerName, gateway.DockerCatalogURL)
-					if err != nil {
-						return fmt.Errorf("reading which secrets the MCP server needs: %w", err)
-					}
-					for _, secret := range secrets {
-						requiredEnv[secret.Env] = true
-					}
-				}
-			}
-		}
+	requiredEnv, err := secrets.GatherMissingEnvVars(ctx, cfg, env, runtimeConfig)
+	if err != nil {
+		return fmt.Errorf("gathering required environment variables: %w", err)
 	}
 
 	if len(requiredEnv) == 0 {
 		return nil
 	}
 
-	var requiredEnvList []string
-	for e := range requiredEnv {
-		if env.Get(ctx, e) == "" {
-			requiredEnvList = append(requiredEnvList, e)
-		}
-	}
-
-	if len(requiredEnvList) == 0 {
-		return nil
-	}
-
-	sort.Strings(requiredEnvList)
 	return &environment.RequiredEnvError{
-		Missing: requiredEnvList,
+		Missing: requiredEnv,
 	}
 }
 
@@ -222,7 +155,7 @@ func Load(ctx context.Context, path string, runtimeConfig config.RuntimeConfig) 
 		if !ok {
 			return nil, fmt.Errorf("agent '%s' not found in configuration", name)
 		}
-		agentTools, err := getToolsForAgent(ctx, &a, parentDir, sharedTools, models[0], env)
+		agentTools, err := getToolsForAgent(ctx, &a, parentDir, sharedTools, models[0], env, runtimeConfig)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get tools: %w", err)
 		}
@@ -276,7 +209,7 @@ func getModelsForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentC
 }
 
 // getToolsForAgent returns the tool definitions for an agent based on its configuration
-func getToolsForAgent(ctx context.Context, a *latest.AgentConfig, parentDir string, sharedTools map[string]tools.ToolSet, model provider.Provider, envProvider environment.Provider) ([]tools.ToolSet, error) {
+func getToolsForAgent(ctx context.Context, a *latest.AgentConfig, parentDir string, sharedTools map[string]tools.ToolSet, model provider.Provider, envProvider environment.Provider, runtimeConfig config.RuntimeConfig) ([]tools.ToolSet, error) {
 	var t []tools.ToolSet
 
 	if len(a.SubAgents) > 0 {
@@ -374,7 +307,7 @@ func getToolsForAgent(ctx context.Context, a *latest.AgentConfig, parentDir stri
 				headers[k] = expanded
 			}
 
-			mcpc, err := mcp.NewToolsetRemote(toolset.Remote.URL, toolset.Remote.TransportType, headers, toolset.Tools)
+			mcpc, err := mcp.NewToolsetRemote(toolset.Remote.URL, toolset.Remote.TransportType, headers, toolset.Tools, runtimeConfig.RedirectURI)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create remote mcp client: %w", err)
 			}

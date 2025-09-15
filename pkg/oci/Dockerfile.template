@@ -1,0 +1,27 @@
+# syntax=docker/dockerfile:1
+
+FROM docker/cagent
+LABEL com.docker.agent.mcp-servers="{{ .McpServers }}"
+LABEL com.docker.agent.models="{{ .Models }}"
+LABEL com.docker.agent.packaging.version="v0.0.1"
+LABEL com.docker.agent.runtime="cagent"
+LABEL org.opencontainers.image.author="{{ .Metadata.Author }}"
+LABEL org.opencontainers.image.created="{{ .BuildDate }}"
+LABEL org.opencontainers.image.description="{{ .Description }}"
+LABEL org.opencontainers.image.documentation="{{ .Metadata.Readme }}"
+LABEL org.opencontainers.image.licenses="{{ .Metadata.License }}"
+
+# Override labels found in docker/cagent until we know what to put there
+LABEL org.opencontainers.image.revision=""
+LABEL org.opencontainers.image.source=""
+LABEL org.opencontainers.image.title=""
+LABEL org.opencontainers.image.url=""
+LABEL org.opencontainers.image.version=""
+
+VOLUME /data
+ENV TELEMETRY_ENABLED=true
+ENV CAGENT_HIDE_FEEDBACK_LINK=0
+CMD ["api", "--listen", "unix:///data/agent.sock", "--session-db", "/data/session.db", "/agent.yaml"]
+RUN cat <<EOF >/agent.yaml
+{{ .AgentConfig }}
+EOF

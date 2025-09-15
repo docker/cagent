@@ -37,6 +37,7 @@ type ModelConfig struct {
 	TokenKey          string  `json:"token_key,omitempty" yaml:"token_key,omitempty"`
 	// ProviderOpts allows provider-specific options. Currently used for "dmr" provider only.
 	ProviderOpts map[string]any `json:"provider_opts,omitempty" yaml:"provider_opts,omitempty"`
+	TrackUsage   *bool          `json:"track_usage,omitempty" yaml:"track_usage,omitempty"`
 }
 
 type Metadata struct {
