@@ -194,14 +194,18 @@ empty: !include ""
 		}
 	})
 
-	// Test 7: Directory traversal protection
-	t.Run("DirectoryTraversal", func(t *testing.T) {
+	// Test 7: Directory traversal now allowed (but file doesn't exist)
+	t.Run("DirectoryTraversalAllowed", func(t *testing.T) {
 		mainContent := `version: "2"
 malicious: !include ../../etc/passwd
 `
 		_, err := processIncludes([]byte(mainContent), tempDir)
+		// Should fail because file doesn't exist, not because of path validation
 		if err == nil {
-			t.Errorf("Expected error for directory traversal attempt")
+			t.Errorf("Expected error for nonexistent file")
+		}
+		if !strings.Contains(err.Error(), "failed to read include file") {
+			t.Errorf("Expected 'failed to read include file' error, got: %v", err)
 		}
 	})
 

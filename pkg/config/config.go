@@ -271,8 +271,8 @@ func processIncludeTag(node *yaml.Node, baseDir string, visited map[string]bool)
 		fullPath = filepath.Join(baseDir, includePath)
 	}
 
-	// Validate path security
-	validatedPath, err := ValidatePathInDirectory(fullPath, baseDir)
+	// Validate path security (allow files outside base directory)
+	validatedPath, err := ValidatePathInDirectory(fullPath, "")
 	if err != nil {
 		return fmt.Errorf("include path validation failed for '%s': %w", includePath, err)
 	}

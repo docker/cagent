@@ -37,9 +37,9 @@ Absolute paths are also supported but not recommended for portability.
 ## Security
 
 Include processing includes several security features:
-- **Path validation**: Prevents directory traversal attacks
+- **Path validation**: Basic path cleaning and normalization
 - **Circular detection**: Prevents infinite include loops
-- **Sandbox restrictions**: Included files must be within allowed directories
+- **Flexible access**: Include files can be accessed from anywhere on the filesystem
 
 ## Example Files
 
