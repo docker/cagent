@@ -27,6 +27,7 @@ func NewExecCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&hideOutputFor, "hide-output-for", "", helpText)
 	cmd.PersistentFlags().BoolVar(&showTokensEveryStep, "show-tokens-every-step", false, "Show token usage after every AI API call")
 	cmd.PersistentFlags().BoolVar(&showTimestamps, "show-timestamps", false, "Show datetime timestamp before every tool call")
+	cmd.PersistentFlags().BoolVar(&runConfig.RetryOnFailure, "retry", false, "Retry chat completion and gateway errors up to 3 times before failing")
 	addGatewayFlags(cmd)
 
 	return cmd

@@ -70,6 +70,7 @@ func NewRunCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&hideOutputFor, "hide-output-for", "", helpText)
 	cmd.PersistentFlags().BoolVar(&showTokensEveryStep, "show-tokens-every-step", false, "Show token usage after every AI API call")
 	cmd.PersistentFlags().BoolVar(&showTimestamps, "show-timestamps", false, "Show datetime timestamp before every tool call")
+	cmd.PersistentFlags().BoolVar(&runConfig.RetryOnFailure, "retry", false, "Retry chat completion and gateway errors up to 3 times before failing")
 	addGatewayFlags(cmd)
 
 	return cmd
@@ -199,6 +200,7 @@ func runCommand(_ *cobra.Command, args []string, exec bool) error {
 		runtime.WithCurrentAgent(agentName),
 		runtime.WithAutoRunTools(autoApprove),
 		runtime.WithTracer(tracer),
+		runtime.WithRetryOnFailure(runConfig.RetryOnFailure),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create runtime: %w", err)

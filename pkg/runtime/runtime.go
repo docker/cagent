@@ -43,6 +43,7 @@ type Runtime struct {
 	tracer            trace.Tracer
 	modelsStore       *modelsdev.Store
 	sessionCompaction bool
+	retryOnFailure    bool
 }
 
 type Opt func(*Runtime)
@@ -69,6 +70,12 @@ func WithTracer(t trace.Tracer) Opt {
 func WithSessionCompaction(sessionCompaction bool) Opt {
 	return func(r *Runtime) {
 		r.sessionCompaction = sessionCompaction
+	}
+}
+
+func WithRetryOnFailure(retryOnFailure bool) Opt {
+	return func(r *Runtime) {
+		r.retryOnFailure = retryOnFailure
 	}
 }
 
@@ -165,6 +172,9 @@ func (r *Runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 			slog.Debug("Failed to get model definition", "error", err)
 		}
 
+		retryCount := 0
+		maxRetries := 3
+
 		for {
 			// Exit immediately if the stream context has been cancelled (e.g., Ctrl+C)
 			if err := ctx.Err(); err != nil {
@@ -198,11 +208,23 @@ func (r *Runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 			if err != nil {
 				streamSpan.RecordError(err)
 				streamSpan.SetStatus(codes.Error, "creating chat completion")
-				slog.Error("Failed to create chat completion stream", "agent", a.Name(), "error", err)
+				slog.Error("Failed to create chat completion stream", "agent", a.Name(), "error", err, "retry_count", retryCount)
+
 				// Track error in telemetry
 				if telemetryClient := telemetry.FromContext(ctx); telemetryClient != nil {
 					telemetryClient.RecordError(ctx, err.Error())
 				}
+
+				// If retry is enabled and we haven't exceeded max retries, try again
+				if r.retryOnFailure && retryCount < maxRetries {
+					retryCount++
+					slog.Info("Retrying chat completion stream creation", "agent", a.Name(), "retry_count", retryCount, "max_retries", maxRetries)
+					streamSpan.End()
+					// Add a small delay before retrying
+					time.Sleep(time.Duration(retryCount) * time.Second)
+					continue
+				}
+
 				events <- Error(fmt.Sprintf("creating chat completion: %v", err))
 				streamSpan.End()
 				return
@@ -219,15 +241,30 @@ func (r *Runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 				}
 				streamSpan.RecordError(err)
 				streamSpan.SetStatus(codes.Error, "error handling stream")
-				slog.Error("Error handling stream", "agent", a.Name(), "error", err)
+				slog.Error("Error handling stream", "agent", a.Name(), "error", err, "retry_count", retryCount)
+
 				// Track error in telemetry
 				if telemetryClient := telemetry.FromContext(ctx); telemetryClient != nil {
 					telemetryClient.RecordError(ctx, err.Error())
 				}
+
+				// If retry is enabled and we haven't exceeded max retries, try again
+				if r.retryOnFailure && retryCount < maxRetries {
+					retryCount++
+					slog.Info("Retrying stream handling", "agent", a.Name(), "retry_count", retryCount, "max_retries", maxRetries)
+					streamSpan.End()
+					// Add a small delay before retrying
+					time.Sleep(time.Duration(retryCount) * time.Second)
+					continue
+				}
+
 				events <- Error(err.Error())
 				streamSpan.End()
 				return
 			}
+
+			// If we reach here successfully, reset retry count for next iteration
+			retryCount = 0
 			streamSpan.SetAttributes(
 				attribute.Int("tool.calls", len(calls)),
 				attribute.Int("content.length", len(content)),
