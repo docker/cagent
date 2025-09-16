@@ -23,6 +23,188 @@ var (
 // text styles
 var bold = color.New(color.Bold).SprintfFunc()
 
+// HideOutputOption represents valid options for hiding tool output
+type HideOutputOption string
+
+const (
+	HideAll      HideOutputOption = "all"
+	HideFileOps  HideOutputOption = "file-ops"
+	HideShell    HideOutputOption = "shell"
+	HideThink    HideOutputOption = "think"
+	HideMemory   HideOutputOption = "memory"
+	HideTodo     HideOutputOption = "todo"
+	HideTransfer HideOutputOption = "transfer"
+	// Individual filesystem tools
+	HideCreateDirectory        HideOutputOption = "create_directory"
+	HideDirectoryTree          HideOutputOption = "directory_tree"
+	HideEditFile               HideOutputOption = "edit_file"
+	HideGetFileInfo            HideOutputOption = "get_file_info"
+	HideListAllowedDirs        HideOutputOption = "list_allowed_directories"
+	HideAddAllowedDir          HideOutputOption = "add_allowed_directory"
+	HideListDirectory          HideOutputOption = "list_directory"
+	HideListDirectoryWithSizes HideOutputOption = "list_directory_with_sizes"
+	HideMoveFile               HideOutputOption = "move_file"
+	HideReadFile               HideOutputOption = "read_file"
+	HideReadMultipleFiles      HideOutputOption = "read_multiple_files"
+	HideSearchFiles            HideOutputOption = "search_files"
+	HideSearchFilesContent     HideOutputOption = "search_files_content"
+	HideWriteFile              HideOutputOption = "write_file"
+	// Individual todo tools
+	HideCreateTodo  HideOutputOption = "create_todo"
+	HideCreateTodos HideOutputOption = "create_todos"
+	HideUpdateTodo  HideOutputOption = "update_todo"
+	HideListTodos   HideOutputOption = "list_todos"
+	// Individual memory tools
+	HideAddMemory    HideOutputOption = "add_memory"
+	HideGetMemories  HideOutputOption = "get_memories"
+	HideDeleteMemory HideOutputOption = "delete_memory"
+	// Transfer task tool
+	HideTransferTask HideOutputOption = "transfer_task"
+)
+
+// GetAllHideOutputOptions returns all valid hide output options for help text
+func GetAllHideOutputOptions() []string {
+	return []string{
+		string(HideAll),
+		string(HideFileOps),
+		string(HideShell),
+		string(HideThink),
+		string(HideMemory),
+		string(HideTodo),
+		string(HideTransfer),
+		string(HideCreateDirectory),
+		string(HideDirectoryTree),
+		string(HideEditFile),
+		string(HideGetFileInfo),
+		string(HideListAllowedDirs),
+		string(HideAddAllowedDir),
+		string(HideListDirectory),
+		string(HideListDirectoryWithSizes),
+		string(HideMoveFile),
+		string(HideReadFile),
+		string(HideReadMultipleFiles),
+		string(HideSearchFiles),
+		string(HideSearchFilesContent),
+		string(HideWriteFile),
+		string(HideCreateTodo),
+		string(HideCreateTodos),
+		string(HideUpdateTodo),
+		string(HideListTodos),
+		string(HideAddMemory),
+		string(HideGetMemories),
+		string(HideDeleteMemory),
+		string(HideTransferTask),
+	}
+}
+
+// ValidateHideOutputOptions validates that all provided options are valid
+func ValidateHideOutputOptions(hideOutputFor string) error {
+	if hideOutputFor == "" {
+		return nil
+	}
+
+	validOptions := make(map[string]bool)
+	for _, option := range GetAllHideOutputOptions() {
+		validOptions[option] = true
+	}
+
+	hideList := strings.Split(hideOutputFor, ",")
+	for _, item := range hideList {
+		item = strings.TrimSpace(item)
+		if item != "" && !validOptions[item] {
+			return fmt.Errorf("invalid hide-output-for option: '%s'. Valid options: %s",
+				item, strings.Join(GetAllHideOutputOptions(), ", "))
+		}
+	}
+	return nil
+}
+
+// shouldHideOutput checks if output should be hidden for a given tool
+func shouldHideOutput(toolName, hideOutputFor string) bool {
+	if hideOutputFor == "" {
+		return false
+	}
+
+	hideList := strings.Split(hideOutputFor, ",")
+	for _, item := range hideList {
+		item = strings.TrimSpace(item)
+		option := HideOutputOption(item)
+
+		switch option {
+		case HideAll:
+			return true
+		case HideFileOps:
+			if isFileOperation(toolName) {
+				return true
+			}
+		case HideShell:
+			if toolName == "shell" {
+				return true
+			}
+		case HideThink:
+			if toolName == "think" {
+				return true
+			}
+		case HideMemory:
+			if isMemoryOperation(toolName) {
+				return true
+			}
+		case HideTodo:
+			if isTodoOperation(toolName) {
+				return true
+			}
+		case HideTransfer:
+			if toolName == "transfer_task" {
+				return true
+			}
+		default:
+			// Check if it's a specific tool name
+			if toolName == string(option) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isFileOperation checks if a tool is a file operation
+func isFileOperation(toolName string) bool {
+	fileOps := []string{
+		"create_directory", "directory_tree", "edit_file", "get_file_info",
+		"list_allowed_directories", "add_allowed_directory", "list_directory",
+		"list_directory_with_sizes", "move_file", "read_file", "read_multiple_files",
+		"search_files", "search_files_content", "write_file",
+	}
+	for _, op := range fileOps {
+		if toolName == op {
+			return true
+		}
+	}
+	return false
+}
+
+// isMemoryOperation checks if a tool is a memory operation
+func isMemoryOperation(toolName string) bool {
+	memoryOps := []string{"add_memory", "get_memories", "delete_memory"}
+	for _, op := range memoryOps {
+		if toolName == op {
+			return true
+		}
+	}
+	return false
+}
+
+// isTodoOperation checks if a tool is a todo operation
+func isTodoOperation(toolName string) bool {
+	todoOps := []string{"create_todo", "create_todos", "update_todo", "list_todos"}
+	for _, op := range todoOps {
+		if toolName == op {
+			return true
+		}
+	}
+	return false
+}
+
 // confirmation result types
 type ConfirmationResult string
 
@@ -111,7 +293,17 @@ func printToolCallWithConfirmation(toolCall tools.ToolCall, scanner *bufio.Scann
 	}
 }
 
-func printToolCallResponse(toolCall tools.ToolCall, response string) {
+func printToolCallResponse(toolCall tools.ToolCall, response string, hideOutputFor ...string) {
+	hideOutput := ""
+	if len(hideOutputFor) > 0 {
+		hideOutput = hideOutputFor[0]
+	}
+
+	if shouldHideOutput(toolCall.Function.Name, hideOutput) {
+		fmt.Printf("\n%s\n", gray("%s response → (output hidden)", bold(toolCall.Function.Name)))
+		return
+	}
+
 	fmt.Printf("\n%s\n", gray("%s response%s", bold(toolCall.Function.Name), formatToolCallResponse(response)))
 }
 

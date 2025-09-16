@@ -39,6 +39,7 @@ var (
 	workingDir     string
 	useTUI         bool
 	remoteAddress  string
+	hideOutputFor  string
 )
 
 // NewRunCmd creates a new run command
@@ -62,6 +63,9 @@ func NewRunCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&attachmentPath, "attach", "", "Attach an image file to the message")
 	cmd.PersistentFlags().BoolVar(&useTUI, "tui", true, "Run the agent with a Terminal User Interface (TUI)")
 	cmd.PersistentFlags().StringVar(&remoteAddress, "remote", "", "Use remote runtime with specified address (only supported with TUI)")
+	allOptions := GetAllHideOutputOptions()
+	helpText := fmt.Sprintf("Hide output for specific tools (comma-separated). Available: %s", strings.Join(allOptions, ","))
+	cmd.PersistentFlags().StringVar(&hideOutputFor, "hide-output-for", "", helpText)
 	addGatewayFlags(cmd)
 
 	return cmd
@@ -90,6 +94,11 @@ func execCommand(cmd *cobra.Command, args []string) error {
 }
 
 func doRunCommand(ctx context.Context, args []string, exec bool) error {
+	// Validate hide-output-for options
+	if err := ValidateHideOutputOptions(hideOutputFor); err != nil {
+		return err
+	}
+
 	slog.Debug("Starting agent", "agent", agentName, "debug_mode", debugMode)
 
 	agentFilename := args[0]
@@ -415,7 +424,7 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt runtime.Runtime
 					fmt.Println()
 					llmIsTyping = false
 				}
-				printToolCallResponse(e.ToolCall, e.Response)
+				printToolCallResponse(e.ToolCall, e.Response, hideOutputFor)
 				// Clear the confirmed ID after the tool completes
 				if e.ToolCall.ID == lastConfirmedToolCallID {
 					lastConfirmedToolCallID = ""

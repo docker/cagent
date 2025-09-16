@@ -11,7 +11,7 @@ import (
 
 func writeSecret(value string) func(string) error {
 	return func(path string) error {
-		return os.WriteFile(path, []byte(value), 0700)
+		return os.WriteFile(path, []byte(value), 0o700)
 	}
 }
 
