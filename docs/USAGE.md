@@ -75,6 +75,61 @@ During CLI sessions, you can use special commands:
 
 ## 🔧 Configuration Reference
 
+### YAML Include Support
+
+cagent supports `!include` tags to include external YAML files, enabling better organization and reusability:
+
+```yaml
+# Include shared models
+models: !include shared-models.yaml
+
+# Include common toolsets  
+toolsets: !include development-toolsets.yaml
+
+# Include in nested structures
+agents:
+  root:
+    toolsets: !include common/dev-tools.yaml
+```
+
+**Benefits:**
+- **Modularity**: Split large configurations into focused files
+- **Reusability**: Share common configurations across multiple agents
+- **Maintainability**: Update shared components in one place
+- **Organization**: Keep related configurations together
+
+**How It Works:**
+1. Include processing happens during configuration loading
+2. Paths are resolved relative to the including file
+3. Included files are loaded and processed recursively
+4. Include tags are replaced with the included content
+
+**Path Resolution:**
+- `!include models.yaml` - file in the same directory
+- `!include ../common/models.yaml` - file in a parent directory
+- `!include configs/toolsets.yaml` - file in a subdirectory
+
+**Security Features:**
+- Path validation and normalization
+- Circular include detection prevents infinite loops
+- Basic protection against malicious paths
+
+**Example Organization:**
+```
+configs/
+├── models/
+│   ├── shared-models.yaml
+│   └── specialized-models.yaml
+├── toolsets/
+│   ├── development.yaml
+│   └── web-dev.yaml
+└── agents/
+    ├── code-agent.yaml
+    └── web-agent.yaml
+```
+
+See `examples/includes/` directory for complete working examples.
+
 ### Agent Properties
 
 | Property               | Type    | Description                                                     | Required |

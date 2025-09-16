@@ -1,0 +1,24 @@
+# Shared model configurations that can be included in multiple agent configs
+claude-dev:
+  provider: anthropic
+  model: claude-sonnet-4-0
+  max_tokens: 64000
+  temperature: 0.1
+
+claude-creative:
+  provider: anthropic
+  model: claude-sonnet-4-0  
+  max_tokens: 32000
+  temperature: 0.7
+
+gpt-dev:
+  provider: openai
+  model: gpt-4
+  max_tokens: 32000
+  temperature: 0.1
+
+gpt-creative:
+  provider: openai
+  model: gpt-4
+  max_tokens: 16000
+  temperature: 0.8
