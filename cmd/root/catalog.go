@@ -10,7 +10,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/docker/cagent/internal/telemetry"
+	"github.com/docker/cagent/pkg/telemetry"
 	"github.com/spf13/cobra"
 )
 

@@ -65,7 +65,7 @@ func Evaluate(ctx context.Context, t *team.Team, evalsDir string) ([]Result, err
 	return results, nil
 }
 
-func runLoop(ctx context.Context, rt *runtime.Runtime, eval *session.Session) ([]session.Message, error) {
+func runLoop(ctx context.Context, rt runtime.Runtime, eval *session.Session) ([]session.Message, error) {
 	var userMessages []session.Message
 	allMessages := eval.GetAllMessages()
 	for i := range allMessages {

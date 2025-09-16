@@ -186,6 +186,13 @@ func getAllMigrations() []Migration {
 			UpSQL:       `ALTER TABLE sessions ADD COLUMN cost REAL DEFAULT 0`,
 			DownSQL:     `ALTER TABLE sessions DROP COLUMN cost`,
 		},
+		{
+			ID:          6,
+			Name:        "006_add_send_user_message_column",
+			Description: "Add send_user_message column to sessions table",
+			UpSQL:       `ALTER TABLE sessions ADD COLUMN send_user_message BOOLEAN DEFAULT 1`,
+			DownSQL:     `ALTER TABLE sessions DROP COLUMN send_user_message`,
+		},
 		// Add more migrations here as needed
 	}
 }

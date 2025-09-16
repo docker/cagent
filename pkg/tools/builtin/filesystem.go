@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -14,9 +16,16 @@ import (
 	"github.com/docker/cagent/pkg/tools"
 )
 
+// PostEditConfig represents a post-edit command configuration
+type PostEditConfig struct {
+	Path string // File path pattern (glob-style)
+	Cmd  string // Command to execute (with $path placeholder)
+}
+
 type FilesystemTool struct {
 	allowedDirectories []string
 	allowedTools       []string
+	postEditCommands   []PostEditConfig
 }
 
 type FileSystemOpt func(*FilesystemTool)
@@ -24,6 +33,12 @@ type FileSystemOpt func(*FilesystemTool)
 func WithAllowedTools(allowedTools []string) FileSystemOpt {
 	return func(t *FilesystemTool) {
 		t.allowedTools = allowedTools
+	}
+}
+
+func WithPostEditCommands(postEditCommands []PostEditConfig) FileSystemOpt {
+	return func(t *FilesystemTool) {
+		t.postEditCommands = postEditCommands
 	}
 }
 
@@ -439,6 +454,34 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 	return allowedTools, nil
 }
 
+// executePostEditCommands executes any matching post-edit commands for the given file path
+func (t *FilesystemTool) executePostEditCommands(ctx context.Context, filePath string) error {
+	if len(t.postEditCommands) == 0 {
+		return nil
+	}
+
+	for _, postEdit := range t.postEditCommands {
+		matched, err := filepath.Match(postEdit.Path, filepath.Base(filePath))
+		if err != nil {
+			slog.WarnContext(ctx, "Invalid post-edit pattern", "pattern", postEdit.Path, "error", err)
+			continue
+		}
+		if !matched {
+			continue
+		}
+
+		cmd := exec.CommandContext(ctx, "/bin/sh", "-c", postEdit.Cmd)
+		cmd.Env = cmd.Environ()
+		cmd.Env = append(cmd.Env, "path="+filePath)
+
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("post-edit command failed for %s: %w", filePath, err)
+		}
+
+	}
+	return nil
+}
+
 // Security helper to check if path is allowed
 func (t *FilesystemTool) isPathAllowed(path string) error {
 	absPath, err := filepath.Abs(path)
@@ -554,7 +597,7 @@ func (t *FilesystemTool) buildDirectoryTree(path string, maxDepth *int, currentD
 	return node, nil
 }
 
-func (t *FilesystemTool) handleEditFile(_ context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
+func (t *FilesystemTool) handleEditFile(ctx context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
 	var args struct {
 		Path  string `json:"path"`
 		Edits []struct {
@@ -594,6 +637,11 @@ func (t *FilesystemTool) handleEditFile(_ context.Context, toolCall tools.ToolCa
 
 	if err := os.WriteFile(args.Path, []byte(modifiedContent), 0o644); err != nil {
 		return &tools.ToolCallResult{Output: fmt.Sprintf("Error writing file: %s", err)}, nil
+	}
+
+	// Execute post-edit commands
+	if err := t.executePostEditCommands(ctx, args.Path); err != nil {
+		return &tools.ToolCallResult{Output: fmt.Sprintf("File edited successfully but post-edit command failed: %s", err)}, nil
 	}
 
 	return &tools.ToolCallResult{Output: fmt.Sprintf("File edited successfully. Changes:\n%s", strings.Join(changes, "\n"))}, nil
@@ -1010,7 +1058,7 @@ func (t *FilesystemTool) handleSearchFilesContent(_ context.Context, toolCall to
 	return &tools.ToolCallResult{Output: strings.Join(results, "\n")}, nil
 }
 
-func (t *FilesystemTool) handleWriteFile(_ context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
+func (t *FilesystemTool) handleWriteFile(ctx context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
 	var args struct {
 		Path    string `json:"path"`
 		Content string `json:"content"`
@@ -1025,6 +1073,11 @@ func (t *FilesystemTool) handleWriteFile(_ context.Context, toolCall tools.ToolC
 
 	if err := os.WriteFile(args.Path, []byte(args.Content), 0o644); err != nil {
 		return &tools.ToolCallResult{Output: fmt.Sprintf("Error writing file: %s", err)}, nil
+	}
+
+	// Execute post-edit commands
+	if err := t.executePostEditCommands(ctx, args.Path); err != nil {
+		return &tools.ToolCallResult{Output: fmt.Sprintf("File written successfully but post-edit command failed: %s", err)}, nil
 	}
 
 	return &tools.ToolCallResult{Output: fmt.Sprintf("File written successfully: %s (%d bytes)", args.Path, len(args.Content))}, nil

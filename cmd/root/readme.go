@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/docker/cagent/internal/telemetry"
 	"github.com/docker/cagent/pkg/config"
+	"github.com/docker/cagent/pkg/telemetry"
 	"github.com/spf13/cobra"
 )
 

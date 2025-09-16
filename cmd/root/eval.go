@@ -5,9 +5,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/docker/cagent/internal/telemetry"
 	"github.com/docker/cagent/pkg/evaluation"
 	"github.com/docker/cagent/pkg/teamloader"
+	"github.com/docker/cagent/pkg/telemetry"
 )
 
 func NewEvalCmd() *cobra.Command {

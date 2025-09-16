@@ -44,6 +44,12 @@ func (t *Team) AgentNames() []string {
 }
 
 func (t *Team) Agent(name string) *agent.Agent {
+	if t.agents == nil {
+		return nil
+	}
+	if _, ok := t.agents[name]; !ok {
+		return nil
+	}
 	return t.agents[name]
 }
 

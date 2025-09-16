@@ -3,11 +3,14 @@ package root
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/docker/cagent/internal/telemetry"
 	"github.com/docker/cagent/pkg/oci"
+	"github.com/docker/cagent/pkg/telemetry"
 )
 
-var push bool
+var (
+	push   bool
+	dryRun bool
+)
 
 func NewBuildCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -18,6 +21,7 @@ func NewBuildCmd() *cobra.Command {
 		Hidden: true,
 	}
 
+	cmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "only print the generated Dockerfile")
 	cmd.PersistentFlags().BoolVar(&push, "push", false, "push the image")
 
 	return cmd
@@ -32,5 +36,5 @@ func runBuildCommand(cmd *cobra.Command, args []string) error {
 		dockerImageName = args[1]
 	}
 
-	return oci.BuildDockerImage(cmd.Context(), agentFilePath, dockerImageName, push)
+	return oci.BuildDockerImage(cmd.Context(), agentFilePath, dockerImageName, dryRun, push)
 }

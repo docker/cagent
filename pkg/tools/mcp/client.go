@@ -41,8 +41,7 @@ func (c *Client) Start(ctx context.Context) error {
 	slog.Debug("Starting MCP client", c.logType, c.logId)
 
 	if err := c.client.Start(ctx); err != nil {
-		slog.Error("Failed to start MCP client", "error", err)
-		return fmt.Errorf("failed to start MCP client: %w", err)
+		return err
 	}
 
 	slog.Debug("Initializing MCP client", c.logType, c.logId)
@@ -218,6 +217,11 @@ func (c *Client) GetToolByName(name string) (tools.Tool, error) {
 		}
 	}
 	return tools.Tool{}, fmt.Errorf("tool %s not found", name)
+}
+
+// GetServerInfo returns server identification information
+func (c *Client) GetServerInfo() (serverURL, serverType string) {
+	return c.logId, c.logType
 }
 
 // CallToolWithArgs is a convenience method to call a tool with arguments

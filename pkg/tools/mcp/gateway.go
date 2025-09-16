@@ -15,6 +15,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const DOCKER_MCP_GATEWAY_URL_ENV = "DOCKER_MCP_GATEWAY_URL"
+
 type GatewayToolset struct {
 	ref         string
 	config      any
@@ -48,12 +50,11 @@ func (t *GatewayToolset) Instructions() string {
 }
 
 func (t *GatewayToolset) configureOnce(ctx context.Context) error {
-	if environment.IsInContainer() {
+	if mcpGatewayURL := os.Getenv(DOCKER_MCP_GATEWAY_URL_ENV); mcpGatewayURL != "" {
 		var err error
-		// TODO(dga): This is very temporary. Make the URL configurable.
-		t.cmdToolset, err = NewToolsetRemote("http://gateway:8811", "streaming", nil, t.toolFilter, "")
+		t.cmdToolset, err = NewToolsetRemote(mcpGatewayURL, "streaming", nil, t.toolFilter, "")
 		if err != nil {
-			return fmt.Errorf("creating remote MCP toolset: %w", err)
+			return fmt.Errorf("connecting to remote MCP Gateway: %w", err)
 		}
 
 		return nil

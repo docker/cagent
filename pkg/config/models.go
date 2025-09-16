@@ -8,8 +8,8 @@ import (
 
 func GatherModelNames(cfg *latest.Config) []string {
 	modelNames := map[string]bool{}
-	for _, model := range cfg.Models {
-		modelNames[model.Provider+"/"+model.Model] = true
+	for i := range cfg.Models {
+		modelNames[cfg.Models[i].Provider+"/"+cfg.Models[i].Model] = true
 	}
 
 	var names []string

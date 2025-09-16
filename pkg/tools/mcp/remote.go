@@ -39,7 +39,7 @@ func detectOAuthRequirement(url string) bool {
 }
 
 // NewRemoteClient creates a new MCP client that can connect to a remote MCP server
-func NewRemoteClient(url, transportType string, headers map[string]string, redirectURI string) (*Client, error) {
+func NewRemoteClient(url, transportType string, headers map[string]string, redirectURI string, tokenStore client.TokenStore) (*Client, error) {
 	slog.Debug("Creating remote MCP client", "url", url, "transport", transportType, "headers", headers, "redirectURI", redirectURI)
 
 	// Detect if the server requires OAuth authentication
@@ -49,8 +49,6 @@ func NewRemoteClient(url, transportType string, headers map[string]string, redir
 	var err error
 
 	if requiresOAuth {
-		tokenStore := client.NewMemoryTokenStore()
-
 		oauthConfig := client.OAuthConfig{
 			RedirectURI: redirectURI,
 			TokenStore:  tokenStore,
@@ -86,7 +84,7 @@ func NewRemoteClient(url, transportType string, headers map[string]string, redir
 		}
 	}
 
-	slog.Debug("Created remote MCP client successfully")
+	slog.Debug("Created remote MCP client successfully", "url", url, "transport", transportType, "requiresOAuth", requiresOAuth)
 	return &Client{
 		client:  c,
 		logType: "remote",

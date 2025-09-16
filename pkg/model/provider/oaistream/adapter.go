@@ -66,7 +66,7 @@ func (a *StreamAdapter) Recv() (chat.MessageStreamResponse, error) {
 	// Convert the choices
 	for i := range openaiResponse.Choices {
 		choice := &openaiResponse.Choices[i]
-		if a.trackUsage && choice.FinishReason == openai.FinishReasonStop {
+		if a.trackUsage && (choice.FinishReason == openai.FinishReasonStop || choice.FinishReason == openai.FinishReasonLength) {
 			choice.FinishReason = openai.FinishReasonNull
 		}
 

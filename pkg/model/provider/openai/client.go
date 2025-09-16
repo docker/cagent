@@ -139,9 +139,15 @@ func convertMultiContent(multiContent []chat.MessagePart) []openai.ChatMessagePa
 
 // convertMessages converts chat.ChatCompletionMessage to openai.ChatCompletionMessage
 func convertMessages(messages []chat.Message) []openai.ChatCompletionMessage {
-	openaiMessages := make([]openai.ChatCompletionMessage, len(messages))
+	openaiMessages := make([]openai.ChatCompletionMessage, 0, len(messages))
 	for i := range messages {
 		msg := &messages[i]
+
+		// Skip invalid assistant messages upfront. This can happen if the model is out of tokens (max_tokens reached)
+		if msg.Role == chat.MessageRoleAssistant && len(msg.ToolCalls) == 0 && len(msg.MultiContent) == 0 && strings.TrimSpace(msg.Content) == "" {
+			continue
+		}
+
 		openaiMessage := openai.ChatCompletionMessage{
 			Role: string(msg.Role),
 			Name: msg.Name,
@@ -178,7 +184,7 @@ func convertMessages(messages []chat.Message) []openai.ChatCompletionMessage {
 			openaiMessage.ToolCallID = msg.ToolCallID
 		}
 
-		openaiMessages[i] = openaiMessage
+		openaiMessages = append(openaiMessages, openaiMessage)
 	}
 	return openaiMessages
 }

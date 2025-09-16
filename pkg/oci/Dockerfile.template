@@ -22,6 +22,11 @@ VOLUME /data
 ENV TELEMETRY_ENABLED=true
 ENV CAGENT_HIDE_FEEDBACK_LINK=0
 CMD ["api", "--listen", "unix:///data/agent.sock", "--session-db", "/data/session.db", "/agent.yaml"]
+{{- if (gt (len .ServersJson) 0) }}
+RUN cat <<EOF >/servers.json
+{{ .ServersJson }}
+EOF
+{{- end }}
 RUN cat <<EOF >/agent.yaml
 {{ .AgentConfig }}
 EOF

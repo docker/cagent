@@ -46,9 +46,8 @@ jobs:
           cache: true
 
       - name: Install Task
-        uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2.0.0
+        uses: go-task/setup-task@0ab1b2a65bc55236a3bc64cde78f80e20e8885c2 # v1.0.0
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
           version: 3.x
 
       - name: Run tests
@@ -74,7 +73,7 @@ jobs:
         run: go install github.com/google/go-licenses@latest
 
       - name: Check licenses
-        run: go-licenses check . --allowed_licenses=Apache-2.0,MIT,BSD-3-Clause,BSD-2-Clause
+        run: go-licenses check . --allowed_licenses=Apache-2.0,MIT,BSD-3-Clause,BSD-2-Clause --ignore modernc.org/mathutil
 
   build:
     needs: [lint, test, license-check]
@@ -90,9 +89,8 @@ jobs:
           cache: true
 
       - name: Install Task
-        uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2.0.0
+        uses: go-task/setup-task@0ab1b2a65bc55236a3bc64cde78f80e20e8885c2 # v1.0.0
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
           version: 3.x
 
       - name: Build
@@ -103,15 +101,11 @@ jobs:
           TELEMETRY_HEADER: ${{ secrets.TELEMETRY_HEADER }}
 
   build-image:
-    needs:
-      - build
+    needs: [lint, test, license-check]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
 
       - name: Hub login
         if: github.event_name != 'pull_request'

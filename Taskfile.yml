@@ -12,7 +12,7 @@ vars:
     sh: date -u +"%Y-%m-%dT%H:%M:%SZ"
   GO_SOURCES: "**/*.go"
   BUILD_ARGS: '--build-arg GIT_TAG="{{.GIT_TAG}}" --build-arg GIT_COMMIT="{{.GIT_COMMIT}}" --build-arg BUILD_DATE="{{.BUILD_DATE}}" --secret id=telemetry_api_key,env=TELEMETRY_API_KEY --secret id=telemetry_endpoint,env=TELEMETRY_ENDPOINT --secret id=telemetry_header,env=TELEMETRY_HEADER'
-  LDFLAGS: '-X "github.com/docker/cagent/internal/version.Version={{.GIT_TAG}}" -X "github.com/docker/cagent/internal/version.Commit={{.GIT_COMMIT}}" -X "github.com/docker/cagent/internal/version.BuildTime={{.BUILD_DATE}}" -X "github.com/docker/cagent/internal/telemetry.TelemetryEndpoint={{.TELEMETRY_ENDPOINT}}" -X "github.com/docker/cagent/internal/telemetry.TelemetryAPIKey={{.TELEMETRY_API_KEY}}" -X "github.com/docker/cagent/internal/telemetry.TelemetryHeader={{.TELEMETRY_HEADER}}"'
+  LDFLAGS: '-X "github.com/docker/cagent/pkg/version.Version={{.GIT_TAG}}" -X "github.com/docker/cagent/pkg/version.Commit={{.GIT_COMMIT}}" -X "github.com/docker/cagent/pkg/version.BuildTime={{.BUILD_DATE}}" -X "github.com/docker/cagent/pkg/telemetry.TelemetryEndpoint={{.TELEMETRY_ENDPOINT}}" -X "github.com/docker/cagent/pkg/telemetry.TelemetryAPIKey={{.TELEMETRY_API_KEY}}" -X "github.com/docker/cagent/pkg/telemetry.TelemetryHeader={{.TELEMETRY_HEADER}}"'
 
 tasks:
   default:
@@ -68,3 +68,14 @@ tasks:
   build-image:
     desc: Build Docker image
     cmd: docker buildx build -t docker/cagent:latest {{.BUILD_ARGS}} .
+
+  build-agents:
+    desc: Build Demo dockerized agents
+    vars:
+      DOCKER_ID:
+        sh: curl -s --unix-socket ~/Library/Containers/com.docker.docker/Data/backend.sock http://_/registry/info | jq -r .id
+    cmds:
+      - cagent build --push ./examples/pirate.yaml {{.DOCKER_ID}}/cagent-pirate
+      - cagent build --push ./examples/github.yaml {{.DOCKER_ID}}/cagent-github
+      - cagent build --push ./examples/gopher.yaml {{.DOCKER_ID}}/cagent-gopher
+      - cagent build --push ./examples/mem.yaml {{.DOCKER_ID}}/cagent-mem

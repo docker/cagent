@@ -22,10 +22,11 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 	"gopkg.in/yaml.v3"
 
-	"github.com/docker/cagent/internal/creator"
+	"github.com/docker/cagent/pkg/api"
 	"github.com/docker/cagent/pkg/config"
 	latest "github.com/docker/cagent/pkg/config/v2"
 	"github.com/docker/cagent/pkg/content"
+	"github.com/docker/cagent/pkg/creator"
 	"github.com/docker/cagent/pkg/desktop"
 	"github.com/docker/cagent/pkg/oci"
 	"github.com/docker/cagent/pkg/remote"
@@ -37,12 +38,11 @@ import (
 
 type Server struct {
 	e            *echo.Echo
-	runtimes     map[string]*runtime.Runtime
+	runtimes     map[string]runtime.Runtime
 	sessionStore session.Store
 	agentsDir    string
 	runConfig    config.RuntimeConfig
 	teams        map[string]*team.Team
-	autoRunTools bool
 }
 
 type Opt func(*Server)
@@ -60,18 +60,13 @@ func WithAgentsDir(dir string) Opt {
 	}
 }
 
-func WithAutoRunTools(autoRunTools bool) Opt {
-	return func(s *Server) {
-		s.autoRunTools = autoRunTools
-	}
-}
-
 func New(sessionStore session.Store, runConfig config.RuntimeConfig, teams map[string]*team.Team, opts ...Opt) *Server {
 	e := echo.New()
 	e.Use(middleware.CORS())
+	e.Use(middleware.Logger())
 	s := &Server{
 		e:            e,
-		runtimes:     make(map[string]*runtime.Runtime),
+		runtimes:     make(map[string]runtime.Runtime),
 		sessionStore: sessionStore,
 		runConfig:    runConfig,
 		teams:        teams,
@@ -81,44 +76,48 @@ func New(sessionStore session.Store, runConfig config.RuntimeConfig, teams map[s
 		opt(s)
 	}
 
-	api := e.Group("/api")
+	group := e.Group("/api")
 
 	// List all available agents
-	api.GET("/agents", s.getAgents)
+	group.GET("/agents", s.getAgents)
 	// Get an agent by id
-	api.GET("/agents/:id", s.getAgentConfig)
+	group.GET("/agents/:id", s.getAgentConfig)
 	// Edit an agent configuration by id
-	api.PUT("/agents/config", s.editAgentConfig)
+	group.PUT("/agents/config", s.editAgentConfig)
 	// Create a new agent
-	api.POST("/agents", s.createAgent)
+	group.POST("/agents", s.createAgent)
 	// Create a new agent manually with YAML configuration
-	api.POST("/agents/config", s.createAgentConfig)
+	group.POST("/agents/config", s.createAgentConfig)
 	// Import an agent from a file path
-	api.POST("/agents/import", s.importAgent)
+	group.POST("/agents/import", s.importAgent)
 	// Export multiple agents as a zip file
-	api.POST("/agents/export", s.exportAgents)
+	group.POST("/agents/export", s.exportAgents)
 	// Pull an agent from a remote registry
-	api.POST("/agents/pull", s.pullAgent)
+	group.POST("/agents/pull", s.pullAgent)
 	// Push an agent to a remote registry
-	api.POST("/agents/push", s.pushAgent)
+	group.POST("/agents/push", s.pushAgent)
 	// Delete an agent by file path
-	api.DELETE("/agents", s.deleteAgent)
+	group.DELETE("/agents", s.deleteAgent)
 	// List all sessions
-	api.GET("/sessions", s.getSessions)
+	group.GET("/sessions", s.getSessions)
 	// Get a session by id
-	api.GET("/sessions/:id", s.getSession)
+	group.GET("/sessions/:id", s.getSession)
 	// Resume a session by id
-	api.POST("/sessions/:id/resume", s.resumeSession)
+	group.POST("/sessions/:id/resume", s.resumeSession)
 	// Create a new session and run an agent loop
-	api.POST("/sessions", s.createSession)
+	group.POST("/sessions", s.createSession)
 	// Delete a session
-	api.DELETE("/sessions/:id", s.deleteSession)
+	group.DELETE("/sessions/:id", s.deleteSession)
 
 	// Run an agent loop
-	api.POST("/sessions/:id/agent/:agent", s.runAgent)
-	api.POST("/sessions/:id/agent/:agent/:agent_name", s.runAgent)
+	group.POST("/sessions/:id/agent/:agent", s.runAgent)
+	group.POST("/sessions/:id/agent/:agent/:agent_name", s.runAgent)
 
-	api.GET("/desktop/token", s.getDesktopToken)
+	group.GET("/desktop/token", s.getDesktopToken)
+
+	// Resume to start an OAuth flow
+	group.POST("/:id/resumeStartOauth", s.resumeStartOauth)
+	group.POST("/resumeCodeReceivedOauth", s.resumeCodeReceivedOauth)
 
 	return s
 }
@@ -141,54 +140,6 @@ func (s *Server) getDesktopToken(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"token": authToken})
 }
 
-type createAgentRequest struct {
-	Prompt string `json:"prompt"`
-}
-type importAgentRequest struct {
-	FilePath string `json:"file_path"`
-}
-type deleteAgentRequest struct {
-	FilePath string `json:"file_path"`
-}
-type editAgentConfigRequest struct {
-	AgentConfig latest.Config `json:"agent_config"`
-	Filename    string        `json:"filename"`
-}
-type createAgentManualRequest struct {
-	Filename    string `json:"filename"`
-	Model       string `json:"model"`
-	Description string `json:"description"`
-	Instruction string `json:"instruction"`
-}
-type pushAgentRequest struct {
-	Filepath string `json:"filepath"`
-	Tag      string `json:"tag"`
-}
-type pullAgentRequest struct {
-	Name string `json:"name"`
-}
-type sessionResponse struct {
-	ID            string            `json:"id"`
-	Title         string            `json:"title"`
-	Messages      []session.Message `json:"messages,omitempty"`
-	CreatedAt     time.Time         `json:"created_at"`
-	ToolsApproved bool              `json:"tools_approved"`
-	InputTokens   int               `json:"input_tokens"`
-	OutputTokens  int               `json:"output_tokens"`
-}
-type resumeSessionRequest struct {
-	Confirmation string `json:"confirmation"`
-}
-type sessionsResponse struct {
-	ID                         string `json:"id"`
-	Title                      string `json:"title"`
-	CreatedAt                  string `json:"created_at"`
-	NumMessages                int    `json:"num_messages"`
-	InputTokens                int    `json:"input_tokens"`
-	OutputTokens               int    `json:"output_tokens"`
-	GetMostRecentAgentFilename string `json:"most_recent_agent_filename"`
-}
-
 // API handlers
 
 func (s *Server) getAgentConfig(c echo.Context) error {
@@ -209,7 +160,7 @@ func (s *Server) getAgentConfig(c echo.Context) error {
 }
 
 func (s *Server) editAgentConfig(c echo.Context) error {
-	var req editAgentConfigRequest
+	var req api.EditAgentConfigRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 	}
@@ -310,7 +261,7 @@ func (s *Server) editAgentConfig(c echo.Context) error {
 }
 
 func (s *Server) createAgent(c echo.Context) error {
-	var req createAgentRequest
+	var req api.CreateAgentRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 	}
@@ -340,7 +291,7 @@ func (s *Server) createAgent(c echo.Context) error {
 }
 
 func (s *Server) createAgentConfig(c echo.Context) error {
-	var req createAgentManualRequest
+	var req api.CreateAgentConfigRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 	}
@@ -437,7 +388,7 @@ func (s *Server) createAgentConfig(c echo.Context) error {
 }
 
 func (s *Server) importAgent(c echo.Context) error {
-	var req importAgentRequest
+	var req api.ImportAgentRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 	}
@@ -601,7 +552,7 @@ func (s *Server) exportAgents(c echo.Context) error {
 }
 
 func (s *Server) pullAgent(c echo.Context) error {
-	var req pullAgentRequest
+	var req api.PullAgentRequest
 	if err := c.Bind(&req); err != nil {
 		slog.Error("Failed to bind pull agent request", "error", err)
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
@@ -640,7 +591,7 @@ func (s *Server) pullAgent(c echo.Context) error {
 }
 
 func (s *Server) pushAgent(c echo.Context) error {
-	var req pushAgentRequest
+	var req api.PushAgentRequest
 	if err := c.Bind(&req); err != nil {
 		slog.Error("Failed to bind push agent request", "error", err)
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
@@ -699,7 +650,7 @@ func (s *Server) pushAgent(c echo.Context) error {
 }
 
 func (s *Server) deleteAgent(c echo.Context) error {
-	var req deleteAgentRequest
+	var req api.DeleteAgentRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 	}
@@ -802,9 +753,9 @@ func (s *Server) getSessions(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to get sessions"})
 	}
 
-	responses := make([]sessionsResponse, len(sessions))
+	responses := make([]api.SessionsResponse, len(sessions))
 	for i, sess := range sessions {
-		responses[i] = sessionsResponse{
+		responses[i] = api.SessionsResponse{
 			ID:                         sess.ID,
 			Title:                      sess.Title,
 			CreatedAt:                  sess.CreatedAt.Format(time.RFC3339),
@@ -818,7 +769,13 @@ func (s *Server) getSessions(c echo.Context) error {
 }
 
 func (s *Server) createSession(c echo.Context) error {
+	var sessionTemplate session.Session
+	if err := c.Bind(&sessionTemplate); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+	}
+
 	sess := session.New()
+	sess.ToolsApproved = sessionTemplate.ToolsApproved
 
 	if err := s.sessionStore.AddSession(c.Request().Context(), sess); err != nil {
 		slog.Error("Failed to persist session", "session_id", sess.ID, "error", err)
@@ -834,7 +791,7 @@ func (s *Server) getSession(c echo.Context) error {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "session not found"})
 	}
 
-	sr := sessionResponse{
+	sr := api.SessionResponse{
 		ID:            sess.ID,
 		Title:         sess.Title,
 		CreatedAt:     sess.CreatedAt,
@@ -849,14 +806,14 @@ func (s *Server) getSession(c echo.Context) error {
 
 func (s *Server) resumeSession(c echo.Context) error {
 	sessionID := c.Param("id")
-	var req resumeSessionRequest
+	var req api.ResumeSessionRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 	}
 
 	rt, exists := s.runtimes[sessionID]
 	if !exists {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "runtime not found"})
+		return c.JSON(http.StatusNotFound, map[string]string{"error": fmt.Sprintf("runtime not found: %s", sessionID)})
 	}
 
 	rt.Resume(c.Request().Context(), req.Confirmation)
@@ -885,7 +842,7 @@ func (s *Server) runAgent(c echo.Context) error {
 
 	t, exists := s.teams[agentFilename]
 	if !exists {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "runtime not found"})
+		return c.JSON(http.StatusNotFound, map[string]string{"error": fmt.Sprintf("runtime not found: %s", agentFilename)})
 	}
 	sess, err := s.sessionStore.GetSession(c.Request().Context(), sessionID)
 	if err != nil {
@@ -897,9 +854,6 @@ func (s *Server) runAgent(c echo.Context) error {
 		var opts []runtime.Opt = []runtime.Opt{
 			runtime.WithCurrentAgent(currentAgent),
 		}
-		if s.autoRunTools {
-			opts = append(opts, runtime.WithAutoRunTools(true))
-		}
 		rt, err = runtime.New(t, opts...)
 		if err != nil {
 			slog.Error("Failed to create runtime", "error", err)
@@ -908,7 +862,7 @@ func (s *Server) runAgent(c echo.Context) error {
 		s.runtimes[sess.ID] = rt
 	}
 
-	var messages []Message
+	var messages []api.Message
 	if err := json.NewDecoder(c.Request().Body).Decode(&messages); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 	}
@@ -1001,4 +955,53 @@ func (s *Server) secureAgentPath(filename string) (string, error) {
 	}
 
 	return config.ValidatePathInDirectory(filename, s.agentsDir)
+}
+
+func (s *Server) resumeStartOauth(c echo.Context) error {
+	sessionID := c.Param("id")
+	var req api.ResumeStartOauthRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+	}
+
+	rt, exists := s.runtimes[sessionID]
+	if !exists {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": fmt.Sprintf("runtime not found: %s", sessionID)})
+	}
+
+	rt.ResumeStartAuthorizationFlow(c.Request().Context(), req.Confirmation)
+
+	return c.JSON(http.StatusOK, map[string]string{"message": "Oauth started"})
+}
+
+func (s *Server) resumeCodeReceivedOauth(c echo.Context) error {
+	var req api.ResumeCodeReceivedOauthRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+	}
+
+	code := req.Code
+	state := req.State
+
+	// Extract session ID from the OAuth state parameter
+	sessionID, err := runtime.DecodeSessionIDFromState(state)
+	if err != nil {
+		slog.Error("Failed to decode session ID from OAuth state", "error", err)
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid OAuth state parameter"})
+	}
+
+	rt, exists := s.runtimes[sessionID]
+	if !exists {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": fmt.Sprintf("runtime not found: %s", sessionID)})
+	}
+
+	// Send the authorization code to the runtime's OAuth channel
+	if err := rt.ResumeCodeReceived(c.Request().Context(), code); err != nil {
+		slog.Error("Failed to send OAuth code to runtime", "session_id", sessionID, "error", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "OAuth flow not in progress"})
+	}
+
+	slog.Debug("OAuth authorization code sent to runtime", "session_id", sessionID)
+
+	return c.JSON(http.StatusOK, map[string]string{"message": "OAuth code received"})
 }

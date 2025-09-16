@@ -11,10 +11,8 @@ import (
 const (
 	flagGateway       = "gateway"
 	flagModelsGateway = "models-gateway"
-	flagToolsGateway  = "tools-gateway"
 	envGateway        = "CAGENT_GATEWAY"
 	envModelsGateway  = "CAGENT_MODELS_GATEWAY"
-	envToolsGateway   = "CAGENT_TOOLS_GATEWAY"
 )
 
 type gatewayConfig struct {
@@ -36,20 +34,15 @@ func logEnvvarShadowing(flagValue, varName, flagName string) {
 func addGatewayFlags(cmd *cobra.Command) {
 	cmd.PersistentFlags().StringVar(&gwConfig.mainGateway, flagGateway, "", "Set the gateway address to use for models and tool calls")
 	cmd.PersistentFlags().StringVar(&runConfig.ModelsGateway, flagModelsGateway, "", "Set the models gateway address")
-	cmd.PersistentFlags().StringVar(&runConfig.ToolsGateway, flagToolsGateway, "", "Set the tools gateway address")
 
 	// Don't allow gateway to be specified if a qualified gateway flag is provided
 	cmd.MarkFlagsMutuallyExclusive(flagGateway, flagModelsGateway)
-	cmd.MarkFlagsMutuallyExclusive(flagGateway, flagToolsGateway)
 
 	persistentPreRunE := cmd.PersistentPreRunE
 	cmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		// verify mutual exclusion for environment variables
 		if os.Getenv(envGateway) != "" && os.Getenv(envModelsGateway) != "" {
 			return fmt.Errorf("environment variables %s and %s cannot be set at the same time", envGateway, envModelsGateway)
-		}
-		if os.Getenv(envGateway) != "" && os.Getenv(envToolsGateway) != "" {
-			return fmt.Errorf("environment variables %s and %s cannot be set at the same time", envGateway, envToolsGateway)
 		}
 
 		// Get gateway value from the environment.
@@ -59,7 +52,6 @@ func addGatewayFlags(cmd *cobra.Command) {
 			logEnvvarShadowing(gwConfig.mainGateway, envGateway, flagGateway)
 			gwConfig.mainGateway = mainGateway
 			runConfig.ModelsGateway = mainGateway
-			runConfig.ToolsGateway = mainGateway
 		}
 
 		if gateway := os.Getenv(envModelsGateway); gateway != "" {
@@ -67,23 +59,13 @@ func addGatewayFlags(cmd *cobra.Command) {
 			runConfig.ModelsGateway = gateway
 		}
 
-		// Prefer the explicit tools gateway if provided
-		if gateway := os.Getenv(envToolsGateway); gateway != "" {
-			logEnvvarShadowing(runConfig.ToolsGateway, envToolsGateway, flagToolsGateway)
-			runConfig.ToolsGateway = gateway
-		}
-
 		// Set the qualified gateways to the main gateway if they haven't been set explicitly
 		if runConfig.ModelsGateway == "" {
 			runConfig.ModelsGateway = gwConfig.mainGateway
 		}
-		if runConfig.ToolsGateway == "" {
-			runConfig.ToolsGateway = gwConfig.mainGateway
-		}
 
 		// Ensure the gateway url is canonical.
 		runConfig.ModelsGateway = canonize(runConfig.ModelsGateway)
-		runConfig.ToolsGateway = canonize(runConfig.ToolsGateway)
 
 		// First call the original persistentPreRunE if it exists (from this command)
 		if persistentPreRunE != nil {

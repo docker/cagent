@@ -6,10 +6,8 @@ func NewExecCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "exec <agent-name>",
 		Short: "Execute an agent",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runCommand(cmd, args, true)
-		},
+		Args:  cobra.RangeArgs(1, 2),
+		RunE:  execCommand,
 	}
 
 	cmd.PersistentFlags().StringVarP(&agentName, "agent", "a", "root", "Name of the agent to run")

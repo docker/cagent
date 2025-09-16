@@ -9,10 +9,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/docker/cagent/internal/config"
-	"github.com/docker/cagent/internal/telemetry"
-	"github.com/docker/cagent/internal/version"
 	"github.com/docker/cagent/pkg/environment"
+	"github.com/docker/cagent/pkg/paths"
+	"github.com/docker/cagent/pkg/telemetry"
+	"github.com/docker/cagent/pkg/version"
 	"github.com/spf13/cobra"
 )
 
@@ -27,7 +27,7 @@ var (
 // isFirstRun checks if this is the first time cagent is being run
 // It creates a marker file in the user's config directory
 func isFirstRun() bool {
-	configDir := config.GetConfigDir()
+	configDir := paths.GetConfigDir()
 	markerFile := filepath.Join(configDir, ".cagent_first_run")
 
 	// Check if marker file exists
@@ -174,7 +174,7 @@ func setupLogging(cmd *cobra.Command) error {
 		// Determine path from flag or default to <dataDir>/cagent.debug.log
 		path := strings.TrimSpace(logFilePath)
 		if path == "" {
-			dataDir := config.GetDataDir()
+			dataDir := paths.GetDataDir()
 			path = filepath.Join(dataDir, "cagent.debug.log")
 		} else {
 			if path == "~" || strings.HasPrefix(path, "~/") {
