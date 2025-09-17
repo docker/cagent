@@ -39,6 +39,7 @@ cagent provides multiple interfaces and deployment modes:
 $ cagent run config.yaml
 $ cagent run config.yaml -a agent_name  # Run specific agent
 $ cagent run config.yaml --debug        # Enable debug logging
+$ cagent run config.yaml --retry        # Auto-retry failures up to 3 times
 
 # API Server (HTTP REST API)
 $ cagent api config.yaml
