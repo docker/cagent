@@ -52,6 +52,7 @@ func (t *GatewayToolset) Instructions() string {
 func (t *GatewayToolset) configureOnce(ctx context.Context) error {
 	if mcpGatewayURL := os.Getenv(DOCKER_MCP_GATEWAY_URL_ENV); mcpGatewayURL != "" {
 		var err error
+
 		t.cmdToolset, err = NewToolsetRemote(mcpGatewayURL, "streaming", nil, t.toolFilter, "")
 		if err != nil {
 			return fmt.Errorf("connecting to remote MCP Gateway: %w", err)

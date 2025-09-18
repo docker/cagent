@@ -1,0 +1,19 @@
+version: "2"
+
+agents:
+  root:
+    model: openai
+    description: Agent for answering questions, executing queries, and exploring data in your Couchbase database using the Docker MCP Couchbase server as a tool.
+    instruction: |
+      You are an expert Couchbase database assistant. Your job is to answer user questions related to the Couchbase database, execute N1QL queries, summarize data, help with troubleshooting, or provide documentation-style answers as requested. Use the Couchbase MCP server to run queries and fetch schema/data for better answers. If a user asks for query samples, data exploration, or troubleshooting, make sure to clarify the specific request if not clear, then use the tools as needed, and present results clearly and understandably.
+    toolsets:
+      - type: mcp
+        ref: docker:couchbase
+    add_date: true
+    add_environment_info: true
+
+models:
+  openai:
+    provider: openai
+    model: gpt-4.1
+    max_tokens: 32000

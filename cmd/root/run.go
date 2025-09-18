@@ -238,7 +238,7 @@ func doRunCommand(ctx context.Context, args []string, exec bool) error {
 			return fmt.Errorf("failed to create runtime: %w", err)
 		}
 		rt = localRt
-		sess = session.New()
+		sess = session.New(session.WithMaxIterations(rt.CurrentAgent().MaxIterations()))
 		sess.ToolsApproved = autoApprove
 		slog.Debug("Using local runtime", "agent", agentName)
 	}
@@ -251,12 +251,12 @@ func doRunCommand(ctx context.Context, args []string, exec bool) error {
 		} else {
 			execArgs = append(execArgs, "Follow the default instructions")
 		}
-		return runWithoutTUI(ctx, agentFilename, rt, session.New(), execArgs)
+		return runWithoutTUI(ctx, agentFilename, rt, sess, execArgs)
 	}
 
 	// For `cagent run --tui=false`
 	if !useTUI {
-		return runWithoutTUI(ctx, agentFilename, rt, session.New(), args)
+		return runWithoutTUI(ctx, agentFilename, rt, sess, args)
 	}
 
 	// The default is to use the TUI
@@ -275,7 +275,7 @@ func doRunCommand(ctx context.Context, args []string, exec bool) error {
 		}
 	}
 
-	a := app.New(agentFilename, rt, agents, sess, firstMessage)
+	a := app.New("cagent", agentFilename, rt, agents, sess, firstMessage)
 	m := tui.New(a)
 
 	progOpts := []tea.ProgramOption{
@@ -431,6 +431,23 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt runtime.Runtime
 				} else {
 					lastErr = fmt.Errorf("%s", e.Error)
 					printError(lastErr)
+				}
+			case *runtime.MaxIterationsReachedEvent:
+				if llmIsTyping {
+					fmt.Println()
+					llmIsTyping = false
+				}
+
+				result := promptMaxIterationsContinue(e.MaxIterations)
+				switch result {
+				case ConfirmationApprove:
+					rt.Resume(ctx, string(runtime.ResumeTypeApprove))
+				case ConfirmationReject:
+					rt.Resume(ctx, string(runtime.ResumeTypeReject))
+					return nil
+				case ConfirmationAbort:
+					rt.Resume(ctx, string(runtime.ResumeTypeReject))
+					return nil
 				}
 			}
 		}

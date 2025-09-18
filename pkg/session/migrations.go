@@ -193,6 +193,13 @@ func getAllMigrations() []Migration {
 			UpSQL:       `ALTER TABLE sessions ADD COLUMN send_user_message BOOLEAN DEFAULT 1`,
 			DownSQL:     `ALTER TABLE sessions DROP COLUMN send_user_message`,
 		},
+		{
+			ID:          7,
+			Name:        "007_add_max_iterations_column",
+			Description: "Add max_iterations column to sessions table",
+			UpSQL:       `ALTER TABLE sessions ADD COLUMN max_iterations INTEGER DEFAULT 0`,
+			DownSQL:     `ALTER TABLE sessions DROP COLUMN max_iterations`,
+		},
 		// Add more migrations here as needed
 	}
 }

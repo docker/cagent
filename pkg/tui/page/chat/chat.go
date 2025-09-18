@@ -53,7 +53,8 @@ type chatPage struct {
 	// Key map
 	keyMap KeyMap
 
-	app *app.App
+	title string
+	app   *app.App
 
 	// Cached layout dimensions
 	chatHeight  int
@@ -89,6 +90,7 @@ func DefaultKeyMap() KeyMap {
 // New creates a new chat page
 func New(a *app.App, firstMessage *string) Page {
 	return &chatPage{
+		title:        a.Title(),
 		sidebar:      sidebar.New(),
 		messages:     messages.New(a),
 		editor:       editor.New(),
@@ -255,6 +257,15 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		spinnerCmd := p.setWorking(true)
 		cmd := p.messages.AddToolResult(msg, types.ToolStatusCompleted)
 		return p, tea.Batch(cmd, p.messages.ScrollToBottom(), spinnerCmd)
+	case *runtime.MaxIterationsReachedEvent:
+		spinnerCmd := p.setWorking(false) // Stop working indicator during confirmation
+
+		// Open max iterations confirmation dialog
+		dialogCmd := core.CmdHandler(dialog.OpenDialogMsg{
+			Model: dialog.NewMaxIterationsDialog(msg.MaxIterations, p.app),
+		})
+
+		return p, tea.Batch(spinnerCmd, dialogCmd)
 	}
 
 	sidebarModel, sidebarCmd := p.sidebar.Update(msg)
@@ -279,7 +290,7 @@ func (p *chatPage) setWorking(working bool) tea.Cmd {
 // View renders the chat page
 func (p *chatPage) View() string {
 	// Header
-	headerText := "cagent"
+	headerText := p.title
 	header := styles.HeaderStyle.Render(headerText + " " + p.sessionTitle)
 
 	// Main chat content area (without input)

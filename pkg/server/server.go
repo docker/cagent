@@ -28,6 +28,7 @@ import (
 	"github.com/docker/cagent/pkg/content"
 	"github.com/docker/cagent/pkg/creator"
 	"github.com/docker/cagent/pkg/desktop"
+	"github.com/docker/cagent/pkg/oauth"
 	"github.com/docker/cagent/pkg/oci"
 	"github.com/docker/cagent/pkg/remote"
 	"github.com/docker/cagent/pkg/runtime"
@@ -984,7 +985,7 @@ func (s *Server) resumeCodeReceivedOauth(c echo.Context) error {
 	state := req.State
 
 	// Extract session ID from the OAuth state parameter
-	sessionID, err := runtime.DecodeSessionIDFromState(state)
+	sessionID, err := oauth.DecodeSessionIDFromState(state)
 	if err != nil {
 		slog.Error("Failed to decode session ID from OAuth state", "error", err)
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid OAuth state parameter"})

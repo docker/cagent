@@ -289,3 +289,22 @@ func (e *AuthorizationRequiredEvent) isEvent() {}
 func (e *AuthorizationRequiredEvent) GetAgentName() string {
 	return ""
 }
+
+type MaxIterationsReachedEvent struct {
+	Type          string `json:"type"`
+	MaxIterations int    `json:"max_iterations"`
+	AgentContext
+}
+
+func MaxIterationsReached(maxIterations int) Event {
+	return &MaxIterationsReachedEvent{
+		Type:          "max_iterations_reached",
+		MaxIterations: maxIterations,
+	}
+}
+
+func (e *MaxIterationsReachedEvent) isEvent() {}
+
+func (e *MaxIterationsReachedEvent) GetAgentName() string {
+	return e.AgentName
+}

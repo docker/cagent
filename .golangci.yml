@@ -5,6 +5,7 @@ linters:
   enable:
     - containedctx
     - copyloopvar
+    - depguard
     - errcheck
     - ginkgolinter
     - gocritic
@@ -24,6 +25,14 @@ linters:
     - unused
     - usestdlibvars
   settings:
+    depguard:
+      rules:
+        internal:
+          files:
+            - "**/*.go"
+          deny:
+            - pkg: github.com/docker/cagent/internal
+              desc: don't use /internal/ from /pkg/
     gocritic:
       disabled-checks:
         - dupImport

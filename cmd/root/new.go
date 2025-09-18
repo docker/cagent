@@ -14,8 +14,9 @@ import (
 )
 
 var (
-	modelParam     string
-	maxTokensParam int
+	modelParam         string
+	maxTokensParam     int
+	maxIterationsParam int
 )
 
 // Cmd creates a new command to create a new agent configuration
@@ -93,7 +94,7 @@ func NewNewCmd() *cobra.Command {
 				fmt.Println()
 			}
 
-			out, err := creator.StreamCreateAgent(ctx, ".", prompt, runConfig, modelProvider, model, maxTokensParam)
+			out, rt, err := creator.StreamCreateAgent(ctx, ".", prompt, runConfig, modelProvider, model, maxTokensParam, maxIterationsParam)
 			if err != nil {
 				return err
 			}
@@ -126,6 +127,22 @@ func NewNewCmd() *cobra.Command {
 						llmIsTyping = false
 					}
 					printError(fmt.Errorf("%s", e.Error))
+				case *runtime.MaxIterationsReachedEvent:
+					if llmIsTyping {
+						fmt.Println()
+						llmIsTyping = false
+					}
+
+					result := promptMaxIterationsContinue(e.MaxIterations)
+					switch result {
+					case ConfirmationApprove:
+						rt.Resume(ctx, string(runtime.ResumeTypeApprove))
+					case ConfirmationReject:
+						rt.Resume(ctx, string(runtime.ResumeTypeReject))
+						return nil
+					case ConfirmationAbort:
+						rt.Resume(ctx, string(runtime.ResumeTypeReject))
+					}
 				}
 			}
 			fmt.Print("\n\n")
@@ -135,6 +152,7 @@ func NewNewCmd() *cobra.Command {
 	addGatewayFlags(cmd)
 	cmd.PersistentFlags().StringVar(&modelParam, "model", "", "Model to use, optionally as provider/model where provider is one of: anthropic, openai, google, dmr. If omitted, provider is auto-selected based on available credentials or gateway")
 	cmd.PersistentFlags().IntVar(&maxTokensParam, "max-tokens", 0, "Override max_tokens for the selected model (0 = default)")
+	cmd.PersistentFlags().IntVar(&maxIterationsParam, "max-iterations", 0, "Maximum number of agentic loop iterations to prevent infinite loops (default: 20 for DMR, unlimited for other providers)")
 
 	return cmd
 }

@@ -204,6 +204,11 @@ func processMCPContent(toolResult *mcp.CallToolResult) *tools.ToolCallResult {
 		}
 	}
 
+	// Handle an empty response. This can happen if the MCP tool does not return any content.
+	if finalContent == "" {
+		finalContent = "no output"
+	}
+
 	return &tools.ToolCallResult{
 		Output: finalContent,
 	}

@@ -126,6 +126,8 @@ jobs:
             type=semver,pattern={{version}}
             type=edge
             type=ref,event=pr
+          labels: |
+            org.opencontainers.image.created=auto
 
       - name: Build and push image
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0

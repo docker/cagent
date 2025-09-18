@@ -21,6 +21,7 @@ type AgentConfig struct {
 	SubAgents          []string  `json:"sub_agents,omitempty" yaml:"sub_agents,omitempty"`
 	AddDate            bool      `json:"add_date,omitempty" yaml:"add_date,omitempty"`
 	AddEnvironmentInfo bool      `json:"add_environment_info,omitempty" yaml:"add_environment_info,omitempty"`
+	MaxIterations      int       `json:"max_iterations,omitempty" yaml:"max_iterations,omitempty"`
 }
 
 // ModelConfig represents the configuration for a model

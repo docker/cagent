@@ -58,6 +58,10 @@ type Session struct {
 	// SendUserMessage is a flag to indicate if the user message should be sent
 	SendUserMessage bool
 
+	// MaxIterations is the maximum number of agentic loop iterations to prevent infinite loops
+	// If 0, there is no limit
+	MaxIterations int `json:"max_iterations"`
+
 	InputTokens  int     `json:"input_tokens"`
 	OutputTokens int     `json:"output_tokens"`
 	Cost         float64 `json:"cost"`
@@ -162,6 +166,12 @@ func WithUserMessage(agentFilename, content string) Opt {
 func WithSystemMessage(content string) Opt {
 	return func(s *Session) {
 		s.AddMessage(SystemMessage(content))
+	}
+}
+
+func WithMaxIterations(maxIterations int) Opt {
+	return func(s *Session) {
+		s.MaxIterations = maxIterations
 	}
 }
 

@@ -72,3 +72,9 @@ func WithMemoryManager(mm memorymanager.Manager) Opt {
 		a.memoryManager = mm
 	}
 }
+
+func WithMaxIterations(maxIterations int) Opt {
+	return func(a *Agent) {
+		a.maxIterations = maxIterations
+	}
+}

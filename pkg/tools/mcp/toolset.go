@@ -74,24 +74,26 @@ func (t *Toolset) Tools(ctx context.Context) ([]tools.Tool, error) {
 
 // Start starts the toolset
 func (t *Toolset) Start(ctx context.Context) error {
-	slog.Debug("Starting MCP toolset")
+	serverURL, _ := t.c.GetServerInfo()
+	slog.Debug("Starting MCP toolset", "server", serverURL)
 	err := t.c.Start(ctx)
 	if err != nil {
-		slog.Error("Failed to start MCP toolset", "error", err)
+		slog.Error("Failed to start MCP toolset", "server", serverURL, "error", err)
 		return err
 	}
-	slog.Debug("Started MCP toolset successfully")
+	slog.Debug("Started MCP toolset successfully", "server", serverURL)
 	return nil
 }
 
 // Stop stops the toolset
 func (t *Toolset) Stop() error {
-	slog.Debug("Stopping MCP toolset")
+	serverURL, _ := t.c.GetServerInfo()
+	slog.Debug("Stopping MCP toolset", "server", serverURL)
 	err := t.c.Stop()
 	if err != nil {
-		slog.Error("Failed to stop MCP toolset", "error", err)
+		slog.Error("Failed to stop MCP toolset", "server", serverURL, "error", err)
 		return err
 	}
-	slog.Debug("Stopped MCP toolset successfully")
+	slog.Debug("Stopped MCP toolset successfully", "server", serverURL)
 	return nil
 }

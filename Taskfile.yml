@@ -69,11 +69,16 @@ tasks:
     desc: Build Docker image
     cmd: docker buildx build -t docker/cagent:latest {{.BUILD_ARGS}} .
 
+  push-image:
+    desc: Build and Push Docker image
+    cmd: docker buildx build --push -t docker/cagent:latest {{.BUILD_ARGS}} .
+
   build-agents:
     desc: Build Demo dockerized agents
     vars:
       DOCKER_ID:
         sh: curl -s --unix-socket ~/Library/Containers/com.docker.docker/Data/backend.sock http://_/registry/info | jq -r .id
+    depends: ["build"]
     cmds:
       - cagent build --push ./examples/pirate.yaml {{.DOCKER_ID}}/cagent-pirate
       - cagent build --push ./examples/github.yaml {{.DOCKER_ID}}/cagent-github

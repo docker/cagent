@@ -38,13 +38,6 @@ func WithRemoteAgentFilename(filename string) RemoteRuntimeOption {
 	}
 }
 
-// WithRemoteSessionID sets the session ID for the remote runtime
-func WithRemoteSessionID(sessionID string) RemoteRuntimeOption {
-	return func(r *RemoteRuntime) {
-		r.sessionID = sessionID
-	}
-}
-
 // NewRemoteRuntime creates a new remote runtime that implements the Interface
 func NewRemoteRuntime(client *Client, opts ...RemoteRuntimeOption) (*RemoteRuntime, error) {
 	if client == nil {
@@ -83,31 +76,16 @@ func (r *RemoteRuntime) RunStream(ctx context.Context, sess *session.Session) <-
 		// Convert session messages to remote.Message format
 		messages := r.convertSessionMessages(sess)
 
-		// Use the session ID if available, otherwise try to create one
-		sessionID := r.sessionID
-		if sessionID == "" && sess.ID != "" {
-			sessionID = sess.ID
-		}
-		if sessionID == "" {
-			// Create a new session if none exists
-			newSess, err := r.client.CreateSession(ctx, nil)
-			if err != nil {
-				events <- Error(fmt.Sprintf("failed to create remote session: %v", err))
-				return
-			}
-			sessionID = newSess.ID
-			r.sessionID = sessionID
-			slog.Debug("Created new remote session", "session_id", sessionID)
-		}
+		r.sessionID = sess.ID
 
 		// Start streaming from remote client
 		var streamChan <-chan Event
 		var err error
 
 		if r.currentAgent != "" && r.currentAgent != "root" {
-			streamChan, err = r.client.RunAgentWithAgentName(ctx, sessionID, r.agentFilename, r.currentAgent, messages)
+			streamChan, err = r.client.RunAgentWithAgentName(ctx, r.sessionID, r.agentFilename, r.currentAgent, messages)
 		} else {
-			streamChan, err = r.client.RunAgent(ctx, sessionID, r.agentFilename, messages)
+			streamChan, err = r.client.RunAgent(ctx, r.sessionID, r.agentFilename, messages)
 		}
 
 		if err != nil {

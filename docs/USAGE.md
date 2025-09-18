@@ -42,7 +42,7 @@ $ cagent run config.yaml --debug        # Enable debug logging
 
 # API Server (HTTP REST API)
 $ cagent api config.yaml
-$ cagent api config.yaml --port 8080
+$ cagent api config.yaml --listen :8080
 
 # Project Management
 $ cagent new                          # Initialize new project

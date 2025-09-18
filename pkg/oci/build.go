@@ -21,7 +21,14 @@ import (
 //go:embed Dockerfile.template
 var dockerfileTemplate string
 
-func BuildDockerImage(ctx context.Context, agentFilePath, dockerImageName string, dryRun, push bool) error {
+type Options struct {
+	DryRun  bool
+	Push    bool
+	NoCache bool
+	Pull    bool
+}
+
+func BuildDockerImage(ctx context.Context, agentFilePath, dockerImageName string, opts Options) error {
 	agentYaml, err := os.ReadFile(agentFilePath)
 	if err != nil {
 		return err
@@ -91,16 +98,22 @@ func BuildDockerImage(ctx context.Context, agentFilePath, dockerImageName string
 	}
 
 	dockerfile := dockerfileBuf.String()
-	if dryRun {
+	if opts.DryRun {
 		fmt.Println(dockerfile)
 		return nil
 	}
 
 	// Run docker build
 	buildArgs := []string{"build"}
+	if opts.NoCache {
+		buildArgs = append(buildArgs, "--no-cache")
+	}
+	if opts.Pull {
+		buildArgs = append(buildArgs, "--pull")
+	}
 	if dockerImageName != "" {
 		buildArgs = append(buildArgs, "-t", dockerImageName)
-		if push {
+		if opts.Push {
 			buildArgs = append(buildArgs, "--push")
 		}
 	}

@@ -18,6 +18,7 @@ var (
 	yellow = color.New(color.FgYellow).SprintfFunc()
 	red    = color.New(color.FgRed).SprintfFunc()
 	gray   = color.New(color.FgHiBlack).SprintfFunc()
+	green  = color.New(color.FgGreen).SprintfFunc()
 )
 
 // text styles
@@ -113,6 +114,28 @@ func printToolCallWithConfirmation(toolCall tools.ToolCall, scanner *bufio.Scann
 
 func printToolCallResponse(toolCall tools.ToolCall, response string) {
 	fmt.Printf("\n%s\n", gray("%s response%s", bold(toolCall.Function.Name), formatToolCallResponse(response)))
+}
+
+func promptMaxIterationsContinue(maxIterations int) ConfirmationResult {
+	fmt.Printf("\n%s\n", yellow("⚠️  Maximum iterations (%d) reached. The agent may be stuck in a loop.", maxIterations))
+	fmt.Printf("%s\n", gray("This can happen with smaller or less capable models."))
+	fmt.Printf("\n%s (y/n): ", blue("Do you want to continue for 10 more iterations?"))
+
+	reader := bufio.NewReader(os.Stdin)
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		fmt.Printf("\n%s\n", red("Failed to read input, exiting..."))
+		return ConfirmationAbort
+	}
+
+	response = strings.TrimSpace(strings.ToLower(response))
+	if response == "y" || response == "yes" {
+		fmt.Printf("%s\n\n", green("✓ Continuing..."))
+		return ConfirmationApprove
+	} else {
+		fmt.Printf("%s\n\n", gray("Exiting..."))
+		return ConfirmationReject
+	}
 }
 
 func formatToolCallArguments(arguments string) string {

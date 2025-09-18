@@ -146,6 +146,7 @@ func Load(ctx context.Context, path string, runtimeConfig config.RuntimeConfig) 
 			agent.WithDescription(agentConfig.Description),
 			agent.WithAddDate(agentConfig.AddDate),
 			agent.WithAddEnvironmentInfo(agentConfig.AddEnvironmentInfo),
+			agent.WithMaxIterations(agentConfig.MaxIterations),
 		}
 		for _, model := range models {
 			opts = append(opts, agent.WithModel(model))

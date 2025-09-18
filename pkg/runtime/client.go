@@ -377,6 +377,9 @@ func (c *Client) runAgentWithAgentName(ctx context.Context, sessionID, agent, ag
 					cost, _ := usage["cost"].(float64)
 
 					eventChan <- TokenUsage(int(inputTokens), int(outputTokens), int(contextLength), int(contextLimit), cost)
+				case "max_iterations_reached":
+					maxIterations, _ := event["max_iterations"].(float64)
+					eventChan <- MaxIterationsReached(int(maxIterations))
 				case "session_title":
 					eventChan <- SessionTitle(event["session_id"].(string), event["title"].(string))
 				case "session_summary":

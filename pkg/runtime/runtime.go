@@ -2,27 +2,22 @@ package runtime
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
-	"os/exec"
-	goRT "runtime"
 	"strings"
 	"time"
 
 	"github.com/docker/cagent/pkg/agent"
 	"github.com/docker/cagent/pkg/chat"
 	"github.com/docker/cagent/pkg/modelsdev"
+	"github.com/docker/cagent/pkg/oauth"
 	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/team"
 	"github.com/docker/cagent/pkg/telemetry"
 	"github.com/docker/cagent/pkg/tools"
-	"github.com/mark3labs/mcp-go/client"
-	"github.com/mark3labs/mcp-go/client/transport"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -35,108 +30,6 @@ const (
 	ResumeTypeApproveSession ResumeType = "approve-session"
 	ResumeTypeReject         ResumeType = "reject"
 )
-
-// OAuthAuthorizationRequiredError wraps an OAuth authorization error with server information
-type OAuthAuthorizationRequiredError struct {
-	Err        error
-	ServerURL  string
-	ServerType string
-}
-
-func (e *OAuthAuthorizationRequiredError) Error() string {
-	return fmt.Sprintf("OAuth authorization required for %s server '%s': %v", e.ServerType, e.ServerURL, e.Err)
-}
-
-func (e *OAuthAuthorizationRequiredError) Unwrap() error {
-	return e.Err
-}
-
-// ServerInfoProvider interface for toolsets that can provide server information
-type ServerInfoProvider interface {
-	GetServerInfo() (serverURL, serverType string)
-}
-
-// OAuthStateData represents the data encoded in the OAuth state parameter.
-//
-// In OAuth flows, the state parameter serves dual purposes:
-//  1. Security: CSRF protection by including random data
-//  2. Session tracking: When the browser returns from authorization, we need to know
-//     which session triggered the OAuth flow to route the callback correctly.
-//
-// Since OAuth authorization happens in a browser (different context from our runtime),
-// we embed the session ID in the state parameter so we can retrieve it when the
-// authorization server redirects back to us with the authorization code.
-type OAuthStateData struct {
-	SessionID string `json:"session_id"` // The session ID that initiated the OAuth flow
-	Random    string `json:"random"`     // Random component for CSRF protection
-}
-
-// generateStateWithSessionID generates an OAuth state parameter that encodes the session ID.
-//
-// OAuth State Parameter Design:
-//
-// When an agent needs OAuth authorization, the flow works like this:
-// 1. Agent runtime detects OAuth is needed and pauses execution
-// 2. We generate authorization URL with state parameter containing the session ID
-// 3. User's browser is redirected to the OAuth provider for authorization
-// 4. OAuth provider redirects back to our callback URL with the authorization code AND the state
-// 5. Our callback handler receives the state, extracts the session ID from it
-// 6. We can then resume the correct agent session with the authorization code
-//
-// Without encoding session ID in state, we couldn't match the OAuth callback to the
-// specific agent session that requested authorization, especially in multi-session scenarios.
-//
-// The state parameter combines:
-// - Session ID: To route the callback back to the correct session
-// - Random bytes: For CSRF protection (traditional OAuth security requirement)
-func generateStateWithSessionID(sessionID string) (string, error) {
-	// Generate a random component for security
-	randomBytes := make([]byte, 16)
-	if _, err := rand.Read(randomBytes); err != nil {
-		return "", fmt.Errorf("failed to generate random bytes: %w", err)
-	}
-
-	stateData := OAuthStateData{
-		SessionID: sessionID,
-		Random:    base64.RawURLEncoding.EncodeToString(randomBytes),
-	}
-
-	// JSON encode the state data
-	stateJSON, err := json.Marshal(stateData)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal state data: %w", err)
-	}
-
-	// Base64 encode the JSON to create the state parameter
-	state := base64.RawURLEncoding.EncodeToString(stateJSON)
-	return state, nil
-}
-
-// DecodeSessionIDFromState extracts the session ID from an OAuth state parameter.
-//
-// This function is exported to allow OAuth callback handlers to decode session IDs.
-// When the OAuth provider redirects back to our callback endpoint, they include the
-// state parameter we originally sent. This function reverses the encoding done by
-// generateStateWithSessionID to extract the session ID, allowing us to route the
-// authorization code back to the correct agent session that initiated the OAuth flow.
-//
-// This is the critical piece that bridges the browser-based OAuth callback back to
-// the specific runtime session that needs the authorization.
-func DecodeSessionIDFromState(state string) (string, error) {
-	// Base64 decode the state
-	stateJSON, err := base64.RawURLEncoding.DecodeString(state)
-	if err != nil {
-		return "", fmt.Errorf("failed to decode state: %w", err)
-	}
-
-	// JSON decode the state data
-	var stateData OAuthStateData
-	if err := json.Unmarshal(stateJSON, &stateData); err != nil {
-		return "", fmt.Errorf("failed to unmarshal state data: %w", err)
-	}
-
-	return stateData.SessionID, nil
-}
 
 // ToolHandler is a function type for handling tool calls
 type ToolHandler func(ctx context.Context, sess *session.Session, toolCall tools.ToolCall, events chan Event) (*tools.ToolCallResult, error)
@@ -161,15 +54,14 @@ type Runtime interface {
 
 // runtime manages the execution of agents
 type runtime struct {
-	toolMap                  map[string]ToolHandler
-	team                     *team.Team
-	currentAgent             string
-	resumeChan               chan ResumeType
-	resumeAuthorizeOauthFlow chan bool
-	resumeOauthCodeReceived  chan string
-	tracer                   trace.Tracer
-	modelsStore              *modelsdev.Store
-	sessionCompaction        bool
+	toolMap           map[string]ToolHandler
+	team              *team.Team
+	currentAgent      string
+	resumeChan        chan ResumeType
+	oauthManager      oauth.Manager
+	tracer            trace.Tracer
+	modelsStore       *modelsdev.Store
+	sessionCompaction bool
 }
 
 type Opt func(*runtime)
@@ -201,14 +93,12 @@ func New(agents *team.Team, opts ...Opt) (Runtime, error) {
 	}
 
 	r := &runtime{
-		toolMap:                  make(map[string]ToolHandler),
-		team:                     agents,
-		currentAgent:             "root",
-		resumeChan:               make(chan ResumeType),
-		resumeAuthorizeOauthFlow: make(chan bool),
-		resumeOauthCodeReceived:  make(chan string),
-		modelsStore:              modelsStore,
-		sessionCompaction:        true,
+		toolMap:           make(map[string]ToolHandler),
+		team:              agents,
+		currentAgent:      "root",
+		resumeChan:        make(chan ResumeType),
+		modelsStore:       modelsStore,
+		sessionCompaction: true,
 	}
 
 	for _, opt := range opts {
@@ -231,27 +121,17 @@ func (r *runtime) registerDefaultTools() {
 	slog.Debug("Registered default tools", "count", len(r.toolMap))
 }
 
-// getAgentToolsWithOAuthHandling gets tools from the agent and handles OAuth errors by wrapping them with server info
-func (r *runtime) getAgentToolsWithOAuthHandling(ctx context.Context, a *agent.Agent) ([]tools.Tool, error) {
-	agentTools, err := a.Tools(ctx)
-	if err != nil {
-		// If this is an OAuth authorization error, wrap it with server info
-		if client.IsOAuthAuthorizationRequiredError(err) {
-			// Try to find which toolset caused the OAuth error by checking each one
-			for _, toolSet := range a.ToolSets() {
-				if serverInfoProvider, ok := toolSet.(ServerInfoProvider); ok {
-					serverURL, serverType := serverInfoProvider.GetServerInfo()
-					return nil, &OAuthAuthorizationRequiredError{
-						Err:        err,
-						ServerURL:  serverURL,
-						ServerType: serverType,
-					}
-				}
-			}
+// handleOAuthAuthorizationFlow handles a single OAuth authorization flow
+func (r *runtime) handleOAuthAuthorizationFlow(ctx context.Context, sess *session.Session, oauthRequiredErr *oauth.AuthorizationRequiredError, events chan Event) error {
+	// Create OAuth manager if it doesn't exist
+	if r.oauthManager == nil {
+		emitAuthRequired := func(serverURL, serverType, status string) {
+			events <- AuthorizationRequired(serverURL, serverType, status)
 		}
-		return nil, err
+		r.oauthManager = oauth.NewManager(emitAuthRequired)
 	}
-	return agentTools, nil
+
+	return r.oauthManager.HandleAuthorizationFlow(ctx, sess.ID, oauthRequiredErr)
 }
 
 func (r *runtime) finalizeEventChannel(ctx context.Context, sess *session.Session, events chan Event) {
@@ -269,7 +149,7 @@ func (r *runtime) finalizeEventChannel(ctx context.Context, sess *session.Sessio
 	}
 }
 
-// Run starts the agent's interaction loop
+// RunStream starts the agent's interaction loop and returns a channel of events
 func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan Event {
 	slog.Debug("Starting runtime stream", "agent", r.currentAgent, "session_id", sess.ID)
 	events := make(chan Event, 128)
@@ -307,7 +187,39 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 			slog.Debug("Failed to get model definition", "error", err)
 		}
 
+		iteration := 0
+		// Use a runtime copy of maxIterations so we don't modify the session's persistent config
+		runtimeMaxIterations := sess.MaxIterations
 		for {
+			// Check iteration limit
+			if runtimeMaxIterations > 0 && iteration >= runtimeMaxIterations {
+				slog.Debug("Maximum iterations reached", "agent", a.Name(), "iterations", iteration, "max", runtimeMaxIterations)
+				events <- MaxIterationsReached(runtimeMaxIterations)
+
+				// Wait for user decision
+				select {
+				case resumeType := <-r.resumeChan:
+					if resumeType == ResumeTypeApprove {
+						slog.Debug("User chose to continue after max iterations", "agent", a.Name())
+						runtimeMaxIterations = iteration + 10
+					} else {
+						slog.Debug("User chose to exit after max iterations", "agent", a.Name())
+						// Synthesize a final assistant message so callers (e.g., parent agents)
+						// receive a non-empty response and providers are not given empty tool outputs.
+						assistantMessage := chat.Message{
+							Role:      chat.MessageRoleAssistant,
+							Content:   fmt.Sprintf("I have reached the maximum number of iterations (%d). Stopping as requested by user.", runtimeMaxIterations),
+							CreatedAt: time.Now().Format(time.RFC3339),
+						}
+						sess.AddMessage(session.NewAgentMessage(a, &assistantMessage))
+						return
+					}
+				case <-ctx.Done():
+					slog.Debug("Context cancelled while waiting for max iterations decision", "agent", a.Name())
+					return
+				}
+			}
+			iteration++
 			// Exit immediately if the stream context has been cancelled (e.g., Ctrl+C)
 			if err := ctx.Err(); err != nil {
 				slog.Debug("Runtime stream context cancelled, stopping loop", "agent", a.Name(), "session_id", sess.ID)
@@ -317,66 +229,47 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 			messages := sess.GetMessages(a)
 			slog.Debug("Retrieved messages for processing", "agent", a.Name(), "message_count", len(messages))
 
-			agentTools, err := r.getAgentToolsWithOAuthHandling(ctx, a)
-			if err != nil {
-				slog.Error("Failed to get agent tools", "agent", a.Name(), "error", err)
-				sessionSpan.RecordError(err)
-				sessionSpan.SetStatus(codes.Error, "failed to get tools")
-				// Track error in telemetry
-				if telemetryClient := telemetry.FromContext(ctx); telemetryClient != nil {
-					telemetryClient.RecordError(ctx, err.Error())
-				}
-
-				// Check if this is an OAuth authorization error with server info
-				var oauthErr *OAuthAuthorizationRequiredError
-				if errors.As(err, &oauthErr) {
-					events <- AuthorizationRequired(oauthErr.ServerURL, oauthErr.ServerType, "pending")
-
-					slog.Debug("Waiting for OAuth authorization to start", "agent", a.Name(), "server", oauthErr.ServerURL, "type", oauthErr.ServerType)
-					confirmation := <-r.resumeAuthorizeOauthFlow
-
-					if !confirmation {
-						slog.Debug("OAuth authorization not confirmed by user, stopping runtime", "agent", a.Name(), "server", oauthErr.ServerURL)
-						events <- AuthorizationRequired(oauthErr.ServerURL, oauthErr.ServerType, "denied")
-						return
+			// Retry loop for getting agent tools with OAuth handling
+			var agentTools []tools.Tool
+			for {
+				var err error
+				agentTools, err = a.Tools(ctx)
+				if err != nil {
+					slog.Error("Failed to get agent tools", "agent", a.Name(), "error", err)
+					sessionSpan.RecordError(err)
+					sessionSpan.SetStatus(codes.Error, "failed to get tools")
+					// Track error in telemetry
+					if telemetryClient := telemetry.FromContext(ctx); telemetryClient != nil {
+						telemetryClient.RecordError(ctx, err.Error())
 					}
 
-					// Start the OAuth authorization flow
-					slog.Debug("Starting OAuth authorization flow", "agent", a.Name(), "server", oauthErr.ServerURL, "type", oauthErr.ServerType)
-					authCompleted := make(chan error, 1)
-					// Extract the OAuth handler from the original error
-					oauthHandler := client.GetOAuthHandler(err)
-					go func() {
-						authCompleted <- r.performOAuthAuthorization(ctx, sess, oauthHandler)
-					}()
-
-					select {
-					case authErr := <-authCompleted:
-						if authErr != nil {
-							slog.Error("OAuth authorization failed", "agent", a.Name(), "server", oauthErr.ServerURL, "error", authErr)
-							events <- Error(fmt.Sprintf("OAuth authorization failed: %v", authErr))
+					// Check if this is an OAuth authorization error with server info
+					if err, ok := oauth.MayBeOAuthError(err); ok {
+						oauthRequiredErr := err.(*oauth.AuthorizationRequiredError)
+						// Handle OAuth authorization flow
+						oauthFlowErr := r.handleOAuthAuthorizationFlow(ctx, sess, oauthRequiredErr, events)
+						if oauthFlowErr != nil {
+							if errors.Is(oauthFlowErr, context.Canceled) || errors.Is(oauthFlowErr, context.DeadlineExceeded) {
+								slog.Debug("Context cancelled during OAuth authorization", "agent", a.Name())
+								return
+							}
+							slog.Error("OAuth authorization process failed", "agent", a.Name(), "error", oauthFlowErr)
+							events <- Error(fmt.Sprintf("OAuth authorization failed: %v", oauthFlowErr))
 							return
 						}
-						slog.Debug("OAuth authorization completed, retrying tool retrieval", "agent", a.Name(), "server", oauthErr.ServerURL)
 
-						events <- AuthorizationRequired(oauthErr.ServerURL, oauthErr.ServerType, "confirmed")
-
-						// Retry getting tools
-						agentTools, err = r.getAgentToolsWithOAuthHandling(ctx, a)
-						if err != nil {
-							slog.Error("Failed to get tools after OAuth authorization", "agent", a.Name(), "error", err)
-							events <- Error(fmt.Sprintf("failed to get tools after authorization: %v", err))
-							return
-						}
-					case <-ctx.Done():
-						slog.Debug("Context cancelled while waiting for OAuth authorization", "agent", a.Name(), "server", oauthErr.ServerURL)
+						slog.Debug("OAuth authorization completed, retrying tool retrieval", "agent", a.Name(), "server", oauthRequiredErr.ServerURL)
+						// Continue the loop to retry getting tools
+						continue
+					} else {
+						// Non-OAuth error, cannot recover
+						events <- Error(fmt.Sprintf("failed to get tools: %v", err))
 						return
 					}
 				} else {
-					events <- Error(fmt.Sprintf("failed to get tools: %v", err))
-					return
+					// Successfully retrieved tools, exit the retry loop
+					break
 				}
-
 			}
 			slog.Debug("Retrieved agent tools", "agent", a.Name(), "tool_count", len(agentTools))
 
@@ -503,24 +396,21 @@ func (r *runtime) Resume(_ context.Context, confirmationType string) {
 func (r *runtime) ResumeStartAuthorizationFlow(_ context.Context, confirmation bool) {
 	slog.Debug("Resuming runtime to start OAuth flow", "agent", r.currentAgent)
 
-	select {
-	case r.resumeAuthorizeOauthFlow <- confirmation:
-		slog.Debug("Starting OAuth authorization signal sent", "agent", r.currentAgent, "confirmation", confirmation)
-	default:
-		slog.Debug("Starting OAuth authorization channel not ready, ignoring", "agent", r.currentAgent)
+	if r.oauthManager != nil {
+		r.oauthManager.StartAuthorizationFlow(confirmation)
+	} else {
+		slog.Debug("OAuth manager not available, ignoring", "agent", r.currentAgent)
 	}
 }
 
 func (r *runtime) ResumeCodeReceived(_ context.Context, code string) error {
 	slog.Debug("Sending OAuth authorization code to runtime", "agent", r.currentAgent)
-	select {
-	case r.resumeOauthCodeReceived <- code:
-		slog.Debug("OAuth authorization code sent successfully", "agent", r.currentAgent)
-		return nil
-	default:
-		slog.Debug("OAuth code channel not ready", "agent", r.currentAgent)
-		return fmt.Errorf("OAuth flow not in progress")
+
+	if r.oauthManager != nil {
+		return r.oauthManager.SendAuthorizationCode(code)
 	}
+
+	return fmt.Errorf("OAuth flow not in progress")
 }
 
 // Run starts the agent's interaction loop
@@ -661,7 +551,7 @@ func (r *runtime) processToolCalls(ctx context.Context, sess *session.Session, c
 
 	a := r.CurrentAgent()
 	slog.Debug("Processing tool calls", "agent", a.Name(), "call_count", len(calls))
-	agentTools, err := r.getAgentToolsWithOAuthHandling(ctx, a)
+	agentTools, err := a.Tools(ctx)
 	if err != nil {
 		slog.Error("Failed to get tools for tool calls", "agent", a.Name(), "error", err)
 		return fmt.Errorf("failed to get tools: %w", err)
@@ -939,7 +829,17 @@ func (r *runtime) handleTaskTransfer(ctx context.Context, sess *session.Session,
 	}
 
 	slog.Debug("Creating new session with parent session", "parent_session_id", sess.ID, "tools_approved", sess.ToolsApproved)
-	s := session.New(session.WithSystemMessage(memberAgentTask), session.WithUserMessage("", "Follow the default instructions"))
+
+	subAgentMaxIter := 0
+	if child := r.team.Agent(params.Agent); child != nil {
+		subAgentMaxIter = child.MaxIterations()
+	}
+
+	s := session.New(
+		session.WithSystemMessage(memberAgentTask),
+		session.WithUserMessage("", "Follow the default instructions"),
+		session.WithMaxIterations(subAgentMaxIter),
+	)
 	s.SendUserMessage = false
 	s.Title = "Transferred task"
 	s.ToolsApproved = sess.ToolsApproved
@@ -1081,85 +981,4 @@ func (r *runtime) Summarize(ctx context.Context, sess *session.Session, events c
 	sess.Messages = append(sess.Messages, session.Item{Summary: summary})
 	slog.Debug("Generated session summary", "session_id", sess.ID, "summary_length", len(summary))
 	events <- SessionSummary(sess.ID, summary)
-}
-
-// performOAuthAuthorization performs the OAuth authorization flow
-func (r *runtime) performOAuthAuthorization(ctx context.Context, sess *session.Session, oauthHandler *transport.OAuthHandler) error {
-	slog.Debug("Starting OAuth authorization flow")
-
-	// Generate PKCE code verifier and challenge
-	codeVerifier, err := client.GenerateCodeVerifier()
-	if err != nil {
-		return fmt.Errorf("failed to generate code verifier: %w", err)
-	}
-	codeChallenge := client.GenerateCodeChallenge(codeVerifier)
-
-	// Generate state parameter with encoded session ID
-	// This is crucial: when the browser returns from OAuth authorization,
-	// the callback handler needs to know which session to resume. By encoding
-	// the session ID in the state parameter, we create a bridge between the
-	// browser-based OAuth flow and the specific agent session that needs authorization.
-	state, err := generateStateWithSessionID(sess.ID)
-	if err != nil {
-		return fmt.Errorf("failed to generate state with session ID: %w", err)
-	}
-
-	// Register client if no client ID is available
-	if oauthHandler.GetClientID() == "" {
-		slog.Debug("Registering OAuth client")
-		err = oauthHandler.RegisterClient(ctx, "cagent-oauth-client")
-		if err != nil {
-			return fmt.Errorf("failed to register client: %w", err)
-		}
-	}
-
-	// Get the authorization URL using our corrected implementation
-	authURL, err := GetAuthorizationURL(ctx, oauthHandler, state, codeChallenge)
-	if err != nil {
-		return fmt.Errorf("failed to get authorization URL: %w", err)
-	}
-
-	// Open the browser to the authorization URL
-	slog.Info("Opening browser for OAuth authorization", "url", authURL)
-	err = openBrowser(authURL)
-	if err != nil {
-		slog.Warn("Failed to open browser automatically", "error", err)
-		slog.Info("Please open the following URL in your browser", "url", authURL)
-	}
-
-	// Wait for the authorization code to be received
-	slog.Debug("Waiting for OAuth authorization code")
-	code := <-r.resumeOauthCodeReceived
-
-	// Exchange the authorization code for a token
-	slog.Debug("Exchanging authorization code for token")
-	err = oauthHandler.ProcessAuthorizationResponse(ctx, code, state, codeVerifier)
-	if err != nil {
-		return fmt.Errorf("failed to process authorization response: %w", err)
-	}
-
-	slog.Info("OAuth authorization completed successfully")
-	return nil
-}
-
-// openBrowser opens the default browser to the specified URL
-func openBrowser(url string) error {
-	var cmd string
-	var args []string
-
-	switch goRT.GOOS {
-	case "windows":
-		cmd = "rundll32"
-		args = []string{"url.dll,FileProtocolHandler", url}
-	case "darwin":
-		cmd = "open"
-		args = []string{url}
-	case "linux":
-		cmd = "xdg-open"
-		args = []string{url}
-	default:
-		return fmt.Errorf("unsupported platform: %s", goRT.GOOS)
-	}
-
-	return exec.Command(cmd, args...).Start()
 }

@@ -39,7 +39,8 @@ These are more advanced examples, most of them involve some sort of MCP server t
 | [moby.yaml](moby.yaml)                                 | Moby Project Expert                         |            |       |      |       |        | `gitmcp.io/moby/moby`                                                                                                          |            |
 | [image_text_extractor.yaml](image_text_extractor.yaml) | Image text extraction                       | ✓          |       |      |       |        |                                                                                                                                |            |
 | [doc_generator.yaml](doc_generator.yaml)               | Documentation generation from codebases     |            | ✓     |      | ✓     |        |                                                                                                                                |            |
-| [mcp_generator.yaml](mcp_generator.yaml)               | Generates MCP configurations                |            |       |      |       |        | docker,[duckduckgo](https://hub.docker.com/mcp/server/duckduckgo/overview)                                          |            |
+| [mcp_generator.yaml](mcp_generator.yaml)               | Generates MCP configurations                |            |       |      |       |        | docker,[duckduckgo](https://hub.docker.com/mcp/server/duckduckgo/overview)                                                     |            |
+| [couchbase_agent.yaml](couchbase_agent.yaml)           | Run Database commands using MCP tools       |            |       |      |       |        | docker,[couchbase](https://hub.docker.com/mcp/server/couchbase/overview)                                          |            |
 
 ## **Multi-Agent Configurations**
 

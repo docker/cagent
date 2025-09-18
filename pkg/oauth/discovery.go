@@ -1,4 +1,4 @@
-// Package runtime provides OAuth discovery and authorization URL handling for MCP servers.
+// Package oauth provides OAuth discovery and authorization URL handling for MCP servers.
 //
 // OAuth Discovery Implementation Gap in MCP Ecosystem:
 //
@@ -23,7 +23,7 @@
 //
 // This ensures compatibility with both specification-compliant servers and the majority
 // of existing MCP server implementations that follow the more common OAuth patterns.
-package runtime
+package oauth
 
 import (
 	"context"
@@ -51,8 +51,8 @@ type AuthServerMetadata struct {
 	TokenEndpointAuthMethodsSupported []string `json:"token_endpoint_auth_methods_supported,omitempty"`
 }
 
-// OAuthProtectedResource represents the response from /.well-known/oauth-protected-resource
-type OAuthProtectedResource struct {
+// ProtectedResource represents the response from /.well-known/oauth-protected-resource
+type ProtectedResource struct {
 	AuthorizationServers []string `json:"authorization_servers"`
 	Resource             string   `json:"resource"`
 	ResourceName         string   `json:"resource_name,omitempty"`
@@ -194,7 +194,7 @@ func tryProtectedResourceDiscovery(ctx context.Context, httpClient *http.Client,
 		return nil, fmt.Errorf("protected resource discovery failed with status %d", resp.StatusCode)
 	}
 
-	var protectedResource OAuthProtectedResource
+	var protectedResource ProtectedResource
 	if err := json.NewDecoder(resp.Body).Decode(&protectedResource); err != nil {
 		return nil, fmt.Errorf("failed to decode protected resource response: %w", err)
 	}

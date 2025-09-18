@@ -219,7 +219,10 @@ export GOOGLE_API_KEY=your_api_key_here     # if anthropic and openai keys are n
 `--max-tokens` can be specified to override the context limit used.  
 When using DMR, the default is 16k to limit memory usage. With all other providers the default is 64k
 
-Example of provider, model and context size overriding:
+`--max-iterations` can be specified to override how many times the agent is allowed to loop when doing tool calling etc.
+When using DMR, the default is set to 20 (small local models have the highest chance of getting confused and looping endlessly). For all other providers, the default is 0 (unlimited).
+
+Example of provider, model, context size and max iterations overriding:
 
 ```sh
 # Use GPT-5 via OpenAI
@@ -230,6 +233,9 @@ cagent new --model dmr/ai/gemma3-qat:12B
 
 # Override the max_tokens used during generation, default is 64k, 16k when using the dmr provider
 cagent new --model openai/gpt-5-mini --max-tokens 32000
+
+# Override max_iterations to limit how much the model can loop autonomously
+cagent new --model dmr/ai/gemma3n:2B-F16 --max-iterations 15
 ```
 
 ---

@@ -29,7 +29,7 @@ RUN --mount=type=cache,target=/root/.cache,id=docker-ai-$TARGETPLATFORM \
     --mount=type=secret,id=telemetry_endpoint,env=TELEMETRY_ENDPOINT \
     --mount=type=secret,id=telemetry_header,env=TELEMETRY_HEADER <<EOT
     set -ex
-    xx-go build -trimpath -ldflags "-s -w -X 'github.com/docker/cagent/cmd/root.Version=$GIT_TAG' -X 'github.com/docker/cagent/cmd/root.Commit=$GIT_COMMIT' -X 'github.com/docker/cagent/cmd/root.BuildTime=$BUILD_DATE' -X 'github.com/docker/cagent/pkg/telemetry.TelemetryEndpoint=$TELEMETRY_ENDPOINT' -X 'github.com/docker/cagent/pkg/telemetry.TelemetryAPIKey=$TELEMETRY_API_KEY' -X 'github.com/docker/cagent/pkg/telemetry.TelemetryHeader=$TELEMETRY_HEADER'" -o /binaries/cagent-$TARGETOS-$TARGETARCH .
+    xx-go build -trimpath -ldflags "-s -w -X 'github.com/docker/cagent/pkg/version.Version=$GIT_TAG' -X 'github.com/docker/cagent/pkg/version.Commit=$GIT_COMMIT' -X 'github.com/docker/cagent/pkg/version.BuildTime=$BUILD_DATE' -X 'github.com/docker/cagent/pkg/telemetry.TelemetryEndpoint=$TELEMETRY_ENDPOINT' -X 'github.com/docker/cagent/pkg/telemetry.TelemetryAPIKey=$TELEMETRY_API_KEY' -X 'github.com/docker/cagent/pkg/telemetry.TelemetryHeader=$TELEMETRY_HEADER'" -o /binaries/cagent-$TARGETOS-$TARGETARCH .
     file /binaries/cagent-$TARGETos-$TARGETARCH
     xx-verify --static /binaries/cagent-$TARGETOS-$TARGETARCH
     if [ "$TARGETOS" = "windows" ]; then

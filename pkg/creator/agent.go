@@ -121,7 +121,14 @@ func CreateAgent(ctx context.Context, baseDir, prompt string, runConfig config.R
 	return messages[len(messages)-1].Message.Content, fsToolset.path, nil
 }
 
-func StreamCreateAgent(ctx context.Context, baseDir, prompt string, runConfig config.RuntimeConfig, providerName, modelNameOverride string, maxTokensOverride int) (<-chan runtime.Event, error) {
+func StreamCreateAgent(ctx context.Context, baseDir, prompt string, runConfig config.RuntimeConfig, providerName, modelNameOverride string, maxTokensOverride, maxIterations int) (<-chan runtime.Event, runtime.Runtime, error) {
+	// Apply default max iterations if not specified (0 means use defaults)
+	if maxIterations == 0 {
+		// Only when using DMR we set a default limit. Local models are more prone to loops
+		if providerName == "dmr" {
+			maxIterations = 20
+		}
+	}
 	defaultModels := map[string]string{
 		"openai":    "gpt-5-mini",
 		"anthropic": "claude-sonnet-4-0",
@@ -184,7 +191,7 @@ func StreamCreateAgent(ctx context.Context, baseDir, prompt string, runConfig co
 		options.WithGateway(runConfig.ModelsGateway),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create LLM client: %w", err)
+		return nil, nil, fmt.Errorf("failed to create LLM client: %w", err)
 	}
 
 	fmt.Println("Generating agent configuration....")
@@ -222,11 +229,14 @@ func StreamCreateAgent(ctx context.Context, baseDir, prompt string, runConfig co
 			)))
 	rt, err := runtime.New(newTeam)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create runtime: %w", err)
+		return nil, nil, fmt.Errorf("failed to create runtime: %w", err)
 	}
 
-	sess := session.New(session.WithUserMessage("", prompt))
+	sess := session.New(
+		session.WithUserMessage("", prompt),
+		session.WithMaxIterations(maxIterations),
+	)
 	sess.ToolsApproved = true
 
-	return rt.RunStream(ctx, sess), nil
+	return rt.RunStream(ctx, sess), rt, nil
 }
