@@ -14,9 +14,9 @@ import (
 
 func NewPushCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "push <reference>",
-		Short: "Push an artifact to an OCI registry",
-		Long: `Push an artifact from the local content store to an OCI registry.
+		Use:   "push <agent file> <reference>",
+		Short: "Push an agent to an OCI registry",
+		Long: `Push an agent to an OCI registry.
 
 The local identifier can be either a reference (tag) or a digest that was returned
 from the build command.`,

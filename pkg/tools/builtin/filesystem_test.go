@@ -852,3 +852,14 @@ func TestFilesystemTool_AddAllowedDirectory(t *testing.T) {
 		assert.Len(t, tool.allowedDirectories, 2)
 	})
 }
+
+func TestFilesystemTool_FilterTools(t *testing.T) {
+	allowedDirs := []string{"/tmp"}
+	tool := NewFilesystemTool(allowedDirs, WithAllowedTools([]string{"list_allowed_directories"}))
+
+	tools, err := tool.Tools(t.Context())
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	require.Equal(t, "list_allowed_directories", tools[0].Function.Name)
+	require.NotNil(t, tools[0].Handler)
+}

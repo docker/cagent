@@ -775,7 +775,7 @@ func (s *Server) createSession(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 	}
 
-	sess := session.New()
+	sess := session.New(session.WithMaxIterations(sessionTemplate.MaxIterations))
 	sess.ToolsApproved = sessionTemplate.ToolsApproved
 
 	if err := s.sessionStore.AddSession(c.Request().Context(), sess); err != nil {
@@ -843,11 +843,16 @@ func (s *Server) runAgent(c echo.Context) error {
 
 	t, exists := s.teams[agentFilename]
 	if !exists {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": fmt.Sprintf("runtime not found: %s", agentFilename)})
+		return c.JSON(http.StatusNotFound, map[string]string{"error": fmt.Sprintf("team not found: %s", agentFilename)})
 	}
 	sess, err := s.sessionStore.GetSession(c.Request().Context(), sessionID)
 	if err != nil {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "session not found"})
+	}
+	// Only set max iterations the first time the session is run
+	// since on creation we can accept an empty sessionTemplate
+	if len(sess.Messages) == 0 && sess.MaxIterations == 0 && t.Agent(currentAgent).MaxIterations() > 0 {
+		sess.MaxIterations = t.Agent(currentAgent).MaxIterations()
 	}
 
 	rt, exists := s.runtimes[sess.ID]

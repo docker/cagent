@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -443,14 +444,12 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 	}
 
 	var allowedTools []tools.Tool
-	for _, tool := range t.allowedTools {
-		allowedTools = append(allowedTools, tools.Tool{
-			Function: &tools.FunctionDefinition{
-				Name:        tool,
-				Description: tool,
-			},
-		})
+	for _, tool := range tls {
+		if slices.Contains(t.allowedTools, tool.Function.Name) {
+			allowedTools = append(allowedTools, tool)
+		}
 	}
+
 	return allowedTools, nil
 }
 
