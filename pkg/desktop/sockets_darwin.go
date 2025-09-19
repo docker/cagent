@@ -1,3 +1,6 @@
+//go:build !no_docker_desktop && darwin
+// +build !no_docker_desktop,darwin
+
 package desktop
 
 import (

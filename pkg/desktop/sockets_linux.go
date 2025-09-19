@@ -1,3 +1,6 @@
+//go:build !no_docker_desktop && linux
+// +build !no_docker_desktop,linux
+
 package desktop
 
 import (

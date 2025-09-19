@@ -57,7 +57,7 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 		// genai client requires a non-empty API key
 		apiKey = desktop.GetToken(ctx)
 		if apiKey == "" {
-			return nil, errors.New("sorry, you first need to sign in Docker Desktop to use the Docker AI Gateway")
+			return nil, errors.New("Docker AI Gateway requires Docker Desktop to be running and signed in")
 		}
 		httpOptions.BaseURL = gateway
 		httpOptions.Headers = make(http.Header)
@@ -87,7 +87,7 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 func (c *Client) newGatewayClient(ctx context.Context) (*genai.Client, error) {
 	token := desktop.GetToken(ctx)
 	if token == "" {
-		return nil, errors.New("failed to get Docker Desktop token for gateway")
+		return nil, errors.New("Docker AI Gateway requires Docker Desktop to be running and signed in")
 	}
 	httpOptions := genai.HTTPOptions{
 		BaseURL: c.gatewayBaseURL,

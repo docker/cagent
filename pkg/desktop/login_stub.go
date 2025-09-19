@@ -1,4 +1,4 @@
-//go:build !no_docker_desktop
+//go:build no_docker_desktop
 
 package desktop
 
@@ -13,6 +13,7 @@ type DockerHubInfo struct {
 	PlanName      string   `json:"planName"`
 }
 
+// GetToken returns empty string when Docker Desktop is not available
 func GetToken(ctx context.Context) string {
 	// Allow the user to override the token via an environment variable.
 	// This is e.g. useful when talking to a gateway on staging.
@@ -21,7 +22,6 @@ func GetToken(ctx context.Context) string {
 		return manualToken
 	}
 
-	var token string
-	_ = ClientBackend.Get(ctx, "/registry/token", &token)
-	return token
+	// Return empty string when Docker Desktop is not available
+	return ""
 }

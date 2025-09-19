@@ -63,7 +63,7 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 		authToken := desktop.GetToken(ctx)
 		if authToken == "" {
 			slog.Error("Anthropic client creation failed", "error", "failed to get Docker Desktop's authentication token")
-			return nil, errors.New("sorry, you first need to sign in Docker Desktop to use the Docker AI Gateway")
+			return nil, errors.New("Docker AI Gateway requires Docker Desktop to be running and signed in")
 		}
 
 		slog.Debug("Docker Desktop's authentication token found, creating client")
