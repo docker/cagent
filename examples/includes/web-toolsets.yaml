@@ -1,0 +1,7 @@
+# Web development specific toolsets
+- type: shell
+- type: filesystem
+- type: todo
+- type: mcp
+  command: npx -y @modelcontextprotocol/server-puppeteer
+  args: ["--timeout", "30000"]
