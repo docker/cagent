@@ -15,13 +15,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const DOCKER_MCP_GATEWAY_URL_ENV = "DOCKER_MCP_GATEWAY_URL"
+const ENV_DOCKER_MCP_URL_PREFIX = "DOCKER_MCP_URL_"
 
 type GatewayToolset struct {
-	ref         string
-	config      any
-	toolFilter  []string
-	envProvider environment.Provider
+	mcpServerName string
+	config        any
+	toolFilter    []string
+	envProvider   environment.Provider
 
 	once           sync.Once
 	initErr        error
@@ -32,11 +32,11 @@ type GatewayToolset struct {
 
 var _ tools.ToolSet = (*GatewayToolset)(nil)
 
-func NewGatewayToolset(ref string, config any, toolFilter []string, envProvider environment.Provider) *GatewayToolset {
-	slog.Debug("Creating MCP Gateway toolset", "ref", ref, "toolFilter", toolFilter)
+func NewGatewayToolset(mcpServerName string, config any, toolFilter []string, envProvider environment.Provider) *GatewayToolset {
+	slog.Debug("Creating MCP Gateway toolset", "name", mcpServerName, "toolFilter", toolFilter)
 
 	return &GatewayToolset{
-		ref:            ref,
+		mcpServerName:  mcpServerName,
 		config:         config,
 		toolFilter:     toolFilter,
 		envProvider:    envProvider,
@@ -50,34 +50,21 @@ func (t *GatewayToolset) Instructions() string {
 }
 
 func (t *GatewayToolset) configureOnce(ctx context.Context) error {
-	if mcpGatewayURL := os.Getenv(DOCKER_MCP_GATEWAY_URL_ENV); mcpGatewayURL != "" {
-		var err error
-
-		t.cmdToolset, err = NewToolsetRemote(mcpGatewayURL, "streaming", nil, t.toolFilter, "")
-		if err != nil {
-			return fmt.Errorf("connecting to remote MCP Gateway: %w", err)
-		}
-
-		return nil
-	}
-
-	mcpServerName := gateway.ParseServerRef(t.ref)
-
 	// Check which secrets (env vars) are required by the MCP server.
-	secrets, err := gateway.RequiredEnvVars(ctx, mcpServerName, gateway.DockerCatalogURL)
+	secrets, err := gateway.RequiredEnvVars(ctx, t.mcpServerName, gateway.DockerCatalogURL)
 	if err != nil {
 		return fmt.Errorf("reading which secrets the MCP server needs: %w", err)
 	}
 
 	// Make sure all the required secrets are available in the environment.
 	// TODO(dga): Ideally, the MCP gateway would use the same provider that we have.
-	fileSecrets, err := writeSecretsToFile(ctx, mcpServerName, secrets, t.envProvider)
+	fileSecrets, err := writeSecretsToFile(ctx, t.mcpServerName, secrets, t.envProvider)
 	if err != nil {
 		return fmt.Errorf("writing secrets to file: %w", err)
 	}
 	t.cleanUpSecrets = func() error { return os.Remove(fileSecrets) }
 
-	fileConfig, err := writeConfigToFile(ctx, mcpServerName, t.config)
+	fileConfig, err := writeConfigToFile(ctx, t.mcpServerName, t.config)
 	if err != nil {
 		return fmt.Errorf("writing config to file: %w", err)
 	}
@@ -87,7 +74,7 @@ func (t *GatewayToolset) configureOnce(ctx context.Context) error {
 	// This improves shareability of agents.
 	args := []string{
 		"mcp", "gateway", "run",
-		"--servers", mcpServerName,
+		"--servers", t.mcpServerName,
 		"--catalog", gateway.DockerCatalogURL,
 		"--secrets", fileSecrets,
 		"--config", fileConfig,

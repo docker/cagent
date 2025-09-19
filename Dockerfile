@@ -45,6 +45,7 @@ FROM scratch AS cross
 COPY --from=builder /binaries .
 
 FROM alpine:3.22@sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1
+RUN apk add --no-cache curl socat
 ARG TARGETOS TARGETARCH
 COPY --from=builder /binaries/cagent-$TARGETOS-$TARGETARCH /cagent
 RUN mkdir /data

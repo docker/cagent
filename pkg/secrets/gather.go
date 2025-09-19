@@ -29,14 +29,12 @@ func GatherMissingEnvVars(ctx context.Context, cfg *latest.Config, env environme
 	}
 
 	// Tools
-	if mcpGatewayURL := os.Getenv(mcp.DOCKER_MCP_GATEWAY_URL_ENV); mcpGatewayURL == "" {
-		names, err := GatherEnvVarsForTools(ctx, cfg)
-		if err != nil {
-			return nil, err
-		}
-		for _, e := range names {
-			requiredEnv[e] = true
-		}
+	names, err := GatherEnvVarsForTools(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range names {
+		requiredEnv[e] = true
 	}
 
 	// Check for missing
@@ -82,6 +80,10 @@ func GatherEnvVarsForTools(ctx context.Context, cfg *latest.Config) ([]string, e
 
 	for _, ref := range config.GatherMCPServerReferences(cfg) {
 		mcpServerName := gateway.ParseServerRef(ref)
+		if mcpServerURL := os.Getenv(mcp.ENV_DOCKER_MCP_URL_PREFIX + mcpServerName); mcpServerURL != "" {
+			// This MCP server is configured at runtime to be remote. We don't need to know its secrets.
+			continue
+		}
 
 		secrets, err := gateway.RequiredEnvVars(ctx, mcpServerName, gateway.DockerCatalogURL)
 		if err != nil {

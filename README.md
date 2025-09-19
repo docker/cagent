@@ -234,7 +234,7 @@ cagent new --model dmr/ai/gemma3-qat:12B
 # Override the max_tokens used during generation, default is 64k, 16k when using the dmr provider
 cagent new --model openai/gpt-5-mini --max-tokens 32000
 
-# Override max_iterations to limit how much the model can loop autonomously
+# Override max_iterations to limit how much the model can loop autonomously when tool calling
 cagent new --model dmr/ai/gemma3n:2B-F16 --max-iterations 15
 ```
 

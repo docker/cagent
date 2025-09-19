@@ -67,11 +67,11 @@ agents:
       - type: filesystem
       - type: shell
       - type: todo
+      - type: memory
+        path: ./gopher.db
       - type: mcp
         ref: docker:context7
       - type: mcp
         ref: docker:ast-grep
         config:
           path: .
-    memory:
-      path: golang_tests_memory.db

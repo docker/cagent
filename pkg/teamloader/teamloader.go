@@ -13,6 +13,7 @@ import (
 	"github.com/docker/cagent/pkg/config"
 	latest "github.com/docker/cagent/pkg/config/v2"
 	"github.com/docker/cagent/pkg/environment"
+	"github.com/docker/cagent/pkg/gateway"
 	"github.com/docker/cagent/pkg/memory"
 	"github.com/docker/cagent/pkg/memory/database/sqlite"
 	"github.com/docker/cagent/pkg/model/provider"
@@ -302,7 +303,12 @@ func getToolsForAgent(ctx context.Context, a *latest.AgentConfig, parentDir stri
 			t = append(t, builtin.NewFilesystemTool([]string{wd}, opts...))
 
 		case toolset.Type == "mcp" && toolset.Ref != "":
-			t = append(t, mcp.NewGatewayToolset(toolset.Ref, toolset.Config, toolset.Tools, envProvider))
+			mcpServerName := gateway.ParseServerRef(toolset.Ref)
+			if mcpServerURL := os.Getenv(mcp.ENV_DOCKER_MCP_URL_PREFIX + mcpServerName); mcpServerURL != "" {
+				t = append(t, mcp.NewToolsetCommand("socat", []string{"STDIO", fmt.Sprintf("TCP:mcp-%s:4444", mcpServerName)}, nil, toolset.Tools))
+			} else {
+				t = append(t, mcp.NewGatewayToolset(mcpServerName, toolset.Config, toolset.Tools, envProvider))
+			}
 
 		case toolset.Type == "mcp" && toolset.Command != "":
 			t = append(t, mcp.NewToolsetCommand(toolset.Command, toolset.Args, env, toolset.Tools))
