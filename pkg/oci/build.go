@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -66,17 +65,6 @@ func BuildDockerImage(ctx context.Context, agentFilePath, dockerImageName string
 		}
 	}
 
-	// Build the content of an optional servers.json
-	var serversJson string
-	if len(servers.MCPServers) > 0 {
-		data, err := json.MarshalIndent(servers, "", "  ")
-		if err != nil {
-			return err
-		}
-
-		serversJson = string(data)
-	}
-
 	// Analyze the config to find which secrets are needed
 	modelNames := config.GatherModelNames(cfg)
 	mcpServers := config.GatherMCPServerReferences(cfg)
@@ -90,7 +78,6 @@ func BuildDockerImage(ctx context.Context, agentFilePath, dockerImageName string
 		"BuildDate":   time.Now().UTC().Format(time.RFC3339),
 		"Description": cfg.Agents["root"].Description,
 		"McpServers":  strings.Join(mcpServers, ","),
-		"ServersJson": serversJson,
 		"Metadata":    cfg.Metadata,
 		"Models":      strings.Join(modelNames, ","),
 	}); err != nil {

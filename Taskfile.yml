@@ -67,11 +67,11 @@ tasks:
 
   build-image:
     desc: Build Docker image
-    cmd: docker buildx build -t docker/cagent:latest {{.BUILD_ARGS}} .
+    cmd: docker buildx build -t docker/cagent {{.BUILD_ARGS}} .
 
   push-image:
     desc: Build and Push Docker image
-    cmd: docker buildx build --push -t docker/cagent:latest {{.BUILD_ARGS}} .
+    cmd: docker buildx build --push -t docker/cagent {{.BUILD_ARGS}} .
 
   build-agents:
     desc: Build Demo dockerized agents
@@ -80,7 +80,7 @@ tasks:
         sh: curl -s --unix-socket ~/Library/Containers/com.docker.docker/Data/backend.sock http://_/registry/info | jq -r .id
     depends: ["build"]
     cmds:
-      - cagent build --push ./examples/pirate.yaml {{.DOCKER_ID}}/cagent-pirate
-      - cagent build --push ./examples/github.yaml {{.DOCKER_ID}}/cagent-github
-      - cagent build --push ./examples/gopher.yaml {{.DOCKER_ID}}/cagent-gopher
-      - cagent build --push ./examples/mem.yaml {{.DOCKER_ID}}/cagent-mem
+      - ./bin/cagent build --push ./examples/pirate.yaml {{.DOCKER_ID}}/cagent-pirate
+      - ./bin/cagent build --push ./examples/github.yaml {{.DOCKER_ID}}/cagent-github
+      - ./bin/cagent build --push ./examples/gopher.yaml {{.DOCKER_ID}}/cagent-gopher
+      - ./bin/cagent build --push ./examples/mem.yaml {{.DOCKER_ID}}/cagent-mem

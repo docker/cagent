@@ -114,7 +114,7 @@ func (m *manager) performOAuthAuthorization(ctx context.Context, sessionID strin
 	}
 
 	// Get the authorization URL using our corrected implementation
-	authURL, err := GetAuthorizationURL(ctx, oauthHandler, state, codeChallenge)
+	authURL, err := oauthHandler.GetAuthorizationURL(ctx, state, codeChallenge)
 	if err != nil {
 		return fmt.Errorf("failed to get authorization URL: %w", err)
 	}

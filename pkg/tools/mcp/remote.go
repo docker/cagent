@@ -11,28 +11,58 @@ import (
 )
 
 // detectOAuthRequirement checks if the server requires OAuth authentication
-// by making a test request and checking for WWW-Authenticate header.
+// by making test requests and checking for WWW-Authenticate header.
+// It tries GET first, then POST if GET returns 405 Method Not Allowed.
 // See https://modelcontextprotocol.io/specification/draft/basic/authorization#authorization-server-location.
 func detectOAuthRequirement(url string) bool {
+	httpClient := &http.Client{}
+
+	// Try GET request first
 	req, err := http.NewRequest(http.MethodGet, url, http.NoBody)
 	if err != nil {
-		slog.Debug("Failed to create test request for OAuth detection", "error", err)
+		slog.Debug("Failed to create GET test request for OAuth detection", "error", err)
 		return false
 	}
 
-	httpClient := &http.Client{}
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		slog.Debug("Failed to make test request for OAuth detection", "error", err)
+		slog.Debug("Failed to make GET test request for OAuth detection", "error", err)
 		return false
 	}
 	defer resp.Body.Close()
 
+	// Check for WWW-Authenticate header in GET response
 	wwwAuth := resp.Header.Get("WWW-Authenticate")
 	if wwwAuth != "" {
-		slog.Debug("Detected OAuth requirement", "www-authenticate", wwwAuth)
+		slog.Debug("Detected OAuth requirement via GET", "www-authenticate", wwwAuth)
 		return strings.Contains(strings.ToLower(wwwAuth), "bearer") ||
 			strings.Contains(strings.ToLower(wwwAuth), "oauth")
+	}
+
+	// If GET returned 405 Method Not Allowed, try POST
+	if resp.StatusCode == http.StatusMethodNotAllowed {
+		slog.Debug("GET returned 405, trying POST for OAuth detection")
+
+		postReq, err := http.NewRequest(http.MethodPost, url, http.NoBody)
+		if err != nil {
+			slog.Debug("Failed to create POST test request for OAuth detection", "error", err)
+			return false
+		}
+
+		postResp, err := httpClient.Do(postReq)
+		if err != nil {
+			slog.Debug("Failed to make POST test request for OAuth detection", "error", err)
+			return false
+		}
+		defer postResp.Body.Close()
+
+		// Check for WWW-Authenticate header in POST response
+		postWwwAuth := postResp.Header.Get("WWW-Authenticate")
+		if postWwwAuth != "" {
+			slog.Debug("Detected OAuth requirement via POST", "www-authenticate", postWwwAuth)
+			return strings.Contains(strings.ToLower(postWwwAuth), "bearer") ||
+				strings.Contains(strings.ToLower(postWwwAuth), "oauth")
+		}
 	}
 
 	return false
