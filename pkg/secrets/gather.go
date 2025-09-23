@@ -78,7 +78,7 @@ func GatherEnvVarsForModels(cfg *latest.Config) []string {
 func GatherEnvVarsForTools(ctx context.Context, cfg *latest.Config) ([]string, error) {
 	requiredEnv := map[string]bool{}
 
-	for _, ref := range config.GatherMCPServerReferences(cfg) {
+	for _, ref := range gatherMCPServerReferences(cfg) {
 		mcpServerName := gateway.ParseServerRef(ref)
 		if mcpServerURL := os.Getenv(mcp.ENV_DOCKER_MCP_URL_PREFIX + mcpServerName); mcpServerURL != "" {
 			// This MCP server is configured at runtime to be remote. We don't need to know its secrets.
@@ -96,6 +96,28 @@ func GatherEnvVarsForTools(ctx context.Context, cfg *latest.Config) ([]string, e
 	}
 
 	return mcpToSortedList(requiredEnv), nil
+}
+
+func gatherMCPServerReferences(cfg *latest.Config) []string {
+	servers := map[string]bool{}
+
+	for _, agent := range cfg.Agents {
+		for i := range agent.Toolsets {
+			toolSet := agent.Toolsets[i]
+
+			if toolSet.Type == "mcp" && toolSet.Ref != "" {
+				servers[toolSet.Ref] = true
+			}
+		}
+	}
+
+	var list []string
+	for e := range servers {
+		list = append(list, e)
+	}
+	sort.Strings(list)
+
+	return list
 }
 
 func mcpToSortedList(requiredEnv map[string]bool) []string {

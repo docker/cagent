@@ -13,8 +13,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var userUUID string
-
 // Build-time telemetry configuration (set via -ldflags)
 var (
 	TelemetryEnabled  = "true" // Default enabled
@@ -182,9 +180,4 @@ func BuildCommandInfo(cmd *cobra.Command, args []string, baseName string) Comman
 	}
 
 	return info
-}
-
-// init generates UUIDs once per process
-func init() {
-	userUUID = getUserUUID()
 }

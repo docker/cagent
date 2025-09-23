@@ -66,6 +66,7 @@ func NewClient(logger *slog.Logger, enabled, debugMode bool, version string, cus
 
 	client := &Client{
 		logger:     telemetryLogger,
+		userUUID:   getUserUUID(),
 		enabled:    enabled,
 		debugMode:  debugMode,
 		httpClient: httpClient,

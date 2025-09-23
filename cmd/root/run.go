@@ -39,6 +39,7 @@ var (
 	workingDir     string
 	useTUI         bool
 	remoteAddress  string
+	dryRun         bool
 )
 
 // NewRunCmd creates a new run command
@@ -250,6 +251,11 @@ func doRunCommand(ctx context.Context, args []string, exec bool) error {
 			execArgs = append(execArgs, args[1])
 		} else {
 			execArgs = append(execArgs, "Follow the default instructions")
+		}
+
+		if dryRun {
+			fmt.Println("Dry run mode enabled. Agent initialized but will not execute.")
+			return nil
 		}
 		return runWithoutTUI(ctx, agentFilename, rt, sess, execArgs)
 	}

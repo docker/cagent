@@ -259,6 +259,7 @@ type HTTPClient interface {
 // Client provides simplified telemetry functionality for cagent
 type Client struct {
 	logger     *telemetryLogger
+	userUUID   string
 	enabled    bool
 	debugMode  bool // Print to stdout instead of sending
 	httpClient HTTPClient

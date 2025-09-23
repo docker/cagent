@@ -23,7 +23,7 @@ func (tc *Client) createEvent(eventName string, properties map[string]any) Event
 	}
 
 	// Add system metadata to properties
-	allProperties["user_uuid"] = userUUID
+	allProperties["user_uuid"] = tc.userUUID
 	allProperties["version"] = tc.version
 	allProperties["os"] = osInfo
 	allProperties["os_language"] = osLanguage

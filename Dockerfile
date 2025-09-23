@@ -44,11 +44,11 @@ COPY --from=builder /binaries/cagent-$TARGETOS-$TARGETARCH cagent
 FROM scratch AS cross
 COPY --from=builder /binaries .
 
-FROM docker:cli
-RUN apk add --no-cache ca-certificates
-RUN mkdir /data
+FROM alpine
+RUN apk add --no-cache ca-certificates docker-cli
 ARG TARGETOS TARGETARCH
 ENV DOCKER_MCP_IN_CONTAINER=1
 ENTRYPOINT ["/cagent"]
+RUN mkdir /data
 COPY --from=docker/mcp-gateway:v2 /docker-mcp /usr/local/lib/docker/cli-plugins/
 COPY --from=builder /binaries/cagent-$TARGETOS-$TARGETARCH /cagent

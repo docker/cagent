@@ -101,6 +101,8 @@ func New(sessionStore session.Store, runConfig config.RuntimeConfig, teams map[s
 	group.DELETE("/agents", s.deleteAgent)
 	// List all sessions
 	group.GET("/sessions", s.getSessions)
+	// Get sessions by agent filename
+	group.GET("/sessions/agent/:id", s.getSessionsByAgent)
 	// Get a session by id
 	group.GET("/sessions/:id", s.getSession)
 	// Resume a session by id
@@ -769,6 +771,32 @@ func (s *Server) getSessions(c echo.Context) error {
 	return c.JSON(http.StatusOK, responses)
 }
 
+func (s *Server) getSessionsByAgent(c echo.Context) error {
+	agentFilename := c.Param("id")
+	if agentFilename == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "id parameter is required"})
+	}
+
+	sessions, err := s.sessionStore.GetSessionsByAgent(c.Request().Context(), agentFilename)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to get sessions for agent"})
+	}
+
+	responses := make([]api.SessionsResponse, len(sessions))
+	for i, sess := range sessions {
+		responses[i] = api.SessionsResponse{
+			ID:                         sess.ID,
+			Title:                      sess.Title,
+			CreatedAt:                  sess.CreatedAt.Format(time.RFC3339),
+			NumMessages:                len(sess.GetAllMessages()),
+			InputTokens:                sess.InputTokens,
+			OutputTokens:               sess.OutputTokens,
+			GetMostRecentAgentFilename: sess.GetMostRecentAgentFilename(),
+		}
+	}
+	return c.JSON(http.StatusOK, responses)
+}
+
 func (s *Server) createSession(c echo.Context) error {
 	var sessionTemplate session.Session
 	if err := c.Bind(&sessionTemplate); err != nil {
@@ -845,14 +873,19 @@ func (s *Server) runAgent(c echo.Context) error {
 	if !exists {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": fmt.Sprintf("team not found: %s", agentFilename)})
 	}
+	agent := t.Agent(currentAgent)
+	if agent == nil {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": fmt.Sprintf("agent not found: %s", currentAgent)})
+	}
 	sess, err := s.sessionStore.GetSession(c.Request().Context(), sessionID)
 	if err != nil {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "session not found"})
 	}
+
 	// Only set max iterations the first time the session is run
 	// since on creation we can accept an empty sessionTemplate
-	if len(sess.Messages) == 0 && sess.MaxIterations == 0 && t.Agent(currentAgent).MaxIterations() > 0 {
-		sess.MaxIterations = t.Agent(currentAgent).MaxIterations()
+	if len(sess.Messages) == 0 && sess.MaxIterations == 0 && agent.MaxIterations() > 0 {
+		sess.MaxIterations = agent.MaxIterations()
 	}
 
 	rt, exists := s.runtimes[sess.ID]
