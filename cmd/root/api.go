@@ -58,7 +58,7 @@ func runHttp(cmd *cobra.Command, args []string) error {
 	}()
 
 	if _, ok := ln.(*net.TCPListener); ok {
-		slog.Info("Listening on http://localhost" + listenAddr)
+		slog.Info("Listening on http://localhost" + listenAddr + "/api")
 	} else {
 		slog.Info("Listening on " + listenAddr)
 	}
