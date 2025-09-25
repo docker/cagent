@@ -59,11 +59,11 @@ tasks:
 
   build-local:
     desc: Build binaries for local host platform
-    cmd: docker buildx build --target=local {{.BUILD_ARGS}} --platform local --output=./dist .
+    cmd: docker buildx build --target=binaries {{.BUILD_ARGS}} --platform local --output=./dist .
 
   cross:
     desc: Build binaries for multiple platforms
-    cmd: docker buildx build --target=cross {{.BUILD_ARGS}} --platform linux/amd64,linux/arm64,darwin/amd64,darwin/arm64,windows/amd64,windows/arm64 --output=./dist .
+    cmd: docker buildx build --target=binaries {{.BUILD_ARGS}} --platform linux/amd64,linux/arm64,darwin/amd64,darwin/arm64,windows/amd64,windows/arm64 --output=./dist .
 
   build-image:
     desc: Build Docker image
