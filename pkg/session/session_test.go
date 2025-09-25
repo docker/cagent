@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/docker/cagent/pkg/agent"
 	"github.com/docker/cagent/pkg/chat"
@@ -107,7 +108,8 @@ func TestGetMessages(t *testing.T) {
 	}
 
 	// Get messages for the agent
-	messages := s.GetMessages(testAgent)
+	messages, err := s.GetMessages(testAgent)
+	require.NoError(t, err)
 
 	// Verify we get at most maxMessages
 	assert.LessOrEqual(t, len(messages), maxMessages, "should not exceed maxMessages")
@@ -147,7 +149,8 @@ func TestGetMessagesWithToolCalls(t *testing.T) {
 	maxMessages = 2
 	defer func() { maxMessages = oldMax }()
 
-	messages := s.GetMessages(testAgent)
+	messages, err := s.GetMessages(testAgent)
+	require.NoError(t, err)
 
 	// Verify tool call consistency
 	toolCalls := make(map[string]bool)
@@ -194,7 +197,8 @@ func TestGetMessagesWithSummary(t *testing.T) {
 	}))
 
 	// Get messages
-	messages := s.GetMessages(testAgent)
+	messages, err := s.GetMessages(testAgent)
+	require.NoError(t, err)
 
 	// Count non-system messages (user and assistant only)
 	userAssistantMessages := 0

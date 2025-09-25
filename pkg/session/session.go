@@ -1,6 +1,7 @@
 package session
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"strings"
@@ -197,7 +198,7 @@ func New(opts ...Opt) *Session {
 	return s
 }
 
-func (s *Session) GetMessages(a *agent.Agent) []chat.Message {
+func (s *Session) GetMessages(a *agent.Agent) ([]chat.Message, error) {
 	slog.Debug("Getting messages for agent", "agent", a.Name(), "session_id", s.ID)
 
 	var messages []chat.Message
@@ -227,10 +228,10 @@ func (s *Session) GetMessages(a *agent.Agent) []chat.Message {
 	if a.AddEnvironmentInfo() {
 		wd, err := os.Getwd()
 		if err != nil {
-			slog.Error("getting current working directory for environment info", "error", err)
-		} else {
-			content += "\n\n" + getEnvironmentInfo(wd)
+			return nil, fmt.Errorf("getting current working directory for environment info: %w", err)
 		}
+
+		content += "\n\n" + getEnvironmentInfo(wd)
 	}
 
 	messages = append(messages, chat.Message{
@@ -283,7 +284,7 @@ func (s *Session) GetMessages(a *agent.Agent) []chat.Message {
 		"total_messages", len(messages),
 		"trimmed_messages", len(trimmed))
 
-	return trimmed
+	return trimmed, nil
 }
 
 func (s *Session) GetMostRecentAgentFilename() string {

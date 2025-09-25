@@ -164,7 +164,11 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 		model := a.Model()
 		modelID := model.ID()
 
-		messages := sess.GetMessages(a)
+		messages, err := sess.GetMessages(a)
+		if err != nil {
+			events <- Error(fmt.Sprintf("getting messages: %v", err))
+			return
+		}
 		if sess.SendUserMessage {
 			events <- UserMessage(messages[len(messages)-1].Content)
 		}
