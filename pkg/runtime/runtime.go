@@ -160,15 +160,16 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 			telemetryClient.RecordSessionStart(ctx, r.currentAgent, sess.ID)
 		}
 
+		a := r.team.Agent(r.currentAgent)
+		model := a.Model()
+		modelID := model.ID()
+
+		messages := sess.GetMessages(a)
 		if sess.SendUserMessage {
-			events <- UserMessage(sess.GetMessages(r.CurrentAgent())[len(sess.GetMessages(r.CurrentAgent()))-1].Content)
+			events <- UserMessage(messages[len(messages)-1].Content)
 		}
 
 		events <- StreamStarted()
-		a := r.team.Agent(r.currentAgent)
-
-		model := a.Model()
-		modelID := model.ID()
 
 		defer r.finalizeEventChannel(ctx, sess, events)
 
@@ -226,7 +227,6 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 				return
 			}
 			slog.Debug("Starting conversation loop iteration", "agent", a.Name())
-			messages := sess.GetMessages(a)
 			slog.Debug("Retrieved messages for processing", "agent", a.Name(), "message_count", len(messages))
 
 			// Retry loop for getting agent tools with OAuth handling
