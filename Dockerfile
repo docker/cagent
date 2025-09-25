@@ -5,6 +5,7 @@ FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.7.0 AS xx
 
 FROM --platform=$BUILDPLATFORM golang:1.25.3-alpine3.22 AS builder-base
 COPY --from=xx / /
+ENV CGO_ENABLED=0
 WORKDIR /src
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=bind,source=go.mod,target=go.mod \
@@ -28,11 +29,7 @@ RUN --mount=type=cache,target=/root/.cache,id=docker-ai-$TARGETPLATFORM \
     fi
 EOT
 
-FROM scratch AS local
-ARG TARGETOS TARGETARCH
-COPY --from=builder /binaries/cagent-$TARGETOS-$TARGETARCH cagent
-
-FROM scratch AS cross
+FROM scratch AS binaries
 COPY --from=builder /binaries .
 
 FROM alpine
