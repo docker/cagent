@@ -200,7 +200,7 @@ func New(opts ...Opt) *Session {
 func (s *Session) GetMessages(a *agent.Agent) []chat.Message {
 	slog.Debug("Getting messages for agent", "agent", a.Name(), "session_id", s.ID)
 
-	messages := make([]chat.Message, 0)
+	var messages []chat.Message
 
 	if a.HasSubAgents() {
 		subAgents := append(a.SubAgents(), a.Parents()...)
