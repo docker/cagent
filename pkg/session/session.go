@@ -213,7 +213,7 @@ func (s *Session) GetMessages(a *agent.Agent) []chat.Message {
 		}
 
 		messages = append(messages, chat.Message{
-			Role:    "system",
+			Role:    chat.MessageRoleSystem,
 			Content: "You are a multi-agent system, make sure to answer the user query in the most helpful way possible. You have access to these sub-agents:\n" + subAgentsStr + "\nIMPORTANT: You can ONLY transfer tasks to the agents listed above using their ID. The valid agent IDs are: " + strings.Join(validAgentIDs, ", ") + ". You MUST NOT attempt to transfer to any other agent IDs - doing so will cause system errors.\n\nIf you are the best to answer the question according to your description, you can answer it.\n\nIf another agent is better for answering the question according to its description, call `transfer_task` function to transfer the question to that agent using the agent's ID. When transferring, do not generate any text other than the function call.\n\n",
 		})
 	}
