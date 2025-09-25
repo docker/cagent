@@ -31,6 +31,23 @@ EOT
 FROM scratch AS binaries
 COPY --from=builder /binaries .
 
+FROM --platform=$BUILDPLATFORM alpine AS releaser
+WORKDIR /work
+ARG TARGETOS
+ARG TARGETARCH
+ARG TARGETVARIANT
+RUN --mount=from=binaries <<EOT
+  set -e
+  mkdir /out
+  [ "$TARGETOS" = "windows" ] && ext=".exe"
+  for f in *; do
+    cp "$f" "/out/${f%.*}-${TARGETOS}-${TARGETARCH}${TARGETVARIANT}${ext}"
+  done
+EOT
+
+FROM scratch AS release
+COPY --from=releaser /out/ /
+
 FROM alpine
 RUN apk add --no-cache ca-certificates docker-cli
 RUN addgroup -S cagent && adduser -S -G cagent cagent
