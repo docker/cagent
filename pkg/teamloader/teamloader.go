@@ -260,8 +260,7 @@ func getToolsForAgent(ctx context.Context, a *latest.AgentConfig, parentDir stri
 				return nil, fmt.Errorf("failed to create memory database: %w", err)
 			}
 
-			mm := memory.NewManager(db, model)
-			t = append(t, builtin.NewMemoryTool(mm))
+			t = append(t, builtin.NewMemoryTool(memory.NewManager(db, model)))
 
 		case toolset.Type == "think":
 			t = append(t, builtin.NewThinkTool())
