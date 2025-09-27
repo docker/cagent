@@ -29,7 +29,7 @@ import (
 func LoadTeams(ctx context.Context, agentsPathOrDirectory string, runtimeConfig config.RuntimeConfig) (map[string]*team.Team, error) {
 	teams := make(map[string]*team.Team)
 
-	agentPaths, err := FindAgentPaths(agentsPathOrDirectory)
+	agentPaths, err := findAgentPaths(agentsPathOrDirectory)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find agents: %w", err)
 	}
@@ -47,8 +47,8 @@ func LoadTeams(ctx context.Context, agentsPathOrDirectory string, runtimeConfig 
 	return teams, nil
 }
 
-// FindAgentPaths finds all agent YAML files in the given directory or returns the single file path
-func FindAgentPaths(agentsPathOrDirectory string) ([]string, error) {
+// findAgentPaths finds all agent YAML files in the given directory or returns the single file path
+func findAgentPaths(agentsPathOrDirectory string) ([]string, error) {
 	stat, err := os.Stat(agentsPathOrDirectory)
 	if err != nil {
 		return nil, fmt.Errorf("failed to stat agents path: %w", err)
