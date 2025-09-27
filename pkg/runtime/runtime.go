@@ -317,6 +317,10 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 				if r.retryOnFailure && retryCount < maxRetries {
 					retryCount++
 					slog.Info("Retrying chat completion stream creation", "agent", a.Name(), "retry_count", retryCount, "max_retries", maxRetries)
+
+					// Emit retry event for TUI display
+					events <- RetryAttempt(a.Name(), retryCount, maxRetries, err.Error(), "chat_completion")
+
 					streamSpan.End()
 					// Add a small delay before retrying
 					time.Sleep(time.Duration(retryCount) * time.Second)
@@ -350,6 +354,10 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 				if r.retryOnFailure && retryCount < maxRetries {
 					retryCount++
 					slog.Info("Retrying stream handling", "agent", a.Name(), "retry_count", retryCount, "max_retries", maxRetries)
+
+					// Emit retry event for TUI display
+					events <- RetryAttempt(a.Name(), retryCount, maxRetries, err.Error(), "stream_handling")
+
 					streamSpan.End()
 					// Add a small delay before retrying
 					time.Sleep(time.Duration(retryCount) * time.Second)

@@ -308,3 +308,25 @@ func (e *MaxIterationsReachedEvent) isEvent() {}
 func (e *MaxIterationsReachedEvent) GetAgentName() string {
 	return e.AgentName
 }
+
+type RetryAttemptEvent struct {
+	Type         string `json:"type"`
+	RetryCount   int    `json:"retry_count"`
+	MaxRetries   int    `json:"max_retries"`
+	ErrorMessage string `json:"error_message"`
+	Operation    string `json:"operation"` // "chat_completion" or "stream_handling"
+	AgentContext
+}
+
+func RetryAttempt(agentName string, retryCount, maxRetries int, errorMessage, operation string) Event {
+	return &RetryAttemptEvent{
+		Type:         "retry_attempt",
+		RetryCount:   retryCount,
+		MaxRetries:   maxRetries,
+		ErrorMessage: errorMessage,
+		Operation:    operation,
+		AgentContext: AgentContext{AgentName: agentName},
+	}
+}
+
+func (e *RetryAttemptEvent) isEvent() {}

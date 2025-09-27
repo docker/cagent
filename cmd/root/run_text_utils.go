@@ -10,6 +10,7 @@ import (
 	"github.com/fatih/color"
 	"golang.org/x/term"
 
+	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/tools"
 )
 
@@ -43,6 +44,23 @@ func printWelcomeMessage() {
 
 func printError(err error) {
 	fmt.Println(red("❌ %s", err))
+}
+
+func printRetryAttempt(event *runtime.RetryAttemptEvent) {
+	operationText := "operation"
+	switch event.Operation {
+	case "chat_completion":
+		operationText = "chat completion"
+	case "stream_handling":
+		operationText = "stream handling"
+	}
+
+	fmt.Printf("%s %s (attempt %d/%d): %s\n",
+		yellow("🔄 Retrying"),
+		operationText,
+		event.RetryCount,
+		event.MaxRetries,
+		event.ErrorMessage)
 }
 
 func printAgentName(agentName string) {

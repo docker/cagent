@@ -454,6 +454,12 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt runtime.Runtime
 				if e.ToolCall.ID == lastConfirmedToolCallID {
 					lastConfirmedToolCallID = ""
 				}
+			case *runtime.RetryAttemptEvent:
+				if llmIsTyping {
+					fmt.Println()
+					llmIsTyping = false
+				}
+				printRetryAttempt(e)
 			case *runtime.ErrorEvent:
 				if llmIsTyping {
 					fmt.Println()
