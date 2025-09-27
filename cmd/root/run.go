@@ -394,7 +394,6 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt runtime.Runtime
 				firstLoop = false
 				lastAgent = event.GetAgentName()
 			}
-			lastErr = nil
 			switch e := event.(type) {
 			case *runtime.AgentChoiceEvent:
 				agentChanged := lastAgent != e.AgentName
@@ -504,6 +503,11 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt runtime.Runtime
 		if loopCtx.Err() != nil {
 			fmt.Println(yellow("\n⚠️  agent stopped  ⚠️"))
 		}
+
+		// Wrap runtime errors to prevent duplicate error messages and usage display
+		if lastErr != nil {
+			return RuntimeError{Err: lastErr}
+		}
 		return nil
 	}
 
@@ -547,7 +551,11 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt runtime.Runtime
 		}
 	}
 
-	return lastErr
+	// Wrap runtime errors to prevent duplicate error messages and usage display
+	if lastErr != nil {
+		return RuntimeError{Err: lastErr}
+	}
+	return nil
 }
 
 func runUserCommand(userInput string, sess *session.Session, rt runtime.Runtime, ctx context.Context) (bool, error) {
