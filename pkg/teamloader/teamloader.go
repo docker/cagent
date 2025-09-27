@@ -238,10 +238,6 @@ func getToolsForAgent(ctx context.Context, a *latest.AgentConfig, parentDir stri
 			}
 
 		case toolset.Type == "memory":
-			if toolset.Path == "" {
-				continue
-			}
-
 			var memoryPath string
 			if filepath.IsAbs(toolset.Path) {
 				memoryPath = ""
