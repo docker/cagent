@@ -183,10 +183,6 @@ func New(opts ...Opt) *Session {
 	s := &Session{
 		ID:              sessionID,
 		CreatedAt:       time.Now(),
-		Messages:        make([]Item, 0),
-		ToolsApproved:   false,
-		InputTokens:     0,
-		OutputTokens:    0,
 		SendUserMessage: true,
 	}
 
@@ -206,7 +202,7 @@ func (s *Session) GetMessages(a *agent.Agent) []chat.Message {
 		subAgents := append(a.SubAgents(), a.Parents()...)
 
 		subAgentsStr := ""
-		validAgentIDs := make([]string, 0, len(subAgents))
+		var validAgentIDs []string
 		for _, subAgent := range subAgents {
 			subAgentsStr += "ID: " + subAgent.Name() + " | Name: " + subAgent.Name() + " | Description: " + subAgent.Description() + "\n"
 			validAgentIDs = append(validAgentIDs, subAgent.Name())

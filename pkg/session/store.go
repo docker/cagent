@@ -180,7 +180,7 @@ func (s *SQLiteSessionStore) GetSessions(ctx context.Context) ([]*Session, error
 	}
 	defer rows.Close()
 
-	sessions := make([]*Session, 0)
+	var sessions []*Session
 	for rows.Next() {
 		var messagesJSON, toolsApprovedStr, inputTokensStr, outputTokensStr, titleStr, costStr, sendUserMessageStr, maxIterationsStr, createdAtStr string
 		var sessionID string
@@ -268,7 +268,7 @@ func (s *SQLiteSessionStore) GetSessionsByAgent(ctx context.Context, agentFilena
 		return nil, err
 	}
 
-	filteredSessions := make([]*Session, 0)
+	var filteredSessions []*Session
 	for _, session := range allSessions {
 		// Check if any message in this session belongs to the specified agent
 		hasAgentMessage := false

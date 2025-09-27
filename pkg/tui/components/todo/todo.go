@@ -27,7 +27,6 @@ type Component struct {
 // NewComponent creates a new todo component
 func NewComponent() *Component {
 	return &Component{
-		todos: make([]Todo, 0),
 		width: 20,
 	}
 }

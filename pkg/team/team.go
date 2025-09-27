@@ -36,7 +36,7 @@ func New(opts ...Opt) *Team {
 }
 
 func (t *Team) AgentNames() []string {
-	names := make([]string, 0, len(t.agents))
+	var names []string
 	for name := range t.agents {
 		names = append(names, name)
 	}

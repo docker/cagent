@@ -72,15 +72,10 @@ type model struct {
 // New creates a new message list component
 func New(a *app.App) Model {
 	return &model{
-		messages:      make([]types.Message, 0),
-		views:         make([]layout.Model, 0),
 		width:         80,
 		height:        24,
-		scrollOffset:  0,
 		app:           a,
-		rendered:      "",
 		renderedItems: make(map[string]renderedItem),
-		totalHeight:   0,
 	}
 }
 
@@ -637,8 +632,8 @@ func (m *model) AppendToLastMessage(agentName string, messageType types.MessageT
 
 // ClearMessages clears all messages
 func (m *model) ClearMessages() {
-	m.messages = make([]types.Message, 0)
-	m.views = make([]layout.Model, 0)
+	m.messages = nil
+	m.views = nil
 	m.scrollOffset = 0
 	m.rendered = ""
 	m.totalHeight = 0
