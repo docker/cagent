@@ -241,12 +241,10 @@ func getToolsForAgent(ctx context.Context, a *latest.AgentConfig, parentDir stri
 			var memoryPath string
 			if filepath.IsAbs(toolset.Path) {
 				memoryPath = ""
+			} else if wd, err := os.Getwd(); err == nil {
+				memoryPath = wd
 			} else {
-				if wd, err := os.Getwd(); err == nil {
-					memoryPath = wd
-				} else {
-					memoryPath = parentDir
-				}
+				memoryPath = parentDir
 			}
 
 			validatedMemoryPath, err := config.ValidatePathInDirectory(toolset.Path, memoryPath)
