@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -403,21 +402,14 @@ var html = struct {
 }
 
 // Global callback server for CLI/TUI mode
-var (
-	globalCallbackServer   *CallbackServer
-	globalCallbackServerMu sync.RWMutex
-)
+var globalCallbackServer atomic.Pointer[CallbackServer]
 
 // SetGlobalCallbackServer sets the global callback server instance
 func SetGlobalCallbackServer(server *CallbackServer) {
-	globalCallbackServerMu.Lock()
-	defer globalCallbackServerMu.Unlock()
-	globalCallbackServer = server
+	globalCallbackServer.Store(server)
 }
 
 // GetGlobalCallbackServer returns the global callback server instance
 func GetGlobalCallbackServer() *CallbackServer {
-	globalCallbackServerMu.RLock()
-	defer globalCallbackServerMu.RUnlock()
-	return globalCallbackServer
+	return globalCallbackServer.Load()
 }
