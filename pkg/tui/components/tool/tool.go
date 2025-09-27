@@ -18,13 +18,10 @@ import (
 // toolModel implements Model
 type toolModel struct {
 	message *types.Message
-
 	spinner spinner.Model
-
-	width  int
-	height int
-
-	app *app.App
+	width   int
+	height  int
+	app     *app.App
 }
 
 // SetSize implements Model.
