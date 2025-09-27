@@ -29,7 +29,7 @@ import (
 func LoadTeams(ctx context.Context, agentsPathOrDirectory string, runtimeConfig config.RuntimeConfig) (map[string]*team.Team, error) {
 	teams := make(map[string]*team.Team)
 
-	agentPaths, err := FindAgentPaths(agentsPathOrDirectory)
+	agentPaths, err := findAgentPaths(agentsPathOrDirectory)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find agents: %w", err)
 	}
@@ -47,8 +47,8 @@ func LoadTeams(ctx context.Context, agentsPathOrDirectory string, runtimeConfig 
 	return teams, nil
 }
 
-// FindAgentPaths finds all agent YAML files in the given directory or returns the single file path
-func FindAgentPaths(agentsPathOrDirectory string) ([]string, error) {
+// findAgentPaths finds all agent YAML files in the given directory or returns the single file path
+func findAgentPaths(agentsPathOrDirectory string) ([]string, error) {
 	stat, err := os.Stat(agentsPathOrDirectory)
 	if err != nil {
 		return nil, fmt.Errorf("failed to stat agents path: %w", err)
@@ -219,121 +219,116 @@ func getToolsForAgent(ctx context.Context, a *latest.AgentConfig, parentDir stri
 		t = append(t, builtin.NewTransferTaskTool())
 	}
 
-	toolsets := a.Toolsets
-	for i := range toolsets {
-		toolset := toolsets[i]
+	for i := range a.Toolsets {
+		toolset := a.Toolsets[i]
 
-		env, err := environment.ExpandAll(ctx, environment.ToValues(toolset.Env), envProvider)
+		tool, err := createTool(ctx, toolset, a, parentDir, sharedTools, model, envProvider, runtimeConfig)
 		if err != nil {
-			return nil, fmt.Errorf("failed to expand the tool's environment variables: %w", err)
+			return nil, err
 		}
-		env = append(env, os.Environ()...)
 
-		switch {
-		case toolset.Type == "todo":
-			if toolset.Shared {
-				t = append(t, sharedTools["todo"])
-			} else {
-				t = append(t, builtin.NewTodoTool())
-			}
-
-		case toolset.Type == "memory":
-			if toolset.Path == "" {
-				continue
-			}
-
-			var memoryPath string
-			if filepath.IsAbs(toolset.Path) {
-				memoryPath = ""
-			} else {
-				if wd, err := os.Getwd(); err == nil {
-					memoryPath = wd
-				} else {
-					memoryPath = parentDir
-				}
-			}
-
-			validatedMemoryPath, err := config.ValidatePathInDirectory(toolset.Path, memoryPath)
-			if err != nil {
-				return nil, fmt.Errorf("invalid memory database path: %w", err)
-			}
-			if err := os.MkdirAll(filepath.Dir(validatedMemoryPath), 0o700); err != nil {
-				return nil, fmt.Errorf("failed to create memory database directory: %w", err)
-			}
-
-			db, err := sqlite.NewMemoryDatabase(validatedMemoryPath)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create memory database: %w", err)
-			}
-
-			mm := memory.NewManager(db, model)
-			t = append(t, builtin.NewMemoryTool(mm))
-
-		case toolset.Type == "think":
-			t = append(t, builtin.NewThinkTool())
-
-		case toolset.Type == "shell":
-			t = append(t, builtin.NewShellTool(env))
-
-		case toolset.Type == "script":
-			_, _ = json.Marshal(a)
-			if len(toolset.Shell) == 0 {
-				return nil, fmt.Errorf("shell is required for script toolset")
-			}
-
-			t = append(t, builtin.NewScriptShellTool(toolset.Shell, env))
-
-		case toolset.Type == "filesystem":
-			wd, err := os.Getwd()
-			if err != nil {
-				return nil, fmt.Errorf("failed to get working directory: %w", err)
-			}
-
-			opts := []builtin.FileSystemOpt{builtin.WithAllowedTools(toolset.Tools)}
-			if len(toolset.PostEdit) > 0 {
-				postEditConfigs := make([]builtin.PostEditConfig, len(toolset.PostEdit))
-				for i, pe := range toolset.PostEdit {
-					postEditConfigs[i] = builtin.PostEditConfig{
-						Path: pe.Path,
-						Cmd:  pe.Cmd,
-					}
-				}
-				opts = append(opts, builtin.WithPostEditCommands(postEditConfigs))
-			}
-
-			t = append(t, builtin.NewFilesystemTool([]string{wd}, opts...))
-
-		case toolset.Type == "mcp" && toolset.Ref != "":
-			mcpServerName := gateway.ParseServerRef(toolset.Ref)
-			t = append(t, mcp.NewGatewayToolset(mcpServerName, toolset.Config, toolset.Tools, envProvider))
-
-		case toolset.Type == "mcp" && toolset.Command != "":
-			t = append(t, mcp.NewToolsetCommand(toolset.Command, toolset.Args, env, toolset.Tools))
-
-		case toolset.Type == "mcp" && toolset.Remote.URL != "":
-			// TODO: the tool's config can set env variables that could be used in headers.
-			// Expand env vars in headers.
-			headers := map[string]string{}
-			for k, v := range toolset.Remote.Headers {
-				expanded, err := environment.Expand(ctx, v, envProvider)
-				if err != nil {
-					return nil, fmt.Errorf("failed to expand header '%s': %w", k, err)
-				}
-
-				headers[k] = expanded
-			}
-
-			mcpc, err := mcp.NewToolsetRemote(toolset.Remote.URL, toolset.Remote.TransportType, headers, toolset.Tools, runtimeConfig.RedirectURI)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create remote mcp client: %w", err)
-			}
-
-			t = append(t, mcpc)
-
-		default:
-			return nil, fmt.Errorf("unknown toolset type: %s", toolset.Type)
-		}
+		t = append(t, tool)
 	}
 
 	return t, nil
+}
+
+func createTool(ctx context.Context, toolset latest.Toolset, a *latest.AgentConfig, parentDir string, sharedTools map[string]tools.ToolSet, model provider.Provider, envProvider environment.Provider, runtimeConfig config.RuntimeConfig) (tools.ToolSet, error) {
+	env, err := environment.ExpandAll(ctx, environment.ToValues(toolset.Env), envProvider)
+	if err != nil {
+		return nil, fmt.Errorf("failed to expand the tool's environment variables: %w", err)
+	}
+	env = append(env, os.Environ()...)
+
+	switch {
+	case toolset.Type == "todo":
+		if toolset.Shared {
+			return sharedTools["todo"], nil
+		}
+		return builtin.NewTodoTool(), nil
+
+	case toolset.Type == "memory":
+		var memoryPath string
+		if filepath.IsAbs(toolset.Path) {
+			memoryPath = ""
+		} else if wd, err := os.Getwd(); err == nil {
+			memoryPath = wd
+		} else {
+			memoryPath = parentDir
+		}
+
+		validatedMemoryPath, err := config.ValidatePathInDirectory(toolset.Path, memoryPath)
+		if err != nil {
+			return nil, fmt.Errorf("invalid memory database path: %w", err)
+		}
+		if err := os.MkdirAll(filepath.Dir(validatedMemoryPath), 0o700); err != nil {
+			return nil, fmt.Errorf("failed to create memory database directory: %w", err)
+		}
+
+		db, err := sqlite.NewMemoryDatabase(validatedMemoryPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create memory database: %w", err)
+		}
+
+		return builtin.NewMemoryTool(memory.NewManager(db, model)), nil
+
+	case toolset.Type == "think":
+		return builtin.NewThinkTool(), nil
+
+	case toolset.Type == "shell":
+		return builtin.NewShellTool(env), nil
+
+	case toolset.Type == "script":
+		_, _ = json.Marshal(a)
+		if len(toolset.Shell) == 0 {
+			return nil, fmt.Errorf("shell is required for script toolset")
+		}
+
+		return builtin.NewScriptShellTool(toolset.Shell, env), nil
+
+	case toolset.Type == "filesystem":
+		wd, err := os.Getwd()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get working directory: %w", err)
+		}
+
+		opts := []builtin.FileSystemOpt{builtin.WithAllowedTools(toolset.Tools)}
+		if len(toolset.PostEdit) > 0 {
+			postEditConfigs := make([]builtin.PostEditConfig, len(toolset.PostEdit))
+			for i, pe := range toolset.PostEdit {
+				postEditConfigs[i] = builtin.PostEditConfig{
+					Path: pe.Path,
+					Cmd:  pe.Cmd,
+				}
+			}
+			opts = append(opts, builtin.WithPostEditCommands(postEditConfigs))
+		}
+
+		return builtin.NewFilesystemTool([]string{wd}, opts...), nil
+
+	case toolset.Type == "mcp" && toolset.Ref != "":
+		mcpServerName := gateway.ParseServerRef(toolset.Ref)
+		return mcp.NewGatewayToolset(mcpServerName, toolset.Config, toolset.Tools, envProvider), nil
+
+	case toolset.Type == "mcp" && toolset.Command != "":
+		return mcp.NewToolsetCommand(toolset.Command, toolset.Args, env, toolset.Tools), nil
+
+	case toolset.Type == "mcp" && toolset.Remote.URL != "":
+		// TODO: the tool's config can set env variables that could be used in headers.
+		// Expand env vars in headers.
+		headers := map[string]string{}
+		for k, v := range toolset.Remote.Headers {
+			expanded, err := environment.Expand(ctx, v, envProvider)
+			if err != nil {
+				return nil, fmt.Errorf("failed to expand header '%s': %w", k, err)
+			}
+
+			headers[k] = expanded
+		}
+
+		return mcp.NewToolsetRemote(toolset.Remote.URL, toolset.Remote.TransportType, headers, toolset.Tools, runtimeConfig.RedirectURI)
+
+	default:
+		return nil, fmt.Errorf("unknown toolset type: %s", toolset.Type)
+	}
 }

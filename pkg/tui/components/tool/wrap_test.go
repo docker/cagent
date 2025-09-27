@@ -156,6 +156,8 @@ func TestWrapLines(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			wrapped := wrapLines(tt.text, tt.width)
 
 			assert.Equal(t, tt.expected, wrapped)

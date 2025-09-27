@@ -407,21 +407,21 @@ func (r *runtime) Resume(_ context.Context, confirmationType string) {
 	}
 }
 
-func (r *runtime) ResumeStartAuthorizationFlow(_ context.Context, confirmation bool) {
+func (r *runtime) ResumeStartAuthorizationFlow(ctx context.Context, confirmation bool) {
 	slog.Debug("Resuming runtime to start OAuth flow", "agent", r.currentAgent)
 
 	if r.oauthManager != nil {
-		r.oauthManager.StartAuthorizationFlow(confirmation)
+		r.oauthManager.StartAuthorizationFlow(ctx, confirmation)
 	} else {
 		slog.Debug("OAuth manager not available, ignoring", "agent", r.currentAgent)
 	}
 }
 
-func (r *runtime) ResumeCodeReceived(_ context.Context, code string) error {
+func (r *runtime) ResumeCodeReceived(ctx context.Context, code string) error {
 	slog.Debug("Sending OAuth authorization code to runtime", "agent", r.currentAgent)
 
 	if r.oauthManager != nil {
-		return r.oauthManager.SendAuthorizationCode(code)
+		return r.oauthManager.SendAuthorizationCode(ctx, code)
 	}
 
 	return fmt.Errorf("OAuth flow not in progress")

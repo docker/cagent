@@ -166,15 +166,11 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Route other keys to focused component
 		switch p.focusedPanel {
 		case PanelChat:
-			var cmd tea.Cmd
-			var model tea.Model
-			model, cmd = p.messages.Update(msg)
+			model, cmd := p.messages.Update(msg)
 			p.messages = model.(messages.Model)
 			return p, cmd
 		case PanelEditor:
-			var cmd tea.Cmd
-			var model tea.Model
-			model, cmd = p.editor.Update(msg)
+			model, cmd := p.editor.Update(msg)
 			p.editor = model.(editor.Editor)
 			return p, cmd
 		}
@@ -183,9 +179,7 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseWheelMsg:
 		// Always forward mouse wheel events to the chat component for scrolling
-		var cmd tea.Cmd
-		var model tea.Model
-		model, cmd = p.messages.Update(msg)
+		model, cmd := p.messages.Update(msg)
 		p.messages = model.(messages.Model)
 		return p, cmd
 

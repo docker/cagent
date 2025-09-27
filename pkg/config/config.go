@@ -152,6 +152,10 @@ func migrateToLatestConfig(c any) (latest.Config, error) {
 }
 
 func validateConfig(cfg *latest.Config) error {
+	if cfg.Models == nil {
+		cfg.Models = map[string]latest.ModelConfig{}
+	}
+
 	for name := range cfg.Models {
 		if cfg.Models[name].ParallelToolCalls == nil {
 			m := cfg.Models[name]
@@ -165,13 +169,18 @@ func validateConfig(cfg *latest.Config) error {
 
 		modelNames := strings.SplitSeq(agent.Model, ",")
 		for modelName := range modelNames {
-			if _, exists := cfg.Models[modelName]; !exists {
-				if provider, model, ok := strings.Cut(modelName, "/"); ok {
-					autoRegisterModel(cfg, provider, model)
-					continue
-				}
+			if _, exists := cfg.Models[modelName]; exists {
+				continue
+			}
 
+			provider, model, ok := strings.Cut(modelName, "/")
+			if !ok {
 				return fmt.Errorf("agent '%s' references non-existent model '%s'", agentName, modelName)
+			}
+
+			cfg.Models[modelName] = latest.ModelConfig{
+				Provider: provider,
+				Model:    model,
 			}
 		}
 
@@ -183,17 +192,6 @@ func validateConfig(cfg *latest.Config) error {
 	}
 
 	return nil
-}
-
-func autoRegisterModel(cfg *latest.Config, provider, model string) {
-	if cfg.Models == nil {
-		cfg.Models = make(map[string]latest.ModelConfig)
-	}
-
-	cfg.Models[provider+"/"+model] = latest.ModelConfig{
-		Provider: provider,
-		Model:    model,
-	}
 }
 
 func boolPtr(b bool) *bool {

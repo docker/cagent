@@ -30,7 +30,7 @@ func (s *simpleHelp) ShortHelp() []key.Binding {
 
 // FullHelp implements help.KeyMap
 func (s *simpleHelp) FullHelp() [][]key.Binding {
-	return [][]key.Binding{}
+	return nil
 }
 
 // CmdHandler creates a command that returns the given message
