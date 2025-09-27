@@ -20,8 +20,8 @@ func getEnvironmentInfo(workingDir string) string {
 
 // isGitRepo checks if the given directory is a git repository
 func isGitRepo(dir string) bool {
-	_, err := os.Stat(filepath.Join(dir, ".git"))
-	return err == nil
+	info, err := os.Stat(filepath.Join(dir, ".git"))
+	return err == nil && info.IsDir()
 }
 
 // boolToYesNo converts a boolean to "Yes" or "No" string
