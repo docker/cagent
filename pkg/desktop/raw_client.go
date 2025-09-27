@@ -1,3 +1,5 @@
+//go:build !no_docker_desktop
+
 package desktop
 
 import (
