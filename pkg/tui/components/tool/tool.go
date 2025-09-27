@@ -53,10 +53,15 @@ func New(msg *types.Message, a *app.App, renderer *glamour.TermRenderer) layout.
 // Init initializes the message view
 func (mv *toolModel) Init() tea.Cmd {
 	// Start spinner for empty assistant messages or pending/running tools
-	if (mv.message.Type == types.MessageTypeAssistant && mv.message.Content == "") ||
-		(mv.message.Type == types.MessageTypeToolCall &&
-			(mv.message.ToolStatus == types.ToolStatusPending || mv.message.ToolStatus == types.ToolStatusRunning)) {
-		return mv.spinner.Tick
+	switch mv.message.Type {
+	case types.MessageTypeAssistant:
+		if mv.message.Content == "" {
+			return mv.spinner.Tick
+		}
+	case types.MessageTypeToolCall:
+		if mv.message.ToolStatus == types.ToolStatusPending || mv.message.ToolStatus == types.ToolStatusRunning {
+			return mv.spinner.Tick
+		}
 	}
 	return nil
 }
@@ -64,12 +69,19 @@ func (mv *toolModel) Init() tea.Cmd {
 // Update handles messages and updates the message view state
 func (mv *toolModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Handle spinner updates for empty assistant messages or pending/running tools
-	if (mv.message.Type == types.MessageTypeAssistant && mv.message.Content == "") ||
-		(mv.message.Type == types.MessageTypeToolCall &&
-			(mv.message.ToolStatus == types.ToolStatusPending || mv.message.ToolStatus == types.ToolStatusRunning)) {
-		var cmd tea.Cmd
-		mv.spinner, cmd = mv.spinner.Update(msg)
-		return mv, cmd
+	switch mv.message.Type {
+	case types.MessageTypeAssistant:
+		if mv.message.Content == "" {
+			var cmd tea.Cmd
+			mv.spinner, cmd = mv.spinner.Update(msg)
+			return mv, cmd
+		}
+	case types.MessageTypeToolCall:
+		if mv.message.ToolStatus == types.ToolStatusPending || mv.message.ToolStatus == types.ToolStatusRunning {
+			var cmd tea.Cmd
+			mv.spinner, cmd = mv.spinner.Update(msg)
+			return mv, cmd
+		}
 	}
 
 	return mv, nil
