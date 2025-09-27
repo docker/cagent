@@ -15,6 +15,7 @@ func NewExecCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&workingDir, "working-dir", "", "Set the working directory for the session (applies to tools and relative paths)")
 	cmd.PersistentFlags().BoolVar(&autoApprove, "yolo", false, "Automatically approve all tool calls without prompting")
 	cmd.PersistentFlags().StringVar(&attachmentPath, "attach", "", "Attach an image file to the message")
+	cmd.PersistentFlags().BoolVar(&runConfig.RetryOnFailure, "retry", false, "Retry chat completion and gateway errors up to 3 times before failing")
 
 	cmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "Initialize the agent without executing anything")
 	_ = cmd.PersistentFlags().MarkHidden("dry-run")

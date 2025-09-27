@@ -64,6 +64,7 @@ func NewRunCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&attachmentPath, "attach", "", "Attach an image file to the message")
 	cmd.PersistentFlags().BoolVar(&useTUI, "tui", true, "Run the agent with a Terminal User Interface (TUI)")
 	cmd.PersistentFlags().StringVar(&remoteAddress, "remote", "", "Use remote runtime with specified address (only supported with TUI)")
+	cmd.PersistentFlags().BoolVar(&runConfig.RetryOnFailure, "retry", false, "Retry chat completion and gateway errors up to 3 times before failing")
 	addGatewayFlags(cmd)
 
 	return cmd
@@ -260,6 +261,7 @@ func doRunCommand(ctx context.Context, args []string, exec bool) error {
 		localRt, err := runtime.New(agents,
 			runtime.WithCurrentAgent(agentName),
 			runtime.WithTracer(tracer),
+			runtime.WithRetryOnFailure(runConfig.RetryOnFailure),
 		)
 		if err != nil {
 			return fmt.Errorf("failed to create runtime: %w", err)
