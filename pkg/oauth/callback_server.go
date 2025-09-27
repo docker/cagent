@@ -8,17 +8,16 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 // CallbackServer handles OAuth callback redirects for CLI/TUI mode
 type CallbackServer struct {
 	server     *http.Server
-	listener   net.Listener
 	port       int
 	callbackCh chan CallbackResult
-	mu         sync.RWMutex
-	running    bool
+	running    atomic.Bool
 }
 
 // CallbackResult contains the result of an OAuth callback
@@ -38,18 +37,19 @@ func NewCallbackServer(port int) *CallbackServer {
 
 // Start starts the OAuth callback server
 func (s *CallbackServer) Start(ctx context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.running {
-		return nil // Already running
+	if alreadyRunning := s.running.Swap(true); alreadyRunning {
+		return nil
 	}
 
-	listener, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", s.port))
+	var lc net.ListenConfig
+	listener, err := lc.Listen(ctx, "tcp", fmt.Sprintf("localhost:%d", s.port))
 	if err != nil {
 		return fmt.Errorf("failed to listen on port %d: %w", s.port, err)
 	}
-	s.listener = listener
+	func() {
+		<-ctx.Done()
+		listener.Close()
+	}()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/oauth-callback", s.handleCallback)
@@ -60,7 +60,6 @@ func (s *CallbackServer) Start(ctx context.Context) error {
 		WriteTimeout: 30 * time.Second,
 	}
 
-	s.running = true
 	slog.Debug("Starting OAuth callback server", "port", s.port)
 
 	go func() {
@@ -74,26 +73,24 @@ func (s *CallbackServer) Start(ctx context.Context) error {
 
 // Stop stops the OAuth callback server
 func (s *CallbackServer) Stop(ctx context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	if wasRunning := s.running.Swap(false); !wasRunning {
+		return nil
+	}
 
-	if !s.running {
-		return nil // Not running
+	if s.server == nil {
+		return nil
 	}
 
 	slog.Debug("Stopping OAuth callback server", "port", s.port)
 
-	if s.server != nil {
-		shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
+	shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 
-		if err := s.server.Shutdown(shutdownCtx); err != nil {
-			slog.Warn("Failed to gracefully shutdown OAuth callback server", "error", err)
-			return s.server.Close()
-		}
+	if err := s.server.Shutdown(shutdownCtx); err != nil {
+		slog.Warn("Failed to gracefully shutdown OAuth callback server", "error", err)
+		return s.server.Close()
 	}
 
-	s.running = false
 	return nil
 }
 
