@@ -64,10 +64,12 @@ func (m *manager) HandleAuthorizationFlow(ctx context.Context, sessionID string,
 }
 
 // StartAuthorizationFlow signals that user confirmation has been given to start the OAuth flow
-func (m *manager) StartAuthorizationFlow(confirmation bool) {
+func (m *manager) StartAuthorizationFlow(ctx context.Context, confirmation bool) {
 	slog.Debug("Receiving OAuth authorization start signal", "confirmation", confirmation)
 
 	select {
+	case <-ctx.Done():
+		slog.Debug("Context cancelled while sending OAuth start signal")
 	case m.resumeAuthorizeOauthFlow <- confirmation:
 		slog.Debug("Starting OAuth authorization signal sent", "confirmation", confirmation)
 	default:
@@ -76,9 +78,12 @@ func (m *manager) StartAuthorizationFlow(confirmation bool) {
 }
 
 // SendAuthorizationCode sends the OAuth authorization code after user has completed the OAuth flow
-func (m *manager) SendAuthorizationCode(code string) error {
+func (m *manager) SendAuthorizationCode(ctx context.Context, code string) error {
 	slog.Debug("Sending OAuth authorization code")
 	select {
+	case <-ctx.Done():
+		slog.Debug("Context cancelled while sending OAuth code")
+		return ctx.Err()
 	case m.resumeOauthCodeReceived <- code:
 		slog.Debug("OAuth authorization code sent successfully")
 		return nil

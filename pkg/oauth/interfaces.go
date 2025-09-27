@@ -8,10 +8,10 @@ type Manager interface {
 	HandleAuthorizationFlow(ctx context.Context, sessionID string, oauthErr *AuthorizationRequiredError) error
 
 	// StartAuthorizationFlow signals that user confirmation has been given to start the OAuth flow
-	StartAuthorizationFlow(confirmation bool)
+	StartAuthorizationFlow(ctx context.Context, confirmation bool)
 
 	// SendAuthorizationCode sends the OAuth authorization code after user has completed the OAuth flow
-	SendAuthorizationCode(code string) error
+	SendAuthorizationCode(ctx context.Context, code string) error
 }
 
 // ServerInfoProvider interface for toolsets that can provide server information
