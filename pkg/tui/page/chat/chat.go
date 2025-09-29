@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/atotto/clipboard"
@@ -188,6 +189,19 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return p, cmd
 
 	// Runtime events
+	case *runtime.RetryAttemptEvent:
+		// Format retry message for display
+		operationText := "operation"
+		switch msg.Operation {
+		case "chat_completion":
+			operationText = "chat completion"
+		case "stream_handling":
+			operationText = "stream handling"
+		}
+		retryMessage := fmt.Sprintf("🔄 Retrying %s (attempt %d/%d): %s",
+			operationText, msg.RetryCount, msg.MaxRetries, msg.ErrorMessage)
+		cmd := p.messages.AddShellOutputMessage(retryMessage)
+		return p, tea.Batch(cmd, p.messages.ScrollToBottom())
 	case *runtime.ErrorEvent:
 		cmd := p.messages.AddErrorMessage(msg.Error)
 		return p, tea.Batch(cmd, p.messages.ScrollToBottom())

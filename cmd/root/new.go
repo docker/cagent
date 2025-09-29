@@ -121,6 +121,12 @@ func NewNewCmd() *cobra.Command {
 						llmIsTyping = false
 					}
 					printToolCallResponse(e.ToolCall, e.Response)
+				case *runtime.RetryAttemptEvent:
+					if llmIsTyping {
+						fmt.Println()
+						llmIsTyping = false
+					}
+					printRetryAttempt(e)
 				case *runtime.ErrorEvent:
 					if llmIsTyping {
 						fmt.Println()
