@@ -9,5 +9,5 @@ agents:
 
 models:
   openai:
-    provider: openai
+    type: openai
     model: gpt-4o

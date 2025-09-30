@@ -24,8 +24,7 @@ type ToolConfirmationResponse struct {
 // toolConfirmationDialog implements DialogModel for tool confirmation
 type toolConfirmationDialog struct {
 	width, height int
-	toolName      string
-	arguments     string
+	toolCall      tools.ToolCall
 	app           *app.App
 	keyMap        toolConfirmationKeyMap
 }
@@ -65,10 +64,9 @@ func defaultToolConfirmationKeyMap() toolConfirmationKeyMap {
 // NewToolConfirmationDialog creates a new tool confirmation dialog
 func NewToolConfirmationDialog(toolCall tools.ToolCall, appInstance *app.App) Dialog {
 	return &toolConfirmationDialog{
-		toolName:  toolCall.Function.Name,
-		arguments: toolCall.Function.Arguments,
-		app:       appInstance,
-		keyMap:    defaultToolConfirmationKeyMap(),
+		toolCall: toolCall,
+		app:      appInstance,
+		keyMap:   defaultToolConfirmationKeyMap(),
 	}
 }
 
@@ -200,13 +198,13 @@ func (d *toolConfirmationDialog) View() string {
 	toolName := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("#9ca3af")).
-		Render(d.toolName)
+		Render(d.toolCall.Function.Name)
 
 	toolInfo := lipgloss.JoinHorizontal(lipgloss.Left, toolLabel, toolName)
 
 	// Arguments section
 	var argumentsSection string
-	if d.toolName == "create_todos" || d.toolName == "create_todo" {
+	if d.toolCall.Function.Name == "create_todos" || d.toolCall.Function.Name == "create_todo" {
 		argumentsSection = d.renderTodo(contentWidth)
 	} else {
 		argumentsSection = d.renderArguments(contentWidth)
@@ -245,7 +243,7 @@ func (d *toolConfirmationDialog) renderTodo(contentWidth int) string {
 	todoComponent := todo.NewComponent()
 	todoComponent.SetSize(contentWidth)
 
-	err := todoComponent.ParseTodoArguments(d.toolName, d.arguments)
+	err := todoComponent.SetTodos(d.toolCall)
 	if err != nil {
 		return ""
 	}
@@ -253,7 +251,7 @@ func (d *toolConfirmationDialog) renderTodo(contentWidth int) string {
 }
 
 func (d *toolConfirmationDialog) renderArguments(contentWidth int) string {
-	if d.arguments == "" {
+	if d.toolCall.Function.Arguments == "" {
 		return ""
 	}
 
@@ -263,9 +261,9 @@ func (d *toolConfirmationDialog) renderArguments(contentWidth int) string {
 		Render("Arguments:")
 
 	var arguments map[string]any
-	if err := json.Unmarshal([]byte(d.arguments), &arguments); err != nil {
+	if err := json.Unmarshal([]byte(d.toolCall.Function.Arguments), &arguments); err != nil {
 		// If JSON unmarshaling fails, truncate and wrap the raw arguments
-		rawArgs := d.arguments
+		rawArgs := d.toolCall.Function.Arguments
 		if len(rawArgs) > 150 {
 			rawArgs = rawArgs[:150] + "..."
 		}
@@ -352,14 +350,14 @@ func (d *toolConfirmationDialog) Position() (row, col int) {
 
 	// Estimate dialog height based on content
 	dialogHeight := 12 // Base height for title, tool name, question, and options
-	if d.arguments != "" {
+	if d.toolCall.Function.Arguments != "" {
 		// Add height for arguments section
 		// Rough estimation: 3 lines for header + arguments
 		dialogHeight += 5
 	}
 
 	// Add height for todo preview section if todo-related tools
-	if d.toolName == "create_todos" || d.toolName == "create_todo" && d.arguments != "" {
+	if d.toolCall.Function.Name == "create_todos" || d.toolCall.Function.Name == "create_todo" && d.toolCall.Function.Arguments != "" {
 		// Add height for preview section header and content
 		// Rough estimation: 2 lines for header + variable lines for todos
 		dialogHeight += 6

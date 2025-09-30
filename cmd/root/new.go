@@ -54,19 +54,19 @@ func NewNewCmd() *cobra.Command {
 					switch {
 					case os.Getenv("ANTHROPIC_API_KEY") != "":
 						modelProvider = "anthropic"
-						fmt.Printf("%s\n\n", gray("ANTHROPIC_API_KEY found, using Anthropic"))
+						fmt.Printf("%s\n\n", white("ANTHROPIC_API_KEY found, using Anthropic"))
 					case os.Getenv("OPENAI_API_KEY") != "":
 						modelProvider = "openai"
-						fmt.Printf("%s\n\n", gray("OPENAI_API_KEY found, using OpenAI"))
+						fmt.Printf("%s\n\n", white("OPENAI_API_KEY found, using OpenAI"))
 					case os.Getenv("GOOGLE_API_KEY") != "":
 						modelProvider = "google"
-						fmt.Printf("%s\n\n", gray("GOOGLE_API_KEY found, using Google"))
+						fmt.Printf("%s\n\n", white("GOOGLE_API_KEY found, using Google"))
 					default:
 						modelProvider = "dmr"
 						fmt.Printf("%s\n\n", yellow("⚠️ No provider credentials found, defaulting to Docker Model Runner (DMR)"))
 					}
 					if modelParam == "" {
-						fmt.Printf("%s\n\n", gray("use \"--model provider/model\" to use a different model"))
+						fmt.Printf("%s\n\n", white("use \"--model provider/model\" to use a different model"))
 					}
 				} else {
 					// Using Models Gateway; default to Anthropic if not specified
@@ -81,7 +81,7 @@ func NewNewCmd() *cobra.Command {
 				reader := bufio.NewReader(os.Stdin)
 
 				fmt.Printf("%s\n", blue("------- Welcome to %s! -------", bold(APP_NAME)))
-				fmt.Printf("%s\n\n", gray("         (Ctrl+C to exit)"))
+				fmt.Printf("%s\n\n", white("         (Ctrl+C to exit)"))
 				fmt.Printf("%s\n\n", blue("What should your agent/agent team do? (describe its purpose)"))
 				fmt.Print(blue("> "))
 

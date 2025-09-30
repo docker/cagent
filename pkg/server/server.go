@@ -18,9 +18,9 @@ import (
 	"time"
 
 	"dario.cat/mergo"
+	"github.com/goccy/go-yaml"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"gopkg.in/yaml.v3"
 
 	"github.com/docker/cagent/pkg/api"
 	"github.com/docker/cagent/pkg/config"
@@ -218,16 +218,11 @@ func (s *Server) editAgentConfig(c echo.Context) error {
 	}
 
 	// Marshal the merged configuration to YAML
-	var buf bytes.Buffer
-	encoder := yaml.NewEncoder(&buf)
-	encoder.SetIndent(2)
-	err = encoder.Encode(mergedConfig)
+	yamlData, err := yaml.MarshalWithOptions(mergedConfig, yaml.Indent(2))
 	if err != nil {
 		slog.Error("Failed to marshal merged config to YAML", "error", err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to generate merged YAML configuration"})
 	}
-	encoder.Close()
-	yamlData := buf.Bytes()
 
 	// Combine shebang, version, and merged YAML content
 	finalContent := shebang + versionLine
@@ -346,16 +341,11 @@ func (s *Server) createAgentConfig(c echo.Context) error {
 	}
 
 	// Marshal to YAML with custom indentation (2 spaces)
-	var buf bytes.Buffer
-	encoder := yaml.NewEncoder(&buf)
-	encoder.SetIndent(1)
-	err := encoder.Encode(agentConfig)
+	yamlData, err := yaml.MarshalWithOptions(agentConfig, yaml.Indent(2))
 	if err != nil {
 		slog.Error("Failed to marshal agent config to YAML", "error", err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to generate YAML configuration"})
 	}
-	encoder.Close()
-	yamlData := buf.Bytes()
 
 	// Prepend shebang line to the YAML content
 	shebang := "#!/usr/bin/env cagent run\nversion: \"1\"\n\n"

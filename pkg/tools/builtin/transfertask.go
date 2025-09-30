@@ -30,7 +30,7 @@ func (t *TransferTaskTool) Tools(context.Context) ([]tools.Tool, error) {
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "Transfer Task",
 				},
-				Parameters: tools.FunctionParamaters{
+				Parameters: tools.FunctionParameters{
 					Type: "object",
 					Properties: map[string]any{
 						"agent": map[string]any{

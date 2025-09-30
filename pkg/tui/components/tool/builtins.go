@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/docker/cagent/pkg/codemode"
 	"github.com/docker/cagent/pkg/tools"
 	"github.com/docker/cagent/pkg/tools/builtin"
 )
@@ -28,4 +29,13 @@ func render_search_files(toolCall tools.ToolCall) string {
 	}
 
 	return output
+}
+
+func render_run_tools_with_javascript(toolCall tools.ToolCall) string {
+	var args codemode.RunToolsWithJavascriptArgs
+	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
+		return ""
+	}
+
+	return args.Script
 }

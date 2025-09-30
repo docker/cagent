@@ -9,12 +9,26 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/spf13/cobra"
+
 	"github.com/docker/cagent/pkg/environment"
 	"github.com/docker/cagent/pkg/paths"
 	"github.com/docker/cagent/pkg/telemetry"
 	"github.com/docker/cagent/pkg/version"
-	"github.com/spf13/cobra"
 )
+
+// RuntimeError wraps runtime errors to distinguish them from usage errors
+type RuntimeError struct {
+	Err error
+}
+
+func (e RuntimeError) Error() string {
+	return e.Err.Error()
+}
+
+func (e RuntimeError) Unwrap() error {
+	return e.Err
+}
 
 var (
 	agentName   string
@@ -106,6 +120,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.AddCommand(NewFeedbackCmd())
 	cmd.AddCommand(NewCatalogCmd())
 	cmd.AddCommand(NewBuildCmd())
+	cmd.AddCommand(NewPrintCmd())
 
 	return cmd
 }
@@ -135,15 +150,25 @@ We collect anonymous usage data to help improve cagent. To disable:
 	rootCmd := NewRootCmd()
 	if err := rootCmd.Execute(); err != nil {
 		envErr := &environment.RequiredEnvError{}
-		if errors.As(err, &envErr) {
+		runtimeErr := RuntimeError{}
+
+		switch {
+		case errors.As(err, &envErr):
 			fmt.Fprintln(os.Stderr, "The following environment variables must be set:")
 			for _, v := range envErr.Missing {
 				fmt.Fprintf(os.Stderr, " - %s\n", v)
 			}
 			fmt.Fprintln(os.Stderr, "\nEither:\n - Set those environment variables before running cagent\n - Run cagent with --env-from-file\n - Store those secrets using one of the built-in environment variable providers.")
-		} else {
+		case errors.As(err, &runtimeErr):
+			// Runtime errors have already been printed by the command itself
+			// Don't print them again or show usage
+		default:
+			// Command line usage errors - show the error and usage
 			fmt.Fprintln(os.Stderr, err)
-			_ = rootCmd.Usage()
+			fmt.Fprintln(os.Stderr)
+			if strings.HasPrefix(err.Error(), "unknown command ") || strings.HasPrefix(err.Error(), "accepts ") {
+				_ = rootCmd.Usage()
+			}
 		}
 
 		os.Exit(1)

@@ -8,54 +8,36 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/static"
 	"github.com/google/go-containerregistry/pkg/v1/types"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestStoreBasicOperations(t *testing.T) {
 	store, err := NewStore(WithBaseDir(t.TempDir()))
-	if err != nil {
-		t.Fatalf("Failed to create store: %v", err)
-	}
+	require.NoError(t, err)
 
 	testData := []byte("Hello, World! This is a test artifact.")
 	layer := static.NewLayer(testData, types.OCIUncompressedLayer)
 	img := empty.Image
 	img, err = mutate.AppendLayers(img, layer)
-	if err != nil {
-		t.Fatalf("Failed to create test image: %v", err)
-	}
+	require.NoError(t, err)
 
 	testRef := "hello-world:v1.0.0"
 	digest, err := store.StoreArtifact(img, testRef)
-	if err != nil {
-		t.Fatalf("Failed to store artifact: %v", err)
-	}
+	require.NoError(t, err)
 
 	retrievedImg, err := store.GetArtifactImage(testRef)
-	if err != nil {
-		t.Fatalf("Failed to retrieve artifact by reference: %v", err)
-	}
-
-	if retrievedImg == nil {
-		t.Fatal("Retrieved image is nil")
-	}
+	require.NoError(t, err)
+	assert.NotNil(t, retrievedImg)
 
 	metadata, err := store.GetArtifactMetadata(testRef)
-	if err != nil {
-		t.Fatalf("Failed to get metadata: %v", err)
-	}
+	require.NoError(t, err)
 
-	if metadata.Reference != testRef {
-		t.Errorf("Expected reference %s, got %s", testRef, metadata.Reference)
-	}
-
-	if metadata.Digest != digest {
-		t.Errorf("Expected digest %s, got %s", digest, metadata.Digest)
-	}
+	assert.Equal(t, testRef, metadata.Reference)
+	assert.Equal(t, digest, metadata.Digest)
 
 	artifacts, err := store.ListArtifacts()
-	if err != nil {
-		t.Fatalf("Failed to list artifacts: %v", err)
-	}
+	require.NoError(t, err)
 
 	found := false
 	for _, artifact := range artifacts {
@@ -65,16 +47,12 @@ func TestStoreBasicOperations(t *testing.T) {
 		}
 	}
 
-	if !found {
-		t.Error("Artifact not found in list")
-	}
+	assert.True(t, found, "Artifact not found in list")
 }
 
 func TestStoreMultipleArtifacts(t *testing.T) {
 	store, err := NewStore(WithBaseDir(t.TempDir()))
-	if err != nil {
-		t.Fatalf("Failed to create store: %v", err)
-	}
+	require.NoError(t, err)
 
 	testRefs := []string{
 		"app1:v1.0.0",
@@ -89,57 +67,39 @@ func TestStoreMultipleArtifacts(t *testing.T) {
 		layer := static.NewLayer(testData, types.OCIUncompressedLayer)
 		img := empty.Image
 		img, err = mutate.AppendLayers(img, layer)
-		if err != nil {
-			t.Fatalf("Failed to create test image %d: %v", i+1, err)
-		}
+		require.NoError(t, err)
 
 		digest, err := store.StoreArtifact(img, ref)
-		if err != nil {
-			t.Fatalf("Failed to store artifact %d: %v", i+1, err)
-		}
+		require.NoError(t, err)
 
 		digests = append(digests, digest)
 	}
 
 	artifacts, err := store.ListArtifacts()
-	if err != nil {
-		t.Fatalf("Failed to list artifacts: %v", err)
-	}
+	require.NoError(t, err)
 
-	if len(artifacts) < len(testRefs) {
-		t.Errorf("Expected at least %d artifacts, got %d", len(testRefs), len(artifacts))
-	}
+	assert.GreaterOrEqual(t, len(artifacts), len(testRefs))
 
 	for _, ref := range testRefs {
 		img, err := store.GetArtifactImage(ref)
-		if err != nil {
-			t.Errorf("Failed to retrieve artifact %s: %v", ref, err)
-		}
-		if img == nil {
-			t.Errorf("Retrieved image for %s is nil", ref)
-		}
+		require.NoError(t, err)
+		assert.NotNil(t, img)
 	}
 }
 
 func TestStoreResolution(t *testing.T) {
 	store, err := NewStore(WithBaseDir(t.TempDir()))
-	if err != nil {
-		t.Fatalf("Failed to create store: %v", err)
-	}
+	require.NoError(t, err)
 
 	testData := []byte("Resolution test artifact")
 	layer := static.NewLayer(testData, types.OCIUncompressedLayer)
 	img := empty.Image
 	img, err = mutate.AppendLayers(img, layer)
-	if err != nil {
-		t.Fatalf("Failed to create test image: %v", err)
-	}
+	require.NoError(t, err)
 
 	testRef := "resolution-test:latest"
 	_, err = store.StoreArtifact(img, testRef)
-	if err != nil {
-		t.Fatalf("Failed to store artifact: %v", err)
-	}
+	require.NoError(t, err)
 
 	testCases := []string{
 		testRef,
@@ -147,11 +107,7 @@ func TestStoreResolution(t *testing.T) {
 
 	for _, tc := range testCases {
 		img, err := store.GetArtifactImage(tc)
-		if err != nil {
-			t.Errorf("Failed to resolve identifier %s: %v", tc, err)
-		}
-		if img == nil {
-			t.Errorf("Retrieved image for %s is nil", tc)
-		}
+		require.NoError(t, err)
+		assert.NotNil(t, img)
 	}
 }

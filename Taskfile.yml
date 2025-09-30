@@ -8,15 +8,16 @@ vars:
     sh: git describe --tags --exact-match 2>/dev/null || echo dev
   GIT_COMMIT:
     sh: git rev-parse HEAD
-  BUILD_DATE:
-    sh: date -u +"%Y-%m-%dT%H:%M:%SZ"
   GO_SOURCES: "**/*.go"
   BUILD_ARGS: '--build-arg GIT_TAG="{{.GIT_TAG}}" --build-arg GIT_COMMIT="{{.GIT_COMMIT}}" --build-arg BUILD_DATE="{{.BUILD_DATE}}" --secret id=telemetry_api_key,env=TELEMETRY_API_KEY --secret id=telemetry_endpoint,env=TELEMETRY_ENDPOINT --secret id=telemetry_header,env=TELEMETRY_HEADER'
-  LDFLAGS: '-X "github.com/docker/cagent/pkg/version.Version={{.GIT_TAG}}" -X "github.com/docker/cagent/pkg/version.Commit={{.GIT_COMMIT}}" -X "github.com/docker/cagent/pkg/version.BuildTime={{.BUILD_DATE}}" -X "github.com/docker/cagent/pkg/telemetry.TelemetryEndpoint={{.TELEMETRY_ENDPOINT}}" -X "github.com/docker/cagent/pkg/telemetry.TelemetryAPIKey={{.TELEMETRY_API_KEY}}" -X "github.com/docker/cagent/pkg/telemetry.TelemetryHeader={{.TELEMETRY_HEADER}}"'
+  LDFLAGS: '-X "github.com/docker/cagent/pkg/version.Version={{.GIT_TAG}}" -X "github.com/docker/cagent/pkg/version.Commit={{.GIT_COMMIT}}" -X "github.com/docker/cagent/pkg/telemetry.TelemetryEndpoint={{.TELEMETRY_ENDPOINT}}" -X "github.com/docker/cagent/pkg/telemetry.TelemetryAPIKey={{.TELEMETRY_API_KEY}}" -X "github.com/docker/cagent/pkg/telemetry.TelemetryHeader={{.TELEMETRY_HEADER}}"'
 
 tasks:
   default:
     cmd: task --list
+
+  dev:
+    deps: ["lint", "test", "build"]
 
   build:
     desc: Build the application binary
@@ -37,18 +38,17 @@ tasks:
 
   lint:
     desc: Run golangci-lint
-    cmd: golangci-lint run ./...
+    cmd: golangci-lint run
     sources:
       - "{{.GO_SOURCES}}"
       - ".golangci.yml"
 
   format:
     desc: Format code
-    cmds:
-      - go install mvdan.cc/gofumpt@latest
-      - gofumpt -w .
+    cmd: golangci-lint fmt
     sources:
       - "{{.GO_SOURCES}}"
+      - ".golangci.yml"
 
   test:
     desc: Run tests
@@ -63,7 +63,7 @@ tasks:
 
   cross:
     desc: Build binaries for multiple platforms
-    cmd: docker buildx build --target=cross {{.BUILD_ARGS}} --platform linux/amd64,linux/arm64,darwin/amd64,darwin/arm64,windows/amd64 --output=./dist .
+    cmd: docker buildx build --target=cross {{.BUILD_ARGS}} --platform linux/amd64,linux/arm64,darwin/amd64,darwin/arm64,windows/amd64,windows/arm64 --output=./dist .
 
   build-image:
     desc: Build Docker image
@@ -73,14 +73,23 @@ tasks:
     desc: Build and Push Docker image
     cmd: docker buildx build --push -t docker/cagent {{.BUILD_ARGS}} .
 
-  build-agents:
-    desc: Build Demo dockerized agents
+  push-agent:
+    desc: Build dockerized agent
+    internal: true
     vars:
       DOCKER_ID:
         sh: curl -s --unix-socket ~/Library/Containers/com.docker.docker/Data/backend.sock http://_/registry/info | jq -r .id
-    depends: ["build"]
-    cmds:
-      - ./bin/cagent build --push ./examples/pirate.yaml {{.DOCKER_ID}}/cagent-pirate
-      - ./bin/cagent build --push ./examples/github.yaml {{.DOCKER_ID}}/cagent-github
-      - ./bin/cagent build --push ./examples/gopher.yaml {{.DOCKER_ID}}/cagent-gopher
-      - ./bin/cagent build --push ./examples/mem.yaml {{.DOCKER_ID}}/cagent-mem
+    deps: ["build"]
+    cmd: ./bin/cagent build --push ./examples/{{.AGENT}}.yaml {{.DOCKER_ID}}/cagent-{{.AGENT}}
+
+  push-agents:
+    desc: Build dockerized agents
+    deps:
+      - task: push-agent
+        vars: { AGENT: 'pirate' }
+      - task: push-agent
+        vars: { AGENT: 'github' }
+      - task: push-agent
+        vars: { AGENT: 'gopher' }
+      - task: push-agent
+        vars: { AGENT: 'mem' }

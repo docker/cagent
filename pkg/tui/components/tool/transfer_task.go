@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	tea "github.com/charmbracelet/bubbletea/v2"
+
 	"github.com/docker/cagent/pkg/tui/styles"
 	"github.com/docker/cagent/pkg/tui/types"
 )

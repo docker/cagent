@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss/v2"
 
 	"github.com/docker/cagent/pkg/runtime"
+	"github.com/docker/cagent/pkg/tools"
 	"github.com/docker/cagent/pkg/tui/components/todo"
 	"github.com/docker/cagent/pkg/tui/core/layout"
 	"github.com/docker/cagent/pkg/tui/styles"
@@ -20,9 +21,8 @@ type Model interface {
 	layout.Model
 	layout.Sizeable
 
-	SetTitle(title string)
 	SetTokenUsage(usage *runtime.Usage)
-	SetTodoArguments(toolName, arguments string) error
+	SetTodos(toolCall tools.ToolCall) error
 	SetWorking(working bool) tea.Cmd
 }
 
@@ -30,7 +30,6 @@ type Model interface {
 type model struct {
 	width    int
 	height   int
-	title    string
 	usage    *runtime.Usage
 	todoComp *todo.Component
 	working  bool
@@ -44,7 +43,6 @@ func New() Model {
 		height:   24, // Default height
 		usage:    &runtime.Usage{},
 		todoComp: todo.NewComponent(),
-		title:    "New Session",
 		spinner:  spinner.New(spinner.WithSpinner(spinner.Dot)),
 	}
 }
@@ -54,16 +52,12 @@ func (m *model) Init() tea.Cmd {
 	return nil
 }
 
-func (m *model) SetTitle(title string) {
-	m.title = title
-}
-
 func (m *model) SetTokenUsage(usage *runtime.Usage) {
 	m.usage = usage
 }
 
-func (m *model) SetTodoArguments(toolName, arguments string) error {
-	return m.todoComp.ParseTodoArguments(toolName, arguments)
+func (m *model) SetTodos(toolCall tools.ToolCall) error {
+	return m.todoComp.SetTodos(toolCall)
 }
 
 // SetWorking sets the working state and returns a command to start the spinner if needed
@@ -131,7 +125,7 @@ func (m *model) View() string {
 	// Use predefined styles for the usage display
 
 	// Build top content (title + pwd + token usage)
-	topContent := m.title + "\n\n"
+	topContent := ""
 
 	// Add current working directory in grey
 	if pwd := getCurrentWorkingDirectory(); pwd != "" {

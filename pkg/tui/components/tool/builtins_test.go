@@ -3,8 +3,9 @@ package tool
 import (
 	"testing"
 
-	"github.com/docker/cagent/pkg/tools"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/docker/cagent/pkg/tools"
 )
 
 func TestRender_search_files(t *testing.T) {

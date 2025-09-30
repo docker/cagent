@@ -23,8 +23,8 @@ func TestTrimMessages(t *testing.T) {
 	}
 
 	// Test basic trimming
-	result := trimMessages(messages)
-	assert.Equal(t, maxMessages, len(result), "should trim to maxMessages")
+	result := trimMessages(messages, maxMessages)
+	assert.Len(t, result, maxMessages, "should trim to maxMessages")
 }
 
 func TestTrimMessagesWithToolCalls(t *testing.T) {
@@ -67,15 +67,13 @@ func TestTrimMessagesWithToolCalls(t *testing.T) {
 		},
 	}
 
-	// Set maxMessages to 3 to force trimming
-	oldMax := maxMessages
-	maxMessages = 3
-	defer func() { maxMessages = oldMax }()
+	// Use 3 as the limit to force trimming
+	maxItems := 3
 
-	result := trimMessages(messages)
+	result := trimMessages(messages, maxItems)
 
 	// Should keep last 3 messages, but ensure tool call consistency
-	assert.Len(t, result, 3)
+	assert.Len(t, result, maxItems)
 
 	// Verify we don't have any orphaned tool results
 	toolCalls := make(map[string]bool)
@@ -109,8 +107,16 @@ func TestGetMessages(t *testing.T) {
 	// Get messages for the agent
 	messages := s.GetMessages(testAgent)
 
-	// Verify we get at most maxMessages
-	assert.LessOrEqual(t, len(messages), maxMessages, "should not exceed maxMessages")
+	// Count non-system messages (since system messages are not limited)
+	nonSystemCount := 0
+	for _, msg := range messages {
+		if msg.Role != chat.MessageRoleSystem {
+			nonSystemCount++
+		}
+	}
+
+	// Verify we get at most maxMessages for non-system messages
+	assert.LessOrEqual(t, nonSystemCount, maxMessages, "non-system messages should not exceed maxMessages")
 }
 
 func TestGetMessagesWithToolCalls(t *testing.T) {

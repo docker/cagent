@@ -58,8 +58,6 @@ func (e *editor) Init() tea.Cmd {
 
 // Update handles messages and updates the component state
 func (e *editor) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
-
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		e.textarea.SetWidth(msg.Width - 2)
@@ -81,6 +79,7 @@ func (e *editor) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	var cmd tea.Cmd
 	e.textarea, cmd = e.textarea.Update(msg)
 	return e, cmd
 }

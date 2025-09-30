@@ -77,16 +77,17 @@ func (t *TodoConfig) UnmarshalYAML(unmarshal func(any) error) error {
 
 // AgentConfig represents a single agent configuration
 type AgentConfig struct {
-	Name         string       `json:"name,omitempty" yaml:"name,omitempty"`
-	Model        string       `json:"model,omitempty" yaml:"model,omitempty"`
-	Description  string       `json:"description,omitempty" yaml:"description,omitempty"`
-	Toolsets     []Toolset    `json:"toolsets,omitempty" yaml:"toolsets,omitempty"`
-	Instruction  string       `json:"instruction,omitempty" yaml:"instruction,omitempty"`
-	SubAgents    []string     `json:"sub_agents,omitempty" yaml:"sub_agents,omitempty"`
-	AddDate      bool         `json:"add_date,omitempty" yaml:"add_date,omitempty"`
-	Think        bool         `json:"think,omitempty" yaml:"think,omitempty"`
-	Todo         TodoConfig   `json:"todo,omitempty" yaml:"todo,omitempty"`
-	MemoryConfig MemoryConfig `json:"memory,omitempty" yaml:"memory,omitempty"`
+	Name            string       `json:"name,omitempty" yaml:"name,omitempty"`
+	Model           string       `json:"model,omitempty" yaml:"model,omitempty"`
+	Description     string       `json:"description,omitempty" yaml:"description,omitempty"`
+	Toolsets        []Toolset    `json:"toolsets,omitempty" yaml:"toolsets,omitempty"`
+	Instruction     string       `json:"instruction,omitempty" yaml:"instruction,omitempty"`
+	SubAgents       []string     `json:"sub_agents,omitempty" yaml:"sub_agents,omitempty"`
+	AddDate         bool         `json:"add_date,omitempty" yaml:"add_date,omitempty"`
+	Think           bool         `json:"think,omitempty" yaml:"think,omitempty"`
+	Todo            TodoConfig   `json:"todo,omitempty" yaml:"todo,omitempty"`
+	MemoryConfig    MemoryConfig `json:"memory,omitempty" yaml:"memory,omitempty"`
+	NumHistoryItems int          `json:"num_history_items,omitempty" yaml:"num_history_items,omitempty"`
 }
 
 type MemoryConfig struct {

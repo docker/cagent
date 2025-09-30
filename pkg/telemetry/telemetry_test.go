@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // MockHTTPClient captures HTTP requests for testing
@@ -93,14 +95,10 @@ func TestNewClient(t *testing.T) {
 	// Note: debug mode does NOT disable HTTP calls - it only adds extra logging
 	mockHTTP := NewMockHTTPClient()
 	_, err := NewClient(logger, true, true, "test-version", mockHTTP.Client)
-	if err != nil {
-		t.Fatalf("Failed to create enabled client: %v", err)
-	}
+	require.NoError(t, err)
 	// Test disabled client
 	client, err := NewClient(logger, false, false, "test-version")
-	if err != nil {
-		t.Fatalf("Failed to create disabled client: %v", err)
-	}
+	require.NoError(t, err)
 
 	// This should not panic
 	commandEvent := &CommandEvent{
@@ -117,9 +115,7 @@ func TestSessionTracking(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	mockHTTP := NewMockHTTPClient()
 	client, err := NewClient(logger, true, true, "test-version", mockHTTP.Client)
-	if err != nil {
-		t.Fatalf("Failed to create client: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Set endpoint, apiKey, and header to verify HTTP calls are made correctly
 	client.endpoint = "https://test-session-tracking.com/api"
@@ -130,9 +126,7 @@ func TestSessionTracking(t *testing.T) {
 
 	// Test session lifecycle
 	sessionID := client.RecordSessionStart(ctx, "test-agent", "test-session-id")
-	if sessionID == "" {
-		t.Error("Expected non-empty session ID")
-	}
+	assert.NotEmpty(t, sessionID)
 
 	// Record some activity
 	client.RecordToolCall(ctx, "test-tool", "session-id", "agent-name", time.Millisecond, nil)
@@ -149,21 +143,15 @@ func TestSessionTracking(t *testing.T) {
 
 	// Verify HTTP requests were made (should have session start, tool call, token usage, session end)
 	requestCount := mockHTTP.GetRequestCount()
-	if requestCount == 0 {
-		t.Fatal("Expected HTTP requests to be made for session tracking events, but none were captured")
-	}
+	assert.Greater(t, requestCount, 0, "Expected HTTP requests to be made for session tracking events")
 
 	t.Logf("Session tracking HTTP requests captured: %d", requestCount)
 
 	// Verify request structure
 	requests := mockHTTP.GetRequests()
 	for i, req := range requests {
-		if req.Method != http.MethodPost {
-			t.Errorf("Request %d: Expected POST method, got %s", i, req.Method)
-		}
-		if req.Header.Get("test-header") != "test-session-key" {
-			t.Errorf("Request %d: Expected test-header test-session-key, got %s", i, req.Header.Get("test-header"))
-		}
+		assert.Equal(t, http.MethodPost, req.Method, "Request %d: Expected POST method", i)
+		assert.Equal(t, "test-session-key", req.Header.Get("test-header"), "Request %d: Expected test-header test-session-key", i)
 	}
 }
 
@@ -171,9 +159,7 @@ func TestCommandTracking(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	mockHTTP := NewMockHTTPClient()
 	client, err := NewClient(logger, true, true, "test-version", mockHTTP.Client)
-	if err != nil {
-		t.Fatalf("Failed to create client: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Set endpoint, apiKey, and header to verify HTTP calls are made correctly
 	client.endpoint = "https://test-command-tracking.com/api"
@@ -191,30 +177,22 @@ func TestCommandTracking(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("Command execution failed: %v", err)
-	}
-	if !executed {
-		t.Error("Expected command function to be executed")
-	}
+	require.NoError(t, err)
+	assert.True(t, executed)
 
 	// Wait for events to be processed
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify HTTP requests were made for command tracking
 	requestCount := mockHTTP.GetRequestCount()
-	if requestCount == 0 {
-		t.Fatal("Expected HTTP requests to be made for command tracking, but none were captured")
-	}
+	assert.Greater(t, requestCount, 0, "Expected HTTP requests to be made for command tracking")
 
 	t.Logf("Command tracking HTTP requests captured: %d", requestCount)
 
 	// Verify request structure
 	requests := mockHTTP.GetRequests()
 	for i, req := range requests {
-		if req.Header.Get("test-header") != "test-command-key" {
-			t.Errorf("Request %d: Expected test-header test-command-key, got %s", i, req.Header.Get("test-header"))
-		}
+		assert.Equal(t, "test-command-key", req.Header.Get("test-header"), "Request %d: Expected test-header test-command-key", i)
 	}
 }
 
@@ -222,9 +200,7 @@ func TestCommandTrackingWithError(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	mockHTTP := NewMockHTTPClient()
 	client, err := NewClient(logger, true, true, "test-version", mockHTTP.Client)
-	if err != nil {
-		t.Fatalf("Failed to create client: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Set endpoint, apiKey, and header to verify HTTP calls are made correctly
 	client.endpoint = "https://test-command-error.com/api"
@@ -241,18 +217,14 @@ func TestCommandTrackingWithError(t *testing.T) {
 		return testErr
 	})
 
-	if err != testErr {
-		t.Errorf("Expected error %v, got %v", testErr, err)
-	}
+	assert.Equal(t, testErr, err)
 
 	// Wait for events to be processed
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify HTTP requests were made for command tracking with error
 	requestCount := mockHTTP.GetRequestCount()
-	if requestCount == 0 {
-		t.Fatal("Expected HTTP requests to be made for command error tracking, but none were captured")
-	}
+	assert.Greater(t, requestCount, 0, "Expected HTTP requests to be made for command error tracking")
 
 	t.Logf("Command error tracking HTTP requests captured: %d", requestCount)
 }
@@ -261,9 +233,7 @@ func TestStructuredEvent(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	// Use debug mode to avoid HTTP calls in tests
 	client, err := NewClient(logger, true, true, "test-version")
-	if err != nil {
-		t.Fatalf("Failed to create client: %v", err)
-	}
+	require.NoError(t, err)
 
 	event := CommandEvent{
 		Action:  "test-command",
@@ -287,29 +257,21 @@ func TestGetTelemetryEnabled(t *testing.T) {
 
 	// Test default (enabled)
 	os.Unsetenv("TELEMETRY_ENABLED")
-	if !GetTelemetryEnabled() {
-		t.Error("Expected telemetry to be enabled by default")
-	}
+	assert.True(t, GetTelemetryEnabled())
 
 	// Test explicitly disabled
 	os.Setenv("TELEMETRY_ENABLED", "false")
-	if GetTelemetryEnabled() {
-		t.Error("Expected telemetry to be disabled when TELEMETRY_ENABLED=false")
-	}
+	assert.False(t, GetTelemetryEnabled())
 
 	// Test explicitly enabled
 	os.Setenv("TELEMETRY_ENABLED", "true")
-	if !GetTelemetryEnabled() {
-		t.Error("Expected telemetry to be enabled when TELEMETRY_ENABLED=true")
-	}
+	assert.True(t, GetTelemetryEnabled())
 
 	// Test other values default to enabled (only "false" disables)
 	testCases := []string{"1", "yes", "on", "enabled", "anything", ""}
 	for _, value := range testCases {
 		os.Setenv("TELEMETRY_ENABLED", value)
-		if !GetTelemetryEnabled() {
-			t.Errorf("Expected telemetry to be enabled when TELEMETRY_ENABLED=%s", value)
-		}
+		assert.True(t, GetTelemetryEnabled(), "Expected telemetry to be enabled when TELEMETRY_ENABLED=%s", value)
 	}
 }
 
@@ -375,9 +337,7 @@ func TestAllEventTypes(t *testing.T) {
 	// Use mock HTTP client to avoid actual HTTP calls in tests
 	mockHTTP := NewMockHTTPClient()
 	client, err := NewClient(logger, true, true, "test-version", mockHTTP.Client)
-	if err != nil {
-		t.Fatalf("Failed to create client: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Set endpoint, apiKey, and header to verify HTTP calls are made correctly
 	client.endpoint = "https://test-telemetry-all-events.com/api"
@@ -572,9 +532,7 @@ func TestAllEventTypes(t *testing.T) {
 
 	// Verify that HTTP requests were made for all events
 	requestCount := mockHTTP.GetRequestCount()
-	if requestCount == 0 {
-		t.Fatal("Expected HTTP requests to be made for telemetry events, but none were captured")
-	}
+	assert.Greater(t, requestCount, 0, "Expected HTTP requests to be made for telemetry events")
 
 	t.Logf("Total HTTP requests captured: %d", requestCount)
 
@@ -582,59 +540,36 @@ func TestAllEventTypes(t *testing.T) {
 	requests := mockHTTP.GetRequests()
 	bodies := mockHTTP.GetBodies()
 
-	if len(requests) != len(bodies) {
-		t.Fatalf("Mismatch between request count (%d) and body count (%d)", len(requests), len(bodies))
-	}
+	assert.Len(t, requests, len(bodies), "Mismatch between request count and body count")
 
 	// Verify each HTTP request has correct headers and endpoint
 	for i, req := range requests {
 		// Verify method and URL
-		if req.Method != http.MethodPost {
-			t.Errorf("Request %d: Expected POST method, got %s", i, req.Method)
-		}
-		if req.URL.String() != "https://test-telemetry-all-events.com/api" {
-			t.Errorf("Request %d: Expected URL https://test-telemetry-all-events.com/api, got %s", i, req.URL.String())
-		}
+		assert.Equal(t, http.MethodPost, req.Method, "Request %d: Expected POST method", i)
+		assert.Equal(t, "https://test-telemetry-all-events.com/api", req.URL.String(), "Request %d: Expected correct URL", i)
 
 		// Verify headers
-		if req.Header.Get("Content-Type") != "application/json" {
-			t.Errorf("Request %d: Expected Content-Type application/json, got %s", i, req.Header.Get("Content-Type"))
-		}
-		if req.Header.Get("User-Agent") != "cagent/test-version" {
-			t.Errorf("Request %d: Expected User-Agent cagent/test-version, got %s", i, req.Header.Get("User-Agent"))
-		}
-		if req.Header.Get("test-header") != "test-all-events-key" {
-			t.Errorf("Request %d: Expected test-header test-all-events-key, got %s", i, req.Header.Get("test-header"))
-		}
+		assert.Equal(t, "application/json", req.Header.Get("Content-Type"), "Request %d: Expected Content-Type application/json", i)
+		assert.Equal(t, "cagent/test-version", req.Header.Get("User-Agent"), "Request %d: Expected User-Agent cagent/test-version", i)
+		assert.Equal(t, "test-all-events-key", req.Header.Get("test-header"), "Request %d: Expected test-header test-all-events-key", i)
 
 		// Verify request body structure
 		var requestBody map[string]any
-		if err := json.Unmarshal(bodies[i], &requestBody); err != nil {
-			t.Errorf("Request %d: Failed to unmarshal request body: %v", i, err)
-			continue
-		}
+		require.NoError(t, json.Unmarshal(bodies[i], &requestBody), "Request %d: Failed to unmarshal request body", i)
 
 		// Verify it has records array structure
 		records, ok := requestBody["records"].([]any)
-		if !ok {
-			t.Errorf("Request %d: Expected 'records' array in request body", i)
-			continue
-		}
-		if len(records) != 1 {
-			t.Errorf("Request %d: Expected 1 record, got %d", i, len(records))
-			continue
-		}
+		require.True(t, ok, "Request %d: Expected 'records' array in request body", i)
+		assert.Len(t, records, 1, "Request %d: Expected 1 record", i)
 
 		// Verify the event structure
 		record := records[0].(map[string]any)
-		if eventType, ok := record["event"].(string); !ok || eventType == "" {
-			t.Errorf("Request %d: Expected non-empty event type, got %v", i, record["event"])
-		}
+		eventType, ok := record["event"].(string)
+		assert.True(t, ok && eventType != "", "Request %d: Expected non-empty event type", i)
 
 		// Verify properties exist
-		if _, ok := record["properties"].(map[string]any); !ok {
-			t.Errorf("Request %d: Expected properties object in event", i)
-		}
+		_, ok = record["properties"].(map[string]any)
+		assert.True(t, ok, "Request %d: Expected properties object in event", i)
 	}
 }
 
@@ -642,9 +577,7 @@ func TestAllEventTypes(t *testing.T) {
 func TestTrackServerStart(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	client, err := NewClient(logger, true, true, "test-version")
-	if err != nil {
-		t.Fatalf("Failed to create client: %v", err)
-	}
+	require.NoError(t, err)
 
 	executed := false
 	cmdInfo := CommandInfo{
@@ -658,12 +591,8 @@ func TestTrackServerStart(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("Server execution failed: %v", err)
-	}
-	if !executed {
-		t.Error("Expected server function to be executed")
-	}
+	require.NoError(t, err)
+	assert.True(t, executed)
 }
 
 // TestBuildCommandInfo tests the BuildCommandInfo function with all commands
@@ -721,19 +650,8 @@ func TestBuildCommandInfo(t *testing.T) {
 			cmd := &cobra.Command{Use: tc.command}
 			result := BuildCommandInfo(cmd, tc.args, tc.command)
 
-			if result.Action != tc.expected.Action {
-				t.Errorf("Expected Action %s, got %s", tc.expected.Action, result.Action)
-			}
-
-			if len(result.Args) != len(tc.expected.Args) {
-				t.Errorf("Expected %d args, got %d", len(tc.expected.Args), len(result.Args))
-			} else {
-				for i, arg := range tc.expected.Args {
-					if i < len(result.Args) && result.Args[i] != arg {
-						t.Errorf("Expected arg[%d] %s, got %s", i, arg, result.Args[i])
-					}
-				}
-			}
+			assert.Equal(t, tc.expected.Action, result.Action)
+			assert.Equal(t, tc.expected.Args, result.Args)
 		})
 	}
 }
@@ -761,16 +679,12 @@ func TestGlobalTelemetryFunctions(t *testing.T) {
 	TrackCommand("test-command", []string{"arg1"})
 
 	// Verify global client was initialized
-	if globalToolTelemetryClient == nil {
-		t.Error("Expected global telemetry client to be initialized")
-	}
+	assert.NotNil(t, globalToolTelemetryClient)
 
 	// Test explicit initialization
 	EnsureGlobalTelemetryInitialized()
 	client := GetGlobalTelemetryClient()
-	if client == nil {
-		t.Error("Expected GetGlobalTelemetryClient to return non-nil client")
-	}
+	assert.NotNil(t, client)
 }
 
 // TestHTTPRequestVerification tests that HTTP requests are made correctly when telemetry is enabled
@@ -781,9 +695,7 @@ func TestHTTPRequestVerification(t *testing.T) {
 
 	// Create client with mock HTTP client, endpoint, and API key to trigger HTTP calls
 	client, err := NewClient(logger, true, true, "test-version", mockHTTP.Client)
-	if err != nil {
-		t.Fatalf("Failed to create client: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Set endpoint, API key, and header to ensure HTTP calls are made
 	client.endpoint = "https://test-telemetry.example.com/api/events"
@@ -805,15 +717,9 @@ func TestHTTPRequestVerification(t *testing.T) {
 		}
 
 		// Verify the client is properly configured
-		if client.endpoint == "" {
-			t.Fatal("Client endpoint should be set for this test")
-		}
-		if client.apiKey == "" {
-			t.Fatal("Client API key should be set for this test")
-		}
-		if !client.enabled {
-			t.Fatal("Client should be enabled for this test")
-		}
+		assert.NotEmpty(t, client.endpoint, "Client endpoint should be set for this test")
+		assert.NotEmpty(t, client.apiKey, "Client API key should be set for this test")
+		assert.True(t, client.enabled, "Client should be enabled for this test")
 
 		t.Logf("Before Track: endpoint=%s, apiKey len=%d, enabled=%t", client.endpoint, len(client.apiKey), client.enabled)
 
@@ -826,78 +732,48 @@ func TestHTTPRequestVerification(t *testing.T) {
 		t.Logf("HTTP requests captured: %d", mockHTTP.GetRequestCount())
 
 		// Verify HTTP request was made
-		if mockHTTP.GetRequestCount() == 0 {
-			t.Fatal("Expected HTTP request to be made, but none were captured")
-		}
+		assert.Greater(t, mockHTTP.GetRequestCount(), 0, "Expected HTTP request to be made")
 
 		requests := mockHTTP.GetRequests()
 		req := requests[0]
 
 		// Verify request method and URL
-		if req.Method != http.MethodPost {
-			t.Errorf("Expected POST request, got %s", req.Method)
-		}
-		if req.URL.String() != "https://test-telemetry.example.com/api/events" {
-			t.Errorf("Expected URL https://test-telemetry.example.com/api/events, got %s", req.URL.String())
-		}
+		assert.Equal(t, http.MethodPost, req.Method, "Expected POST request")
+		assert.Equal(t, "https://test-telemetry.example.com/api/events", req.URL.String(), "Expected correct URL")
 
 		// Verify headers
-		if req.Header.Get("Content-Type") != "application/json" {
-			t.Errorf("Expected Content-Type application/json, got %s", req.Header.Get("Content-Type"))
-		}
-		if req.Header.Get("User-Agent") != "cagent/test-version" {
-			t.Errorf("Expected User-Agent cagent/test-version, got %s", req.Header.Get("User-Agent"))
-		}
-		if req.Header.Get("test-header") != "test-api-key" {
-			t.Errorf("Expected test-header test-api-key, got %s", req.Header.Get("test-header"))
-		}
+		assert.Equal(t, "application/json", req.Header.Get("Content-Type"), "Expected Content-Type application/json")
+		assert.Equal(t, "cagent/test-version", req.Header.Get("User-Agent"), "Expected User-Agent cagent/test-version")
+		assert.Equal(t, "test-api-key", req.Header.Get("test-header"), "Expected test-header test-api-key")
 
 		// Verify request body structure
 		bodies := mockHTTP.GetBodies()
-		if len(bodies) == 0 {
-			t.Fatal("Expected request body to be captured")
-		}
+		assert.NotEmpty(t, bodies, "Expected request body to be captured")
 
 		var requestBody map[string]any
-		if err := json.Unmarshal(bodies[0], &requestBody); err != nil {
-			t.Fatalf("Failed to unmarshal request body: %v", err)
-		}
+		require.NoError(t, json.Unmarshal(bodies[0], &requestBody), "Failed to unmarshal request body")
 
 		// Verify it has records array structure
 		records, ok := requestBody["records"].([]any)
-		if !ok {
-			t.Fatal("Expected 'records' array in request body")
-		}
-		if len(records) != 1 {
-			t.Fatalf("Expected 1 record, got %d", len(records))
-		}
+		require.True(t, ok, "Expected 'records' array in request body")
+		assert.Len(t, records, 1, "Expected 1 record")
 
 		// Verify the event structure
 		record := records[0].(map[string]any)
-		if record["event"] != "command" {
-			t.Errorf("Expected event type 'command', got %v", record["event"])
-		}
+		assert.Equal(t, "command", record["event"], "Expected event type 'command'")
 
 		// Verify properties contain the command data
 		properties, ok := record["properties"].(map[string]any)
-		if !ok {
-			t.Fatal("Expected properties object in event")
-		}
-		if properties["action"] != "run" {
-			t.Errorf("Expected action 'run', got %v", properties["action"])
-		}
-		if properties["is_success"] != true {
-			t.Errorf("Expected is_success true, got %v", properties["is_success"])
-		}
+		require.True(t, ok, "Expected properties object in event")
+		assert.Equal(t, "run", properties["action"], "Expected action 'run'")
+		assert.True(t, properties["is_success"].(bool), "Expected is_success true")
 	})
 
 	// Test that no HTTP calls are made when endpoint/apiKey are missing
 	t.Run("NoHTTPWhenMissingCredentials", func(t *testing.T) {
 		mockHTTP2 := NewMockHTTPClient()
 		client2, err := NewClient(logger, true, true, "test-version", mockHTTP2.Client)
-		if err != nil {
-			t.Fatalf("Failed to create client: %v", err)
-		}
+		require.NoError(t, err)
 
 		// Leave endpoint and API key empty
 		client2.endpoint = ""
@@ -911,18 +787,14 @@ func TestHTTPRequestVerification(t *testing.T) {
 		client2.Track(ctx, event)
 
 		// Verify no HTTP requests were made
-		if mockHTTP2.GetRequestCount() != 0 {
-			t.Errorf("Expected no HTTP requests when endpoint/apiKey are missing, got %d", mockHTTP2.GetRequestCount())
-		}
+		assert.Zero(t, mockHTTP2.GetRequestCount(), "Expected no HTTP requests when endpoint/apiKey are missing")
 	})
 
 	// Test that no HTTP calls are made when client is disabled
 	t.Run("NoHTTPWhenDisabled", func(t *testing.T) {
 		mockHTTP3 := NewMockHTTPClient()
 		client3, err := NewClient(logger, false, true, "test-version", mockHTTP3.Client)
-		if err != nil {
-			t.Fatalf("Failed to create client: %v", err)
-		}
+		require.NoError(t, err)
 
 		event := &CommandEvent{
 			Action:  "version",
@@ -932,9 +804,7 @@ func TestHTTPRequestVerification(t *testing.T) {
 		client3.Track(ctx, event)
 
 		// Verify no HTTP requests were made (client disabled means Track returns early)
-		if mockHTTP3.GetRequestCount() != 0 {
-			t.Errorf("Expected no HTTP requests when client is disabled, got %d", mockHTTP3.GetRequestCount())
-		}
+		assert.Zero(t, mockHTTP3.GetRequestCount(), "Expected no HTTP requests when client is disabled")
 	})
 }
 
@@ -963,9 +833,7 @@ func TestEventBufferOverflowDropsEvents(t *testing.T) {
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	client, err := NewClient(logger, true, true, "test-version", slowMock.Client)
-	if err != nil {
-		t.Fatalf("Failed to create client: %v", err)
-	}
+	require.NoError(t, err)
 
 	client.endpoint = "https://test-overflow.com/api"
 	client.apiKey = "overflow-key"
@@ -976,7 +844,7 @@ func TestEventBufferOverflowDropsEvents(t *testing.T) {
 	numEvents := 10 // Send a reasonable number for synchronous processing
 
 	// Send events synchronously
-	for i := 0; i < numEvents; i++ {
+	for range numEvents {
 		client.Track(context.Background(), &CommandEvent{
 			Action:  "overflow-test",
 			Success: true,
@@ -985,9 +853,7 @@ func TestEventBufferOverflowDropsEvents(t *testing.T) {
 
 	// With synchronous processing, all events should be processed immediately
 	expectedRequests := numEvents
-	if slowMock.GetRequestCount() != expectedRequests {
-		t.Errorf("Expected %d requests with synchronous processing, got %d", expectedRequests, slowMock.GetRequestCount())
-	}
+	assert.Equal(t, expectedRequests, slowMock.GetRequestCount(), "Expected all requests with synchronous processing")
 
 	t.Logf("Synchronous processing handled %d events correctly", numEvents)
 
@@ -999,9 +865,7 @@ func TestNon2xxHTTPResponseHandling(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	mockHTTP := NewMockHTTPClient()
 	client, err := NewClient(logger, true, true, "test-version", mockHTTP.Client)
-	if err != nil {
-		t.Fatalf("Failed to create client: %v", err)
-	}
+	require.NoError(t, err)
 
 	client.endpoint = "https://test-error-response.com/api"
 	client.apiKey = "error-key"
@@ -1021,9 +885,7 @@ func TestNon2xxHTTPResponseHandling(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	requestCount := mockHTTP.GetRequestCount()
-	if requestCount == 0 {
-		t.Errorf("Expected HTTP request to be made despite error response, got %d requests", requestCount)
-	}
+	assert.Greater(t, requestCount, 0, "Expected HTTP request to be made despite error response")
 
 	// Test additional error codes
 	mockHTTP.SetResponse(&http.Response{
@@ -1038,7 +900,5 @@ func TestNon2xxHTTPResponseHandling(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	finalRequestCount := mockHTTP.GetRequestCount()
-	if finalRequestCount < 2 {
-		t.Errorf("Expected at least 2 HTTP requests (500 + 404), got %d", finalRequestCount)
-	}
+	assert.GreaterOrEqual(t, finalRequestCount, 2, "Expected at least 2 HTTP requests (500 + 404)")
 }

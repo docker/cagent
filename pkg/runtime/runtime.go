@@ -10,6 +10,10 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/docker/cagent/pkg/agent"
 	"github.com/docker/cagent/pkg/chat"
 	"github.com/docker/cagent/pkg/modelsdev"
@@ -18,12 +22,13 @@ import (
 	"github.com/docker/cagent/pkg/team"
 	"github.com/docker/cagent/pkg/telemetry"
 	"github.com/docker/cagent/pkg/tools"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 )
 
 type ResumeType string
+
+type modelStore interface {
+	GetModel(ctx context.Context, modelID string) (*modelsdev.Model, error)
+}
 
 const (
 	ResumeTypeApprove        ResumeType = "approve"
@@ -60,7 +65,7 @@ type runtime struct {
 	resumeChan        chan ResumeType
 	oauthManager      oauth.Manager
 	tracer            trace.Tracer
-	modelsStore       *modelsdev.Store
+	modelsStore       modelStore
 	sessionCompaction bool
 }
 
@@ -82,6 +87,12 @@ func WithTracer(t trace.Tracer) Opt {
 func WithSessionCompaction(sessionCompaction bool) Opt {
 	return func(r *runtime) {
 		r.sessionCompaction = sessionCompaction
+	}
+}
+
+func WithModelStore(store modelStore) Opt {
+	return func(r *runtime) {
+		r.modelsStore = store
 	}
 }
 
@@ -126,9 +137,14 @@ func (r *runtime) handleOAuthAuthorizationFlow(ctx context.Context, sess *sessio
 	// Create OAuth manager if it doesn't exist
 	if r.oauthManager == nil {
 		emitAuthRequired := func(serverURL, serverType, status string) {
-			events <- AuthorizationRequired(serverURL, serverType, status)
+			events <- AuthorizationRequired(serverURL, serverType, status, r.currentAgent)
 		}
 		r.oauthManager = oauth.NewManager(emitAuthRequired)
+		defer func() {
+			if cleanupErr := r.oauthManager.Cleanup(ctx); cleanupErr != nil {
+				slog.Error("Failed to cleanup OAuth manager", "error", cleanupErr)
+			}
+		}()
 	}
 
 	return r.oauthManager.HandleAuthorizationFlow(ctx, sess.ID, oauthRequiredErr)
@@ -137,12 +153,9 @@ func (r *runtime) handleOAuthAuthorizationFlow(ctx context.Context, sess *sessio
 func (r *runtime) finalizeEventChannel(ctx context.Context, sess *session.Session, events chan Event) {
 	defer close(events)
 
-	events <- StreamStopped()
+	events <- StreamStopped(sess.ID, r.currentAgent)
 
-	// End telemetry session tracking
-	if telemetryClient := telemetry.FromContext(ctx); telemetryClient != nil {
-		telemetryClient.RecordSessionEnd(ctx)
-	}
+	telemetry.RecordSessionEnd(ctx)
 
 	if sess.Title == "" && len(sess.GetAllMessages()) > 0 {
 		r.generateSessionTitle(context.Background(), sess, events)
@@ -155,20 +168,16 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 	events := make(chan Event, 128)
 
 	go func() {
-		// Start telemetry session tracking
-		if telemetryClient := telemetry.FromContext(ctx); telemetryClient != nil {
-			telemetryClient.RecordSessionStart(ctx, r.currentAgent, sess.ID)
-		}
+		telemetry.RecordSessionStart(ctx, r.currentAgent, sess.ID)
 
-		if sess.SendUserMessage {
-			events <- UserMessage(sess.GetMessages(r.CurrentAgent())[len(sess.GetMessages(r.CurrentAgent()))-1].Content)
-		}
-
-		events <- StreamStarted()
 		a := r.team.Agent(r.currentAgent)
 
-		model := a.Model()
-		modelID := model.ID()
+		messages := sess.GetMessages(a)
+		if sess.SendUserMessage {
+			events <- UserMessage(messages[len(messages)-1].Content)
+		}
+
+		events <- StreamStarted(sess.ID, a.Name())
 
 		defer r.finalizeEventChannel(ctx, sess, events)
 
@@ -178,18 +187,18 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 		))
 		defer sessionSpan.End()
 
-		slog.Debug("Using agent", "agent", a.Name(), "model", modelID)
 		r.registerDefaultTools()
-
-		slog.Debug("Getting model definition", "model_id", modelID)
-		m, err := r.modelsStore.GetModel(context.Background(), modelID)
-		if err != nil {
-			slog.Debug("Failed to get model definition", "error", err)
-		}
 
 		iteration := 0
 		// Use a runtime copy of maxIterations so we don't modify the session's persistent config
 		runtimeMaxIterations := sess.MaxIterations
+
+		agentTools, err := r.getTools(ctx, sess, events, a, sessionSpan)
+		if err != nil {
+			events <- Error(fmt.Sprintf("failed to get tools: %v", err))
+			return
+		}
+
 		for {
 			// Check iteration limit
 			if runtimeMaxIterations > 0 && iteration >= runtimeMaxIterations {
@@ -226,57 +235,24 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 				return
 			}
 			slog.Debug("Starting conversation loop iteration", "agent", a.Name())
+			// Looping, get the updated messages from the session
 			messages := sess.GetMessages(a)
 			slog.Debug("Retrieved messages for processing", "agent", a.Name(), "message_count", len(messages))
-
-			// Retry loop for getting agent tools with OAuth handling
-			var agentTools []tools.Tool
-			for {
-				var err error
-				agentTools, err = a.Tools(ctx)
-				if err != nil {
-					slog.Error("Failed to get agent tools", "agent", a.Name(), "error", err)
-					sessionSpan.RecordError(err)
-					sessionSpan.SetStatus(codes.Error, "failed to get tools")
-					// Track error in telemetry
-					if telemetryClient := telemetry.FromContext(ctx); telemetryClient != nil {
-						telemetryClient.RecordError(ctx, err.Error())
-					}
-
-					// Check if this is an OAuth authorization error with server info
-					if err, ok := oauth.MayBeOAuthError(err); ok {
-						oauthRequiredErr := err.(*oauth.AuthorizationRequiredError)
-						// Handle OAuth authorization flow
-						oauthFlowErr := r.handleOAuthAuthorizationFlow(ctx, sess, oauthRequiredErr, events)
-						if oauthFlowErr != nil {
-							if errors.Is(oauthFlowErr, context.Canceled) || errors.Is(oauthFlowErr, context.DeadlineExceeded) {
-								slog.Debug("Context cancelled during OAuth authorization", "agent", a.Name())
-								return
-							}
-							slog.Error("OAuth authorization process failed", "agent", a.Name(), "error", oauthFlowErr)
-							events <- Error(fmt.Sprintf("OAuth authorization failed: %v", oauthFlowErr))
-							return
-						}
-
-						slog.Debug("OAuth authorization completed, retrying tool retrieval", "agent", a.Name(), "server", oauthRequiredErr.ServerURL)
-						// Continue the loop to retry getting tools
-						continue
-					} else {
-						// Non-OAuth error, cannot recover
-						events <- Error(fmt.Sprintf("failed to get tools: %v", err))
-						return
-					}
-				} else {
-					// Successfully retrieved tools, exit the retry loop
-					break
-				}
-			}
-			slog.Debug("Retrieved agent tools", "agent", a.Name(), "tool_count", len(agentTools))
 
 			streamCtx, streamSpan := r.startSpan(ctx, "runtime.stream", trace.WithAttributes(
 				attribute.String("agent", a.Name()),
 				attribute.String("session.id", sess.ID),
 			))
+
+			model := a.Model()
+			modelID := model.ID()
+			slog.Debug("Using agent", "agent", a.Name(), "model", modelID)
+			slog.Debug("Getting model definition", "model_id", modelID)
+			m, err := r.modelsStore.GetModel(context.Background(), modelID)
+			if err != nil {
+				slog.Debug("Failed to get model definition", "error", err)
+			}
+
 			slog.Debug("Creating chat completion stream", "agent", a.Name())
 			stream, err := model.CreateChatCompletionStream(streamCtx, messages, agentTools)
 			if err != nil {
@@ -284,16 +260,14 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 				streamSpan.SetStatus(codes.Error, "creating chat completion")
 				slog.Error("Failed to create chat completion stream", "agent", a.Name(), "error", err)
 				// Track error in telemetry
-				if telemetryClient := telemetry.FromContext(ctx); telemetryClient != nil {
-					telemetryClient.RecordError(ctx, err.Error())
-				}
+				telemetry.RecordError(ctx, err.Error())
 				events <- Error(fmt.Sprintf("creating chat completion: %v", err))
 				streamSpan.End()
 				return
 			}
 
 			slog.Debug("Processing stream", "agent", a.Name())
-			calls, content, reasoningContent, stopped, err := r.handleStream(ctx, stream, a, sess, m, events)
+			calls, content, reasoningContent, stopped, err := r.handleStream(ctx, stream, a, agentTools, sess, m, events)
 			if err != nil {
 				// Treat context cancellation as a graceful stop
 				if errors.Is(err, context.Canceled) {
@@ -305,9 +279,7 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 				streamSpan.SetStatus(codes.Error, "error handling stream")
 				slog.Error("Error handling stream", "agent", a.Name(), "error", err)
 				// Track error in telemetry
-				if telemetryClient := telemetry.FromContext(ctx); telemetryClient != nil {
-					telemetryClient.RecordError(ctx, err.Error())
-				}
+				telemetry.RecordError(ctx, err.Error())
 				events <- Error(err.Error())
 				streamSpan.End()
 				return
@@ -345,10 +317,10 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 
 			if m != nil && r.sessionCompaction {
 				if sess.InputTokens+sess.OutputTokens > int(float64(contextLimit)*0.9) {
-					events <- SessionCompaction(sess.ID, "start")
+					events <- SessionCompaction(sess.ID, "start", r.currentAgent)
 					r.Summarize(ctx, sess, events)
 					events <- TokenUsage(sess.InputTokens, sess.OutputTokens, sess.InputTokens+sess.OutputTokens, contextLimit, sess.Cost)
-					events <- SessionCompaction(sess.ID, "completed")
+					events <- SessionCompaction(sess.ID, "completed", r.currentAgent)
 				}
 			}
 
@@ -357,21 +329,53 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 				break
 			}
 
-			if err := r.processToolCalls(ctx, sess, calls, events); err != nil {
-				// If cancellation, stop quietly
-				if errors.Is(err, context.Canceled) {
-					slog.Debug("Tool call processing canceled by context", "agent", a.Name(), "session_id", sess.ID)
-					return
-				}
-				sessionSpan.RecordError(err)
-				sessionSpan.SetStatus(codes.Error, "process tool calls")
-				events <- Error(err.Error())
-				return
-			}
+			r.processToolCalls(ctx, sess, calls, agentTools, events)
 		}
 	}()
 
 	return events
+}
+
+func (r *runtime) getTools(ctx context.Context, sess *session.Session, events chan Event, a *agent.Agent, sessionSpan trace.Span) ([]tools.Tool, error) {
+	// Retry loop for getting agent tools with OAuth handling
+	var agentTools []tools.Tool
+	for {
+		var err error
+		agentTools, err = a.Tools(ctx)
+		if err != nil {
+			slog.Error("Failed to get agent tools", "agent", a.Name(), "error", err)
+			sessionSpan.RecordError(err)
+			sessionSpan.SetStatus(codes.Error, "failed to get tools")
+			telemetry.RecordError(ctx, err.Error())
+
+			// Check if this is an OAuth authorization error with server info
+			if err, ok := oauth.MayBeOAuthError(err); ok {
+				oauthRequiredErr := err.(*oauth.AuthorizationRequiredError)
+				// Handle OAuth authorization flow
+				oauthFlowErr := r.handleOAuthAuthorizationFlow(ctx, sess, oauthRequiredErr, events)
+				if oauthFlowErr != nil {
+					if errors.Is(oauthFlowErr, context.Canceled) || errors.Is(oauthFlowErr, context.DeadlineExceeded) {
+						slog.Debug("Context cancelled during OAuth authorization", "agent", a.Name())
+						return nil, oauthFlowErr
+					}
+					slog.Error("OAuth authorization process failed", "agent", a.Name(), "error", oauthFlowErr)
+					return nil, oauthFlowErr
+				}
+
+				slog.Debug("OAuth authorization completed, retrying tool retrieval", "agent", a.Name(), "server", oauthRequiredErr.ServerURL)
+				// Continue the loop to retry getting tools
+				continue
+			} else {
+				// Non-OAuth error, cannot recover
+				return nil, err
+			}
+		} else {
+			// Successfully retrieved tools, exit the retry loop
+			break
+		}
+	}
+	slog.Debug("Retrieved agent tools", "agent", a.Name(), "tool_count", len(agentTools))
+	return agentTools, nil
 }
 
 func (r *runtime) Resume(_ context.Context, confirmationType string) {
@@ -393,21 +397,21 @@ func (r *runtime) Resume(_ context.Context, confirmationType string) {
 	}
 }
 
-func (r *runtime) ResumeStartAuthorizationFlow(_ context.Context, confirmation bool) {
+func (r *runtime) ResumeStartAuthorizationFlow(ctx context.Context, confirmation bool) {
 	slog.Debug("Resuming runtime to start OAuth flow", "agent", r.currentAgent)
 
 	if r.oauthManager != nil {
-		r.oauthManager.StartAuthorizationFlow(confirmation)
+		r.oauthManager.StartAuthorizationFlow(ctx, confirmation)
 	} else {
 		slog.Debug("OAuth manager not available, ignoring", "agent", r.currentAgent)
 	}
 }
 
-func (r *runtime) ResumeCodeReceived(_ context.Context, code string) error {
+func (r *runtime) ResumeCodeReceived(ctx context.Context, code string) error {
 	slog.Debug("Sending OAuth authorization code to runtime", "agent", r.currentAgent)
 
 	if r.oauthManager != nil {
-		return r.oauthManager.SendAuthorizationCode(code)
+		return r.oauthManager.SendAuthorizationCode(ctx, code)
 	}
 
 	return fmt.Errorf("OAuth flow not in progress")
@@ -427,7 +431,7 @@ func (r *runtime) Run(ctx context.Context, sess *session.Session) ([]session.Mes
 }
 
 // handleStream handles the stream processing
-func (r *runtime) handleStream(ctx context.Context, stream chat.MessageStream, a *agent.Agent, sess *session.Session, m *modelsdev.Model, events chan Event) (calls []tools.ToolCall, content, reasoningContent string, stopped bool, err error) {
+func (r *runtime) handleStream(ctx context.Context, stream chat.MessageStream, a *agent.Agent, agentTools []tools.Tool, sess *session.Session, m *modelsdev.Model, events chan Event) (calls []tools.ToolCall, content, reasoningContent string, stopped bool, err error) {
 	defer stream.Close()
 
 	var fullContent strings.Builder
@@ -456,14 +460,11 @@ func (r *runtime) handleStream(ctx context.Context, stream chat.MessageStream, a
 			sess.InputTokens = response.Usage.InputTokens + response.Usage.CachedInputTokens
 			sess.OutputTokens = response.Usage.OutputTokens + response.Usage.CachedOutputTokens
 
-			// Record telemetry for token usage
-			if telemetryClient := telemetry.FromContext(ctx); telemetryClient != nil {
-				modelName := "unknown"
-				if m != nil {
-					modelName = m.Name
-				}
-				telemetryClient.RecordTokenUsage(ctx, modelName, int64(sess.InputTokens), int64(sess.OutputTokens), sess.Cost)
+			modelName := "unknown"
+			if m != nil {
+				modelName = m.Name
 			}
+			telemetry.RecordTokenUsage(ctx, modelName, int64(response.Usage.InputTokens), int64(response.Usage.OutputTokens), sess.Cost)
 		}
 
 		if len(response.Choices) == 0 {
@@ -514,12 +515,21 @@ func (r *runtime) handleStream(ctx context.Context, stream chat.MessageStream, a
 					} else {
 						toolCalls[idx].Function.Arguments += deltaToolCall.Function.Arguments
 					}
+					// Emit if we get more arguments
 					shouldEmitPartial = true
 				}
 
 				// Emit PartialToolCallEvent when we first get the function name
 				if shouldEmitPartial {
-					events <- PartialToolCall(toolCalls[idx], a.Name())
+					// TODO: clean this up, it's gross
+					tool := tools.Tool{}
+					for _, t := range agentTools {
+						if t.Function.Name == toolCalls[idx].Function.Name {
+							tool = t
+							break
+						}
+					}
+					events <- PartialToolCall(toolCalls[idx], tool, a.Name())
 					emittedPartialEvents[deltaToolCall.ID] = true
 				}
 			}
@@ -544,18 +554,9 @@ func (r *runtime) handleStream(ctx context.Context, stream chat.MessageStream, a
 }
 
 // processToolCalls handles the execution of tool calls for an agent
-func (r *runtime) processToolCalls(ctx context.Context, sess *session.Session, calls []tools.ToolCall, events chan Event) error {
-	if len(calls) == 0 {
-		return nil
-	}
-
+func (r *runtime) processToolCalls(ctx context.Context, sess *session.Session, calls []tools.ToolCall, agentTools []tools.Tool, events chan Event) {
 	a := r.CurrentAgent()
 	slog.Debug("Processing tool calls", "agent", a.Name(), "call_count", len(calls))
-	agentTools, err := a.Tools(ctx)
-	if err != nil {
-		slog.Error("Failed to get tools for tool calls", "agent", a.Name(), "error", err)
-		return fmt.Errorf("failed to get tools: %w", err)
-	}
 
 	for i, toolCall := range calls {
 		// Start a span for each tool call
@@ -575,7 +576,14 @@ func (r *runtime) processToolCalls(ctx context.Context, sess *session.Session, c
 				r.runAgentTool(callCtx, handler, sess, toolCall, events, a)
 			} else {
 				slog.Debug("Tools not approved, waiting for resume", "tool", toolCall.Function.Name, "session_id", sess.ID)
-				events <- ToolCallConfirmation(toolCall, a.Name())
+				events <- ToolCallConfirmation(toolCall, tools.Tool{
+					Function: &tools.FunctionDefinition{
+						Annotations: tools.ToolAnnotation{
+							// TODO: We need to handle the transfer task tool better
+							Title: "Transfer Task",
+						},
+					},
+				}, a.Name())
 
 				select {
 				case cType := <-r.resumeChan:
@@ -599,7 +607,7 @@ func (r *runtime) processToolCalls(ctx context.Context, sess *session.Session, c
 						r.addToolCancelledResponse(sess, calls[j], events)
 					}
 					callSpan.SetStatus(codes.Ok, "tool call canceled by user")
-					return nil
+					return
 				}
 			}
 		}
@@ -619,7 +627,7 @@ func (r *runtime) processToolCalls(ctx context.Context, sess *session.Session, c
 				r.runTool(callCtx, tool, toolCall, events, sess, a)
 			} else {
 				slog.Debug("Tools not approved, waiting for resume", "tool", toolCall.Function.Name, "session_id", sess.ID)
-				events <- ToolCallConfirmation(toolCall, a.Name())
+				events <- ToolCallConfirmation(toolCall, tool, a.Name())
 				select {
 				case cType := <-r.resumeChan:
 					switch cType {
@@ -645,7 +653,7 @@ func (r *runtime) processToolCalls(ctx context.Context, sess *session.Session, c
 						r.addToolCancelledResponse(sess, calls[j], events)
 					}
 					callSpan.SetStatus(codes.Ok, "tool call canceled by user")
-					return nil
+					return
 				}
 			}
 		}
@@ -653,8 +661,6 @@ func (r *runtime) processToolCalls(ctx context.Context, sess *session.Session, c
 		callSpan.SetStatus(codes.Ok, "tool call processed")
 		callSpan.End()
 	}
-
-	return nil
 }
 
 func (r *runtime) runTool(ctx context.Context, tool tools.Tool, toolCall tools.ToolCall, events chan Event, sess *session.Session, a *agent.Agent) {
@@ -667,15 +673,12 @@ func (r *runtime) runTool(ctx context.Context, tool tools.Tool, toolCall tools.T
 	))
 	defer span.End()
 
-	events <- ToolCall(toolCall, a.Name())
+	events <- ToolCall(toolCall, tool, a.Name())
 	start := time.Now()
 	res, err := tool.Handler(ctx, toolCall)
 	duration := time.Since(start)
 
-	// Record telemetry for tool call
-	if telemetryClient := telemetry.FromContext(ctx); telemetryClient != nil {
-		telemetryClient.RecordToolCall(ctx, toolCall.Function.Name, sess.ID, a.Name(), duration, err)
-	}
+	telemetry.RecordToolCall(ctx, toolCall.Function.Name, sess.ID, a.Name(), duration, err)
 
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
@@ -697,9 +700,16 @@ func (r *runtime) runTool(ctx context.Context, tool tools.Tool, toolCall tools.T
 	}
 
 	events <- ToolCallResponse(toolCall, res.Output, a.Name())
+
+	// Ensure tool response content is not empty for API compatibility
+	content := res.Output
+	if strings.TrimSpace(content) == "" {
+		content = "(no output)"
+	}
+
 	toolResponseMsg := chat.Message{
 		Role:       chat.MessageRoleTool,
-		Content:    res.Output,
+		Content:    content,
 		ToolCallID: toolCall.ID,
 		CreatedAt:  time.Now().Format(time.RFC3339),
 	}
@@ -716,15 +726,19 @@ func (r *runtime) runAgentTool(ctx context.Context, handler ToolHandler, sess *s
 	))
 	defer span.End()
 
-	events <- ToolCall(toolCall, a.Name())
+	events <- ToolCall(toolCall, tools.Tool{
+		Function: &tools.FunctionDefinition{
+			Annotations: tools.ToolAnnotation{
+				// TODO: We need to handle the transfer task tool better
+				Title: "Transfer Task",
+			},
+		},
+	}, a.Name())
 	start := time.Now()
 	res, err := handler(ctx, sess, toolCall, events)
 	duration := time.Since(start)
 
-	// Record telemetry for runtime tool call
-	if telemetryClient := telemetry.FromContext(ctx); telemetryClient != nil {
-		telemetryClient.RecordToolCall(ctx, toolCall.Function.Name, sess.ID, a.Name(), duration, err)
-	}
+	telemetry.RecordToolCall(ctx, toolCall.Function.Name, sess.ID, a.Name(), duration, err)
 
 	var output string
 	if err != nil {
@@ -746,9 +760,16 @@ func (r *runtime) runAgentTool(ctx context.Context, handler ToolHandler, sess *s
 	}
 
 	events <- ToolCallResponse(toolCall, output, a.Name())
+
+	// Ensure tool response content is not empty for API compatibility
+	content := output
+	if strings.TrimSpace(content) == "" {
+		content = "(no output)"
+	}
+
 	toolResponseMsg := chat.Message{
 		Role:       chat.MessageRoleTool,
-		Content:    output,
+		Content:    content,
 		ToolCallID: toolCall.ID,
 		CreatedAt:  time.Now().Format(time.RFC3339),
 	}
@@ -919,16 +940,16 @@ func (r *runtime) generateSessionTitle(ctx context.Context, sess *session.Sessio
 	}
 	sess.Title = title
 	slog.Debug("Generated session title", "session_id", sess.ID, "title", title)
-	events <- SessionTitle(sess.ID, title)
+	events <- SessionTitle(sess.ID, title, r.currentAgent)
 }
 
 // Summarize generates a summary for the session based on the conversation history
 func (r *runtime) Summarize(ctx context.Context, sess *session.Session, events chan Event) {
 	slog.Debug("Generating summary for session", "session_id", sess.ID)
 
-	events <- SessionCompaction(sess.ID, "started")
+	events <- SessionCompaction(sess.ID, "started", r.currentAgent)
 	defer func() {
-		events <- SessionCompaction(sess.ID, "completed")
+		events <- SessionCompaction(sess.ID, "completed", r.currentAgent)
 	}()
 
 	// Create conversation history for summarization
@@ -980,5 +1001,5 @@ func (r *runtime) Summarize(ctx context.Context, sess *session.Session, events c
 	// Add the summary to the session as a summary item
 	sess.Messages = append(sess.Messages, session.Item{Summary: summary})
 	slog.Debug("Generated session summary", "session_id", sess.ID, "summary_length", len(summary))
-	events <- SessionSummary(sess.ID, summary)
+	events <- SessionSummary(sess.ID, summary, r.currentAgent)
 }

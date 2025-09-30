@@ -110,6 +110,7 @@ type AgentConfig struct {
 	SubAgents          []string  `json:"sub_agents,omitempty" yaml:"sub_agents,omitempty"`
 	AddDate            bool      `json:"add_date,omitempty" yaml:"add_date,omitempty"`
 	AddEnvironmentInfo bool      `json:"add_environment_info,omitempty" yaml:"add_environment_info,omitempty"`
+	NumHistoryItems    int       `json:"num_history_items,omitempty" yaml:"num_history_items,omitempty"`
 }
 
 // ModelConfig represents the configuration for a model
@@ -131,6 +132,7 @@ type ModelConfig struct {
 
 // Config represents the entire configuration file
 type Config struct {
+	Version  string                 `json:"version,omitempty" yaml:"version,omitempty"`
 	Agents   map[string]AgentConfig `json:"agents,omitempty" yaml:"agents,omitempty"`
 	Models   map[string]ModelConfig `json:"models,omitempty" yaml:"models,omitempty"`
 	Env      map[string]string      `json:"env,omitempty" yaml:"env,omitempty"`

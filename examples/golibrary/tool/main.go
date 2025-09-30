@@ -54,7 +54,7 @@ func main() {
 		Function: &tools.FunctionDefinition{
 			Name:        "add",
 			Description: "Add two numbers",
-			Parameters: tools.FunctionParamaters{
+			Parameters: tools.FunctionParameters{
 				Type: "object",
 				Properties: map[string]any{
 					"a": map[string]any{

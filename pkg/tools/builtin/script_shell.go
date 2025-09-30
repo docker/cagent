@@ -82,7 +82,7 @@ func (t *ScriptShellTool) Tools(context.Context) ([]tools.Tool, error) {
 			Function: &tools.FunctionDefinition{
 				Name:        toolName,
 				Description: description,
-				Parameters: tools.FunctionParamaters{
+				Parameters: tools.FunctionParameters{
 					Type:       "object",
 					Properties: cfg.Args,
 					Required:   cfg.Required,

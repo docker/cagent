@@ -2,20 +2,22 @@ package chat
 
 import (
 	"context"
+	"strings"
 
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/v2/help"
 	"github.com/charmbracelet/bubbles/v2/key"
 	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss/v2"
+
 	"github.com/docker/cagent/pkg/app"
+	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/tui/components/editor"
 	"github.com/docker/cagent/pkg/tui/components/messages"
 	"github.com/docker/cagent/pkg/tui/components/sidebar"
 	"github.com/docker/cagent/pkg/tui/core"
 	"github.com/docker/cagent/pkg/tui/core/layout"
 	"github.com/docker/cagent/pkg/tui/dialog"
-
-	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/tui/styles"
 	"github.com/docker/cagent/pkg/tui/types"
 )
@@ -164,15 +166,11 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Route other keys to focused component
 		switch p.focusedPanel {
 		case PanelChat:
-			var cmd tea.Cmd
-			var model tea.Model
-			model, cmd = p.messages.Update(msg)
+			model, cmd := p.messages.Update(msg)
 			p.messages = model.(messages.Model)
 			return p, cmd
 		case PanelEditor:
-			var cmd tea.Cmd
-			var model tea.Model
-			model, cmd = p.editor.Update(msg)
+			model, cmd := p.editor.Update(msg)
 			p.editor = model.(editor.Editor)
 			return p, cmd
 		}
@@ -181,9 +179,7 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseWheelMsg:
 		// Always forward mouse wheel events to the chat component for scrolling
-		var cmd tea.Cmd
-		var model tea.Model
-		model, cmd = p.messages.Update(msg)
+		model, cmd := p.messages.Update(msg)
 		p.messages = model.(messages.Model)
 		return p, cmd
 
@@ -213,7 +209,6 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return p, tea.Batch(cmd, p.messages.ScrollToBottom())
 	case *runtime.SessionTitleEvent:
 		p.sessionTitle = msg.Title
-		p.sidebar.SetTitle(msg.Title)
 	case *runtime.TokenUsageEvent:
 		p.sidebar.SetTokenUsage(msg.Usage)
 	case *runtime.StreamStoppedEvent:
@@ -226,11 +221,11 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case *runtime.PartialToolCallEvent:
 		// When we first receive a tool call, show it immediately in pending state
 		spinnerCmd := p.setWorking(true)
-		cmd := p.messages.AddOrUpdateToolCall(msg.AgentName, msg.ToolCall, types.ToolStatusPending)
+		cmd := p.messages.AddOrUpdateToolCall(msg.AgentName, msg.ToolCall, msg.ToolDefinition, types.ToolStatusPending)
 		return p, tea.Batch(cmd, p.messages.ScrollToBottom(), spinnerCmd)
 	case *runtime.ToolCallConfirmationEvent:
 		spinnerCmd := p.setWorking(false) // Stop working indicator during confirmation
-		cmd := p.messages.AddOrUpdateToolCall(msg.AgentName, msg.ToolCall, types.ToolStatusConfirmation)
+		cmd := p.messages.AddOrUpdateToolCall(msg.AgentName, msg.ToolCall, msg.ToolDefinition, types.ToolStatusConfirmation)
 
 		// Open tool confirmation dialog
 		dialogCmd := core.CmdHandler(dialog.OpenDialogMsg{
@@ -240,13 +235,13 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return p, tea.Batch(cmd, p.messages.ScrollToBottom(), spinnerCmd, dialogCmd)
 	case *runtime.ToolCallEvent:
 		spinnerCmd := p.setWorking(true)
-		cmd := p.messages.AddOrUpdateToolCall(msg.AgentName, msg.ToolCall, types.ToolStatusRunning)
+		cmd := p.messages.AddOrUpdateToolCall(msg.AgentName, msg.ToolCall, msg.ToolDefinition, types.ToolStatusRunning)
 
 		// Check if this is a todo-related tool call and update sidebar
 		toolName := msg.ToolCall.Function.Name
 		if toolName == "create_todo" || toolName == "create_todos" ||
 			toolName == "update_todo" || toolName == "list_todos" {
-			if err := p.sidebar.SetTodoArguments(toolName, msg.ToolCall.Function.Arguments); err != nil {
+			if err := p.sidebar.SetTodos(msg.ToolCall); err != nil {
 				// Log error but don't fail the tool call
 				// Could add logging here if needed
 			}
@@ -266,6 +261,17 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		})
 
 		return p, tea.Batch(spinnerCmd, dialogCmd)
+	case *runtime.AuthorizationRequiredEvent:
+		spinnerCmd := p.setWorking(false) // Stop working indicator during confirmation
+
+		if msg.Confirmation == "pending" {
+			// Open OAuth authorization confirmation dialog
+			dialogCmd := core.CmdHandler(dialog.OpenDialogMsg{
+				Model: dialog.NewOAuthAuthorizationDialog(msg.ServerURL, msg.ServerType, p.app),
+			})
+
+			return p, tea.Batch(spinnerCmd, dialogCmd)
+		}
 	}
 
 	sidebarModel, sidebarCmd := p.sidebar.Update(msg)
@@ -414,6 +420,10 @@ func (p *chatPage) switchFocus() {
 
 // processMessage processes a message with the runtime
 func (p *chatPage) processMessage(content string) tea.Cmd {
+	if handled, cmd := p.handleSlashCommand(content); handled {
+		return cmd
+	}
+
 	if p.msgCancel != nil {
 		p.msgCancel()
 	}
@@ -426,4 +436,25 @@ func (p *chatPage) processMessage(content string) tea.Cmd {
 	return tea.Batch(
 		p.messages.ScrollToBottom(),
 	)
+}
+
+func (p *chatPage) handleSlashCommand(content string) (bool, tea.Cmd) {
+	trimmed := strings.TrimSpace(content)
+	if trimmed != "/clipboard" {
+		return false, nil
+	}
+
+	transcript := p.messages.PlainTextTranscript()
+	if transcript == "" {
+		cmd := p.messages.AddSystemMessage("Conversation is empty; nothing copied.")
+		return true, tea.Batch(cmd, p.messages.ScrollToBottom())
+	}
+
+	if err := clipboard.WriteAll(transcript); err != nil {
+		cmd := p.messages.AddSystemMessage("Failed to copy conversation: " + err.Error())
+		return true, tea.Batch(cmd, p.messages.ScrollToBottom())
+	}
+
+	cmd := p.messages.AddSystemMessage("Conversation copied to clipboard.")
+	return true, tea.Batch(cmd, p.messages.ScrollToBottom())
 }

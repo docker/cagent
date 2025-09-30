@@ -84,3 +84,10 @@ func (a *App) Resume(confirmationType string) {
 		a.runtime.Resume(context.Background(), confirmationType)
 	}
 }
+
+// ResumeStartOAuth resumes the runtime with OAuth authorization confirmation
+func (a *App) ResumeStartOAuth(confirmation bool) {
+	if a.runtime != nil {
+		a.runtime.ResumeStartAuthorizationFlow(context.Background(), confirmation)
+	}
+}

@@ -134,7 +134,7 @@ func (r *RemoteRuntime) Summarize(ctx context.Context, sess *session.Session, ev
 	// TODO: Implement summarization by either:
 	// 1. Adding a summarization endpoint to the remote API
 	// 2. Running a summarization agent through the remote client
-	events <- SessionSummary(sess.ID, "Summary generation not yet implemented for remote runtime")
+	events <- SessionSummary(sess.ID, "Summary generation not yet implemented for remote runtime", r.currentAgent)
 }
 
 // convertSessionMessages converts session messages to remote API message format

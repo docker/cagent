@@ -139,7 +139,7 @@ func (c *Client) ListTools(ctx context.Context, toolFilter []string) ([]tools.To
 			Function: &tools.FunctionDefinition{
 				Name:        t.Name,
 				Description: t.Description,
-				Parameters: tools.FunctionParamaters{
+				Parameters: tools.FunctionParameters{
 					Type:       t.InputSchema.Type,
 					Properties: t.InputSchema.Properties,
 					Required:   t.InputSchema.Required,
@@ -150,6 +150,11 @@ func (c *Client) ListTools(ctx context.Context, toolFilter []string) ([]tools.To
 					DestructiveHint: t.Annotations.DestructiveHint,
 					IdempotentHint:  t.Annotations.IdempotentHint,
 					OpenWorldHint:   t.Annotations.OpenWorldHint,
+				},
+				OutputSchema: tools.ToolOutputSchema{
+					Type:       t.OutputSchema.Type,
+					Properties: t.OutputSchema.Properties,
+					Required:   t.OutputSchema.Required,
 				},
 			},
 		}

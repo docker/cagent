@@ -3,6 +3,7 @@ package dialog
 import (
 	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss/v2"
+
 	"github.com/docker/cagent/pkg/tui/core/layout"
 )
 

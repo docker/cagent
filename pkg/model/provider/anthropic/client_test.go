@@ -5,6 +5,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/docker/cagent/pkg/chat"
 	"github.com/docker/cagent/pkg/tools"
 )
@@ -16,9 +19,7 @@ func TestConvertMessages_SkipEmptySystemText(t *testing.T) {
 	}}
 
 	out := convertMessages(msgs)
-	if len(out) != 0 {
-		t.Fatalf("expected 0 messages, got %d", len(out))
-	}
+	assert.Empty(t, out)
 }
 
 func TestConvertMessages_SkipEmptyUserText_NoMultiContent(t *testing.T) {
@@ -28,9 +29,7 @@ func TestConvertMessages_SkipEmptyUserText_NoMultiContent(t *testing.T) {
 	}}
 
 	out := convertMessages(msgs)
-	if len(out) != 0 {
-		t.Fatalf("expected 0 messages, got %d", len(out))
-	}
+	assert.Empty(t, out)
 }
 
 func TestConvertMessages_UserMultiContent_SkipEmptyText_KeepImage(t *testing.T) {
@@ -43,34 +42,23 @@ func TestConvertMessages_UserMultiContent_SkipEmptyText_KeepImage(t *testing.T) 
 	}}
 
 	out := convertMessages(msgs)
-	if len(out) != 1 {
-		t.Fatalf("expected 1 message, got %d", len(out))
-	}
+	require.Len(t, out, 1)
 
 	b, err := json.Marshal(out[0])
-	if err != nil {
-		t.Fatalf("marshal error: %v", err)
-	}
+	require.NoError(t, err)
 	// Basic JSON structure checks
 	var m map[string]any
-	if err := json.Unmarshal(b, &m); err != nil {
-		t.Fatalf("unmarshal error: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(b, &m))
 	// role should be user
-	if role, _ := m["role"].(string); role != "user" {
-		t.Fatalf("expected role 'user', got %v", m["role"])
-	}
+	assert.Equal(t, "user", m["role"])
 	// content should contain exactly one block (the image)
-	if content, _ := m["content"].([]any); len(content) != 1 {
-		t.Fatalf("expected 1 content block, got %d", len(content))
-	}
+	content, ok := m["content"].([]any)
+	require.True(t, ok)
+	assert.Len(t, content, 1)
 	// and it should be an image block
-	if content, _ := m["content"].([]any); len(content) == 1 {
-		cb, _ := content[0].(map[string]any)
-		if typ, _ := cb["type"].(string); typ != "image" {
-			t.Fatalf("expected content block type 'image', got %v", typ)
-		}
-	}
+	cb, ok := content[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "image", cb["type"])
 }
 
 func TestConvertMessages_SkipEmptyAssistantText_NoToolCalls(t *testing.T) {
@@ -80,9 +68,7 @@ func TestConvertMessages_SkipEmptyAssistantText_NoToolCalls(t *testing.T) {
 	}}
 
 	out := convertMessages(msgs)
-	if len(out) != 0 {
-		t.Fatalf("expected 0 messages, got %d", len(out))
-	}
+	assert.Empty(t, out)
 }
 
 func TestConvertMessages_AssistantToolCalls_NoText_IncludesToolUse(t *testing.T) {
@@ -95,29 +81,19 @@ func TestConvertMessages_AssistantToolCalls_NoText_IncludesToolUse(t *testing.T)
 	}}
 
 	out := convertMessages(msgs)
-	if len(out) != 1 {
-		t.Fatalf("expected 1 message, got %d", len(out))
-	}
+	require.Len(t, out, 1)
 
 	b, err := json.Marshal(out[0])
-	if err != nil {
-		t.Fatalf("marshal error: %v", err)
-	}
+	require.NoError(t, err)
 	var m map[string]any
-	if err := json.Unmarshal(b, &m); err != nil {
-		t.Fatalf("unmarshal error: %v", err)
-	}
-	if role, _ := m["role"].(string); role != "assistant" {
-		t.Fatalf("expected role 'assistant', got %v", m["role"])
-	}
-	content, _ := m["content"].([]any)
-	if len(content) != 1 {
-		t.Fatalf("expected 1 content block, got %d", len(content))
-	}
-	cb, _ := content[0].(map[string]any)
-	if typ, _ := cb["type"].(string); typ != "tool_use" {
-		t.Fatalf("expected content block type 'tool_use', got %v", typ)
-	}
+	require.NoError(t, json.Unmarshal(b, &m))
+	assert.Equal(t, "assistant", m["role"])
+	content, ok := m["content"].([]any)
+	require.True(t, ok)
+	assert.Len(t, content, 1)
+	cb, ok := content[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "tool_use", cb["type"])
 }
 
 func TestSystemMessages_AreExtractedAndNotInMessageList(t *testing.T) {
@@ -128,18 +104,12 @@ func TestSystemMessages_AreExtractedAndNotInMessageList(t *testing.T) {
 
 	// System blocks should be extracted
 	sys := extractSystemBlocks(msgs)
-	if len(sys) != 1 {
-		t.Fatalf("expected 1 system block, got %d", len(sys))
-	}
-	if strings.TrimSpace(sys[0].Text) != "system rules here" {
-		t.Fatalf("unexpected system text: %q", sys[0].Text)
-	}
+	require.Len(t, sys, 1)
+	assert.Equal(t, "system rules here", strings.TrimSpace(sys[0].Text))
 
 	// System role messages must not appear in the anthropic messages list
 	out := convertMessages(msgs)
-	if len(out) != 1 {
-		t.Fatalf("expected 1 non-system message, got %d", len(out))
-	}
+	assert.Len(t, out, 1)
 }
 
 func TestSystemMessages_MultipleExtractedAndExcludedFromMessageList(t *testing.T) {
@@ -150,20 +120,12 @@ func TestSystemMessages_MultipleExtractedAndExcludedFromMessageList(t *testing.T
 	}
 
 	sys := extractSystemBlocks(msgs)
-	if len(sys) != 2 {
-		t.Fatalf("expected 2 system blocks, got %d", len(sys))
-	}
-	if strings.TrimSpace(sys[0].Text) != "sys A" {
-		t.Fatalf("unexpected first system text: %q", sys[0].Text)
-	}
-	if strings.TrimSpace(sys[1].Text) != "sys B" {
-		t.Fatalf("unexpected second system text: %q", sys[1].Text)
-	}
+	require.Len(t, sys, 2)
+	assert.Equal(t, "sys A", strings.TrimSpace(sys[0].Text))
+	assert.Equal(t, "sys B", strings.TrimSpace(sys[1].Text))
 
 	out := convertMessages(msgs)
-	if len(out) != 1 {
-		t.Fatalf("expected 1 non-system message, got %d", len(out))
-	}
+	assert.Len(t, out, 1)
 }
 
 func TestSystemMessages_InterspersedExtractedAndExcluded(t *testing.T) {
@@ -177,33 +139,20 @@ func TestSystemMessages_InterspersedExtractedAndExcluded(t *testing.T) {
 
 	// All system messages should be extracted in order of appearance
 	sys := extractSystemBlocks(msgs)
-	if len(sys) != 2 {
-		t.Fatalf("expected 2 system blocks, got %d", len(sys))
-	}
-	if strings.TrimSpace(sys[0].Text) != "S1" {
-		t.Fatalf("unexpected first system text: %q", sys[0].Text)
-	}
-	if strings.TrimSpace(sys[1].Text) != "S2" {
-		t.Fatalf("unexpected second system text: %q", sys[1].Text)
-	}
+	require.Len(t, sys, 2)
+	assert.Equal(t, "S1", strings.TrimSpace(sys[0].Text))
+	assert.Equal(t, "S2", strings.TrimSpace(sys[1].Text))
 
 	// Converted messages must exclude system roles and preserve order of others
 	out := convertMessages(msgs)
-	if len(out) != 3 {
-		t.Fatalf("expected 3 non-system messages, got %d", len(out))
-	}
+	require.Len(t, out, 3)
 	// Check roles: user, assistant, user
-	for i, expected := range []string{"user", "assistant", "user"} {
+	expectedRoles := []string{"user", "assistant", "user"}
+	for i, expected := range expectedRoles {
 		b, err := json.Marshal(out[i])
-		if err != nil {
-			t.Fatalf("marshal error: %v", err)
-		}
+		require.NoError(t, err)
 		var m map[string]any
-		if err := json.Unmarshal(b, &m); err != nil {
-			t.Fatalf("unmarshal error: %v", err)
-		}
-		if role, _ := m["role"].(string); role != expected {
-			t.Fatalf("unexpected role at %d: got %q want %q", i, role, expected)
-		}
+		require.NoError(t, json.Unmarshal(b, &m))
+		assert.Equal(t, expected, m["role"])
 	}
 }

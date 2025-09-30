@@ -10,8 +10,9 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/docker/cagent/pkg/telemetry"
 	"github.com/spf13/cobra"
+
+	"github.com/docker/cagent/pkg/telemetry"
 )
 
 // NewCatalogCmd creates the catalog command with its subcommands

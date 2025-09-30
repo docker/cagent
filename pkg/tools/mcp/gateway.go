@@ -9,13 +9,12 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/goccy/go-yaml"
+
 	"github.com/docker/cagent/pkg/environment"
 	"github.com/docker/cagent/pkg/gateway"
 	"github.com/docker/cagent/pkg/tools"
-	"gopkg.in/yaml.v3"
 )
-
-const ENV_DOCKER_MCP_URL_PREFIX = "DOCKER_MCP_URL_"
 
 type GatewayToolset struct {
 	mcpServerName string

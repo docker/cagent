@@ -7,11 +7,6 @@ func NewDefaultProvider(ctx context.Context) Provider {
 
 	providers = append(providers, NewOsEnvProvider(), NewRunSecretsProvider())
 
-	// Append 1Password provider at the end if available
-	if onePasswordProvider, err := NewOnePasswordProvider(ctx); err == nil {
-		providers = append(providers, onePasswordProvider)
-	}
-
 	// Append pass provider at the end if available
 	if passProvider, err := NewPassProvider(); err == nil {
 		providers = append(providers, passProvider)

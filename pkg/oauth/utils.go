@@ -1,12 +1,16 @@
 package oauth
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"net/url"
 	"os/exec"
 	"runtime"
+	"strings"
 )
 
 // StateData represents the data encoded in the OAuth state parameter.
@@ -91,24 +95,134 @@ func DecodeSessionIDFromState(state string) (string, error) {
 	return stateData.SessionID, nil
 }
 
-// OpenBrowser opens the default browser to the specified URL
-func OpenBrowser(url string) error {
+// ValidateAndSanitizeURL validates and sanitizes a URL for safe browser opening.
+//
+// This function implements security measures to prevent command injection and malicious URL schemes
+// based on security best practices outlined in the Veria Labs article on MCP to shell vulnerabilities.
+//
+// Security validations:
+// - Only allows http:// and https:// schemes (blocks javascript:, data:, file:, etc.)
+// - Validates URL format using Go's net/url package
+// - Prevents command injection by ensuring URL can be safely passed to system commands
+//
+// Returns the original URL if valid, or an error if the URL fails security validation.
+func ValidateAndSanitizeURL(rawURL string) (string, error) {
+	if rawURL == "" {
+		return "", fmt.Errorf("URL cannot be empty")
+	}
+
+	// Parse the URL to validate its format
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		slog.Warn("Invalid URL format blocked", "url", rawURL, "error", err)
+		return "", fmt.Errorf("invalid URL format: %w", err)
+	}
+
+	// Validate scheme - only allow http and https
+	scheme := strings.ToLower(parsedURL.Scheme)
+	allowedSchemes := map[string]bool{
+		"http":  true,
+		"https": true,
+	}
+
+	if !allowedSchemes[scheme] {
+		slog.Warn("Dangerous URL scheme blocked", "url", rawURL, "scheme", scheme)
+		return "", fmt.Errorf("URL scheme '%s' is not allowed. Only http:// and https:// are permitted", scheme)
+	}
+
+	// Ensure we have a valid host
+	if parsedURL.Host == "" {
+		slog.Warn("URL with empty host blocked", "url", rawURL)
+		return "", fmt.Errorf("URL must have a valid host")
+	}
+
+	// Additional safety checks for potential command injection
+	// We need to be careful here - some characters like & are legitimate in URLs (query parameters)
+	// but dangerous in shell contexts. We'll check for dangerous patterns rather than individual chars.
+
+	// Check for backticks (command substitution)
+	if strings.Contains(rawURL, "`") {
+		slog.Warn("URL with backticks blocked", "url", rawURL)
+		return "", fmt.Errorf("URL contains potentially dangerous character: `")
+	}
+
+	// Check for shell command substitution patterns
+	if strings.Contains(rawURL, "$(") {
+		slog.Warn("URL with command substitution pattern blocked", "url", rawURL)
+		return "", fmt.Errorf("URL contains potentially dangerous character: $")
+	}
+
+	// Check for command chaining outside of query parameters
+	// Allow & in query strings but block it in host/path contexts where it might be dangerous
+	urlParts := strings.SplitN(rawURL, "?", 2) // Split on first ? to separate base URL from query
+	baseURL := urlParts[0]
+
+	dangerousInBase := []string{";", "|", "<", ">"}
+	for _, char := range dangerousInBase {
+		if strings.Contains(baseURL, char) {
+			slog.Warn("URL with dangerous character in base URL blocked", "url", rawURL, "char", char)
+			return "", fmt.Errorf("URL contains potentially dangerous character: %s", char)
+		}
+	}
+
+	// Check for other dangerous patterns
+	dangerousPatterns := []string{
+		" && ", " || ", // Command chaining with spaces
+		" ; ", // Command separation with spaces
+	}
+
+	for _, pattern := range dangerousPatterns {
+		if strings.Contains(rawURL, pattern) {
+			slog.Warn("URL with dangerous pattern blocked", "url", rawURL, "pattern", pattern)
+			return "", fmt.Errorf("URL contains potentially dangerous pattern: %s", strings.TrimSpace(pattern))
+		}
+	}
+
+	slog.Debug("URL validated successfully", "url", rawURL)
+	return rawURL, nil
+}
+
+// OpenBrowser opens the default browser to the specified URL with security validation.
+//
+// This function now includes security measures to prevent command injection and malicious URL schemes.
+// All URLs are validated before being passed to system commands to ensure they are safe to open.
+//
+// Security features:
+// - URL validation and sanitization using ValidateAndSanitizeURL
+// - Logging of security events (blocked URLs, successful opens)
+// - Maintains backward compatibility for legitimate OAuth URLs
+func OpenBrowser(ctx context.Context, urlToOpen string) error {
+	// Validate and sanitize the URL before opening
+	validatedURL, err := ValidateAndSanitizeURL(urlToOpen)
+	if err != nil {
+		slog.Error("Blocked attempt to open unsafe URL", "url", urlToOpen, "error", err)
+		return fmt.Errorf("URL validation failed: %w", err)
+	}
+
 	var cmd string
 	var args []string
 
 	switch runtime.GOOS {
 	case "windows":
 		cmd = "rundll32"
-		args = []string{"url.dll,FileProtocolHandler", url}
+		args = []string{"url.dll,FileProtocolHandler", validatedURL}
 	case "darwin":
 		cmd = "open"
-		args = []string{url}
+		args = []string{validatedURL}
 	case "linux":
 		cmd = "xdg-open"
-		args = []string{url}
+		args = []string{validatedURL}
 	default:
 		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
 	}
 
-	return exec.Command(cmd, args...).Start()
+	slog.Info("Opening browser with validated URL", "url", validatedURL, "platform", runtime.GOOS)
+
+	err = exec.CommandContext(ctx, cmd, args...).Start()
+	if err != nil {
+		slog.Error("Failed to execute browser command", "cmd", cmd, "args", args, "error", err)
+		return fmt.Errorf("failed to open browser: %w", err)
+	}
+
+	return nil
 }

@@ -78,3 +78,9 @@ func WithMaxIterations(maxIterations int) Opt {
 		a.maxIterations = maxIterations
 	}
 }
+
+func WithNumHistoryItems(numHistoryItems int) Opt {
+	return func(a *Agent) {
+		a.numHistoryItems = numHistoryItems
+	}
+}

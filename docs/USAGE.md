@@ -65,14 +65,6 @@ During CLI sessions, you can use special commands:
 | `/eval`    | Save current conversation for evaluation    |
 | `/compact` | Compact conversation to lower context usage |
 
-#### MCP Server Mode
-
-- **External client integration**: Works with Claude Code, Cursor, and other MCP clients
-- **Session isolation**: Each MCP client gets isolated sessions
-- **Tool exposure**: Agents accessible as MCP tools for external use
-- **Real-time streaming**: SSE-based streaming responses
-- **Multi-client support**: Handle multiple concurrent MCP clients
-
 ## 🔧 Configuration Reference
 
 ### Agent Properties

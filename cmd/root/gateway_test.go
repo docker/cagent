@@ -3,10 +3,11 @@ package root
 import (
 	"testing"
 
-	"github.com/docker/cagent/pkg/config"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/docker/cagent/pkg/config"
 )
 
 func TestGatewayLogic(t *testing.T) {

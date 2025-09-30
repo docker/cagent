@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss/v2"
+
+	"github.com/docker/cagent/pkg/tools"
 	"github.com/docker/cagent/pkg/tui/styles"
 )
 
@@ -25,7 +27,6 @@ type Component struct {
 // NewComponent creates a new todo component
 func NewComponent() *Component {
 	return &Component{
-		todos: make([]Todo, 0),
 		width: 20,
 	}
 }
@@ -35,8 +36,10 @@ func (c *Component) SetSize(width int) {
 	c.width = width
 }
 
-// ParseTodoArguments extracts todos from tool call arguments
-func (c *Component) ParseTodoArguments(toolName, arguments string) error {
+// SetTodos sets the todo builtin call, handles create_todo, create_todos, update_todo
+func (c *Component) SetTodos(toolCall tools.ToolCall) error {
+	toolName := toolCall.Function.Name
+	arguments := toolCall.Function.Arguments
 	switch toolName {
 	case "create_todo":
 		var params struct {
@@ -89,62 +92,6 @@ func (c *Component) ParseTodoArguments(toolName, arguments string) error {
 				c.todos[i].Status = params.Status
 				break
 			}
-		}
-	}
-
-	return nil
-}
-
-// ParseTodoWriteArguments handles the todo_write tool arguments format
-func (c *Component) ParseTodoWriteArguments(arguments string) error {
-	var params struct {
-		Merge bool `json:"merge"`
-		Todos []struct {
-			ID      string `json:"id"`
-			Content string `json:"content"`
-			Status  string `json:"status"`
-		} `json:"todos"`
-	}
-
-	if err := json.Unmarshal([]byte(arguments), &params); err != nil {
-		return err
-	}
-
-	if params.Merge {
-		// Update existing todos
-		for _, newTodo := range params.Todos {
-			found := false
-			for i, existingTodo := range c.todos {
-				if existingTodo.ID == newTodo.ID {
-					// Update existing todo
-					if newTodo.Content != "" {
-						c.todos[i].Description = newTodo.Content
-					}
-					if newTodo.Status != "" {
-						c.todos[i].Status = newTodo.Status
-					}
-					found = true
-					break
-				}
-			}
-			if !found && newTodo.ID != "" {
-				// Add new todo if not found
-				c.todos = append(c.todos, Todo{
-					ID:          newTodo.ID,
-					Description: newTodo.Content,
-					Status:      newTodo.Status,
-				})
-			}
-		}
-	} else {
-		// Replace all todos
-		c.todos = make([]Todo, 0, len(params.Todos))
-		for _, newTodo := range params.Todos {
-			c.todos = append(c.todos, Todo{
-				ID:          newTodo.ID,
-				Description: newTodo.Content,
-				Status:      newTodo.Status,
-			})
 		}
 	}
 

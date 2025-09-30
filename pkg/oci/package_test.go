@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/docker/cagent/pkg/content"
 )
 
@@ -14,23 +17,15 @@ func TestPackageFileAsOCIToStore(t *testing.T) {
 version: v1.0.0
 description: "Test application"
 `
-	if err := os.WriteFile(testFile, []byte(testContent), 0o644); err != nil {
-		t.Fatalf("Failed to write test file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(testFile, []byte(testContent), 0o644))
 	store, err := content.NewStore(content.WithBaseDir(t.TempDir()))
-	if err != nil {
-		t.Fatalf("Failed to create content store: %v", err)
-	}
+	require.NoError(t, err)
 
 	tag := "test-app:v1.0.0"
 	digest, err := PackageFileAsOCIToStore(testFile, tag, store)
-	if err != nil {
-		t.Fatalf("Failed to package file as OCI: %v", err)
-	}
+	require.NoError(t, err)
 
-	if digest == "" {
-		t.Fatal("Digest is empty")
-	}
+	assert.NotEmpty(t, digest)
 
 	t.Cleanup(func() {
 		if err := store.DeleteArtifact(digest); err != nil {
@@ -39,53 +34,32 @@ description: "Test application"
 	})
 
 	img, err := store.GetArtifactImage(tag)
-	if err != nil {
-		t.Fatalf("Failed to retrieve artifact: %v", err)
-	}
+	require.NoError(t, err)
 
-	if img == nil {
-		t.Fatal("Retrieved image is nil")
-	}
+	assert.NotNil(t, img)
 
 	metadata, err := store.GetArtifactMetadata(tag)
-	if err != nil {
-		t.Fatalf("Failed to get metadata: %v", err)
-	}
+	require.NoError(t, err)
 
-	if metadata.Reference != tag {
-		t.Errorf("Expected reference %s, got %s", tag, metadata.Reference)
-	}
-
-	if metadata.Digest != digest {
-		t.Errorf("Expected digest %s, got %s", digest, metadata.Digest)
-	}
+	assert.Equal(t, tag, metadata.Reference)
+	assert.Equal(t, digest, metadata.Digest)
 }
 
 func TestPackageFileAsOCIToStoreMissingFile(t *testing.T) {
 	store, err := content.NewStore(content.WithBaseDir(t.TempDir()))
-	if err != nil {
-		t.Fatalf("Failed to create content store: %v", err)
-	}
+	require.NoError(t, err)
 	_, err = PackageFileAsOCIToStore("/non/existent/file.txt", "test:latest", store)
-	if err == nil {
-		t.Fatal("Expected error for missing file")
-	}
+	assert.Error(t, err)
 }
 
 func TestPackageFileAsOCIToStoreInvalidTag(t *testing.T) {
 	testFile := filepath.Join(t.TempDir(), "test.txt")
-	if err := os.WriteFile(testFile, []byte("test content"), 0o644); err != nil {
-		t.Fatalf("Failed to write test file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(testFile, []byte("test content"), 0o644))
 
 	store, err := content.NewStore(content.WithBaseDir(t.TempDir()))
-	if err != nil {
-		t.Fatalf("Failed to create content store: %v", err)
-	}
+	require.NoError(t, err)
 	_, err = PackageFileAsOCIToStore(testFile, "", store)
-	if err == nil {
-		t.Fatal("Expected error for empty tag")
-	}
+	assert.Error(t, err)
 }
 
 func TestPackageFileAsOCIToStoreDifferentFileTypes(t *testing.T) {
@@ -116,9 +90,7 @@ func TestPackageFileAsOCIToStoreDifferentFileTypes(t *testing.T) {
 	}
 
 	store, err := content.NewStore(content.WithBaseDir(t.TempDir()))
-	if err != nil {
-		t.Fatalf("Failed to create content store: %v", err)
-	}
+	require.NoError(t, err)
 
 	var digests []string
 
@@ -126,27 +98,18 @@ func TestPackageFileAsOCIToStoreDifferentFileTypes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Create test file
 			testFile := filepath.Join(t.TempDir(), tc.filename)
-			if err := os.WriteFile(testFile, []byte(tc.content), 0o644); err != nil {
-				t.Fatalf("Failed to write test file: %v", err)
-			}
+			require.NoError(t, os.WriteFile(testFile, []byte(tc.content), 0o644))
 
 			// Package the file as OCI artifact
 			digest, err := PackageFileAsOCIToStore(testFile, tc.tag, store)
-			if err != nil {
-				t.Fatalf("Failed to package file as OCI: %v", err)
-			}
+			require.NoError(t, err)
 
 			digests = append(digests, digest)
 
 			// Verify the artifact was stored
 			img, err := store.GetArtifactImage(tc.tag)
-			if err != nil {
-				t.Errorf("Failed to retrieve artifact %s: %v", tc.tag, err)
-			}
-
-			if img == nil {
-				t.Errorf("Retrieved image for %s is nil", tc.tag)
-			}
+			assert.NoError(t, err)
+			assert.NotNil(t, img)
 		})
 	}
 

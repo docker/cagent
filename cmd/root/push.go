@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/google/go-containerregistry/pkg/crane"
+	"github.com/spf13/cobra"
+
 	"github.com/docker/cagent/pkg/content"
 	"github.com/docker/cagent/pkg/oci"
 	"github.com/docker/cagent/pkg/remote"
 	"github.com/docker/cagent/pkg/telemetry"
-	"github.com/google/go-containerregistry/pkg/crane"
-	"github.com/spf13/cobra"
 )
 
 func NewPushCmd() *cobra.Command {

@@ -50,6 +50,8 @@ Get started quickly with the [Docker MCP Toolkit](https://docs.docker.com/ai/mcp
 Here, we're giving the same basic agent from the example above access to a **containerized** `duckduckgo` mcp server and it's tools by using Docker's MCP Gateway:
 
 ```yaml
+version: "2"
+
 agents:
   root:
     model: openai/gpt-5-mini
@@ -57,7 +59,7 @@ agents:
     instruction: |
       You are a knowledgeable assistant that helps users with various tasks.
       Be helpful, accurate, and concise in your responses.
-    toolset:
+    toolsets:
       - type: mcp
         ref: docker:duckduckgo # stdio transport
 ```
@@ -69,6 +71,8 @@ Aside from the containerized MCP severs the Docker MCP Gateway provides, any sta
 Here's an example similar to the above but adding `read_file` and `write_file` tools from the `rust-mcp-filesystem` MCP server:
 
 ```yaml
+version: "2"
+
 agents:
   root:
     model: openai/gpt-5-mini
@@ -76,7 +80,7 @@ agents:
     instruction: |
       You are a knowledgeable assistant that helps users with various tasks.
       Be helpful, accurate, and concise in your responses. Write your search results to disk.
-    toolset:
+    toolsets:
       - type: mcp
         ref: docker:duckduckgo
       - type: mcp
@@ -183,7 +187,7 @@ models:
 
 You'll find a curated list of agents examples, spread into 3 categories, [Basic](https://github.com/docker/cagent/tree/main/examples#basic-configurations), [Advanced](https://github.com/docker/cagent/tree/main/examples#advanced-configurations) and [multi-agents](https://github.com/docker/cagent/tree/main/examples#multi-agent-configurations) in the `/examples/` directory.
 
-### DMR provider options
+### DMR (Docker Model Runner) provider options
 
 When using the `dmr` provider, you can use the `provider_opts` key for DMR runtime-specific (e.g. llama.cpp) options:
 
@@ -197,7 +201,7 @@ models:
       runtime_flags: ["--ngl=33", "--repeat-penalty=1.2", ...] # or comma/space-separated string
 ```
 
-The default base_url `cagent` will use for dmr providers is `http://localhost:12434/engines/llama.cpp/v1`. DMR itself might need to be enabled via [Docker Desktop's settings](https://docs.docker.com/ai/model-runner/get-started/#enable-dmr-in-docker-desktop) on MacOS and Windows, and via command line on [Docker CE on Linux](https://docs.docker.com/ai/model-runner/get-started/#enable-dmr-in-docker-engine).
+The default base_url `cagent` will use for DMR providers is `http://localhost:12434/engines/llama.cpp/v1`. DMR itself might need to be enabled via [Docker Desktop's settings](https://docs.docker.com/ai/model-runner/get-started/#enable-dmr-in-docker-desktop) on MacOS and Windows, and via command line on [Docker CE on Linux](https://docs.docker.com/ai/model-runner/get-started/#enable-dmr-in-docker-engine).
 
 ## Quickly generate agents and agent teams with `cagent new`
 

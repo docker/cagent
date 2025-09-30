@@ -3,9 +3,10 @@ package remote
 import (
 	"fmt"
 
-	"github.com/docker/cagent/pkg/content"
 	"github.com/google/go-containerregistry/pkg/crane"
 	"github.com/google/go-containerregistry/pkg/name"
+
+	"github.com/docker/cagent/pkg/content"
 )
 
 // Push pushes an artifact from the content store to an OCI registry

@@ -1,0 +1,9 @@
+version: "2"
+
+agents:
+  root:
+    model: openai/gpt-4o
+    toolsets:
+      - type: mcp
+        post_edit:
+          - path: /path

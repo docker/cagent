@@ -4,8 +4,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/docker/cagent/pkg/agent"
 	"github.com/mark3labs/mcp-go/client"
+
+	"github.com/docker/cagent/pkg/agent"
 )
 
 // AuthorizationRequiredError wraps an OAuth authorization error with server information

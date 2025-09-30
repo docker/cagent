@@ -153,7 +153,7 @@ func (t *TodoTool) Tools(context.Context) ([]tools.Tool, error) {
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "Create TODO",
 				},
-				Parameters: tools.FunctionParamaters{
+				Parameters: tools.FunctionParameters{
 					Type: "object",
 					Properties: map[string]any{
 						"description": map[string]any{
@@ -175,7 +175,7 @@ func (t *TodoTool) Tools(context.Context) ([]tools.Tool, error) {
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "Create TODOs",
 				},
-				Parameters: tools.FunctionParamaters{
+				Parameters: tools.FunctionParameters{
 					Type: "object",
 					Properties: map[string]any{
 						"todos": map[string]any{
@@ -206,7 +206,7 @@ func (t *TodoTool) Tools(context.Context) ([]tools.Tool, error) {
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "Update TODO",
 				},
-				Parameters: tools.FunctionParamaters{
+				Parameters: tools.FunctionParameters{
 					Type: "object",
 					Properties: map[string]any{
 						"id": map[string]any{

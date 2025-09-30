@@ -11,11 +11,10 @@ var opts oci.Options
 
 func NewBuildCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:    "build <agent-file> [docker-image-name]",
-		Short:  "Build a Docker image for the agent",
-		Args:   cobra.MinimumNArgs(1),
-		RunE:   runBuildCommand,
-		Hidden: true,
+		Use:   "build <agent-file> [docker-image-name]",
+		Short: "Build a Docker image for the agent",
+		Args:  cobra.RangeArgs(1, 2),
+		RunE:  runBuildCommand,
 	}
 
 	cmd.PersistentFlags().BoolVar(&opts.DryRun, "dry-run", false, "only print the generated Dockerfile")

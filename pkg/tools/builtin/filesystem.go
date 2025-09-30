@@ -71,7 +71,6 @@ This toolset provides comprehensive filesystem operations with built-in security
 
 ### Common Patterns
 - Always check if directories exist before creating files
-- Use directory_tree for exploring unfamiliar directory structures
 - Prefer read_multiple_files for batch operations
 - Use search_files_content for finding specific code or text
 
@@ -90,7 +89,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 				Annotations: tools.ToolAnnotation{
 					Title: "Create Directory",
 				},
-				Parameters: tools.FunctionParamaters{
+				Parameters: tools.FunctionParameters{
 					Type: "object",
 					Properties: map[string]any{
 						"path": map[string]any{
@@ -111,7 +110,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "Directory Tree",
 				},
-				Parameters: tools.FunctionParamaters{
+				Parameters: tools.FunctionParameters{
 					Type: "object",
 					Properties: map[string]any{
 						"path": map[string]any{
@@ -135,7 +134,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 				Annotations: tools.ToolAnnotation{
 					Title: "Edit File",
 				},
-				Parameters: tools.FunctionParamaters{
+				Parameters: tools.FunctionParameters{
 					Type: "object",
 					Properties: map[string]any{
 						"path": map[string]any{
@@ -160,10 +159,6 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 							},
 							"description": "Array of edit operations",
 						},
-						"dryRun": map[string]any{
-							"type":        "boolean",
-							"description": "If true, preview changes without applying them",
-						},
 					},
 					Required: []string{"path", "edits"},
 				},
@@ -178,7 +173,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "Get File Info",
 				},
-				Parameters: tools.FunctionParamaters{
+				Parameters: tools.FunctionParameters{
 					Type: "object",
 					Properties: map[string]any{
 						"path": map[string]any{
@@ -199,10 +194,6 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "List Allowed Directories",
 				},
-				Parameters: tools.FunctionParamaters{
-					Type:       "object",
-					Properties: map[string]any{},
-				},
 			},
 			Handler: t.handleListAllowedDirectories,
 		},
@@ -213,7 +204,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 				Annotations: tools.ToolAnnotation{
 					Title: "Add Allowed Directory",
 				},
-				Parameters: tools.FunctionParamaters{
+				Parameters: tools.FunctionParameters{
 					Type: "object",
 					Properties: map[string]any{
 						"path": map[string]any{
@@ -242,7 +233,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "List Directory",
 				},
-				Parameters: tools.FunctionParamaters{
+				Parameters: tools.FunctionParameters{
 					Type: "object",
 					Properties: map[string]any{
 						"path": map[string]any{
@@ -263,7 +254,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "List Directory With Sizes",
 				},
-				Parameters: tools.FunctionParamaters{
+				Parameters: tools.FunctionParameters{
 					Type: "object",
 					Properties: map[string]any{
 						"path": map[string]any{
@@ -283,7 +274,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 				Annotations: tools.ToolAnnotation{
 					Title: "Move File",
 				},
-				Parameters: tools.FunctionParamaters{
+				Parameters: tools.FunctionParameters{
 					Type: "object",
 					Properties: map[string]any{
 						"source": map[string]any{
@@ -308,7 +299,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "Read File",
 				},
-				Parameters: tools.FunctionParamaters{
+				Parameters: tools.FunctionParameters{
 					Type: "object",
 					Properties: map[string]any{
 						"path": map[string]any{
@@ -329,7 +320,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "Read Multiple Files",
 				},
-				Parameters: tools.FunctionParamaters{
+				Parameters: tools.FunctionParameters{
 					Type: "object",
 					Properties: map[string]any{
 						"paths": map[string]any{
@@ -338,6 +329,10 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 								"type": "string",
 							},
 							"description": "Array of file paths to read",
+						},
+						"json": map[string]any{
+							"type":        "boolean",
+							"description": "Whether to return the result as JSON",
 						},
 					},
 					Required: []string{"paths"},
@@ -353,7 +348,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "Search Files",
 				},
-				Parameters: tools.FunctionParamaters{
+				Parameters: tools.FunctionParameters{
 					Type: "object",
 					Properties: map[string]any{
 						"path": map[string]any{
@@ -385,7 +380,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "Search Files Content",
 				},
-				Parameters: tools.FunctionParamaters{
+				Parameters: tools.FunctionParameters{
 					Type: "object",
 					Properties: map[string]any{
 						"path": map[string]any{
@@ -420,7 +415,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 				Annotations: tools.ToolAnnotation{
 					Title: "Write File",
 				},
-				Parameters: tools.FunctionParamaters{
+				Parameters: tools.FunctionParameters{
 					Type: "object",
 					Properties: map[string]any{
 						"path": map[string]any{
@@ -603,7 +598,6 @@ func (t *FilesystemTool) handleEditFile(ctx context.Context, toolCall tools.Tool
 			OldText string `json:"oldText"`
 			NewText string `json:"newText"`
 		} `json:"edits"`
-		DryRun bool `json:"dryRun"`
 	}
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
 		return nil, fmt.Errorf("failed to parse arguments: %w", err)
@@ -628,10 +622,6 @@ func (t *FilesystemTool) handleEditFile(ctx context.Context, toolCall tools.Tool
 		}
 		modifiedContent = strings.Replace(modifiedContent, edit.OldText, edit.NewText, 1)
 		changes = append(changes, fmt.Sprintf("Edit %d: Replaced %d characters", i+1, len(edit.OldText)))
-	}
-
-	if args.DryRun {
-		return &tools.ToolCallResult{Output: fmt.Sprintf("Dry run completed. Changes:\n%s", strings.Join(changes, "\n"))}, nil
 	}
 
 	if err := os.WriteFile(args.Path, []byte(modifiedContent), 0o644); err != nil {
@@ -884,31 +874,69 @@ func (t *FilesystemTool) handleReadFile(_ context.Context, toolCall tools.ToolCa
 	return &tools.ToolCallResult{Output: string(content)}, nil
 }
 
-func (t *FilesystemTool) handleReadMultipleFiles(_ context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
+func (t *FilesystemTool) handleReadMultipleFiles(ctx context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
 	var args struct {
 		Paths []string `json:"paths"`
+		Json  bool     `json:"json"`
 	}
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
 		return nil, fmt.Errorf("failed to parse arguments: %w", err)
 	}
 
-	var result strings.Builder
+	type PathContent struct {
+		Path    string `json:"path"`
+		Content string `json:"content"`
+	}
+
+	var contents []PathContent
+
 	for _, path := range args.Paths {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
 		if err := t.isPathAllowed(path); err != nil {
-			result.WriteString(fmt.Sprintf("=== %s ===\nError: %s\n\n", path, err))
+			contents = append(contents, PathContent{
+				Path:    path,
+				Content: fmt.Sprintf("Error: %s", err),
+			})
 			continue
 		}
 
 		content, err := os.ReadFile(path)
 		if err != nil {
-			result.WriteString(fmt.Sprintf("=== %s ===\nError reading file: %s\n\n", path, err))
+			contents = append(contents, PathContent{
+				Path:    path,
+				Content: fmt.Sprintf("Error reading file: %s", err),
+			})
 			continue
 		}
 
-		result.WriteString(fmt.Sprintf("=== %s ===\n%s\n\n", path, string(content)))
+		contents = append(contents, PathContent{
+			Path:    path,
+			Content: string(content),
+		})
 	}
 
-	return &tools.ToolCallResult{Output: result.String()}, nil
+	if args.Json {
+		jsonResult, err := json.MarshalIndent(contents, "", "  ")
+		if err != nil {
+			return &tools.ToolCallResult{Output: fmt.Sprintf("Error formatting JSON: %s", err)}, nil
+		}
+
+		return &tools.ToolCallResult{
+			Output: string(jsonResult),
+		}, nil
+	}
+
+	var result strings.Builder
+	for _, content := range contents {
+		result.WriteString(fmt.Sprintf("=== %s ===\n%s\n\n", content.Path, content.Content))
+	}
+
+	return &tools.ToolCallResult{
+		Output: result.String(),
+	}, nil
 }
 
 type SearchFilesArgs struct {
@@ -939,14 +967,20 @@ func (t *FilesystemTool) handleSearchFiles(_ context.Context, toolCall tools.Too
 			return nil // Skip disallowed paths
 		}
 
-		// Check exclude patterns
+		// Check exclude patterns against relative path from search root
+		relPath, err := filepath.Rel(args.Path, path)
+		if err != nil {
+			return nil
+		}
+
 		for _, exclude := range args.ExcludePatterns {
-			if match(exclude, filepath.Base(path)) {
+			if matchExcludePattern(exclude, relPath) {
+				if d.IsDir() {
+					return fs.SkipDir
+				}
 				return nil
 			}
 		}
-
-		// Case-insensitive match
 		if match(pattern, filepath.Base(path)) {
 			matches = append(matches, path)
 		}
@@ -993,7 +1027,7 @@ func (t *FilesystemTool) handleSearchFilesContent(_ context.Context, toolCall to
 	var results []string
 
 	err := filepath.WalkDir(args.Path, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil {
 			return nil
 		}
 
@@ -1001,11 +1035,24 @@ func (t *FilesystemTool) handleSearchFilesContent(_ context.Context, toolCall to
 			return nil
 		}
 
-		// Check exclude patterns
+		// Check exclude patterns against relative path from search root
+		relPath, err := filepath.Rel(args.Path, path)
+		if err != nil {
+			return nil
+		}
+
 		for _, exclude := range args.ExcludePatterns {
-			if match(exclude, filepath.Base(path)) {
-				return nil
+			if matchExcludePattern(exclude, relPath) {
+				if d.IsDir() {
+					return fs.SkipDir // Skip entire directory
+				}
+				return nil // Skip this file
 			}
+		}
+
+		// Only process files, not directories
+		if d.IsDir() {
+			return nil
 		}
 
 		content, err := os.ReadFile(path)
@@ -1088,6 +1135,47 @@ func (t *FilesystemTool) Start(context.Context) error {
 
 func (t *FilesystemTool) Stop() error {
 	return nil
+}
+
+// matchExcludePattern checks if a path should be excluded based on the exclude pattern
+// It supports glob patterns and directory wildcards like .git/*
+func matchExcludePattern(pattern, relPath string) bool {
+	// Normalize path separators to forward slashes for consistent matching
+	normalizedPath := filepath.ToSlash(relPath)
+	normalizedPattern := filepath.ToSlash(pattern)
+
+	// Handle directory patterns ending with /*
+	if strings.HasSuffix(normalizedPattern, "/*") {
+		dirPattern := strings.TrimSuffix(normalizedPattern, "/*")
+		// Check if path starts with the directory pattern
+		if strings.HasPrefix(normalizedPath, dirPattern+"/") || normalizedPath == dirPattern {
+			return true
+		}
+	}
+
+	// Try glob pattern matching on the full relative path
+	matched, _ := filepath.Match(normalizedPattern, normalizedPath)
+	if matched {
+		return true
+	}
+
+	// Try glob pattern matching on just the base name for backwards compatibility
+	matched, _ = filepath.Match(normalizedPattern, filepath.Base(normalizedPath))
+	if matched {
+		return true
+	}
+
+	// Check if pattern matches any parent directory path
+	pathParts := strings.Split(normalizedPath, "/")
+	for i := range pathParts {
+		subPath := strings.Join(pathParts[:i+1], "/")
+		matched, _ := filepath.Match(normalizedPattern, subPath)
+		if matched {
+			return true
+		}
+	}
+
+	return false
 }
 
 func match(pattern, name string) bool {

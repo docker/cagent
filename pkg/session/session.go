@@ -183,10 +183,6 @@ func New(opts ...Opt) *Session {
 	s := &Session{
 		ID:              sessionID,
 		CreatedAt:       time.Now(),
-		Messages:        make([]Item, 0),
-		ToolsApproved:   false,
-		InputTokens:     0,
-		OutputTokens:    0,
 		SendUserMessage: true,
 	}
 
@@ -200,20 +196,20 @@ func New(opts ...Opt) *Session {
 func (s *Session) GetMessages(a *agent.Agent) []chat.Message {
 	slog.Debug("Getting messages for agent", "agent", a.Name(), "session_id", s.ID)
 
-	messages := make([]chat.Message, 0)
+	var messages []chat.Message
 
 	if a.HasSubAgents() {
 		subAgents := append(a.SubAgents(), a.Parents()...)
 
 		subAgentsStr := ""
-		validAgentIDs := make([]string, 0, len(subAgents))
+		var validAgentIDs []string
 		for _, subAgent := range subAgents {
 			subAgentsStr += "ID: " + subAgent.Name() + " | Name: " + subAgent.Name() + " | Description: " + subAgent.Description() + "\n"
 			validAgentIDs = append(validAgentIDs, subAgent.Name())
 		}
 
 		messages = append(messages, chat.Message{
-			Role:    "system",
+			Role:    chat.MessageRoleSystem,
 			Content: "You are a multi-agent system, make sure to answer the user query in the most helpful way possible. You have access to these sub-agents:\n" + subAgentsStr + "\nIMPORTANT: You can ONLY transfer tasks to the agents listed above using their ID. The valid agent IDs are: " + strings.Join(validAgentIDs, ", ") + ". You MUST NOT attempt to transfer to any other agent IDs - doing so will cause system errors.\n\nIf you are the best to answer the question according to your description, you can answer it.\n\nIf another agent is better for answering the question according to its description, call `transfer_task` function to transfer the question to that agent using the agent's ID. When transferring, do not generate any text other than the function call.\n\n",
 		})
 	}
@@ -275,13 +271,31 @@ func (s *Session) GetMessages(a *agent.Agent) []chat.Message {
 		}
 	}
 
-	trimmed := trimMessages(messages)
+	maxItems := a.NumHistoryItems()
+	if maxItems <= 0 {
+		maxItems = maxMessages
+	}
+
+	trimmed := trimMessages(messages, maxItems)
+
+	systemCount := 0
+	conversationCount := 0
+	for i := range trimmed {
+		if trimmed[i].Role == chat.MessageRoleSystem {
+			systemCount++
+		} else {
+			conversationCount++
+		}
+	}
 
 	slog.Debug("Retrieved messages for agent",
 		"agent", a.Name(),
 		"session_id", s.ID,
 		"total_messages", len(messages),
-		"trimmed_messages", len(trimmed))
+		"trimmed_total", len(trimmed),
+		"system_messages", systemCount,
+		"conversation_messages", conversationCount,
+		"max_history_items", maxItems)
 
 	return trimmed
 }
@@ -304,32 +318,51 @@ func (s *Session) GetMostRecentAgentFilename() string {
 }
 
 // trimMessages ensures we don't exceed the maximum number of messages while maintaining
-// consistency between assistant messages and their tool call results
-func trimMessages(messages []chat.Message) []chat.Message {
-	if len(messages) <= maxMessages {
+// consistency between assistant messages and their tool call results.
+// System messages are always preserved and not counted against the limit.
+func trimMessages(messages []chat.Message, maxItems int) []chat.Message {
+	// Separate system messages from conversation messages
+	var systemMessages []chat.Message
+	var conversationMessages []chat.Message
+
+	for i := range messages {
+		if messages[i].Role == chat.MessageRoleSystem {
+			systemMessages = append(systemMessages, messages[i])
+		} else {
+			conversationMessages = append(conversationMessages, messages[i])
+		}
+	}
+
+	// If conversation messages fit within limit, return all messages
+	if len(conversationMessages) <= maxItems {
 		return messages
 	}
 
 	// Keep track of tool call IDs that need to be removed
 	toolCallsToRemove := make(map[string]bool)
 
-	// Calculate how many messages we need to remove
-	toRemove := len(messages) - maxMessages
+	// Calculate how many conversation messages we need to remove
+	toRemove := len(conversationMessages) - maxItems
 
 	// Start from the beginning (oldest messages)
 	for i := range toRemove {
 		// If this is an assistant message with tool calls, mark them for removal
-		if messages[i].Role == chat.MessageRoleAssistant {
-			for _, toolCall := range messages[i].ToolCalls {
+		if conversationMessages[i].Role == chat.MessageRoleAssistant {
+			for _, toolCall := range conversationMessages[i].ToolCalls {
 				toolCallsToRemove[toolCall.ID] = true
 			}
 		}
 	}
 
-	// Filter messages keeping only those we want to keep
-	result := make([]chat.Message, 0, maxMessages)
-	for i := toRemove; i < len(messages); i++ {
-		msg := messages[i]
+	// Combine system messages with trimmed conversation messages
+	result := make([]chat.Message, 0, len(systemMessages)+maxItems)
+
+	// Add all system messages first
+	result = append(result, systemMessages...)
+
+	// Add the most recent conversation messages
+	for i := toRemove; i < len(conversationMessages); i++ {
+		msg := conversationMessages[i]
 
 		// Skip tool messages that correspond to removed assistant messages
 		if msg.Role == chat.MessageRoleTool && toolCallsToRemove[msg.ToolCallID] {

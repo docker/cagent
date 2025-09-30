@@ -3,7 +3,6 @@ package secrets
 import (
 	"context"
 	"fmt"
-	"os"
 	"sort"
 
 	"github.com/docker/cagent/pkg/config"
@@ -11,7 +10,6 @@ import (
 	"github.com/docker/cagent/pkg/environment"
 	"github.com/docker/cagent/pkg/gateway"
 	"github.com/docker/cagent/pkg/model/provider"
-	"github.com/docker/cagent/pkg/tools/mcp"
 )
 
 // GatherMissingEnvVars finds out which environment variables are required by the models and tools.
@@ -80,10 +78,6 @@ func GatherEnvVarsForTools(ctx context.Context, cfg *latest.Config) ([]string, e
 
 	for _, ref := range gatherMCPServerReferences(cfg) {
 		mcpServerName := gateway.ParseServerRef(ref)
-		if mcpServerURL := os.Getenv(mcp.ENV_DOCKER_MCP_URL_PREFIX + mcpServerName); mcpServerURL != "" {
-			// This MCP server is configured at runtime to be remote. We don't need to know its secrets.
-			continue
-		}
 
 		secrets, err := gateway.RequiredEnvVars(ctx, mcpServerName, gateway.DockerCatalogURL)
 		if err != nil {

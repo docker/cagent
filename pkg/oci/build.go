@@ -13,6 +13,8 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/goccy/go-yaml"
+
 	"github.com/docker/cagent/pkg/config"
 	"github.com/docker/cagent/pkg/secrets"
 )
@@ -28,14 +30,15 @@ type Options struct {
 }
 
 func BuildDockerImage(ctx context.Context, agentFilePath, dockerImageName string, opts Options) error {
-	agentYaml, err := os.ReadFile(agentFilePath)
+	fileName := filepath.Base(agentFilePath)
+	parentDir := filepath.Dir(agentFilePath)
+	cfg, err := config.LoadConfigSecure(fileName, parentDir)
 	if err != nil {
 		return err
 	}
 
-	fileName := filepath.Base(agentFilePath)
-	parentDir := filepath.Dir(agentFilePath)
-	cfg, err := config.LoadConfigSecure(fileName, parentDir)
+	// Compute the canonical form of the config
+	canonical, err := yaml.Marshal(cfg)
 	if err != nil {
 		return err
 	}
@@ -59,7 +62,7 @@ func BuildDockerImage(ctx context.Context, agentFilePath, dockerImageName string
 	tpl := template.Must(template.New("Dockerfile").Parse(dockerfileTemplate))
 	if err := tpl.Execute(&dockerfileBuf, map[string]any{
 		"BaseImage":    baseImage,
-		"AgentConfig":  string(agentYaml),
+		"AgentConfig":  string(canonical),
 		"BuildDate":    time.Now().UTC().Format(time.RFC3339),
 		"Description":  cfg.Agents["root"].Description,
 		"Metadata":     cfg.Metadata,

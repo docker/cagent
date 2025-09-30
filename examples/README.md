@@ -41,6 +41,7 @@ These are more advanced examples, most of them involve some sort of MCP server t
 | [doc_generator.yaml](doc_generator.yaml)               | Documentation generation from codebases     |            | ✓     |      | ✓     |        |                                                                                                                                |            |
 | [mcp_generator.yaml](mcp_generator.yaml)               | Generates MCP configurations                |            |       |      |       |        | docker,[duckduckgo](https://hub.docker.com/mcp/server/duckduckgo/overview)                                                     |            |
 | [couchbase_agent.yaml](couchbase_agent.yaml)           | Run Database commands using MCP tools       |            |       |      |       |        | docker,[couchbase](https://hub.docker.com/mcp/server/couchbase/overview)                                          |            |
+| [notion-expert.yaml](notion-expert.yaml)               | Notion documentation expert using OAuth      |            |       |      |       |        | [notion](https://mcp.notion.com) (uses OAuth)                                                                     |            |
 
 ## **Multi-Agent Configurations**
 

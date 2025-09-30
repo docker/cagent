@@ -59,16 +59,16 @@ func TestStoreAgentName(t *testing.T) {
 
 	// First message should be user message with empty agent name
 	assert.Equal(t, "demo-agent", retrievedSession.Messages[0].Message.AgentFilename)
-	assert.Equal(t, "", retrievedSession.Messages[0].Message.AgentName)
+	assert.Empty(t, retrievedSession.Messages[0].Message.AgentName)
 	assert.Equal(t, "Hello", retrievedSession.Messages[0].Message.Message.Content)
 
 	// Second message should have the first agent's name
-	assert.Equal(t, "", retrievedSession.Messages[1].Message.AgentFilename)
+	assert.Empty(t, retrievedSession.Messages[1].Message.AgentFilename)
 	assert.Equal(t, "test-agent-1", retrievedSession.Messages[1].Message.AgentName)
 	assert.Equal(t, "Hello from test-agent-1", retrievedSession.Messages[1].Message.Message.Content)
 
 	// Third message should have the second agent's name
-	assert.Equal(t, "", retrievedSession.Messages[2].Message.AgentFilename)
+	assert.Empty(t, retrievedSession.Messages[2].Message.AgentFilename)
 	assert.Equal(t, "test-agent-2", retrievedSession.Messages[2].Message.AgentName)
 	assert.Equal(t, "Another message from test-agent-2", retrievedSession.Messages[2].Message.Message.Content)
 }
@@ -118,15 +118,15 @@ func TestStoreMultipleAgents(t *testing.T) {
 
 	// First message should be user message with empty agent name
 	assert.Equal(t, "demo", retrievedSession.Messages[0].Message.AgentFilename)
-	assert.Equal(t, "", retrievedSession.Messages[0].Message.AgentName)
+	assert.Empty(t, retrievedSession.Messages[0].Message.AgentName)
 
 	// Second message should have agent-1 name
-	assert.Equal(t, "", retrievedSession.Messages[1].Message.AgentFilename)
+	assert.Empty(t, retrievedSession.Messages[1].Message.AgentFilename)
 	assert.Equal(t, "agent-1", retrievedSession.Messages[1].Message.AgentName)
 	assert.Equal(t, "Response from agent 1", retrievedSession.Messages[1].Message.Message.Content)
 
 	// Third message should have agent-2 name
-	assert.Equal(t, "", retrievedSession.Messages[2].Message.AgentFilename)
+	assert.Empty(t, retrievedSession.Messages[2].Message.AgentFilename)
 	assert.Equal(t, "agent-2", retrievedSession.Messages[2].Message.AgentName)
 	assert.Equal(t, "Response from agent 2", retrievedSession.Messages[2].Message.Message.Content)
 }
@@ -227,11 +227,11 @@ func TestStoreAgentNameJSON(t *testing.T) {
 
 	// Verify specific agent filenames are correctly stored and retrieved
 	assert.Equal(t, "demo-agent", retrievedSession.Messages[0].Message.AgentFilename) // User message
-	assert.Equal(t, "", retrievedSession.Messages[1].Message.AgentFilename)           // First agent
-	assert.Equal(t, "", retrievedSession.Messages[2].Message.AgentFilename)           // Second agent
+	assert.Empty(t, retrievedSession.Messages[1].Message.AgentFilename)               // First agent
+	assert.Empty(t, retrievedSession.Messages[2].Message.AgentFilename)               // Second agent
 
 	// Verify specific agent names are correctly stored and retrieved
-	assert.Equal(t, "", retrievedSession.Messages[0].Message.AgentName)              // User message
+	assert.Empty(t, retrievedSession.Messages[0].Message.AgentName)                  // User message
 	assert.Equal(t, "my-agent", retrievedSession.Messages[1].Message.AgentName)      // First agent
 	assert.Equal(t, "another-agent", retrievedSession.Messages[2].Message.AgentName) // Second agent
 }

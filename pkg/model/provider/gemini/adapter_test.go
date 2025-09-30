@@ -3,8 +3,10 @@ package gemini
 import (
 	"testing"
 
-	"github.com/docker/cagent/pkg/chat"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/genai"
+
+	"github.com/docker/cagent/pkg/chat"
 )
 
 func TestStreamAdapter_FunctionCalls(t *testing.T) {
@@ -38,29 +40,19 @@ func TestStreamAdapter_FunctionCalls(t *testing.T) {
 
 		// Read the response
 		resp, err := adapter.Recv()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		require.NoError(t, err)
 
 		// Should have tool calls
-		if len(resp.Choices[0].Delta.ToolCalls) == 0 {
-			t.Error("expected tool calls in response")
-		}
+		require.NotEmpty(t, resp.Choices[0].Delta.ToolCalls)
 
 		// Read the final message
 		finalResp, err := adapter.Recv()
-		if err != nil {
-			t.Fatalf("unexpected error reading final message: %v", err)
-		}
+		require.NoError(t, err)
 
 		// Should have finish reason tool_calls
-		if finalResp.Choices[0].FinishReason != chat.FinishReasonToolCalls {
-			t.Errorf("expected finish reason tool_calls, got %v", finalResp.Choices[0].FinishReason)
-		}
+		require.Equal(t, chat.FinishReasonToolCalls, finalResp.Choices[0].FinishReason)
 
 		// Should NOT include tool calls in final message (to avoid duplication)
-		if len(finalResp.Choices[0].Delta.ToolCalls) != 0 {
-			t.Error("expected no tool calls in final message to avoid duplication")
-		}
+		require.Empty(t, finalResp.Choices[0].Delta.ToolCalls)
 	})
 }

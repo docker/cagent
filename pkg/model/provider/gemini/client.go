@@ -9,13 +9,14 @@ import (
 	"net/http"
 	"strings"
 
+	"google.golang.org/genai"
+
 	"github.com/docker/cagent/pkg/chat"
 	latest "github.com/docker/cagent/pkg/config/v2"
 	"github.com/docker/cagent/pkg/desktop"
 	"github.com/docker/cagent/pkg/environment"
 	"github.com/docker/cagent/pkg/model/provider/options"
 	"github.com/docker/cagent/pkg/tools"
-	"google.golang.org/genai"
 )
 
 // Client represents a Gemini client wrapper
@@ -249,7 +250,7 @@ func convertParametersToSchema(params any) *genai.Schema {
 	}
 
 	// Convert FunctionParameters to Schema
-	if funcParams, ok := params.(tools.FunctionParamaters); ok {
+	if funcParams, ok := params.(tools.FunctionParameters); ok {
 		// Convert type string to Gemini Type
 		var schemaType genai.Type
 		switch funcParams.Type {

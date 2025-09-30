@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"strconv"
@@ -29,7 +31,7 @@ type Client struct {
 }
 
 // NewClient creates a new DMR client from the provided configuration
-func NewClient(_ context.Context, cfg *latest.ModelConfig, opts ...options.Opt) (*Client, error) {
+func NewClient(ctx context.Context, cfg *latest.ModelConfig, opts ...options.Opt) (*Client, error) {
 	if cfg == nil {
 		slog.Error("DMR client creation failed", "error", "model configuration is required")
 		return nil, errors.New("model configuration is required")
@@ -45,47 +47,61 @@ func NewClient(_ context.Context, cfg *latest.ModelConfig, opts ...options.Opt) 
 		opt(&globalOptions)
 	}
 
-	// Resolve base_url for DMR models. If not provided, configure with the docker model plugin, else fallback.
-	baseURL := cfg.BaseURL
-	if baseURL == "" {
-		endpoint, engine, err := getDockerModelEndpointAndEngine()
-		if err != nil {
-			slog.Debug("docker model status query failed", "error", err)
-		}
-
-		// Build runtime flags from ModelConfig and engine
-		contextSize, providerRuntimeFlags := parseDMRProviderOpts(cfg)
-		configFlags := buildRuntimeFlagsFromModelConfig(engine, cfg)
-		finalFlags, warnings := mergeRuntimeFlagsPreferUser(configFlags, providerRuntimeFlags)
-		for _, w := range warnings {
-			slog.Warn(w)
-		}
-		slog.Debug("DMR provider_opts parsed", "model", cfg.Model, "context_size", contextSize, "runtime_flags", finalFlags, "engine", engine)
-		if err := configureDockerModel(cfg.Model, contextSize, finalFlags); err != nil {
-			slog.Debug("docker model configure skipped or failed", "error", err)
-		}
-
-		if endpoint != "" {
-			baseURL = endpoint
-			slog.Debug("Using docker model endpoint for DMR base_url", "base_url", baseURL)
-		} else {
-			baseURL = "http://localhost:12434/engines/llama.cpp/v1"
-			slog.Debug("Using default DMR base_url", "base_url", baseURL)
-		}
+	endpoint, engine, err := getDockerModelEndpointAndEngine(ctx)
+	if err != nil {
+		slog.Debug("docker model status query failed", "error", err)
 	}
 
-	slog.Debug("Creating DMR client config", "base_url", baseURL)
 	clientConfig := openai.DefaultConfig("")
-	clientConfig.BaseURL = baseURL
 
-	client := openai.NewClientWithConfig(clientConfig)
-	slog.Debug("DMR client created successfully", "model", cfg.Model, "base_url", baseURL)
+	switch {
+	case cfg.BaseURL != "":
+		clientConfig.BaseURL = cfg.BaseURL
+	case os.Getenv("MODEL_RUNNER_HOST") != "":
+		clientConfig.BaseURL = os.Getenv("MODEL_RUNNER_HOST")
+	case inContainer():
+		// This won't work with Docker CE but we have no way to detect that from inside the container.
+		clientConfig.BaseURL = "http://model-runner.docker.internal/engines/v1/"
+	case endpoint == "http://model-runner.docker.internal/engines/v1/":
+		// Docker Desktop
+		clientConfig.BaseURL = "http://_/exp/vDD4.40/engines/v1"
+		clientConfig.HTTPClient = &http.Client{
+			Transport: &http.Transport{
+				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+					var d net.Dialer
+					return d.DialContext(ctx, "unix", "/var/run/docker.sock")
+				},
+			},
+		}
+	default:
+		// Docker CE
+		clientConfig.BaseURL = endpoint
+	}
+
+	// Build runtime flags from ModelConfig and engine
+	contextSize, providerRuntimeFlags := parseDMRProviderOpts(cfg)
+	configFlags := buildRuntimeFlagsFromModelConfig(engine, cfg)
+	finalFlags, warnings := mergeRuntimeFlagsPreferUser(configFlags, providerRuntimeFlags)
+	for _, w := range warnings {
+		slog.Warn(w)
+	}
+	slog.Debug("DMR provider_opts parsed", "model", cfg.Model, "context_size", contextSize, "runtime_flags", finalFlags, "engine", engine)
+	if err := configureDockerModel(ctx, cfg.Model, contextSize, finalFlags); err != nil {
+		slog.Debug("docker model configure skipped or failed", "error", err)
+	}
+
+	slog.Debug("DMR client created successfully", "model", cfg.Model, "base_url", clientConfig.BaseURL)
 
 	return &Client{
-		client:  client,
+		client:  openai.NewClientWithConfig(clientConfig),
 		config:  cfg,
-		baseURL: baseURL,
+		baseURL: clientConfig.BaseURL,
 	}, nil
+}
+
+func inContainer() bool {
+	finfo, err := os.Stat("/.dockerenv")
+	return err == nil && finfo.Mode().IsRegular()
 }
 
 func convertMultiContent(multiContent []chat.MessagePart) []openai.ChatMessagePart {
@@ -196,8 +212,9 @@ func convertMessages(messages []chat.Message) []openai.ChatCompletionMessage {
 		}
 
 		openaiMessage := openai.ChatCompletionMessage{
-			Role: string(msg.Role),
-			Name: msg.Name,
+			Role:       string(msg.Role),
+			Name:       msg.Name,
+			ToolCallID: msg.ToolCallID,
 		}
 
 		if len(msg.MultiContent) == 0 {
@@ -213,22 +230,15 @@ func convertMessages(messages []chat.Message) []openai.ChatCompletionMessage {
 			}
 		}
 
-		if len(msg.ToolCalls) > 0 {
-			openaiMessage.ToolCalls = make([]openai.ToolCall, len(msg.ToolCalls))
-			for j, toolCall := range msg.ToolCalls {
-				openaiMessage.ToolCalls[j] = openai.ToolCall{
-					ID:   toolCall.ID,
-					Type: openai.ToolType(toolCall.Type),
-					Function: openai.FunctionCall{
-						Name:      toolCall.Function.Name,
-						Arguments: toolCall.Function.Arguments,
-					},
-				}
-			}
-		}
-
-		if msg.ToolCallID != "" {
-			openaiMessage.ToolCallID = msg.ToolCallID
+		for _, call := range msg.ToolCalls {
+			openaiMessage.ToolCalls = append(openaiMessage.ToolCalls, openai.ToolCall{
+				ID:   call.ID,
+				Type: openai.ToolType(call.Type),
+				Function: openai.FunctionCall{
+					Name:      call.Function.Name,
+					Arguments: call.Function.Arguments,
+				},
+			})
 		}
 
 		openaiMessages = append(openaiMessages, openaiMessage)
@@ -281,26 +291,20 @@ func convertMessages(messages []chat.Message) []openai.ChatCompletionMessage {
 
 // CreateChatCompletionStream creates a streaming chat completion request
 // It returns a stream that can be iterated over to get completion chunks
-func (c *Client) CreateChatCompletionStream(
-	ctx context.Context,
-	messages []chat.Message,
-	requestTools []tools.Tool,
-) (chat.MessageStream, error) {
+func (c *Client) CreateChatCompletionStream(ctx context.Context, messages []chat.Message, requestTools []tools.Tool) (chat.MessageStream, error) {
 	slog.Debug("Creating DMR chat completion stream",
 		"model", c.config.Model,
 		"message_count", len(messages),
 		"tool_count", len(requestTools),
-		"base_url", c.baseURL)
+		"base_url", c.baseURL,
+	)
 
 	if len(messages) == 0 {
 		slog.Error("DMR stream creation failed", "error", "at least one message is required")
 		return nil, errors.New("at least one message is required")
 	}
 
-	trackUsage := true
-	if c.config.TrackUsage != nil && *c.config.TrackUsage == false {
-		trackUsage = false
-	}
+	trackUsage := c.config.TrackUsage == nil || *c.config.TrackUsage
 
 	request := openai.ChatCompletionRequest{
 		Model:            c.config.Model,
@@ -329,9 +333,15 @@ func (c *Client) CreateChatCompletionStream(
 		slog.Debug("Adding tools to DMR request", "tool_count", len(requestTools))
 		request.Tools = make([]openai.Tool, len(requestTools))
 		for i, tool := range requestTools {
+			// DMR requires the `description` key to be present; ensure a non-empty value
+			// NOTE(krissetto): workaround, remove when fixed upstream, this shouldn't be necceessary
+			desc := tool.Function.Description
+			if desc == "" {
+				desc = "Function " + tool.Function.Name
+			}
 			fd := &openai.FunctionDefinition{
 				Name:        tool.Function.Name,
-				Description: tool.Function.Description,
+				Description: desc,
 				Strict:      tool.Function.Strict,
 			}
 			if len(tool.Function.Parameters.Properties) == 0 {
@@ -366,14 +376,11 @@ func (c *Client) CreateChatCompletionStream(
 		return nil, err
 	}
 
-	slog.Debug("DMR chat completion stream created successfully", "model", c.config.Model)
+	slog.Debug("DMR chat completion stream created successfully", "model", c.config.Model, "base_url", c.baseURL)
 	return newStreamAdapter(stream, trackUsage), nil
 }
 
-func (c *Client) CreateChatCompletion(
-	ctx context.Context,
-	messages []chat.Message,
-) (string, error) {
+func (c *Client) CreateChatCompletion(ctx context.Context, messages []chat.Message) (string, error) {
 	slog.Debug("Creating DMR chat completion", "model", c.config.Model, "message_count", len(messages), "base_url", c.baseURL)
 
 	request := openai.ChatCompletionRequest{
@@ -383,7 +390,7 @@ func (c *Client) CreateChatCompletion(
 
 	response, err := c.client.CreateChatCompletion(ctx, request)
 	if err != nil {
-		slog.Error("DMR chat completion failed", "error", err, "model", c.config.Model, "base_url", c.baseURL)
+		slog.Error("DMR chat completion failed", "error", err, "model", c.config.Model)
 		return "", err
 	}
 
@@ -394,8 +401,7 @@ func (c *Client) CreateChatCompletion(
 // sanitizeToolParameters ensures the tool parameter schema is safe for engines using Jinja-like templates.
 // In particular, it avoids shadowing built-in mapping methods like `keys()` by removing a literal "keys"
 // field from property schemas if present, and guarantees the outer structure is an object with a properties map.
-func sanitizeToolParameters(p tools.FunctionParamaters) any {
-	// Start with a safe container
+func sanitizeToolParameters(p tools.FunctionParameters) any {
 	out := map[string]any{
 		"type":       "object",
 		"properties": map[string]any{},
@@ -403,7 +409,6 @@ func sanitizeToolParameters(p tools.FunctionParamaters) any {
 	if p.Type != "" {
 		out["type"] = p.Type
 	}
-	// Copy required if present
 	if len(p.Required) > 0 {
 		out["required"] = p.Required
 	}
@@ -464,10 +469,10 @@ func parseDMRProviderOpts(cfg *latest.ModelConfig) (contextSize int, runtimeFlag
 	return contextSize, runtimeFlags
 }
 
-func configureDockerModel(model string, contextSize int, runtimeFlags []string) error {
+func configureDockerModel(ctx context.Context, model string, contextSize int, runtimeFlags []string) error {
 	args := buildDockerModelConfigureArgs(model, contextSize, runtimeFlags)
 
-	cmd := exec.Command("docker", args...)
+	cmd := exec.CommandContext(ctx, "docker", args...)
 	slog.Debug("Running docker model configure", "model", model, "args", args)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -494,14 +499,15 @@ func buildDockerModelConfigureArgs(model string, contextSize int, runtimeFlags [
 	return args
 }
 
-func getDockerModelEndpointAndEngine() (endpoint, engine string, err error) {
-	cmd := exec.Command("docker", "model", "status", "--json")
+func getDockerModelEndpointAndEngine(ctx context.Context) (endpoint, engine string, err error) {
+	cmd := exec.CommandContext(ctx, "docker", "model", "status", "--json")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		return "", "", errors.New(strings.TrimSpace(stderr.String()))
 	}
+
 	type status struct {
 		Running  bool              `json:"running"`
 		Backends map[string]string `json:"backends"`
@@ -512,16 +518,8 @@ func getDockerModelEndpointAndEngine() (endpoint, engine string, err error) {
 	if err := json.Unmarshal(stdout.Bytes(), &st); err != nil {
 		return "", "", err
 	}
+
 	endpoint = strings.TrimSpace(st.Endpoint)
-
-	inDockerContainer := false
-	finfo, err := os.Stat("/.dockerenv")
-	if err == nil && finfo.Mode().IsRegular() {
-		inDockerContainer = true
-	}
-
-	// normalize endpoint considering container environment
-	endpoint = normalizeDMREndpoint(endpoint, inDockerContainer)
 
 	engine = strings.TrimSpace(st.Engine)
 	if engine == "" {
@@ -539,23 +537,8 @@ func getDockerModelEndpointAndEngine() (endpoint, engine string, err error) {
 	if engine == "" {
 		engine = "llama.cpp"
 	}
-	return endpoint, engine, nil
-}
 
-// normalizeDMREndpoint applies an override to the endpoint reported by
-// `docker model status --json` to ensure the DMR client uses a reachable address
-// from the current environment.
-func normalizeDMREndpoint(endpoint string, inDockerContainer bool) string {
-	// This env overriding might need to be updated if we end up having multiple separate DMR
-	// engines with different endpoints running at the same time
-	if hostEnvVar := os.Getenv("MODEL_RUNNER_HOST"); hostEnvVar != "" {
-		return hostEnvVar
-	}
-	// Only override if not running in a docker container
-	if endpoint == "http://model-runner.docker.internal/engines/v1/" && !inDockerContainer {
-		return "http://localhost:12434/engines/llama.cpp/v1"
-	}
-	return endpoint
+	return endpoint, engine, nil
 }
 
 // buildRuntimeFlagsFromModelConfig converts standard ModelConfig fields into backend-specific

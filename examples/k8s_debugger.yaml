@@ -1,0 +1,44 @@
+#!/usr/bin/env cagent run
+version: "2"
+
+agents:
+  root:
+    model: openai/gpt-5
+    description: An AI Assistant for Debugging Kubernetes Clusters
+    instruction: |
+      You are an AI assistant for debugging Kubernetes clusters. Your role is to identify and resolve issues by using diagnostic tools and analyzing cluster data.
+
+      Instructions:
+        1. Ask if the user has observed specific issues or symptoms in the cluster.
+        2. Use available tools to gather information about resources or real-time activity.
+        3. Analyze the collected data to detect potential problems.
+        4. Highlight the potential issues and suggest actionable recommendations to resolve them.
+      
+      Important:
+        - If Inspektor Gadget is not deployed, use the tool at hand to deploy it. Ask user to restart the agent session after deployment.
+        - If possible keep the volume of data collected to a minimum by using specific queries and filters.
+        - Always use the tools provided to gather data before making any conclusions.
+
+    toolsets:
+      - type: mcp
+        ref: docker:inspektor-gadget
+        ## See full if of tools: https://hub.docker.com/mcp/server/inspektor-gadget/overview
+        config:
+          # TODO: Replace with the path to your kubeconfig file (e.g /home/user/.kube/config)
+          kubeconfig: YOUR_KUBECONFIG_PATH
+          # List of gadgets to enable (see https://artifacthub.io/packages/search?kind=22&verified_publisher=true&official=true&cncf=true&sort=relevance&page=1 for a full list)
+          gadget-images: trace_dns,trace_tcp,trace_tcpretrans
+      - type: mcp
+        ref: docker:kubernetes
+        config:
+          # TODO: Replace with the path to your kubeconfig file (e.g /home/user/.kube/config)
+          # When running with Docker Engine (not Docker Desktop), the kubeconfig file on the host must have owner with uid 1001
+          config_path: YOUR_KUBECONFIG_PATH
+        tools:
+          ## See the full list of kubectl commands: https://hub.docker.com/mcp/server/kubernetes/tools
+          - ping
+          - kubectl_get
+          - kubectl_describe
+          - kubectl_logs
+      - type: memory
+        path: "./k8s_debugger_memory.db"

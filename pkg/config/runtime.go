@@ -1,7 +1,8 @@
 package config
 
 type RuntimeConfig struct {
-	EnvFiles      []string
-	ModelsGateway string
-	RedirectURI   string
+	EnvFiles       []string
+	ModelsGateway  string
+	RedirectURI    string
+	GlobalCodeMode bool
 }

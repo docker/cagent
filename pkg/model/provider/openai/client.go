@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 
 	"github.com/sashabaranov/go-openai"
@@ -54,6 +55,17 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 
 		if cfg.Provider == "azure" {
 			openaiConfig = openai.DefaultAzureConfig(authToken, cfg.BaseURL)
+			openaiConfig.AzureModelMapperFunc = func(model string) string {
+				// NOTE(krissetto): This is to preserve dots in deployment names.
+				// Only strip colons like the library already does to minimize code drift.
+				// Can be removed once fixed/changed upstream. See https://github.com/sashabaranov/go-openai/issues/978
+
+				// only 3.5 models have the "." stripped in their names
+				if strings.Contains(model, "3.5") {
+					return regexp.MustCompile(`[.:]`).ReplaceAllString(model, "")
+				}
+				return strings.ReplaceAll(model, ":", "")
+			}
 		} else {
 			openaiConfig = openai.DefaultConfig(authToken)
 		}
@@ -247,9 +259,6 @@ func (c *Client) CreateChatCompletionStream(
 					Strict:      tool.Function.Strict,
 					Parameters:  tool.Function.Parameters,
 				},
-			}
-			if len(tool.Function.Parameters.Properties) == 0 {
-				request.Tools[i].Function.Parameters = json.RawMessage("{}")
 			}
 			slog.Debug("Added tool to OpenAI request", "tool_name", tool.Function.Name)
 		}

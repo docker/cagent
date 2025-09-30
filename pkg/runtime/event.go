@@ -36,31 +36,34 @@ func (e *UserMessageEvent) GetAgentName() string {
 
 func (e *UserMessageEvent) isEvent() {}
 
-// ToolCallEvent is sent when a tool call is received
 // PartialToolCallEvent is sent when a tool call is first received (partial/complete)
 type PartialToolCallEvent struct {
-	Type     string         `json:"type"`
-	ToolCall tools.ToolCall `json:"tool_call"`
+	Type           string         `json:"type"`
+	ToolCall       tools.ToolCall `json:"tool_call"`
+	ToolDefinition tools.Tool     `json:"tool_definition"`
 	AgentContext
 }
 
-func PartialToolCall(toolCall tools.ToolCall, agentName string) Event {
+func PartialToolCall(toolCall tools.ToolCall, toolDefinition tools.Tool, agentName string) Event {
 	return &PartialToolCallEvent{
-		Type:         "partial_tool_call",
-		ToolCall:     toolCall,
-		AgentContext: AgentContext{AgentName: agentName},
+		Type:           "partial_tool_call",
+		ToolCall:       toolCall,
+		ToolDefinition: toolDefinition,
+		AgentContext:   AgentContext{AgentName: agentName},
 	}
 }
 
 func (e *PartialToolCallEvent) isEvent() {}
 
+// ToolCallEvent is sent when a tool call is received
 type ToolCallEvent struct {
-	Type     string         `json:"type"`
-	ToolCall tools.ToolCall `json:"tool_call"`
+	Type           string         `json:"type"`
+	ToolCall       tools.ToolCall `json:"tool_call"`
+	ToolDefinition tools.Tool     `json:"tool_definition"`
 	AgentContext
 }
 
-func ToolCall(toolCall tools.ToolCall, agentName string) Event {
+func ToolCall(toolCall tools.ToolCall, toolDefinition tools.Tool, agentName string) Event {
 	return &ToolCallEvent{
 		Type:         "tool_call",
 		ToolCall:     toolCall,
@@ -71,16 +74,18 @@ func ToolCall(toolCall tools.ToolCall, agentName string) Event {
 func (e *ToolCallEvent) isEvent() {}
 
 type ToolCallConfirmationEvent struct {
-	Type     string         `json:"type"`
-	ToolCall tools.ToolCall `json:"tool_call"`
+	Type           string         `json:"type"`
+	ToolCall       tools.ToolCall `json:"tool_call"`
+	ToolDefinition tools.Tool     `json:"tool_definition"`
 	AgentContext
 }
 
-func ToolCallConfirmation(toolCall tools.ToolCall, agentName string) Event {
+func ToolCallConfirmation(toolCall tools.ToolCall, toolDefinition tools.Tool, agentName string) Event {
 	return &ToolCallConfirmationEvent{
-		Type:         "tool_call_confirmation",
-		ToolCall:     toolCall,
-		AgentContext: AgentContext{AgentName: agentName},
+		Type:           "tool_call_confirmation",
+		ToolCall:       toolCall,
+		ToolDefinition: toolDefinition,
+		AgentContext:   AgentContext{AgentName: agentName},
 	}
 }
 func (e *ToolCallConfirmationEvent) isEvent() {}
@@ -103,17 +108,21 @@ func ToolCallResponse(toolCall tools.ToolCall, response, agentName string) Event
 func (e *ToolCallResponseEvent) isEvent() {}
 
 type StreamStartedEvent struct {
-	Type string `json:"type"`
+	Type      string `json:"type"`
+	SessionID string `json:"session_id,omitempty"`
+	AgentContext
 }
 
-func StreamStarted() Event {
+func StreamStarted(sessionID, agentName string) Event {
 	return &StreamStartedEvent{
-		Type: "stream_started",
+		Type:         "stream_started",
+		SessionID:    sessionID,
+		AgentContext: AgentContext{AgentName: agentName},
 	}
 }
 
 func (e *StreamStartedEvent) GetAgentName() string {
-	return ""
+	return e.AgentName
 }
 
 func (e *StreamStartedEvent) isEvent() {}
@@ -124,7 +133,7 @@ type AgentChoiceEvent struct {
 	AgentContext
 }
 
-func AgentChoice(agentName string, content string) Event { //nolint:gocritic
+func AgentChoice(agentName, content string) Event { //nolint:gocritic
 	return &AgentChoiceEvent{
 		Type:         "agent_choice",
 		Content:      content,
@@ -139,7 +148,7 @@ type AgentChoiceReasoningEvent struct {
 	AgentContext
 }
 
-func AgentChoiceReasoning(agentName string, content string) Event { //nolint:gocritic
+func AgentChoiceReasoning(agentName, content string) Event { //nolint:gocritic
 	return &AgentChoiceReasoningEvent{
 		Type:         "agent_choice_reasoning",
 		Content:      content,
@@ -211,11 +220,14 @@ type SessionTitleEvent struct {
 	AgentContext
 }
 
-func SessionTitle(sessionID, title string) Event {
+func SessionTitle(sessionID, title, agentName string) Event {
 	return &SessionTitleEvent{
 		Type:      "session_title",
 		SessionID: sessionID,
 		Title:     title,
+		AgentContext: AgentContext{
+			AgentName: agentName,
+		},
 	}
 }
 func (e *SessionTitleEvent) isEvent() {}
@@ -227,11 +239,14 @@ type SessionSummaryEvent struct {
 	AgentContext
 }
 
-func SessionSummary(sessionID, summary string) Event {
+func SessionSummary(sessionID, summary, agentName string) Event {
 	return &SessionSummaryEvent{
 		Type:      "session_summary",
 		SessionID: sessionID,
 		Summary:   summary,
+		AgentContext: AgentContext{
+			AgentName: agentName,
+		},
 	}
 }
 func (e *SessionSummaryEvent) isEvent() {}
@@ -243,27 +258,34 @@ type SessionCompactionEvent struct {
 	AgentContext
 }
 
-func SessionCompaction(sessionID, status string) Event {
+func SessionCompaction(sessionID, status, agentName string) Event {
 	return &SessionCompactionEvent{
 		Type:      "session_compaction",
 		SessionID: sessionID,
 		Status:    status,
+		AgentContext: AgentContext{
+			AgentName: agentName,
+		},
 	}
 }
 func (e *SessionCompactionEvent) isEvent() {}
 
 type StreamStoppedEvent struct {
-	Type string `json:"type"`
+	Type      string `json:"type"`
+	SessionID string `json:"session_id,omitempty"`
+	AgentContext
 }
 
-func StreamStopped() Event {
+func StreamStopped(sessionID, agentName string) Event {
 	return &StreamStoppedEvent{
-		Type: "stream_stopped",
+		Type:         "stream_stopped",
+		SessionID:    sessionID,
+		AgentContext: AgentContext{AgentName: agentName},
 	}
 }
 
 func (e *StreamStoppedEvent) GetAgentName() string {
-	return ""
+	return e.AgentName
 }
 
 func (e *StreamStoppedEvent) isEvent() {}
@@ -273,14 +295,16 @@ type AuthorizationRequiredEvent struct {
 	ServerURL    string `json:"server_url"`
 	ServerType   string `json:"server_type"`
 	Confirmation string `json:"confirmation"` // only  "pending" | "confirmed" | "denied"
+	AgentContext
 }
 
-func AuthorizationRequired(serverURL, serverType, confirmation string) Event {
+func AuthorizationRequired(serverURL, serverType, confirmation, agentName string) Event {
 	return &AuthorizationRequiredEvent{
 		Type:         "authorization_required",
 		ServerURL:    serverURL,
 		ServerType:   serverType,
 		Confirmation: confirmation,
+		AgentContext: AgentContext{AgentName: agentName},
 	}
 }
 

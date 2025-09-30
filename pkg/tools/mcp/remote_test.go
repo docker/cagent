@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/mark3labs/mcp-go/client"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestGlobalTokenManager(t *testing.T) {
@@ -15,23 +16,17 @@ func TestGlobalTokenManager(t *testing.T) {
 	store2 := GetTokenStore(url2)
 
 	// They should be different instances
-	if store1 == store2 {
-		t.Error("Expected different token stores for different URLs")
-	}
+	assert.False(t, store1 == store2, "Expected different token stores for different URLs")
 
 	// Test that same URL returns same token store
 	store1Again := GetTokenStore(url1)
-	if store1 != store1Again {
-		t.Error("Expected same token store for same URL")
-	}
+	assert.Equal(t, store1, store1Again, "Expected same token store for same URL")
 
 	// Verify they are actual MemoryTokenStore instances
-	if _, ok := store1.(*client.MemoryTokenStore); !ok {
-		t.Error("Expected store1 to be a MemoryTokenStore")
-	}
-	if _, ok := store2.(*client.MemoryTokenStore); !ok {
-		t.Error("Expected store2 to be a MemoryTokenStore")
-	}
+	_, ok := store1.(*client.MemoryTokenStore)
+	assert.True(t, ok, "Expected store1 to be a MemoryTokenStore")
+	_, ok = store2.(*client.MemoryTokenStore)
+	assert.True(t, ok, "Expected store2 to be a MemoryTokenStore")
 }
 
 func TestGlobalTokenManagerConcurrency(t *testing.T) {
@@ -56,8 +51,6 @@ func TestGlobalTokenManagerConcurrency(t *testing.T) {
 	// All stores should be the same instance
 	firstStore := stores[0]
 	for i := 1; i < 10; i++ {
-		if stores[i] != firstStore {
-			t.Errorf("Expected all stores to be the same instance, but store[%d] differs", i)
-		}
+		assert.Equal(t, firstStore, stores[i], "Expected all stores to be the same instance")
 	}
 }

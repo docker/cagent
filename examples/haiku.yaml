@@ -9,4 +9,5 @@ agents:
       Write a haiku that captures the essence of your chosen topic.
       Be creative.
     model: openai/gpt-5
-    think: true
+    toolsets:
+      - type: think

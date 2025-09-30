@@ -33,9 +33,23 @@ linters:
           deny:
             - pkg: github.com/docker/cagent/internal
               desc: don't use /internal/ from /pkg/
+        old_yaml:
+          files:
+            - "**/*.go"
+          deny:
+            - pkg: gopkg.in/yaml.v3
+              desc: don't use deprecated gopkg.in/yaml.v3, use github.com/goccy/go-yaml instead
+        testify_is_for_tests:
+          files:
+            - "**/*.go"
+            - "!**/*_test.go"
+          deny:
+            - pkg: github.com/stretchr/testify
+              desc: don't use testify in production code
     gocritic:
       disabled-checks:
         - dupImport
+        - hugeParam
       enabled-tags:
         - diagnostic
         - style
@@ -73,13 +87,19 @@ issues:
   max-same-issues: 3
 formatters:
   enable:
+    - gci
     - gofmt
     - gofumpt
-    - goimports
-  exclusions:
-    generated: lax
-    paths:
-      - .*_test\.go$
-      - third_party$
-      - builtin$
-      - examples$
+  settings:
+    gci:
+      custom-order: true
+      sections:
+        - standard
+        - default
+        - prefix(github.com/docker/cagent)
+    gofmt:
+      rewrite-rules:
+        - pattern: 'interface{}'
+          replacement: 'any'
+    gofumpt:
+      extra-rules: true

@@ -8,10 +8,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/docker/cagent/pkg/chat"
-	"github.com/docker/cagent/pkg/tools"
 	"github.com/google/uuid"
 	"google.golang.org/genai"
+
+	"github.com/docker/cagent/pkg/chat"
+	"github.com/docker/cagent/pkg/tools"
 )
 
 // StreamAdapter adapts the Gemini streaming iterator to chat.MessageStream

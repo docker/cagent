@@ -15,6 +15,7 @@ const (
 	MessageTypeSeparator
 	MessageTypeToolCall
 	MessageTypeToolResult
+	MessageTypeSystem
 )
 
 // ToolStatus represents the status of a tool call
@@ -30,9 +31,10 @@ const (
 
 // Message represents a single message in the chat
 type Message struct {
-	Type       MessageType
-	Content    string
-	Sender     string         // Agent name for assistant messages
-	ToolCall   tools.ToolCall // Associated tool call for tool messages
-	ToolStatus ToolStatus     // Status for tool calls
+	Type           MessageType
+	Content        string
+	Sender         string         // Agent name for assistant messages
+	ToolCall       tools.ToolCall // Associated tool call for tool messages
+	ToolDefinition tools.Tool     // Definition of the tool being called
+	ToolStatus     ToolStatus     // Status for tool calls
 }

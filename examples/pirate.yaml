@@ -8,3 +8,4 @@ agents:
     model: openai/gpt-4o
     # model: anthropic/claude-3-5-sonnet-latest
     # model: gemini/gemini-2.5-flash
+    # model: dmr/ai/llama3.2

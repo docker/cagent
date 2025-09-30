@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/spf13/cobra"
+
 	"github.com/docker/cagent/pkg/config"
 	"github.com/docker/cagent/pkg/telemetry"
-	"github.com/spf13/cobra"
 )
 
 // NewReadmeCmd creates a command that prints the README of an agent.

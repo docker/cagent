@@ -4,10 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/docker/cagent/pkg/config"
-	"github.com/docker/cagent/pkg/environment"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/docker/cagent/pkg/config"
+	"github.com/docker/cagent/pkg/environment"
 )
 
 type noEnvProvider struct{}

@@ -4,6 +4,7 @@ version: "2"
 agents:
   root:
     model: gpt
+    description: An agent to demonstrate how to setup a shared todo.
     instruction: |
       Here is your workflow:
         - Transfer to the `first` agent, the task should be: create a todo
@@ -16,14 +17,16 @@ agents:
   first:
     model: gpt
     instruction: Use the todos tool to create one random todo item
-    todo:
-      shared: true
+    toolsets:
+      - type: todo
+        shared: true
 
   second:
     model: gpt
     instruction: Get the todos and show them
-    todo:
-      shared: true
+    toolsets:
+      - type: todo
+        shared: true
 
 models:
   gpt:

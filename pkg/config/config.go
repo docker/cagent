@@ -6,10 +6,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/goccy/go-yaml"
+
 	v0 "github.com/docker/cagent/pkg/config/v0"
 	v1 "github.com/docker/cagent/pkg/config/v1"
 	latest "github.com/docker/cagent/pkg/config/v2"
-	"gopkg.in/yaml.v3"
+	v2 "github.com/docker/cagent/pkg/config/v2"
 )
 
 // LoadConfigSecure loads the configuration from a file with path validation
@@ -78,24 +80,27 @@ func ValidatePathInDirectory(path, allowedDir string) (string, error) {
 }
 
 func loadConfig(path string) (*latest.Config, error) {
+	dir := filepath.Dir(path)
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
+		return nil, fmt.Errorf("reading config file: %w", err)
 	}
 
-	var raw map[string]any
-	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	var raw struct {
+		Version any `yaml:"version"`
+	}
+	if err := yaml.UnmarshalWithOptions(data, &raw, yaml.ReferenceDirs(dir)); err != nil {
+		return nil, fmt.Errorf("looking for version in config file %s\n%s", path, yaml.FormatError(err, true, true))
 	}
 
-	oldConfig, err := parseCurrentVersion(data, raw["version"])
+	oldConfig, err := parseCurrentVersion(dir, data, raw.Version)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
+		return nil, fmt.Errorf("parsing config file %s\n%s", path, yaml.FormatError(err, true, true))
 	}
 
 	config, err := migrateToLatestConfig(oldConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to migrate config: %w", err)
+		return nil, fmt.Errorf("migrating config: %w", err)
 	}
 
 	if err := validateConfig(&config); err != nil {
@@ -105,14 +110,22 @@ func loadConfig(path string) (*latest.Config, error) {
 	return &config, nil
 }
 
-func parseCurrentVersion(data []byte, version any) (any, error) {
+func parseCurrentVersion(dir string, data []byte, version any) (any, error) {
+	options := []yaml.DecodeOption{yaml.Strict(), yaml.ReferenceDirs(dir)}
+
 	switch version {
 	case nil, "0", 0:
-		return v0.Load(data)
+		var cfg v0.Config
+		err := yaml.UnmarshalWithOptions(data, &cfg, options...)
+		return cfg, err
 	case "1", 1:
-		return v1.Load(data)
+		var cfg v1.Config
+		err := yaml.UnmarshalWithOptions(data, &cfg, options...)
+		return cfg, err
 	default:
-		return latest.Load(data)
+		var cfg v2.Config
+		err := yaml.UnmarshalWithOptions(data, &cfg, options...)
+		return cfg, err
 	}
 }
 
@@ -139,6 +152,10 @@ func migrateToLatestConfig(c any) (latest.Config, error) {
 }
 
 func validateConfig(cfg *latest.Config) error {
+	if cfg.Models == nil {
+		cfg.Models = map[string]latest.ModelConfig{}
+	}
+
 	for name := range cfg.Models {
 		if cfg.Models[name].ParallelToolCalls == nil {
 			m := cfg.Models[name]
@@ -152,13 +169,18 @@ func validateConfig(cfg *latest.Config) error {
 
 		modelNames := strings.SplitSeq(agent.Model, ",")
 		for modelName := range modelNames {
-			if _, exists := cfg.Models[modelName]; !exists {
-				if provider, model, ok := strings.Cut(modelName, "/"); ok {
-					autoRegisterModel(cfg, provider, model)
-					continue
-				}
+			if _, exists := cfg.Models[modelName]; exists {
+				continue
+			}
 
+			provider, model, ok := strings.Cut(modelName, "/")
+			if !ok {
 				return fmt.Errorf("agent '%s' references non-existent model '%s'", agentName, modelName)
+			}
+
+			cfg.Models[modelName] = latest.ModelConfig{
+				Provider: provider,
+				Model:    model,
 			}
 		}
 
@@ -170,17 +192,6 @@ func validateConfig(cfg *latest.Config) error {
 	}
 
 	return nil
-}
-
-func autoRegisterModel(cfg *latest.Config, provider, model string) {
-	if cfg.Models == nil {
-		cfg.Models = make(map[string]latest.ModelConfig)
-	}
-
-	cfg.Models[provider+"/"+model] = latest.ModelConfig{
-		Provider: provider,
-		Model:    model,
-	}
 }
 
 func boolPtr(b bool) *bool {

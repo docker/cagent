@@ -3,8 +3,9 @@ package root
 import (
 	"log/slog"
 
-	"github.com/docker/cagent/pkg/teamloader"
 	"github.com/spf13/cobra"
+
+	"github.com/docker/cagent/pkg/teamloader"
 )
 
 // NewDebugCmd creates a command that prints the debug information about cagent.

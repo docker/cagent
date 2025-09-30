@@ -8,9 +8,10 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/docker/cagent/pkg/paths"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
+
+	"github.com/docker/cagent/pkg/paths"
 )
 
 // Build-time telemetry configuration (set via -ldflags)

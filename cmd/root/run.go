@@ -58,6 +58,7 @@ func NewRunCmd() *cobra.Command {
 
 	cmd.PersistentFlags().StringVarP(&agentName, "agent", "a", "root", "Name of the agent to run")
 	cmd.PersistentFlags().StringSliceVar(&runConfig.EnvFiles, "env-from-file", nil, "Set environment variables from file")
+	cmd.PersistentFlags().BoolVar(&runConfig.GlobalCodeMode, "code-mode-tools", false, "Provide a single tool to call other tools via Javascript")
 	cmd.PersistentFlags().StringVar(&workingDir, "working-dir", "", "Set the working directory for the session (applies to tools and relative paths)")
 	cmd.PersistentFlags().BoolVar(&autoApprove, "yolo", false, "Automatically approve all tool calls without prompting")
 	cmd.PersistentFlags().StringVar(&attachmentPath, "attach", "", "Attach an image file to the message")
@@ -222,7 +223,7 @@ func doRunCommand(ctx context.Context, args []string, exec bool) error {
 
 		remoteRt, err := runtime.NewRemoteRuntime(remoteClient,
 			runtime.WithRemoteCurrentAgent("root"),
-			runtime.WithRemoteAgentFilename("pirate.yaml"),
+			runtime.WithRemoteAgentFilename(args[0]),
 		)
 		if err != nil {
 			return fmt.Errorf("failed to create remote runtime: %w", err)
@@ -368,7 +369,6 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt runtime.Runtime
 				firstLoop = false
 				lastAgent = event.GetAgentName()
 			}
-			lastErr = nil
 			switch e := event.(type) {
 			case *runtime.AgentChoiceEvent:
 				agentChanged := lastAgent != e.AgentName
@@ -381,7 +381,7 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt runtime.Runtime
 				}
 				fmt.Printf("%s", e.Content)
 			case *runtime.AgentChoiceReasoningEvent:
-				fmt.Printf("%s", gray(e.Content))
+				fmt.Printf("%s", white(e.Content))
 			case *runtime.ToolCallConfirmationEvent:
 				if llmIsTyping {
 					fmt.Println()
@@ -455,12 +455,33 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt runtime.Runtime
 					rt.Resume(ctx, string(runtime.ResumeTypeReject))
 					return nil
 				}
+			case *runtime.AuthorizationRequiredEvent:
+				if llmIsTyping {
+					fmt.Println()
+					llmIsTyping = false
+				}
+
+				if e.Confirmation == "pending" {
+					result := promptOAuthAuthorization(e.ServerURL, e.ServerType)
+					switch result {
+					case ConfirmationApprove:
+						rt.ResumeStartAuthorizationFlow(ctx, true)
+					case ConfirmationReject:
+						rt.ResumeStartAuthorizationFlow(ctx, false)
+						return fmt.Errorf("OAuth authorization rejected by user")
+					}
+				}
 			}
 		}
 
 		// If the loop ended due to Ctrl+C, inform the user succinctly
 		if loopCtx.Err() != nil {
 			fmt.Println(yellow("\n⚠️  agent stopped  ⚠️"))
+		}
+
+		// Wrap runtime errors to prevent duplicate error messages and usage display
+		if lastErr != nil {
+			return RuntimeError{Err: lastErr}
 		}
 		return nil
 	}
@@ -505,7 +526,11 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt runtime.Runtime
 		}
 	}
 
-	return lastErr
+	// Wrap runtime errors to prevent duplicate error messages and usage display
+	if lastErr != nil {
+		return RuntimeError{Err: lastErr}
+	}
+	return nil
 }
 
 func runUserCommand(userInput string, sess *session.Session, rt runtime.Runtime, ctx context.Context) (bool, error) {

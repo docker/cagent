@@ -1,0 +1,365 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/cagent/cagent/blob/main/cagent-schema.json",
+  "title": "Cagent Configuration",
+  "description": "Configuration schema for Cagent v2",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Configuration version",
+      "enum": ["2", "v2"],
+      "examples": ["2"]
+    },
+    "agents": {
+      "type": "object",
+      "description": "Map of agent configurations",
+      "additionalProperties": {
+        "$ref": "#/definitions/AgentConfig"
+      }
+    },
+    "models": {
+      "type": "object",
+      "description": "Map of model configurations",
+      "additionalProperties": {
+        "$ref": "#/definitions/ModelConfig"
+      }
+    },
+    "metadata": {
+      "$ref": "#/definitions/Metadata",
+      "description": "Configuration metadata"
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "AgentConfig": {
+      "type": "object",
+      "description": "Configuration for a single agent",
+      "properties": {
+        "model": {
+          "type": "string",
+          "description": "Model to use for this agent (can be just model name or provider/model format)",
+          "examples": [
+            "gpt-4",
+            "openai/gpt-4o",
+            "anthropic/claude-sonnet-4-0",
+            "claude"
+          ]
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of the agent"
+        },
+        "toolsets": {
+          "type": "array",
+          "description": "List of toolsets available to the agent",
+          "items": {
+            "$ref": "#/definitions/Toolset"
+          }
+        },
+        "instruction": {
+          "type": "string",
+          "description": "Instructions for the agent"
+        },
+        "sub_agents": {
+          "type": "array",
+          "description": "List of sub-agents",
+          "items": {
+            "type": "string"
+          }
+        },
+        "add_date": {
+          "type": "boolean",
+          "description": "Whether to add date information"
+        },
+        "add_environment_info": {
+          "type": "boolean",
+          "description": "Whether to add environment information"
+        },
+        "max_iterations": {
+          "type": "integer",
+          "description": "Maximum number of iterations",
+          "minimum": 0
+        },
+        "num_history_items": {
+          "type": "integer",
+          "description": "Number of history items to keep",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "ModelConfig": {
+      "type": "object",
+      "description": "Configuration for a model",
+      "properties": {
+        "provider": {
+          "type": "string",
+          "description": "Model provider (e.g., openai, anthropic, dmr)",
+          "examples": ["openai", "anthropic", "dmr", "ollama"]
+        },
+        "model": {
+          "type": "string",
+          "description": "Model name"
+        },
+        "temperature": {
+          "type": "number",
+          "description": "Sampling temperature",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "max_tokens": {
+          "type": "integer",
+          "description": "Maximum number of tokens",
+          "minimum": 1
+        },
+        "top_p": {
+          "type": "number",
+          "description": "Top-p sampling parameter",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "frequency_penalty": {
+          "type": "number",
+          "description": "Frequency penalty",
+          "minimum": -2,
+          "maximum": 2
+        },
+        "presence_penalty": {
+          "type": "number",
+          "description": "Presence penalty",
+          "minimum": -2,
+          "maximum": 2
+        },
+        "base_url": {
+          "type": "string",
+          "description": "Base URL for the model API",
+          "format": "uri"
+        },
+        "parallel_tool_calls": {
+          "type": "boolean",
+          "description": "Whether to enable parallel tool calls"
+        },
+        "token_key": {
+          "type": "string",
+          "description": "Token key for authentication"
+        },
+        "provider_opts": {
+          "type": "object",
+          "description": "Provider-specific options (currently used for dmr provider only)",
+          "additionalProperties": true
+        },
+        "track_usage": {
+          "type": "boolean",
+          "description": "Whether to track usage"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Metadata": {
+      "type": "object",
+      "description": "Configuration metadata",
+      "properties": {
+        "author": {
+          "type": "string",
+          "description": "Author of the configuration"
+        },
+        "license": {
+          "type": "string",
+          "description": "License for the configuration"
+        },
+        "readme": {
+          "type": "string",
+          "description": "README or description"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Toolset": {
+      "type": "object",
+      "description": "Tool configuration",
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Type of tool",
+          "enum": [
+            "mcp",
+            "script",
+            "think",
+            "memory",
+            "filesystem",
+            "shell",
+            "todo"
+          ]
+        },
+        "ref": {
+          "type": "string",
+          "description": "Reference to external tool (e.g., docker:context7)",
+          "pattern": "^docker:"
+        },
+        "config": {
+          "description": "Tool-specific configuration"
+        },
+        "command": {
+          "type": "string",
+          "description": "Command to execute for MCP tools"
+        },
+        "remote": {
+          "$ref": "#/definitions/Remote",
+          "description": "Remote tool configuration"
+        },
+        "args": {
+          "type": "array",
+          "description": "Arguments for the tool",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tools": {
+          "type": "array",
+          "description": "List of tools to include",
+          "items": {
+            "type": "string"
+          }
+        },
+        "env": {
+          "type": "object",
+          "description": "Environment variables",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "shared": {
+          "type": "boolean",
+          "description": "Whether the tool is shared (for think tool)"
+        },
+        "path": {
+          "type": "string",
+          "description": "Path for memory tool"
+        },
+        "shell": {
+          "type": "object",
+          "description": "Shell script configurations (for script tool)",
+          "additionalProperties": {
+            "$ref": "#/definitions/ScriptShellToolConfig"
+          }
+        },
+        "post_edit": {
+          "type": "array",
+          "description": "Post-edit commands for filesystem tool",
+          "items": {
+            "$ref": "#/definitions/PostEditConfig"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "allOf": [
+            { "properties": { "type": { "const": "mcp" } } },
+            {
+              "anyOf": [
+                { "required": ["command"] },
+                { "required": ["remote"] },
+                { "required": ["ref"] }
+              ]
+            }
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "enum": [
+                "shell",
+                "filesystem",
+                "todo",
+                "think",
+                "memory",
+                "script"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "Remote": {
+      "type": "object",
+      "description": "Remote tool configuration",
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "URL for the remote tool",
+          "format": "uri"
+        },
+        "transport_type": {
+          "type": "string",
+          "description": "Transport type for the remote connection"
+        },
+        "headers": {
+          "type": "object",
+          "description": "HTTP headers for remote requests",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "required": ["url"],
+      "additionalProperties": false
+    },
+    "ScriptShellToolConfig": {
+      "type": "object",
+      "description": "Configuration for custom shell tool",
+      "properties": {
+        "cmd": {
+          "type": "string",
+          "description": "Command to execute"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of the shell tool"
+        },
+        "args": {
+          "type": "object",
+          "description": "Arguments schema (passed as properties in JSON schema)",
+          "additionalProperties": true
+        },
+        "required": {
+          "type": "array",
+          "description": "Required arguments",
+          "items": {
+            "type": "string"
+          }
+        },
+        "env": {
+          "type": "object",
+          "description": "Environment variables for the command",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "working_dir": {
+          "type": "string",
+          "description": "Working directory for the command"
+        }
+      },
+      "required": ["cmd", "description", "required"],
+      "additionalProperties": false
+    },
+    "PostEditConfig": {
+      "type": "object",
+      "description": "Post-edit command configuration",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Path pattern for files to apply post-edit command"
+        },
+        "cmd": {
+          "type": "string",
+          "description": "Command to execute after edit"
+        }
+      },
+      "required": ["path", "cmd"],
+      "additionalProperties": false
+    }
+  }
+}

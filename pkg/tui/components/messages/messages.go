@@ -32,12 +32,14 @@ type Model interface {
 	AddErrorMessage(content string) tea.Cmd
 	AddAssistantMessage() tea.Cmd
 	AddSeparatorMessage() tea.Cmd
-	AddOrUpdateToolCall(agentName string, toolCall tools.ToolCall, status types.ToolStatus) tea.Cmd
+	AddOrUpdateToolCall(agentName string, toolCall tools.ToolCall, toolDef tools.Tool, status types.ToolStatus) tea.Cmd
 	AddToolResult(msg *runtime.ToolCallResponseEvent, status types.ToolStatus) tea.Cmd
 	AppendToLastMessage(agentName string, messageType types.MessageType, content string) tea.Cmd
 	ClearMessages()
 	ScrollToBottom() tea.Cmd
 	AddShellOutputMessage(content string) tea.Cmd
+	AddSystemMessage(content string) tea.Cmd
+	PlainTextTranscript() string
 }
 
 // renderedItem represents a cached rendered message with position information
@@ -70,15 +72,10 @@ type model struct {
 // New creates a new message list component
 func New(a *app.App) Model {
 	return &model{
-		messages:      make([]types.Message, 0),
-		views:         make([]layout.Model, 0),
 		width:         80,
 		height:        24,
-		scrollOffset:  0,
 		app:           a,
-		rendered:      "",
 		renderedItems: make(map[string]renderedItem),
-		totalHeight:   0,
 	}
 }
 
@@ -475,6 +472,13 @@ func (m *model) AddShellOutputMessage(content string) tea.Cmd {
 	})
 }
 
+func (m *model) AddSystemMessage(content string) tea.Cmd {
+	return m.addMessage(&types.Message{
+		Type:    types.MessageTypeSystem,
+		Content: content,
+	})
+}
+
 // AddAssistantMessage adds an assistant message to the chat
 func (m *model) AddAssistantMessage() tea.Cmd {
 	return m.addMessage(&types.Message{
@@ -519,7 +523,7 @@ func (m *model) AddSeparatorMessage() tea.Cmd {
 }
 
 // AddOrUpdateToolCall adds a tool call or updates existing one with the given status
-func (m *model) AddOrUpdateToolCall(agentName string, toolCall tools.ToolCall, status types.ToolStatus) tea.Cmd {
+func (m *model) AddOrUpdateToolCall(agentName string, toolCall tools.ToolCall, toolDef tools.Tool, status types.ToolStatus) tea.Cmd {
 	// First try to update existing tool by ID
 	for i := len(m.messages) - 1; i >= 0; i-- {
 		msg := &m.messages[i]
@@ -540,10 +544,11 @@ func (m *model) AddOrUpdateToolCall(agentName string, toolCall tools.ToolCall, s
 
 	// Create new tool call
 	msg := types.Message{
-		Type:       types.MessageTypeToolCall,
-		Sender:     agentName,
-		ToolCall:   toolCall,
-		ToolStatus: status,
+		Type:           types.MessageTypeToolCall,
+		Sender:         agentName,
+		ToolCall:       toolCall,
+		ToolDefinition: toolDef,
+		ToolStatus:     status,
 	}
 	m.messages = append(m.messages, msg)
 
@@ -628,8 +633,8 @@ func (m *model) AppendToLastMessage(agentName string, messageType types.MessageT
 
 // ClearMessages clears all messages
 func (m *model) ClearMessages() {
-	m.messages = make([]types.Message, 0)
-	m.views = make([]layout.Model, 0)
+	m.messages = nil
+	m.views = nil
 	m.scrollOffset = 0
 	m.rendered = ""
 	m.totalHeight = 0
@@ -642,6 +647,37 @@ func (m *model) ScrollToBottom() tea.Cmd {
 		m.scrollToBottom()
 		return nil
 	}
+}
+
+// PlainTextTranscript returns the conversation as plain text suitable for copying
+func (m *model) PlainTextTranscript() string {
+	var builder strings.Builder
+
+	for i := range m.messages {
+		msg := m.messages[i]
+		switch msg.Type {
+		case types.MessageTypeUser:
+			writeTranscriptSection(&builder, "User", msg.Content)
+		case types.MessageTypeAssistant:
+			label := assistantLabel(msg.Sender)
+			writeTranscriptSection(&builder, label, msg.Content)
+		case types.MessageTypeAssistantReasoning:
+			label := assistantLabel(msg.Sender) + " (thinking)"
+			writeTranscriptSection(&builder, label, msg.Content)
+		case types.MessageTypeShellOutput:
+			writeTranscriptSection(&builder, "Shell Output", msg.Content)
+		case types.MessageTypeError:
+			writeTranscriptSection(&builder, "Error", msg.Content)
+		case types.MessageTypeToolCall:
+			callLabel := toolCallLabel(msg)
+			writeTranscriptSection(&builder, callLabel, formatToolCallContent(msg))
+		case types.MessageTypeToolResult:
+			resultLabel := toolResultLabel(msg)
+			writeTranscriptSection(&builder, resultLabel, msg.Content)
+		}
+	}
+
+	return strings.TrimSpace(builder.String())
 }
 
 func (m *model) createToolCallView(msg *types.Message) layout.Model {
@@ -670,6 +706,57 @@ func (m *model) removeSpinner() {
 			m.invalidateItem(lastIdx)
 		}
 	}
+}
+
+func assistantLabel(sender string) string {
+	trimmed := strings.TrimSpace(sender)
+	if trimmed == "" || trimmed == "root" {
+		return "Assistant"
+	}
+	return trimmed
+}
+
+func writeTranscriptSection(builder *strings.Builder, title, content string) {
+	text := strings.TrimSpace(content)
+	if text == "" {
+		return
+	}
+	if builder.Len() > 0 {
+		builder.WriteString("\n\n")
+	}
+	builder.WriteString(title)
+	builder.WriteString(":\n")
+	builder.WriteString(text)
+}
+
+func toolCallLabel(msg types.Message) string {
+	name := strings.TrimSpace(msg.ToolCall.Function.Name)
+	if name == "" {
+		return "Tool Call"
+	}
+	return fmt.Sprintf("Tool Call (%s)", name)
+}
+
+func formatToolCallContent(msg types.Message) string {
+	sender := assistantLabel(msg.Sender)
+	name := strings.TrimSpace(msg.ToolCall.Function.Name)
+	if name == "" {
+		name = "tool"
+	}
+	var parts []string
+	parts = append(parts, fmt.Sprintf("%s invoked %s", sender, name))
+	if args := strings.TrimSpace(msg.ToolCall.Function.Arguments); args != "" {
+		parts = append(parts, "Arguments:", args)
+	}
+	return strings.Join(parts, "\n")
+}
+
+func toolResultLabel(msg types.Message) string {
+	name := strings.TrimSpace(msg.ToolCall.Function.Name)
+	if name == "" {
+		return "Tool Result"
+	}
+	return fmt.Sprintf("Tool Result (%s)", name)
 }
 
 func uintPtr(u uint) *uint { return &u }

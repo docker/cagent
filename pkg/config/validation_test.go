@@ -61,6 +61,8 @@ func TestValidatePathInDirectory(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			result, err := ValidatePathInDirectory(tt.path, tt.allowedDir)
 
 			if tt.expectError {
@@ -79,7 +81,7 @@ func TestValidatePathInDirectory(t *testing.T) {
 	}
 }
 
-func TestLoadConfigSecure(t *testing.T) {
+func TestValidateMemoryPath(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "test_config_secure")
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
@@ -105,4 +107,33 @@ agents:
 	_, err = LoadConfigSecure("../../../etc/passwd", tmpDir)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "path validation failed")
+}
+
+func TestValidationErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+	}{
+		{
+			name: "memory toolset missing path",
+			path: "testdata/missing_memory_path_v2.yaml",
+		},
+		{
+			name: "path in non memory toolset",
+			path: "testdata/invalid_path_v2.yaml",
+		},
+		{
+			name: "post_edit in non filesystem toolset",
+			path: "testdata/invalid_post_edit_v2.yaml",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := loadConfig(tt.path)
+			require.Error(t, err)
+		})
+	}
 }

@@ -167,7 +167,7 @@ func (t *ShellTool) Tools(context.Context) ([]tools.Tool, error) {
 				Annotations: tools.ToolAnnotation{
 					Title: "Run Shell Command",
 				},
-				Parameters: tools.FunctionParamaters{
+				Parameters: tools.FunctionParameters{
 					Type: "object",
 					Properties: map[string]any{
 						"cmd": map[string]any{

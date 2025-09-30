@@ -4,7 +4,6 @@ agents:
     description: Create a biography of the user based on internet searches.
     instruction: Your goal is to present the user with a concise and informative biography based on their online presence.
     todo:
-      enabled: true
       shared: true
     toolsets:
       - type: mcp
@@ -13,5 +12,5 @@ agents:
 
 models:
   openai:
-    provider: openai
+    type: openai
     model: gpt-4o

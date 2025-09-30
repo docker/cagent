@@ -72,35 +72,23 @@ func TestGetEnvironmentInfo(t *testing.T) {
 }
 
 func TestIsGitRepo(t *testing.T) {
-	tests := []struct {
-		name      string
-		setupFunc func() string
-	}{
-		{
-			name: "git folder",
-			setupFunc: func() string {
-				tmpDir := t.TempDir()
-				require.NoError(t, os.Mkdir(filepath.Join(tmpDir, ".git"), 0o755))
-				return tmpDir
-			},
-		},
-		{
-			name: "git file",
-			setupFunc: func() string {
-				tmpDir := t.TempDir()
-				require.NoError(t, os.WriteFile(filepath.Join(tmpDir, ".git"), []byte("gitdir: /some/other/path"), 0o644))
-				return tmpDir
-			},
-		},
-	}
+	t.Run("git folder", func(t *testing.T) {
+		t.Parallel()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			dir := tt.setupFunc()
-			assert.True(t, isGitRepo(dir))
-		})
-	}
+		dir := t.TempDir()
+		require.NoError(t, os.Mkdir(filepath.Join(dir, ".git"), 0o755))
+
+		assert.True(t, isGitRepo(dir))
+	})
+
+	t.Run("git file", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ".git"), nil, 0o644))
+
+		assert.False(t, isGitRepo(dir))
+	})
 }
 
 func TestIsNotGitRepo(t *testing.T) {
