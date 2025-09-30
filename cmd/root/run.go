@@ -214,7 +214,14 @@ func doRunCommand(ctx context.Context, args []string, exec bool) error {
 			return fmt.Errorf("failed to create remote client: %w", err)
 		}
 
-		sessTemplate := session.New()
+		sessOpts := []session.Opt{}
+		if workingDir != "" {
+			absWd, err := filepath.Abs(workingDir)
+			if err == nil {
+				sessOpts = append(sessOpts, session.WithWorkingDir(absWd))
+			}
+		}
+		sessTemplate := session.New(sessOpts...)
 		sessTemplate.ToolsApproved = autoApprove
 		sess, err = remoteClient.CreateSession(ctx, sessTemplate)
 		if err != nil {
@@ -240,7 +247,14 @@ func doRunCommand(ctx context.Context, args []string, exec bool) error {
 			return fmt.Errorf("failed to create runtime: %w", err)
 		}
 		rt = localRt
-		sess = session.New(session.WithMaxIterations(rt.CurrentAgent().MaxIterations()))
+		sessOpts := []session.Opt{session.WithMaxIterations(rt.CurrentAgent().MaxIterations())}
+		if workingDir != "" {
+			absWd, err := filepath.Abs(workingDir)
+			if err == nil {
+				sessOpts = append(sessOpts, session.WithWorkingDir(absWd))
+			}
+		}
+		sess = session.New(sessOpts...)
 		sess.ToolsApproved = autoApprove
 		slog.Debug("Using local runtime", "agent", agentName)
 	}

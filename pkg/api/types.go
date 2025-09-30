@@ -130,6 +130,7 @@ type SessionResponse struct {
 	Messages      []session.Message `json:"messages,omitempty"`
 	CreatedAt     time.Time         `json:"created_at"`
 	ToolsApproved bool              `json:"tools_approved"`
+	WorkingDir    string            `json:"working_dir,omitempty"`
 	InputTokens   int               `json:"input_tokens"`
 	OutputTokens  int               `json:"output_tokens"`
 }

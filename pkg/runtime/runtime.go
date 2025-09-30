@@ -16,6 +16,7 @@ import (
 
 	"github.com/docker/cagent/pkg/agent"
 	"github.com/docker/cagent/pkg/chat"
+	"github.com/docker/cagent/pkg/contextutil"
 	"github.com/docker/cagent/pkg/modelsdev"
 	"github.com/docker/cagent/pkg/oauth"
 	"github.com/docker/cagent/pkg/session"
@@ -664,6 +665,11 @@ func (r *runtime) processToolCalls(ctx context.Context, sess *session.Session, c
 }
 
 func (r *runtime) runTool(ctx context.Context, tool tools.Tool, toolCall tools.ToolCall, events chan Event, sess *session.Session, a *agent.Agent) {
+	// Inject session working directory into context for tools to use
+	if sess.WorkingDir != "" {
+		ctx = contextutil.WithWorkingDir(ctx, sess.WorkingDir)
+	}
+
 	// Start a child span for the actual tool handler execution
 	ctx, span := r.startSpan(ctx, "runtime.tool.handler", trace.WithAttributes(
 		attribute.String("tool.name", toolCall.Function.Name),

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/cagent/pkg/contextutil"
 	"github.com/docker/cagent/pkg/tools"
 )
 
@@ -476,6 +477,28 @@ func (t *FilesystemTool) executePostEditCommands(ctx context.Context, filePath s
 	return nil
 }
 
+// resolvePathWithContext resolves a path to an absolute path, using the session working directory from context if available
+func (t *FilesystemTool) resolvePathWithContext(ctx context.Context, path string) (string, error) {
+	// If path is already absolute, return it
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path), nil
+	}
+
+	// Try to get session working directory from context
+	sessionWd := contextutil.GetWorkingDir(ctx)
+	if sessionWd != "" {
+		// Resolve relative path against session working directory
+		return filepath.Clean(filepath.Join(sessionWd, path)), nil
+	}
+
+	// Fall back to process working directory
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("unable to resolve absolute path: %w", err)
+	}
+	return filepath.Clean(absPath), nil
+}
+
 // Security helper to check if path is allowed
 func (t *FilesystemTool) isPathAllowed(path string) error {
 	absPath, err := filepath.Abs(path)
@@ -497,9 +520,30 @@ func (t *FilesystemTool) isPathAllowed(path string) error {
 	return fmt.Errorf("path %s is not within allowed directories", path)
 }
 
+// isPathAllowedWithContext checks if a path is allowed, using context-aware path resolution
+func (t *FilesystemTool) isPathAllowedWithContext(ctx context.Context, path string) error {
+	absPath, err := t.resolvePathWithContext(ctx, path)
+	if err != nil {
+		return err
+	}
+
+	for _, allowedDir := range t.allowedDirectories {
+		allowedAbs, err := filepath.Abs(allowedDir)
+		if err != nil {
+			continue
+		}
+
+		if strings.HasPrefix(absPath, allowedAbs) {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("path %s is not within allowed directories", path)
+}
+
 // Handler implementations
 
-func (t *FilesystemTool) handleCreateDirectory(_ context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
+func (t *FilesystemTool) handleCreateDirectory(ctx context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
 	var args struct {
 		Path string `json:"path"`
 	}
@@ -507,9 +551,16 @@ func (t *FilesystemTool) handleCreateDirectory(_ context.Context, toolCall tools
 		return nil, fmt.Errorf("failed to parse arguments: %w", err)
 	}
 
-	if err := t.isPathAllowed(args.Path); err != nil {
+	if err := t.isPathAllowedWithContext(ctx, args.Path); err != nil {
 		return &tools.ToolCallResult{Output: fmt.Sprintf("Error: %s", err)}, nil
 	}
+
+	// Resolve path with context for actual operation
+	absPath, err := t.resolvePathWithContext(ctx, args.Path)
+	if err != nil {
+		return &tools.ToolCallResult{Output: fmt.Sprintf("Error resolving path: %s", err)}, nil
+	}
+	args.Path = absPath
 
 	if err := os.MkdirAll(args.Path, 0o755); err != nil {
 		return &tools.ToolCallResult{Output: fmt.Sprintf("Error creating directory: %s", err)}, nil
@@ -1113,9 +1164,16 @@ func (t *FilesystemTool) handleWriteFile(ctx context.Context, toolCall tools.Too
 		return nil, fmt.Errorf("failed to parse arguments: %w", err)
 	}
 
-	if err := t.isPathAllowed(args.Path); err != nil {
+	if err := t.isPathAllowedWithContext(ctx, args.Path); err != nil {
 		return &tools.ToolCallResult{Output: fmt.Sprintf("Error: %s", err)}, nil
 	}
+
+	// Resolve path with context for actual operation
+	absPath, err := t.resolvePathWithContext(ctx, args.Path)
+	if err != nil {
+		return &tools.ToolCallResult{Output: fmt.Sprintf("Error resolving path: %s", err)}, nil
+	}
+	args.Path = absPath
 
 	if err := os.WriteFile(args.Path, []byte(args.Content), 0o644); err != nil {
 		return &tools.ToolCallResult{Output: fmt.Sprintf("Error writing file: %s", err)}, nil

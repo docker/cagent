@@ -62,6 +62,10 @@ type Session struct {
 	// If 0, there is no limit
 	MaxIterations int `json:"max_iterations"`
 
+	// WorkingDir is the working directory for this session (used by tools like shell and filesystem)
+	// If empty, tools will use the process working directory
+	WorkingDir string `json:"working_dir,omitempty"`
+
 	InputTokens  int     `json:"input_tokens"`
 	OutputTokens int     `json:"output_tokens"`
 	Cost         float64 `json:"cost"`
@@ -175,6 +179,12 @@ func WithMaxIterations(maxIterations int) Opt {
 	}
 }
 
+func WithWorkingDir(workingDir string) Opt {
+	return func(s *Session) {
+		s.WorkingDir = workingDir
+	}
+}
+
 // New creates a new agent session
 func New(opts ...Opt) *Session {
 	sessionID := uuid.New().String()
@@ -221,10 +231,15 @@ func (s *Session) GetMessages(a *agent.Agent) []chat.Message {
 	}
 
 	if a.AddEnvironmentInfo() {
-		wd, err := os.Getwd()
-		if err != nil {
-			slog.Error("getting current working directory for environment info", "error", err)
-		} else {
+		wd := s.WorkingDir
+		if wd == "" {
+			var err error
+			wd, err = os.Getwd()
+			if err != nil {
+				slog.Error("getting current working directory for environment info", "error", err)
+			}
+		}
+		if wd != "" {
 			content += "\n\n" + getEnvironmentInfo(wd)
 		}
 	}

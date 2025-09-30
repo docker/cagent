@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"runtime"
 
+	"github.com/docker/cagent/pkg/contextutil"
 	"github.com/docker/cagent/pkg/tools"
 )
 
@@ -39,10 +40,15 @@ func (h *shellHandler) CallTool(ctx context.Context, toolCall tools.ToolCall) (*
 	if params.Cwd != "" {
 		cmd.Dir = params.Cwd
 	} else {
-		// Use the current working directory; avoid PWD on Windows (may be MSYS-style like /c/...)
-		if wd, err := os.Getwd(); err == nil {
-			cmd.Dir = wd
+		// Try session working directory from context first, then fall back to process working directory
+		wd := contextutil.GetWorkingDir(ctx)
+		if wd == "" {
+			// Use the current working directory; avoid PWD on Windows (may be MSYS-style like /c/...)
+			if pwd, err := os.Getwd(); err == nil {
+				wd = pwd
+			}
 		}
+		cmd.Dir = wd
 	}
 
 	output, err := cmd.CombinedOutput()

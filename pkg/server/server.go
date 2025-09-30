@@ -793,7 +793,20 @@ func (s *Server) createSession(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 	}
 
-	sess := session.New(session.WithMaxIterations(sessionTemplate.MaxIterations))
+	sessOpts := []session.Opt{session.WithMaxIterations(sessionTemplate.MaxIterations)}
+	if sessionTemplate.WorkingDir != "" {
+		// Validate working directory exists
+		absWd, err := filepath.Abs(sessionTemplate.WorkingDir)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("invalid working directory: %s", err)})
+		}
+		if info, err := os.Stat(absWd); err != nil || !info.IsDir() {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("working directory does not exist or is not a directory: %s", absWd)})
+		}
+		sessOpts = append(sessOpts, session.WithWorkingDir(absWd))
+	}
+
+	sess := session.New(sessOpts...)
 	sess.ToolsApproved = sessionTemplate.ToolsApproved
 
 	if err := s.sessionStore.AddSession(c.Request().Context(), sess); err != nil {
@@ -816,6 +829,7 @@ func (s *Server) getSession(c echo.Context) error {
 		CreatedAt:     sess.CreatedAt,
 		Messages:      sess.GetAllMessages(),
 		ToolsApproved: sess.ToolsApproved,
+		WorkingDir:    sess.WorkingDir,
 		InputTokens:   sess.InputTokens,
 		OutputTokens:  sess.OutputTokens,
 	}
