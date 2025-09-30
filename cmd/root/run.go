@@ -181,6 +181,10 @@ func doRunCommand(ctx context.Context, args []string, exec bool) error {
 			agentFilename = tmpFile.Name()
 		}
 
+		if runConfig.RedirectURI == "" {
+			runConfig.RedirectURI = "http://localhost:8083/oauth-callback"
+		}
+
 		agents, err = teamloader.Load(ctx, agentFilename, runConfig)
 		if err != nil {
 			return err
