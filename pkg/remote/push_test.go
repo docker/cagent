@@ -40,18 +40,18 @@ func TestPush(t *testing.T) {
 	assert.NotNil(t, loadedImg)
 
 	err = Push("invalid:reference:with:too:many:colons")
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	err = Push("invalid:reference:with:too:many:colons")
-	assert.Error(t, err)
+	require.Error(t, err)
 }
 
 func TestPushNonExistentArtifact(t *testing.T) {
 	err := Push("registry.example.com/test:latest")
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	err = Push("registry.example.com/test:latest")
-	assert.Error(t, err)
+	require.Error(t, err)
 }
 
 func TestPushWithOptions(t *testing.T) {
@@ -77,7 +77,7 @@ func TestPushWithOptions(t *testing.T) {
 
 	// Test with insecure option (this won't actually push anywhere)
 	err = Push("invalid:reference:with:too:many:colons", crane.Insecure)
-	assert.Error(t, err)
+	require.Error(t, err)
 }
 
 func TestContentStore(t *testing.T) {

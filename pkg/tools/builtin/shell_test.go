@@ -3,7 +3,6 @@ package builtin
 import (
 	"encoding/json"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -37,26 +36,26 @@ func TestNewShellTool(t *testing.T) {
 func TestShellTool_Tools(t *testing.T) {
 	tool := NewShellTool(nil)
 
-	tools, err := tool.Tools(t.Context())
+	allTools, err := tool.Tools(t.Context())
 
 	require.NoError(t, err)
-	assert.Len(t, tools, 1)
+	assert.Len(t, allTools, 1)
 
 	// Verify bash function
-	assert.Equal(t, "shell", tools[0].Function.Name)
-	assert.Contains(t, tools[0].Function.Description, "Executes the given shell command")
+	assert.Equal(t, "shell", allTools[0].Function.Name)
+	assert.Contains(t, allTools[0].Function.Description, "Executes the given shell command")
 
 	// Check parameters
-	props := tools[0].Function.Parameters.Properties
+	props := allTools[0].Function.Parameters.Properties
 	assert.Contains(t, props, "cmd")
 	assert.Contains(t, props, "cwd")
 
 	// Check required fields
-	assert.Contains(t, tools[0].Function.Parameters.Required, "cmd")
-	assert.Contains(t, tools[0].Function.Parameters.Required, "cwd")
+	assert.Contains(t, allTools[0].Function.Parameters.Required, "cmd")
+	assert.Contains(t, allTools[0].Function.Parameters.Required, "cwd")
 
 	// Verify handler is provided
-	assert.NotNil(t, tools[0].Handler)
+	assert.NotNil(t, allTools[0].Handler)
 }
 
 func TestShellTool_DisplayNames(t *testing.T) {
@@ -144,8 +143,7 @@ func TestShellTool_HandlerWithCwd(t *testing.T) {
 	require.NoError(t, err)
 	// The output might contain extra newlines or other characters,
 	// so we just check if it contains the temp dir path
-	assert.True(t, strings.Contains(result.Output, tmpDir),
-		"Expected output to contain the temp dir path: %s, but got: %s", tmpDir, result.Output)
+	assert.Contains(t, result.Output, tmpDir)
 }
 
 func TestShellTool_HandlerError(t *testing.T) {
@@ -203,7 +201,7 @@ func TestShellTool_InvalidArguments(t *testing.T) {
 	}
 
 	result, err := handler(t.Context(), toolCall)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Nil(t, result)
 }
 

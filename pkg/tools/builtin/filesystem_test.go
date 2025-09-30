@@ -32,10 +32,10 @@ func TestFilesystemTool_Instructions(t *testing.T) {
 
 func TestFilesystemTool_Tools(t *testing.T) {
 	tool := NewFilesystemTool([]string{"/tmp"})
-	tools, err := tool.Tools(t.Context())
+	allTools, err := tool.Tools(t.Context())
 
 	require.NoError(t, err)
-	assert.Len(t, tools, 14)
+	assert.Len(t, allTools, 14)
 
 	expectedTools := []string{
 		"add_allowed_directory",
@@ -54,9 +54,9 @@ func TestFilesystemTool_Tools(t *testing.T) {
 		"write_file",
 	}
 
-	toolNames := make([]string, len(tools))
-	for i, tool := range tools {
-		toolNames[i] = tool.Function.Name
+	var toolNames []string
+	for _, tool := range allTools {
+		toolNames = append(toolNames, tool.Function.Name)
 		assert.NotNil(t, tool.Handler)
 	}
 
@@ -89,7 +89,7 @@ func TestFilesystemTool_IsPathAllowed(t *testing.T) {
 	// Test disallowed path
 	disallowedPath := "/etc/passwd"
 	err = tool.isPathAllowed(disallowedPath)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not within allowed directories")
 }
 
@@ -286,7 +286,7 @@ func TestFilesystemTool_GetFileInfo(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(result.Output), &fileInfo))
 
 	assert.Equal(t, "test.txt", fileInfo["name"])
-	assert.Equal(t, float64(len(content)), fileInfo["size"])
+	assert.InDelta(t, len(content), fileInfo["size"], 0.0)
 	assert.Equal(t, false, fileInfo["isDir"])
 
 	// Test directory info
@@ -587,7 +587,7 @@ func TestFilesystemTool_InvalidArguments(t *testing.T) {
 	}
 
 	result, err := handler(t.Context(), toolCall)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Nil(t, result)
 }
 
@@ -682,6 +682,7 @@ func main() {
 // Helper functions
 
 func getToolHandler(t *testing.T, tool *FilesystemTool, toolName string) tools.ToolHandler {
+	t.Helper()
 	tls, err := tool.Tools(t.Context())
 	require.NoError(t, err)
 
@@ -696,6 +697,7 @@ func getToolHandler(t *testing.T, tool *FilesystemTool, toolName string) tools.T
 }
 
 func callHandler(t *testing.T, handler tools.ToolHandler, args map[string]any) *tools.ToolCallResult {
+	t.Helper()
 	argsBytes, err := json.Marshal(args)
 	require.NoError(t, err)
 
@@ -835,11 +837,11 @@ func TestFilesystemTool_FilterTools(t *testing.T) {
 	allowedDirs := []string{"/tmp"}
 	tool := NewFilesystemTool(allowedDirs, WithAllowedTools([]string{"list_allowed_directories"}))
 
-	tools, err := tool.Tools(t.Context())
+	allTools, err := tool.Tools(t.Context())
 	require.NoError(t, err)
-	require.Len(t, tools, 1)
-	require.Equal(t, "list_allowed_directories", tools[0].Function.Name)
-	require.NotNil(t, tools[0].Handler)
+	require.Len(t, allTools, 1)
+	require.Equal(t, "list_allowed_directories", allTools[0].Function.Name)
+	require.NotNil(t, allTools[0].Handler)
 }
 
 func TestMatchExcludePattern(t *testing.T) {

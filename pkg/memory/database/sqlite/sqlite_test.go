@@ -12,7 +12,9 @@ import (
 	"github.com/docker/cagent/pkg/memory/database"
 )
 
-func setupTestDB(t *testing.T) (database.Database, string, func()) {
+func setupTestDB(t *testing.T) database.Database {
+	t.Helper()
+
 	// Create temporary database file
 	tmpFile := t.TempDir() + "/test.db"
 
@@ -20,31 +22,29 @@ func setupTestDB(t *testing.T) (database.Database, string, func()) {
 	require.NoError(t, err)
 	require.NotNil(t, db)
 
-	cleanup := func() {
+	t.Cleanup(func() {
 		// Close connection and remove temp file
 		memDB := db.(*MemoryDatabase)
 		memDB.db.Close()
 		os.Remove(tmpFile)
-	}
+	})
 
-	return db, tmpFile, cleanup
+	return db
 }
 
 func TestNewMemoryDatabase(t *testing.T) {
 	// Test successful database creation
-	db, _, cleanup := setupTestDB(t)
-	defer cleanup()
+	db := setupTestDB(t)
 
 	assert.NotNil(t, db, "Database should be created successfully")
 
 	// Test with invalid path
 	_, err := NewMemoryDatabase("/:invalid:path")
-	assert.Error(t, err, "Should fail with invalid database path")
+	require.Error(t, err, "Should fail with invalid database path")
 }
 
 func TestAddMemory(t *testing.T) {
-	db, _, cleanup := setupTestDB(t)
-	defer cleanup()
+	db := setupTestDB(t)
 
 	ctx := t.Context()
 
@@ -60,7 +60,7 @@ func TestAddMemory(t *testing.T) {
 
 	// Test adding a duplicate memory (same ID)
 	err = db.AddMemory(ctx, memory)
-	assert.Error(t, err, "Adding memory with duplicate ID should fail")
+	require.Error(t, err, "Adding memory with duplicate ID should fail")
 
 	// Test adding with empty ID
 	emptyIDMemory := database.UserMemory{
@@ -70,17 +70,14 @@ func TestAddMemory(t *testing.T) {
 	}
 
 	err = db.AddMemory(ctx, emptyIDMemory)
-	assert.Error(t, err, "Adding memory with empty ID should fail")
+	require.Error(t, err, "Adding memory with empty ID should fail")
 }
 
 func TestGetMemories(t *testing.T) {
-	db, _, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	ctx := context.Background()
+	db := setupTestDB(t)
 
 	// Test with empty database
-	memories, err := db.GetMemories(ctx)
+	memories, err := db.GetMemories(t.Context())
 	require.NoError(t, err)
 	assert.Empty(t, memories, "Empty database should return empty memories slice")
 
@@ -99,12 +96,12 @@ func TestGetMemories(t *testing.T) {
 	}
 
 	for _, memory := range testMemories {
-		err := db.AddMemory(ctx, memory)
+		err := db.AddMemory(t.Context(), memory)
 		require.NoError(t, err)
 	}
 
 	// Get and verify memories
-	memories, err = db.GetMemories(ctx)
+	memories, err = db.GetMemories(t.Context())
 	require.NoError(t, err)
 	assert.Len(t, memories, 2, "Should retrieve both added memories")
 
@@ -123,10 +120,7 @@ func TestGetMemories(t *testing.T) {
 }
 
 func TestDeleteMemory(t *testing.T) {
-	db, _, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	ctx := context.Background()
+	db := setupTestDB(t)
 
 	// Add a test memory
 	memory := database.UserMemory{
@@ -135,20 +129,20 @@ func TestDeleteMemory(t *testing.T) {
 		Memory:    "Test memory to delete",
 	}
 
-	err := db.AddMemory(ctx, memory)
+	err := db.AddMemory(t.Context(), memory)
 	require.NoError(t, err)
 
 	// Verify it exists
-	memories, err := db.GetMemories(ctx)
+	memories, err := db.GetMemories(t.Context())
 	require.NoError(t, err)
 	require.Len(t, memories, 1)
 
 	// Delete the memory
-	err = db.DeleteMemory(ctx, memory)
+	err = db.DeleteMemory(t.Context(), memory)
 	require.NoError(t, err, "Deleting existing memory should succeed")
 
 	// Verify it's gone
-	memories, err = db.GetMemories(ctx)
+	memories, err = db.GetMemories(t.Context())
 	require.NoError(t, err)
 	assert.Empty(t, memories, "Memory should be deleted")
 
@@ -156,13 +150,12 @@ func TestDeleteMemory(t *testing.T) {
 	nonExistentMemory := database.UserMemory{
 		ID: "non-existent-id",
 	}
-	err = db.DeleteMemory(ctx, nonExistentMemory)
+	err = db.DeleteMemory(t.Context(), nonExistentMemory)
 	require.NoError(t, err, "Deleting non-existent memory should not return an error")
 }
 
 func TestDatabaseOperationsWithCanceledContext(t *testing.T) {
-	db, _, cleanup := setupTestDB(t)
-	defer cleanup()
+	db := setupTestDB(t)
 
 	// Create a canceled context
 	ctx, cancel := context.WithCancel(t.Context())
@@ -176,13 +169,13 @@ func TestDatabaseOperationsWithCanceledContext(t *testing.T) {
 	}
 
 	err := db.AddMemory(ctx, memory)
-	assert.Error(t, err, "AddMemory should fail with canceled context")
+	require.Error(t, err, "AddMemory should fail with canceled context")
 
 	_, err = db.GetMemories(ctx)
-	assert.Error(t, err, "GetMemories should fail with canceled context")
+	require.Error(t, err, "GetMemories should fail with canceled context")
 
 	err = db.DeleteMemory(ctx, memory)
-	assert.Error(t, err, "DeleteMemory should fail with canceled context")
+	require.Error(t, err, "DeleteMemory should fail with canceled context")
 }
 
 func TestDatabaseWithMultipleInstances(t *testing.T) {
@@ -197,14 +190,13 @@ func TestDatabaseWithMultipleInstances(t *testing.T) {
 	}()
 
 	// Add a memory to the first instance
-	ctx := context.Background()
 	memory := database.UserMemory{
 		ID:        "shared-id",
 		CreatedAt: time.Now().Format(time.RFC3339),
 		Memory:    "Shared memory",
 	}
 
-	err = db1.AddMemory(ctx, memory)
+	err = db1.AddMemory(t.Context(), memory)
 	require.NoError(t, err)
 
 	// Create second database instance pointing to the same file
@@ -216,7 +208,7 @@ func TestDatabaseWithMultipleInstances(t *testing.T) {
 	}()
 
 	// Verify second instance can read the memory added by first instance
-	memories, err := db2.GetMemories(ctx)
+	memories, err := db2.GetMemories(t.Context())
 	require.NoError(t, err)
 	assert.Len(t, memories, 1, "Second instance should see memory added by first instance")
 	assert.Equal(t, "shared-id", memories[0].ID)

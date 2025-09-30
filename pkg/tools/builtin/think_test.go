@@ -126,7 +126,7 @@ func TestThinkTool_InvalidArguments(t *testing.T) {
 	}
 
 	result, err := handler(t.Context(), toolCall)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Nil(t, result)
 }
 

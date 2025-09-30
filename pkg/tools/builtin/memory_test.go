@@ -199,7 +199,7 @@ func TestMemoryTool_InvalidArguments(t *testing.T) {
 	}
 
 	result, err := tool.handleAddMemory(t.Context(), toolCall)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Nil(t, result)
 
 	// Invalid JSON for delete_memory
@@ -211,7 +211,7 @@ func TestMemoryTool_InvalidArguments(t *testing.T) {
 	}
 
 	result, err = tool.handleDeleteMemory(t.Context(), toolCall)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Nil(t, result)
 }
 

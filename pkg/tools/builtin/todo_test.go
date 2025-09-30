@@ -2,7 +2,6 @@ package builtin
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -31,34 +30,34 @@ func TestTodoTool_Instructions(t *testing.T) {
 func TestTodoTool_Tools(t *testing.T) {
 	tool := NewTodoTool()
 
-	tools, err := tool.Tools(t.Context())
+	allTools, err := tool.Tools(t.Context())
 
 	require.NoError(t, err)
-	assert.Len(t, tools, 4)
+	assert.Len(t, allTools, 4)
 
 	// Verify tool functions
-	assert.Equal(t, "create_todo", tools[0].Function.Name)
-	assert.Equal(t, "create_todos", tools[1].Function.Name)
-	assert.Equal(t, "update_todo", tools[2].Function.Name)
-	assert.Equal(t, "list_todos", tools[3].Function.Name)
+	assert.Equal(t, "create_todo", allTools[0].Function.Name)
+	assert.Equal(t, "create_todos", allTools[1].Function.Name)
+	assert.Equal(t, "update_todo", allTools[2].Function.Name)
+	assert.Equal(t, "list_todos", allTools[3].Function.Name)
 
 	// Check create_todo parameters
-	createProps := tools[0].Function.Parameters.Properties
+	createProps := allTools[0].Function.Parameters.Properties
 	assert.Contains(t, createProps, "description")
-	assert.Contains(t, tools[0].Function.Parameters.Required, "description")
+	assert.Contains(t, allTools[0].Function.Parameters.Required, "description")
 
 	// Check update_todo parameters
-	updateProps := tools[2].Function.Parameters.Properties
+	updateProps := allTools[2].Function.Parameters.Properties
 	assert.Contains(t, updateProps, "id")
 	assert.Contains(t, updateProps, "status")
-	assert.Contains(t, tools[2].Function.Parameters.Required, "id")
-	assert.Contains(t, tools[2].Function.Parameters.Required, "status")
+	assert.Contains(t, allTools[2].Function.Parameters.Required, "id")
+	assert.Contains(t, allTools[2].Function.Parameters.Required, "status")
 
 	// Verify handlers are provided
-	assert.NotNil(t, tools[0].Handler)
-	assert.NotNil(t, tools[1].Handler)
-	assert.NotNil(t, tools[2].Handler)
-	assert.NotNil(t, tools[3].Handler)
+	assert.NotNil(t, allTools[0].Handler)
+	assert.NotNil(t, allTools[1].Handler)
+	assert.NotNil(t, allTools[2].Handler)
+	assert.NotNil(t, allTools[3].Handler)
 }
 
 func TestTodoTool_DisplayNames(t *testing.T) {
@@ -329,8 +328,7 @@ func TestTodoTool_UpdateNonexistentTodo(t *testing.T) {
 	_, err = updateHandler(t.Context(), updateToolCall)
 
 	// Verify error
-	assert.Error(t, err)
-	assert.True(t, strings.Contains(err.Error(), "not found"))
+	assert.ErrorContains(t, err, "not found")
 }
 
 func TestTodoTool_InvalidArguments(t *testing.T) {
@@ -353,7 +351,7 @@ func TestTodoTool_InvalidArguments(t *testing.T) {
 	}
 
 	_, err = createHandler(t.Context(), createToolCall)
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	// Invalid JSON for update_todo
 	updateToolCall := tools.ToolCall{
@@ -364,7 +362,7 @@ func TestTodoTool_InvalidArguments(t *testing.T) {
 	}
 
 	_, err = updateHandler(t.Context(), updateToolCall)
-	assert.Error(t, err)
+	require.Error(t, err)
 }
 
 func TestTodoTool_StartStop(t *testing.T) {

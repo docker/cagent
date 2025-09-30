@@ -97,7 +97,7 @@ func TestGetMessages(t *testing.T) {
 	s := New()
 
 	// Add more than maxMessages to the session
-	for i := 0; i < maxMessages+10; i++ {
+	for range maxMessages + 10 {
 		s.AddMessage(NewAgentMessage(testAgent, &chat.Message{
 			Role:    chat.MessageRoleUser,
 			Content: "test message",

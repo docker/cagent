@@ -15,32 +15,32 @@ func TestNewTaskTool(t *testing.T) {
 func TestTaskTool_Instructions(t *testing.T) {
 	tool := NewTransferTaskTool()
 	instructions := tool.Instructions()
-	assert.Equal(t, "", instructions, "TaskTool instructions should be empty")
+	assert.Empty(t, instructions)
 }
 
 func TestTaskTool_Tools(t *testing.T) {
 	tool := NewTransferTaskTool()
 
-	tools, err := tool.Tools(t.Context())
+	allTools, err := tool.Tools(t.Context())
 
 	require.NoError(t, err)
-	assert.Len(t, tools, 1)
+	assert.Len(t, allTools, 1)
 
 	// Verify transfer_task function
-	assert.Equal(t, "transfer_task", tools[0].Function.Name)
-	assert.Contains(t, tools[0].Function.Description, "transfer a task to the selected team member")
+	assert.Equal(t, "transfer_task", allTools[0].Function.Name)
+	assert.Contains(t, allTools[0].Function.Description, "transfer a task to the selected team member")
 
 	// Check parameters
-	props := tools[0].Function.Parameters.Properties
+	props := allTools[0].Function.Parameters.Properties
 	assert.Contains(t, props, "agent")
 	assert.Contains(t, props, "task")
 
 	// Check required fields
-	assert.Contains(t, tools[0].Function.Parameters.Required, "agent")
-	assert.Contains(t, tools[0].Function.Parameters.Required, "task")
+	assert.Contains(t, allTools[0].Function.Parameters.Required, "agent")
+	assert.Contains(t, allTools[0].Function.Parameters.Required, "task")
 
 	// Verify no handler is provided (it's handled externally)
-	assert.Nil(t, tools[0].Handler)
+	assert.Nil(t, allTools[0].Handler)
 }
 
 func TestTaskTool_DisplayNames(t *testing.T) {

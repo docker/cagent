@@ -166,7 +166,7 @@ func (r *runtime) finalizeEventChannel(ctx context.Context, sess *session.Sessio
 	telemetry.RecordSessionEnd(ctx)
 
 	if sess.Title == "" && len(sess.GetAllMessages()) > 0 {
-		r.generateSessionTitle(context.Background(), sess, events)
+		r.generateSessionTitle(ctx, sess, events)
 	}
 }
 
@@ -256,7 +256,7 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 			modelID := model.ID()
 			slog.Debug("Using agent", "agent", a.Name(), "model", modelID)
 			slog.Debug("Getting model definition", "model_id", modelID)
-			m, err := r.modelsStore.GetModel(context.Background(), modelID)
+			m, err := r.modelsStore.GetModel(ctx, modelID)
 			if err != nil {
 				slog.Debug("Failed to get model definition", "error", err)
 			}

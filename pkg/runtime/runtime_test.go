@@ -334,7 +334,7 @@ func TestContextCancellation(t *testing.T) {
 	sess := session.New(session.WithUserMessage("", "Hi"))
 	sess.Title = "Unit Test"
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	evCh := rt.RunStream(ctx, sess)
 
 	cancel()

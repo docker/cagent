@@ -24,7 +24,11 @@ linters:
     - unparam
     - unused
     - usestdlibvars
+    - forbidigo
   settings:
+    forbidigo:
+      forbid:
+        - pattern: context\.Background()
     depguard:
       rules:
         internal:
@@ -50,6 +54,8 @@ linters:
       disabled-checks:
         - dupImport
         - hugeParam
+        - unnamedResult
+        - appendAssign
       enabled-tags:
         - diagnostic
         - style
@@ -72,17 +78,15 @@ linters:
       - legacy
       - std-error-handling
     rules:
-      - linters:
+      - path: _test\.go
+        linters:
           - dupl
           - errcheck
           - gocyclo
-          - gosec
-        path: _test\.go
-    paths:
-      - .*_test\.go$
-      - third_party$
-      - builtin$
-      - examples$
+          - gosec   
+      - path-except: _test\.go
+        linters:
+          - forbidigo
 issues:
   max-same-issues: 3
 formatters:

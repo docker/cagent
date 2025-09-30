@@ -30,7 +30,7 @@ type MockHTTPClient struct {
 func NewMockHTTPClient() *MockHTTPClient {
 	mock := &MockHTTPClient{
 		response: &http.Response{
-			StatusCode: 200,
+			StatusCode: http.StatusOK,
 			Body:       io.NopCloser(bytes.NewReader([]byte(`{"success": true}`))),
 			Header:     make(http.Header),
 		},
@@ -106,9 +106,9 @@ func TestNewClient(t *testing.T) {
 		Success: true,
 		Error:   "",
 	}
-	client.Track(context.Background(), commandEvent)
-	client.RecordToolCall(context.Background(), "test-tool", "session-id", "agent-name", time.Millisecond, nil)
-	client.RecordTokenUsage(context.Background(), "test-model", 100, 50, 0.5)
+	client.Track(t.Context(), commandEvent)
+	client.RecordToolCall(t.Context(), "test-tool", "session-id", "agent-name", time.Millisecond, nil)
+	client.RecordTokenUsage(t.Context(), "test-model", 100, 50, 0.5)
 }
 
 func TestSessionTracking(t *testing.T) {
@@ -122,7 +122,7 @@ func TestSessionTracking(t *testing.T) {
 	client.apiKey = "test-session-key"
 	client.header = "test-header"
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Test session lifecycle
 	sessionID := client.RecordSessionStart(ctx, "test-agent", "test-session-id")
@@ -143,7 +143,7 @@ func TestSessionTracking(t *testing.T) {
 
 	// Verify HTTP requests were made (should have session start, tool call, token usage, session end)
 	requestCount := mockHTTP.GetRequestCount()
-	assert.Greater(t, requestCount, 0, "Expected HTTP requests to be made for session tracking events")
+	assert.Positive(t, requestCount, "Expected HTTP requests to be made for session tracking events")
 
 	t.Logf("Session tracking HTTP requests captured: %d", requestCount)
 
@@ -172,7 +172,7 @@ func TestCommandTracking(t *testing.T) {
 		Args:   []string{},
 		Flags:  []string{},
 	}
-	err = client.TrackCommand(context.Background(), cmdInfo, func(ctx context.Context) error {
+	err = client.TrackCommand(t.Context(), cmdInfo, func(ctx context.Context) error {
 		executed = true
 		time.Sleep(10 * time.Millisecond)
 		return nil
@@ -185,7 +185,7 @@ func TestCommandTracking(t *testing.T) {
 
 	// Verify HTTP requests were made for command tracking
 	requestCount := mockHTTP.GetRequestCount()
-	assert.Greater(t, requestCount, 0, "Expected HTTP requests to be made for command tracking")
+	assert.Positive(t, requestCount, "Expected HTTP requests to be made for command tracking")
 
 	t.Logf("Command tracking HTTP requests captured: %d", requestCount)
 
@@ -213,7 +213,7 @@ func TestCommandTrackingWithError(t *testing.T) {
 		Args:   []string{},
 		Flags:  []string{},
 	}
-	err = client.TrackCommand(context.Background(), cmdInfo, func(ctx context.Context) error {
+	err = client.TrackCommand(t.Context(), cmdInfo, func(ctx context.Context) error {
 		return testErr
 	})
 
@@ -224,7 +224,7 @@ func TestCommandTrackingWithError(t *testing.T) {
 
 	// Verify HTTP requests were made for command tracking with error
 	requestCount := mockHTTP.GetRequestCount()
-	assert.Greater(t, requestCount, 0, "Expected HTTP requests to be made for command error tracking")
+	assert.Positive(t, requestCount, "Expected HTTP requests to be made for command error tracking")
 
 	t.Logf("Command error tracking HTTP requests captured: %d", requestCount)
 }
@@ -241,7 +241,7 @@ func TestStructuredEvent(t *testing.T) {
 	}
 
 	// Should not panic
-	client.Track(context.Background(), &event)
+	client.Track(t.Context(), &event)
 }
 
 func TestGetTelemetryEnabled(t *testing.T) {
@@ -344,7 +344,7 @@ func TestAllEventTypes(t *testing.T) {
 	client.apiKey = "test-all-events-key"
 	client.header = "test-header"
 
-	ctx := context.Background()
+	ctx := t.Context()
 	sessionID := "test-session-123"
 	agentName := "test-agent"
 
@@ -532,7 +532,7 @@ func TestAllEventTypes(t *testing.T) {
 
 	// Verify that HTTP requests were made for all events
 	requestCount := mockHTTP.GetRequestCount()
-	assert.Greater(t, requestCount, 0, "Expected HTTP requests to be made for telemetry events")
+	assert.Positive(t, requestCount, "Expected HTTP requests to be made for telemetry events")
 
 	t.Logf("Total HTTP requests captured: %d", requestCount)
 
@@ -585,7 +585,7 @@ func TestTrackServerStart(t *testing.T) {
 		Args:   []string{},
 		Flags:  []string{"--port", "8080"},
 	}
-	err = client.TrackServerStart(context.Background(), cmdInfo, func(ctx context.Context) error {
+	err = client.TrackServerStart(t.Context(), cmdInfo, func(ctx context.Context) error {
 		executed = true
 		// Simulate server running briefly
 		time.Sleep(10 * time.Millisecond)
@@ -702,7 +702,7 @@ func TestHTTPRequestVerification(t *testing.T) {
 	client.apiKey = "test-api-key"
 	client.header = "test-header"
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Test command event HTTP request
 	t.Run("CommandEventHTTPRequest", func(t *testing.T) {
@@ -732,7 +732,7 @@ func TestHTTPRequestVerification(t *testing.T) {
 		t.Logf("HTTP requests captured: %d", mockHTTP.GetRequestCount())
 
 		// Verify HTTP request was made
-		assert.Greater(t, mockHTTP.GetRequestCount(), 0, "Expected HTTP request to be made")
+		assert.Positive(t, mockHTTP.GetRequestCount(), "Expected HTTP request to be made")
 
 		requests := mockHTTP.GetRequests()
 		req := requests[0]
@@ -845,7 +845,7 @@ func TestEventBufferOverflowDropsEvents(t *testing.T) {
 
 	// Send events synchronously
 	for range numEvents {
-		client.Track(context.Background(), &CommandEvent{
+		client.Track(t.Context(), &CommandEvent{
 			Action:  "overflow-test",
 			Success: true,
 		})
@@ -873,29 +873,29 @@ func TestNon2xxHTTPResponseHandling(t *testing.T) {
 
 	// Configure mock to return 500
 	mockHTTP.SetResponse(&http.Response{
-		StatusCode: 500,
+		StatusCode: http.StatusInternalServerError,
 		Status:     "500 Internal Server Error",
 		Body:       io.NopCloser(bytes.NewReader([]byte("internal error"))),
 		Header:     make(http.Header),
 	})
 
-	client.Track(context.Background(), &CommandEvent{Action: "error-test", Success: true})
+	client.Track(t.Context(), &CommandEvent{Action: "error-test", Success: true})
 
 	// Give more time for background processing
 	time.Sleep(100 * time.Millisecond)
 
 	requestCount := mockHTTP.GetRequestCount()
-	assert.Greater(t, requestCount, 0, "Expected HTTP request to be made despite error response")
+	assert.Positive(t, requestCount, "Expected HTTP request to be made despite error response")
 
 	// Test additional error codes
 	mockHTTP.SetResponse(&http.Response{
-		StatusCode: 404,
+		StatusCode: http.StatusNotFound,
 		Status:     "404 Not Found",
 		Body:       io.NopCloser(bytes.NewReader([]byte("not found"))),
 		Header:     make(http.Header),
 	})
 
-	client.Track(context.Background(), &CommandEvent{Action: "not-found-test", Success: true})
+	client.Track(t.Context(), &CommandEvent{Action: "not-found-test", Success: true})
 
 	time.Sleep(100 * time.Millisecond)
 
