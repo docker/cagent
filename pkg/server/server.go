@@ -882,6 +882,7 @@ func (s *Server) runAgent(c echo.Context) error {
 	if !exists {
 		var opts []runtime.Opt = []runtime.Opt{
 			runtime.WithCurrentAgent(currentAgent),
+			runtime.WithManagedOAuth(false),
 		}
 		rt, err = runtime.New(t, opts...)
 		if err != nil {

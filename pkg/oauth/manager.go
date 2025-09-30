@@ -20,6 +20,7 @@ type manager struct {
 	serverMutex              sync.Mutex
 	redirectURI              string
 	port                     int
+	managedServer            bool
 }
 
 // NewManager creates a new OAuth manager with optional port configuration
@@ -29,6 +30,7 @@ func NewManager(emitAuthRequired func(serverURL, serverType, status string), opt
 		resumeAuthorizeOauthFlow: make(chan bool),
 		resumeOauthCodeReceived:  make(chan string),
 		port:                     8083,
+		managedServer:            true,
 	}
 
 	// Apply options
@@ -58,6 +60,12 @@ func WithPort(port int) ManagerOption {
 func WithRedirectURI(uri string) ManagerOption {
 	return func(m *manager) {
 		m.redirectURI = uri
+	}
+}
+
+func WithManagedServer(managed bool) ManagerOption {
+	return func(m *manager) {
+		m.managedServer = managed
 	}
 }
 
@@ -176,37 +184,41 @@ func (m *manager) performOAuthAuthorization(ctx context.Context, sessionID strin
 		slog.Warn("Failed to start callback server, falling back to manual input", "error", err)
 	}
 
-	// Check if we have a callback server running (either global or our own)
-	if callbackServer := m.getCallbackServer(); callbackServer != nil {
-		slog.Debug("Using callback server for OAuth authorization")
-		// Wait for callback from the browser
-		callbackCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-		defer cancel()
+	if m.managedServer {
+		// Check if we have a callback server running (either global or our own)
+		if callbackServer := m.getCallbackServer(); callbackServer != nil {
+			slog.Debug("Using callback server for OAuth authorization")
+			// Wait for callback from the browser
+			callbackCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+			defer cancel()
 
-		result, err := callbackServer.WaitForCallback(callbackCtx)
-		if err != nil {
-			if err == context.DeadlineExceeded {
-				return fmt.Errorf("OAuth authorization timed out after 5 minutes")
+			result, err := callbackServer.WaitForCallback(callbackCtx)
+			if err != nil {
+				if err == context.DeadlineExceeded {
+					return fmt.Errorf("OAuth authorization timed out after 5 minutes")
+				}
+				return fmt.Errorf("failed to wait for OAuth callback: %w", err)
 			}
-			return fmt.Errorf("failed to wait for OAuth callback: %w", err)
-		}
 
-		if result.Error != "" {
-			return fmt.Errorf("OAuth authorization error: %s", result.Error)
-		}
+			if result.Error != "" {
+				return fmt.Errorf("OAuth authorization error: %s", result.Error)
+			}
 
-		if result.Code == "" {
-			return fmt.Errorf("no authorization code received from OAuth callback")
-		}
+			if result.Code == "" {
+				return fmt.Errorf("no authorization code received from OAuth callback")
+			}
 
-		// Verify state parameter matches
-		receivedState := result.State
-		if receivedState != state {
-			slog.Warn("OAuth state mismatch", "expected", state, "received", receivedState)
-		}
+			// Verify state parameter matches
+			receivedState := result.State
+			if receivedState != state {
+				slog.Warn("OAuth state mismatch", "expected", state, "received", receivedState)
+			}
 
-		code = result.Code
-		slog.Debug("Received OAuth code via callback server", "code_present", code != "")
+			code = result.Code
+			slog.Debug("Received OAuth code via callback server", "code_present", code != "")
+		} else {
+			return fmt.Errorf("no callback server available for OAuth authorization")
+		}
 	} else {
 		// Fallback to manual input
 		slog.Debug("No callback server available, waiting for manual input")

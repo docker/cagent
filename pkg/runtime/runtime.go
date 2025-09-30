@@ -67,6 +67,7 @@ type runtime struct {
 	tracer            trace.Tracer
 	modelsStore       modelStore
 	sessionCompaction bool
+	managedOAuth      bool
 }
 
 type Opt func(*runtime)
@@ -74,6 +75,12 @@ type Opt func(*runtime)
 func WithCurrentAgent(agentName string) Opt {
 	return func(r *runtime) {
 		r.currentAgent = agentName
+	}
+}
+
+func WithManagedOAuth(managed bool) Opt {
+	return func(r *runtime) {
+		r.managedOAuth = managed
 	}
 }
 
@@ -110,6 +117,7 @@ func New(agents *team.Team, opts ...Opt) (Runtime, error) {
 		resumeChan:        make(chan ResumeType),
 		modelsStore:       modelsStore,
 		sessionCompaction: true,
+		managedOAuth:      true,
 	}
 
 	for _, opt := range opts {
@@ -139,7 +147,7 @@ func (r *runtime) handleOAuthAuthorizationFlow(ctx context.Context, sess *sessio
 		emitAuthRequired := func(serverURL, serverType, status string) {
 			events <- AuthorizationRequired(serverURL, serverType, status, r.currentAgent)
 		}
-		r.oauthManager = oauth.NewManager(emitAuthRequired)
+		r.oauthManager = oauth.NewManager(emitAuthRequired, oauth.WithManagedServer(r.managedOAuth))
 		defer func() {
 			if cleanupErr := r.oauthManager.Cleanup(ctx); cleanupErr != nil {
 				slog.Error("Failed to cleanup OAuth manager", "error", cleanupErr)
