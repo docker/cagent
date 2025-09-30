@@ -5,28 +5,28 @@ go 1.25.1
 require (
 	dario.cat/mergo v1.0.2
 	github.com/Microsoft/go-winio v0.6.2
-	github.com/anthropics/anthropic-sdk-go v1.9.1
+	github.com/anthropics/anthropic-sdk-go v1.13.0
 	github.com/atotto/clipboard v0.1.4
 	github.com/charmbracelet/bubbles/v2 v2.0.0-beta.1.0.20250820203609-601216f68ee2
-	github.com/charmbracelet/bubbletea/v2 v2.0.0-beta.4.0.20250813213544-5cc219db8892
+	github.com/charmbracelet/bubbletea/v2 v2.0.0-beta.4.0.20250910155747-997384b0b35e
 	github.com/charmbracelet/glamour/v2 v2.0.0-20250811143442-a27abb32f018
-	github.com/charmbracelet/lipgloss/v2 v2.0.0-beta.3.0.20250721205738-ea66aa652ee0
+	github.com/charmbracelet/lipgloss/v2 v2.0.0-beta.3.0.20250917201909-41ff0bf215ea
 	github.com/dop251/goja v0.0.0-20250630131328-58d95d85e994
 	github.com/fatih/color v1.18.0
 	github.com/goccy/go-yaml v1.18.0
 	github.com/google/go-containerregistry v0.20.6
 	github.com/google/uuid v1.6.0
 	github.com/labstack/echo/v4 v4.13.4
-	github.com/mark3labs/mcp-go v0.41.0
-	github.com/sashabaranov/go-openai v1.41.1
+	github.com/mark3labs/mcp-go v0.41.1
+	github.com/sashabaranov/go-openai v1.41.2
 	github.com/spf13/cobra v1.10.1
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/otel v1.38.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.38.0
 	go.opentelemetry.io/otel/sdk v1.38.0
 	go.opentelemetry.io/otel/trace v1.38.0
-	golang.org/x/term v0.34.0
-	google.golang.org/genai v1.22.0
+	golang.org/x/term v0.35.0
+	google.golang.org/genai v1.26.0
 	modernc.org/sqlite v1.39.0
 )
 
@@ -40,7 +40,7 @@ require (
 	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/charmbracelet/colorprofile v0.3.2 // indirect
-	github.com/charmbracelet/ultraviolet v0.0.0-20250813213450-50737e162af5 // indirect
+	github.com/charmbracelet/ultraviolet v0.0.0-20250915111650-81d4262876ef // indirect
 	github.com/charmbracelet/x/ansi v0.10.1 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.14-0.20250811133356-e0c5dbe5ea4a // indirect
 	github.com/charmbracelet/x/exp/slice v0.0.0-20250829135019-44e44e21330d // indirect
@@ -70,7 +70,7 @@ require (
 	github.com/invopop/jsonschema v0.13.0 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/labstack/gommon v0.4.2 // indirect
-	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
+	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect
 	github.com/mailru/easyjson v0.9.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
@@ -109,8 +109,8 @@ require (
 	golang.org/x/crypto v0.41.0 // indirect
 	golang.org/x/exp v0.0.0-20250819193227-8b4c13bb791b // indirect
 	golang.org/x/net v0.43.0 // indirect
-	golang.org/x/sync v0.16.0 // indirect
-	golang.org/x/sys v0.35.0 // indirect
+	golang.org/x/sync v0.17.0 // indirect
+	golang.org/x/sys v0.36.0 // indirect
 	golang.org/x/text v0.28.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250826171959-ef028d996bc1 // indirect

@@ -9,7 +9,7 @@ import (
 
 // Color scheme - centralized color palette
 var (
-	Background = lipgloss.Color("#1f1c28ff")
+	Background = lipgloss.Color("#1f1c28")
 
 	// Primary colors
 	highlight = lipgloss.Color("#1D63ED") // Docker blue for headers and focus
