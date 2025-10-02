@@ -8,7 +8,7 @@
     "version": {
       "type": "string",
       "description": "Configuration version",
-      "enum": ["2", "v2"],
+      "enum": ["2"],
       "examples": ["2"]
     },
     "agents": {
@@ -85,6 +85,13 @@
           "type": "integer",
           "description": "Number of history items to keep",
           "minimum": 0
+        },
+        "add_prompt_files": {
+          "type": "array",
+          "description": "List of prompt files to add",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "additionalProperties": false
@@ -189,7 +196,8 @@
             "memory",
             "filesystem",
             "shell",
-            "todo"
+            "todo",
+            "fetch"
           ]
         },
         "ref": {
@@ -240,9 +248,12 @@
         "shell": {
           "type": "object",
           "description": "Shell script configurations (for script tool)",
-          "additionalProperties": {
-            "$ref": "#/definitions/ScriptShellToolConfig"
-          }
+          "patternProperties": {
+            "^[A-Za-z_][A-Za-z0-9_\\-]*$": {
+              "$ref": "#/definitions/ScriptShellToolConfig"
+            }
+        },
+          "additionalProperties": false
         },
         "post_edit": {
           "type": "array",
@@ -275,7 +286,8 @@
                 "todo",
                 "think",
                 "memory",
-                "script"
+                "script",
+                "fetch"
               ]
             }
           }
@@ -342,7 +354,6 @@
           "description": "Working directory for the command"
         }
       },
-      "required": ["cmd", "description", "required"],
       "additionalProperties": false
     },
     "PostEditConfig": {

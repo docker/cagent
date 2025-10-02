@@ -16,9 +16,10 @@ func (t *Config) UnmarshalYAML(unmarshal func(any) error) error {
 }
 
 func (t *Config) validate() error {
-	for _, agent := range t.Agents {
-		for i := range agent.Toolsets {
-			if err := agent.Toolsets[i].validate(); err != nil {
+	for i := range t.Agents {
+		agent := t.Agents[i]
+		for j := range agent.Toolsets {
+			if err := agent.Toolsets[j].validate(); err != nil {
 				return err
 			}
 		}

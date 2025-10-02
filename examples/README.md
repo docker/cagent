@@ -20,6 +20,7 @@ like `filesystem`, which grants filesystem access, or `memory`, to allow the age
 | [diag.yaml](diag.yaml)                 | Log analysis and diagnostics           | ✓          | ✓     |      | ✓     |        |             |            |
 | [todo.yaml](todo.yaml)                 | Task manager example                   |            |       | ✓    |       |        |             |            |
 | [pythonist.yaml](pythonist.yaml)       | Python programming assistant           | ✓          | ✓     |      |       |        |             |            |
+| [fetch_docker.yaml](fetch_docker.yaml) | Web content fetcher and summarizer     |            |       |      |       |        | fetch (builtin) |            |
 | [alloy.yaml](alloy.yaml)               | Learning assistant                     |            |       |      |       |        |             |            |
 | [dmr.yaml](dmr.yaml)                   | Pirate-themed AI assistant             |            |       |      |       |        |             |            |
 

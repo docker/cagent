@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -99,6 +100,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 					},
 					Required: []string{"path"},
 				},
+				OutputSchema: tools.ToOutputSchemaSchema(reflect.TypeFor[string]()),
 			},
 			Handler: t.handleCreateDirectory,
 		},
@@ -124,6 +126,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 					},
 					Required: []string{"path"},
 				},
+				OutputSchema: tools.ToOutputSchemaSchema(reflect.TypeFor[*TreeNode]()),
 			},
 			Handler: t.handleDirectoryTree,
 		},
@@ -162,6 +165,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 					},
 					Required: []string{"path", "edits"},
 				},
+				OutputSchema: tools.ToOutputSchemaSchema(reflect.TypeFor[string]()),
 			},
 			Handler: t.handleEditFile,
 		},
@@ -183,6 +187,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 					},
 					Required: []string{"path"},
 				},
+				OutputSchema: tools.ToOutputSchemaSchema(reflect.TypeFor[FileInfo]()),
 			},
 			Handler: t.handleGetFileInfo,
 		},
@@ -194,6 +199,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "List Allowed Directories",
 				},
+				OutputSchema: tools.ToOutputSchemaSchema(reflect.TypeFor[[]string]()),
 			},
 			Handler: t.handleListAllowedDirectories,
 		},
@@ -222,6 +228,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 					},
 					Required: []string{"path", "reason"},
 				},
+				OutputSchema: tools.ToOutputSchemaSchema(reflect.TypeFor[string]()),
 			},
 			Handler: t.handleAddAllowedDirectory,
 		},
@@ -243,6 +250,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 					},
 					Required: []string{"path"},
 				},
+				OutputSchema: tools.ToOutputSchemaSchema(reflect.TypeFor[string]()),
 			},
 			Handler: t.handleListDirectory,
 		},
@@ -264,6 +272,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 					},
 					Required: []string{"path"},
 				},
+				OutputSchema: tools.ToOutputSchemaSchema(reflect.TypeFor[string]()),
 			},
 			Handler: t.handleListDirectoryWithSizes,
 		},
@@ -288,6 +297,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 					},
 					Required: []string{"source", "destination"},
 				},
+				OutputSchema: tools.ToOutputSchemaSchema(reflect.TypeFor[string]()),
 			},
 			Handler: t.handleMoveFile,
 		},
@@ -309,6 +319,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 					},
 					Required: []string{"path"},
 				},
+				OutputSchema: tools.ToOutputSchemaSchema(reflect.TypeFor[string]()),
 			},
 			Handler: t.handleReadFile,
 		},
@@ -337,6 +348,8 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 					},
 					Required: []string{"paths"},
 				},
+				// TODO(dga): depends on the json param
+				OutputSchema: tools.ToOutputSchemaSchema(reflect.TypeFor[string]()),
 			},
 			Handler: t.handleReadMultipleFiles,
 		},
@@ -369,6 +382,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 					},
 					Required: []string{"path", "pattern"},
 				},
+				OutputSchema: tools.ToOutputSchemaSchema(reflect.TypeFor[string]()),
 			},
 			Handler: t.handleSearchFiles,
 		},
@@ -405,6 +419,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 					},
 					Required: []string{"path", "query"},
 				},
+				OutputSchema: tools.ToOutputSchemaSchema(reflect.TypeFor[string]()),
 			},
 			Handler: t.handleSearchFilesContent,
 		},
@@ -429,6 +444,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 					},
 					Required: []string{"path", "content"},
 				},
+				OutputSchema: tools.ToOutputSchemaSchema(reflect.TypeFor[string]()),
 			},
 			Handler: t.handleWriteFile,
 		},
@@ -481,6 +497,10 @@ func (t *FilesystemTool) isPathAllowed(path string) error {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return fmt.Errorf("unable to resolve absolute path: %w", err)
+	}
+
+	if len(t.allowedDirectories) == 0 {
+		return fmt.Errorf("no allowed directories configured")
 	}
 
 	for _, allowedDir := range t.allowedDirectories {
@@ -636,6 +656,14 @@ func (t *FilesystemTool) handleEditFile(ctx context.Context, toolCall tools.Tool
 	return &tools.ToolCallResult{Output: fmt.Sprintf("File edited successfully. Changes:\n%s", strings.Join(changes, "\n"))}, nil
 }
 
+type FileInfo struct {
+	Name    string `json:"name"`
+	Size    int64  `json:"size"`
+	Mode    string `json:"mode"`
+	ModTime string `json:"modTime"`
+	IsDir   bool   `json:"isDir"`
+}
+
 func (t *FilesystemTool) handleGetFileInfo(_ context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
 	var args struct {
 		Path string `json:"path"`
@@ -653,12 +681,12 @@ func (t *FilesystemTool) handleGetFileInfo(_ context.Context, toolCall tools.Too
 		return &tools.ToolCallResult{Output: fmt.Sprintf("Error getting file info: %s", err)}, nil
 	}
 
-	fileInfo := map[string]any{
-		"name":    info.Name(),
-		"size":    info.Size(),
-		"mode":    info.Mode().String(),
-		"modTime": info.ModTime().Format(time.RFC3339),
-		"isDir":   info.IsDir(),
+	fileInfo := FileInfo{
+		Name:    info.Name(),
+		Size:    info.Size(),
+		Mode:    info.Mode().String(),
+		ModTime: info.ModTime().Format(time.RFC3339),
+		IsDir:   info.IsDir(),
 	}
 
 	result, err := json.MarshalIndent(fileInfo, "", "  ")

@@ -49,7 +49,7 @@ func TestPackageFileAsOCIToStoreMissingFile(t *testing.T) {
 	store, err := content.NewStore(content.WithBaseDir(t.TempDir()))
 	require.NoError(t, err)
 	_, err = PackageFileAsOCIToStore("/non/existent/file.txt", "test:latest", store)
-	assert.Error(t, err)
+	require.Error(t, err)
 }
 
 func TestPackageFileAsOCIToStoreInvalidTag(t *testing.T) {
@@ -59,7 +59,7 @@ func TestPackageFileAsOCIToStoreInvalidTag(t *testing.T) {
 	store, err := content.NewStore(content.WithBaseDir(t.TempDir()))
 	require.NoError(t, err)
 	_, err = PackageFileAsOCIToStore(testFile, "", store)
-	assert.Error(t, err)
+	require.Error(t, err)
 }
 
 func TestPackageFileAsOCIToStoreDifferentFileTypes(t *testing.T) {
@@ -108,7 +108,7 @@ func TestPackageFileAsOCIToStoreDifferentFileTypes(t *testing.T) {
 
 			// Verify the artifact was stored
 			img, err := store.GetArtifactImage(tc.tag)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.NotNil(t, img)
 		})
 	}

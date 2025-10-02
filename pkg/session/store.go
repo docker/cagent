@@ -80,8 +80,8 @@ func (s *SQLiteSessionStore) AddSession(ctx context.Context, session *Session) e
 	}
 
 	_, err = s.db.ExecContext(ctx,
-		"INSERT INTO sessions (id, messages, tools_approved, input_tokens, output_tokens, title, send_user_message, max_iterations, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		session.ID, string(itemsJSON), session.ToolsApproved, session.InputTokens, session.OutputTokens, session.Title, session.SendUserMessage, session.MaxIterations, session.CreatedAt.Format(time.RFC3339))
+		"INSERT INTO sessions (id, messages, tools_approved, input_tokens, output_tokens, title, send_user_message, max_iterations, working_dir, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		session.ID, string(itemsJSON), session.ToolsApproved, session.InputTokens, session.OutputTokens, session.Title, session.SendUserMessage, session.MaxIterations, session.WorkingDir, session.CreatedAt.Format(time.RFC3339))
 	return err
 }
 
@@ -92,12 +92,13 @@ func (s *SQLiteSessionStore) GetSession(ctx context.Context, id string) (*Sessio
 	}
 
 	row := s.db.QueryRowContext(ctx,
-		"SELECT id, messages, tools_approved, input_tokens, output_tokens, title, cost, send_user_message, max_iterations, created_at FROM sessions WHERE id = ?", id)
+		"SELECT id, messages, tools_approved, input_tokens, output_tokens, title, cost, send_user_message, max_iterations, working_dir, created_at FROM sessions WHERE id = ?", id)
 
 	var messagesJSON, toolsApprovedStr, inputTokensStr, outputTokensStr, titleStr, costStr, sendUserMessageStr, maxIterationsStr, createdAtStr string
 	var sessionID string
+	var workingDir sql.NullString
 
-	err := row.Scan(&sessionID, &messagesJSON, &toolsApprovedStr, &inputTokensStr, &outputTokensStr, &titleStr, &costStr, &sendUserMessageStr, &maxIterationsStr, &createdAtStr)
+	err := row.Scan(&sessionID, &messagesJSON, &toolsApprovedStr, &inputTokensStr, &outputTokensStr, &titleStr, &costStr, &sendUserMessageStr, &maxIterationsStr, &workingDir, &createdAtStr)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -168,13 +169,14 @@ func (s *SQLiteSessionStore) GetSession(ctx context.Context, id string) (*Sessio
 		SendUserMessage: sendUserMessage,
 		MaxIterations:   maxIterations,
 		CreatedAt:       createdAt,
+		WorkingDir:      workingDir.String,
 	}, nil
 }
 
 // GetSessions retrieves all sessions
 func (s *SQLiteSessionStore) GetSessions(ctx context.Context) ([]*Session, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, messages, tools_approved, input_tokens, output_tokens, title, cost, send_user_message, max_iterations, created_at FROM sessions ORDER BY created_at DESC")
+		"SELECT id, messages, tools_approved, input_tokens, output_tokens, title, cost, send_user_message, max_iterations, working_dir, created_at FROM sessions ORDER BY created_at DESC")
 	if err != nil {
 		return nil, err
 	}
@@ -184,8 +186,9 @@ func (s *SQLiteSessionStore) GetSessions(ctx context.Context) ([]*Session, error
 	for rows.Next() {
 		var messagesJSON, toolsApprovedStr, inputTokensStr, outputTokensStr, titleStr, costStr, sendUserMessageStr, maxIterationsStr, createdAtStr string
 		var sessionID string
+		var workingDir sql.NullString
 
-		err := rows.Scan(&sessionID, &messagesJSON, &toolsApprovedStr, &inputTokensStr, &outputTokensStr, &titleStr, &costStr, &sendUserMessageStr, &maxIterationsStr, &createdAtStr)
+		err := rows.Scan(&sessionID, &messagesJSON, &toolsApprovedStr, &inputTokensStr, &outputTokensStr, &titleStr, &costStr, &sendUserMessageStr, &maxIterationsStr, &workingDir, &createdAtStr)
 		if err != nil {
 			return nil, err
 		}
@@ -253,6 +256,7 @@ func (s *SQLiteSessionStore) GetSessions(ctx context.Context) ([]*Session, error
 			SendUserMessage: sendUserMessage,
 			MaxIterations:   maxIterations,
 			CreatedAt:       createdAt,
+			WorkingDir:      workingDir.String,
 		}
 
 		sessions = append(sessions, session)
@@ -322,8 +326,8 @@ func (s *SQLiteSessionStore) UpdateSession(ctx context.Context, session *Session
 	}
 
 	result, err := s.db.ExecContext(ctx,
-		"UPDATE sessions SET messages = ?, title = ?, tools_approved = ?, input_tokens = ?, output_tokens = ?, cost = ?, send_user_message = ?, max_iterations = ? WHERE id = ?",
-		string(itemsJSON), session.Title, session.ToolsApproved, session.InputTokens, session.OutputTokens, session.Cost, session.SendUserMessage, session.MaxIterations, session.ID)
+		"UPDATE sessions SET messages = ?, title = ?, tools_approved = ?, input_tokens = ?, output_tokens = ?, cost = ?, send_user_message = ?, max_iterations = ?, working_dir = ? WHERE id = ?",
+		string(itemsJSON), session.Title, session.ToolsApproved, session.InputTokens, session.OutputTokens, session.Cost, session.SendUserMessage, session.MaxIterations, session.WorkingDir, session.ID)
 	if err != nil {
 		return err
 	}

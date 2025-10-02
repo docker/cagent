@@ -126,7 +126,7 @@ func TestThinkTool_InvalidArguments(t *testing.T) {
 	}
 
 	result, err := handler(t.Context(), toolCall)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Nil(t, result)
 }
 
@@ -140,4 +140,16 @@ func TestThinkTool_StartStop(t *testing.T) {
 	// Test Stop method
 	err = tool.Stop()
 	require.NoError(t, err)
+}
+
+func TestThinkTool_OutputSchema(t *testing.T) {
+	tool := NewThinkTool()
+
+	allTools, err := tool.Tools(t.Context())
+	require.NoError(t, err)
+	require.NotEmpty(t, allTools)
+
+	for _, tool := range allTools {
+		assert.NotEmpty(t, tool.Function.OutputSchema.Type)
+	}
 }

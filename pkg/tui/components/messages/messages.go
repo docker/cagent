@@ -35,16 +35,16 @@ type Model interface {
 	AddOrUpdateToolCall(agentName string, toolCall tools.ToolCall, toolDef tools.Tool, status types.ToolStatus) tea.Cmd
 	AddToolResult(msg *runtime.ToolCallResponseEvent, status types.ToolStatus) tea.Cmd
 	AppendToLastMessage(agentName string, messageType types.MessageType, content string) tea.Cmd
-	ClearMessages()
 	ScrollToBottom() tea.Cmd
 	AddShellOutputMessage(content string) tea.Cmd
 	AddSystemMessage(content string) tea.Cmd
 	PlainTextTranscript() string
+	IsAtBottom() bool
 }
 
 // renderedItem represents a cached rendered message with position information
 type renderedItem struct {
-	id     string // Message ID or index as string
+	id     int    // Message ID or index as int
 	view   string // Cached rendered content
 	height int    // Height in lines
 	start  int    // Starting line position in complete content
@@ -63,19 +63,19 @@ type model struct {
 	toolFocused layout.Model
 
 	// Height tracking system fields
-	scrollOffset  int                     // Current scroll position in lines
-	rendered      string                  // Complete rendered content string
-	renderedItems map[string]renderedItem // Cache of rendered items with positions
-	totalHeight   int                     // Total height of all content in lines
+	scrollOffset  int                  // Current scroll position in lines
+	rendered      string               // Complete rendered content string
+	renderedItems map[int]renderedItem // Cache of rendered items with positions
+	totalHeight   int                  // Total height of all content in lines
 }
 
 // New creates a new message list component
 func New(a *app.App) Model {
 	return &model{
-		width:         80,
+		width:         120,
 		height:        24,
 		app:           a,
-		renderedItems: make(map[string]renderedItem),
+		renderedItems: make(map[int]renderedItem),
 	}
 }
 
@@ -225,7 +225,7 @@ func (m *model) SetSize(width, height int) tea.Cmd {
 
 	// Initialize or update renderer
 	if r, err := glamour.NewTermRenderer(
-		glamour.WithWordWrap(width),
+		glamour.WithWordWrap(min(width, 120)),
 		glamour.WithStyles(customDarkStyle),
 	); err == nil {
 		m.renderer = r
@@ -339,11 +339,9 @@ func (m *model) shouldCacheMessage(index int) bool {
 
 // renderItem creates a renderedItem for a specific view with selective caching
 func (m *model) renderItem(index int, view layout.Model) renderedItem {
-	id := m.getItemID(index)
-
 	// Only check cache for messages that should be cached
 	if m.shouldCacheMessage(index) {
-		if cached, exists := m.renderedItems[id]; exists {
+		if cached, exists := m.renderedItems[index]; exists {
 			return cached
 		}
 	}
@@ -356,14 +354,14 @@ func (m *model) renderItem(index int, view layout.Model) renderedItem {
 	}
 
 	item := renderedItem{
-		id:     id,
+		id:     index,
 		view:   rendered,
 		height: height,
 	}
 
 	// Only store in cache for messages that should be cached
 	if m.shouldCacheMessage(index) {
-		m.renderedItems[id] = item
+		m.renderedItems[index] = item
 	}
 
 	return item
@@ -406,7 +404,7 @@ func (m *model) ensureAllItemsRendered() {
 		}
 
 		// Update cache with position information
-		m.renderedItems[item.id] = item
+		m.renderedItems[i] = item
 	}
 
 	m.rendered = strings.Join(allLines, "\n")
@@ -417,30 +415,19 @@ func (m *model) ensureAllItemsRendered() {
 func (m *model) invalidateItem(index int) {
 	// Only invalidate if it was actually cached
 	if m.shouldCacheMessage(index) {
-		id := m.getItemID(index)
-		delete(m.renderedItems, id)
+		delete(m.renderedItems, index)
 	}
 }
 
 // invalidateAllItems clears the entire cache
 func (m *model) invalidateAllItems() {
-	m.renderedItems = make(map[string]renderedItem)
+	m.renderedItems = make(map[int]renderedItem)
 	m.rendered = ""
 	m.totalHeight = 0
 }
 
-// getItemID returns a unique ID for a message at the given index
-func (m *model) getItemID(index int) string {
-	if index >= 0 && index < len(m.messages) {
-		// Use a combination of index and message type/content hash for uniqueness
-		msg := m.messages[index]
-		return fmt.Sprintf("%d-%d-%d", index, int(msg.Type), len(msg.Content))
-	}
-	return fmt.Sprintf("%d", index)
-}
-
-// isAtBottom returns true if the viewport is at the bottom
-func (m *model) isAtBottom() bool {
+// IsAtBottom returns true if the viewport is at the bottom
+func (m *model) IsAtBottom() bool {
 	if len(m.messages) == 0 {
 		return true
 	}
@@ -448,6 +435,11 @@ func (m *model) isAtBottom() bool {
 	totalHeight := lipgloss.Height(m.rendered) - 1
 	maxScrollOffset := max(0, totalHeight-m.height)
 	return m.scrollOffset >= maxScrollOffset
+}
+
+// isAtBottom is kept as a private method for internal use
+func (m *model) isAtBottom() bool {
+	return m.IsAtBottom()
 }
 
 // AddUserMessage adds a user message to the chat
@@ -581,29 +573,15 @@ func (m *model) AppendToLastMessage(agentName string, messageType types.MessageT
 	if len(m.messages) == 0 {
 		return nil
 	}
+
 	lastIdx := len(m.messages) - 1
 	lastMsg := &m.messages[lastIdx]
 
 	if lastMsg.Type == messageType {
-		wasAtBottom := m.isAtBottom()
 		lastMsg.Content += content
-		lastMsg.Sender = agentName
-		// Update the corresponding view
-		view := m.createMessageView(lastMsg)
-		m.views[lastIdx] = view
+		m.views[lastIdx].(message.Model).SetMessage(lastMsg)
 		m.invalidateItem(lastIdx)
-
-		var cmds []tea.Cmd
-		if initCmd := view.Init(); initCmd != nil {
-			cmds = append(cmds, initCmd)
-		}
-		if wasAtBottom {
-			cmds = append(cmds, func() tea.Msg {
-				m.scrollToBottom()
-				return nil
-			})
-		}
-		return tea.Batch(cmds...)
+		return nil
 	} else {
 		// Create new assistant message
 		msg := types.Message{
@@ -611,34 +589,17 @@ func (m *model) AppendToLastMessage(agentName string, messageType types.MessageT
 			Content: content,
 			Sender:  agentName,
 		}
-		wasAtBottom := m.isAtBottom()
 		m.messages = append(m.messages, msg)
 
 		view := m.createMessageView(&msg)
 		m.views = append(m.views, view)
 
-		var cmds []tea.Cmd
+		var cmd tea.Cmd
 		if initCmd := view.Init(); initCmd != nil {
-			cmds = append(cmds, initCmd)
+			cmd = initCmd
 		}
-		if wasAtBottom {
-			cmds = append(cmds, func() tea.Msg {
-				m.scrollToBottom()
-				return nil
-			})
-		}
-		return tea.Batch(cmds...)
+		return cmd
 	}
-}
-
-// ClearMessages clears all messages
-func (m *model) ClearMessages() {
-	m.messages = nil
-	m.views = nil
-	m.scrollOffset = 0
-	m.rendered = ""
-	m.totalHeight = 0
-	m.renderedItems = make(map[string]renderedItem)
 }
 
 // ScrollToBottom scrolls to the bottom of the chat

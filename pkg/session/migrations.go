@@ -200,6 +200,13 @@ func getAllMigrations() []Migration {
 			UpSQL:       `ALTER TABLE sessions ADD COLUMN max_iterations INTEGER DEFAULT 0`,
 			DownSQL:     `ALTER TABLE sessions DROP COLUMN max_iterations`,
 		},
+		{
+			ID:          8,
+			Name:        "008_add_working_dir_column",
+			Description: "Add working_dir column to sessions table",
+			UpSQL:       `ALTER TABLE sessions ADD COLUMN working_dir TEXT DEFAULT ''`,
+			DownSQL:     `ALTER TABLE sessions DROP COLUMN working_dir`,
+		},
 		// Add more migrations here as needed
 	}
 }

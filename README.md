@@ -106,6 +106,16 @@ See [the USAGE docs](./docs/USAGE.md#tool-configuration) for more detailed infor
 
 ### Installation
 
+#### Using Homebrew
+
+Install `cagent` with a single command using [homebrew](https://brew.sh/)!
+
+```sh
+$ brew install cagent
+```
+
+#### Using binary releases
+
 [Prebuilt binaries](https://github.com/docker/cagent/releases) for Windows, macOS and Linux can be found on the releases page of the [project's GitHub repository](https://github.com/docker/cagent/releases)
 
 Once you've downloaded the appropriate binary for your platform, you may need to give it executable permissions.

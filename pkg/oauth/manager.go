@@ -15,11 +15,12 @@ import (
 type manager struct {
 	emitAuthRequired         func(serverURL, serverType, status string)
 	resumeAuthorizeOauthFlow chan bool
-	resumeOauthCodeReceived  chan string
+	resumeOauthCodeReceived  chan CallbackResult
 	callbackServer           *CallbackServer
 	serverMutex              sync.Mutex
 	redirectURI              string
 	port                     int
+	managedServer            bool
 }
 
 // NewManager creates a new OAuth manager with optional port configuration
@@ -27,8 +28,9 @@ func NewManager(emitAuthRequired func(serverURL, serverType, status string), opt
 	m := &manager{
 		emitAuthRequired:         emitAuthRequired,
 		resumeAuthorizeOauthFlow: make(chan bool),
-		resumeOauthCodeReceived:  make(chan string),
+		resumeOauthCodeReceived:  make(chan CallbackResult),
 		port:                     8083,
+		managedServer:            true,
 	}
 
 	// Apply options
@@ -58,6 +60,12 @@ func WithPort(port int) ManagerOption {
 func WithRedirectURI(uri string) ManagerOption {
 	return func(m *manager) {
 		m.redirectURI = uri
+	}
+}
+
+func WithManagedServer(managed bool) ManagerOption {
+	return func(m *manager) {
+		m.managedServer = managed
 	}
 }
 
@@ -112,15 +120,19 @@ func (m *manager) StartAuthorizationFlow(ctx context.Context, confirmation bool)
 	}
 }
 
-// SendAuthorizationCode sends the OAuth authorization code after user has completed the OAuth flow
-func (m *manager) SendAuthorizationCode(ctx context.Context, code string) error {
-	slog.Debug("Sending OAuth authorization code")
+// SendAuthorizationCode sends the OAuth authorization code and state after user has completed the OAuth flow
+func (m *manager) SendAuthorizationCode(ctx context.Context, code, state string) error {
+	slog.Debug("Sending OAuth authorization code and state")
+	result := CallbackResult{
+		Code:  code,
+		State: state,
+	}
 	select {
 	case <-ctx.Done():
 		slog.Debug("Context cancelled while sending OAuth code")
 		return ctx.Err()
-	case m.resumeOauthCodeReceived <- code:
-		slog.Debug("OAuth authorization code sent successfully")
+	case m.resumeOauthCodeReceived <- result:
+		slog.Debug("OAuth authorization code and state sent successfully")
 		return nil
 	default:
 		slog.Debug("OAuth code channel not ready")
@@ -176,43 +188,56 @@ func (m *manager) performOAuthAuthorization(ctx context.Context, sessionID strin
 		slog.Warn("Failed to start callback server, falling back to manual input", "error", err)
 	}
 
-	// Check if we have a callback server running (either global or our own)
-	if callbackServer := m.getCallbackServer(); callbackServer != nil {
-		slog.Debug("Using callback server for OAuth authorization")
-		// Wait for callback from the browser
-		callbackCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-		defer cancel()
+	if m.managedServer {
+		// Check if we have a callback server running (either global or our own)
+		if callbackServer := m.getCallbackServer(); callbackServer != nil {
+			slog.Debug("Using callback server for OAuth authorization")
+			// Wait for callback from the browser
+			callbackCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+			defer cancel()
 
-		result, err := callbackServer.WaitForCallback(callbackCtx)
-		if err != nil {
-			if err == context.DeadlineExceeded {
-				return fmt.Errorf("OAuth authorization timed out after 5 minutes")
+			result, err := callbackServer.WaitForCallback(callbackCtx)
+			if err != nil {
+				if err == context.DeadlineExceeded {
+					return fmt.Errorf("OAuth authorization timed out after 5 minutes")
+				}
+				return fmt.Errorf("failed to wait for OAuth callback: %w", err)
 			}
-			return fmt.Errorf("failed to wait for OAuth callback: %w", err)
-		}
 
-		if result.Error != "" {
-			return fmt.Errorf("OAuth authorization error: %s", result.Error)
-		}
+			if result.Error != "" {
+				return fmt.Errorf("OAuth authorization error: %s", result.Error)
+			}
 
-		if result.Code == "" {
-			return fmt.Errorf("no authorization code received from OAuth callback")
-		}
+			if result.Code == "" {
+				return fmt.Errorf("no authorization code received from OAuth callback")
+			}
 
-		// Verify state parameter matches
-		receivedState := result.State
-		if receivedState != state {
-			slog.Warn("OAuth state mismatch", "expected", state, "received", receivedState)
-		}
+			// Verify state parameter matches
+			receivedState := result.State
+			if receivedState != state {
+				slog.Warn("OAuth state mismatch", "expected", state, "received", receivedState)
+			}
 
-		code = result.Code
-		slog.Debug("Received OAuth code via callback server", "code_present", code != "")
+			code = result.Code
+			slog.Debug("Received OAuth code via callback server", "code_present", code != "")
+		} else {
+			return fmt.Errorf("no callback server available for OAuth authorization")
+		}
 	} else {
 		// Fallback to manual input
 		slog.Debug("No callback server available, waiting for manual input")
+		var result CallbackResult
 		select {
-		case code = <-m.resumeOauthCodeReceived:
-			slog.Debug("Received OAuth code via manual input", "code_present", code != "")
+		case result = <-m.resumeOauthCodeReceived:
+			slog.Debug("Received OAuth code and state via manual input", "code_present", result.Code != "", "state_present", result.State != "")
+
+			// Validate state parameter matches
+			if result.State != state {
+				slog.Error("OAuth state mismatch", "expected", state, "received", result.State)
+				return fmt.Errorf("OAuth state mismatch: possible CSRF attack")
+			}
+
+			code = result.Code
 		case <-ctx.Done():
 			return ctx.Err()
 		}

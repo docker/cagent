@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/docker/cagent/pkg/tools"
@@ -163,6 +164,7 @@ func (t *TodoTool) Tools(context.Context) ([]tools.Tool, error) {
 					},
 					Required: []string{"description"},
 				},
+				OutputSchema: tools.ToOutputSchemaSchema(reflect.TypeFor[string]()),
 			},
 			Handler: t.handler.createTodo,
 		},
@@ -194,6 +196,7 @@ func (t *TodoTool) Tools(context.Context) ([]tools.Tool, error) {
 					},
 					Required: []string{"todos"},
 				},
+				OutputSchema: tools.ToOutputSchemaSchema(reflect.TypeFor[string]()),
 			},
 			Handler: t.handler.createTodos,
 		},
@@ -220,6 +223,7 @@ func (t *TodoTool) Tools(context.Context) ([]tools.Tool, error) {
 					},
 					Required: []string{"id", "status"},
 				},
+				OutputSchema: tools.ToOutputSchemaSchema(reflect.TypeFor[string]()),
 			},
 			Handler: t.handler.updateTodo,
 		},
@@ -231,6 +235,7 @@ func (t *TodoTool) Tools(context.Context) ([]tools.Tool, error) {
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "List TODOs",
 				},
+				OutputSchema: tools.ToOutputSchemaSchema(reflect.TypeFor[string]()),
 			},
 			Handler: t.handler.listTodos,
 		},

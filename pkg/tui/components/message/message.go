@@ -18,6 +18,7 @@ import (
 type Model interface {
 	layout.Model
 	layout.Sizeable
+	SetMessage(msg *types.Message)
 }
 
 // messageModel implements Model
@@ -50,6 +51,10 @@ func (mv *messageModel) Init() tea.Cmd {
 		return mv.spinner.Tick
 	}
 	return nil
+}
+
+func (mv *messageModel) SetMessage(msg *types.Message) {
+	mv.message = msg
 }
 
 // Update handles messages and updates the message view state

@@ -12,8 +12,11 @@ type OpenDialogMsg struct {
 	Model Dialog
 }
 
-// CloseDialogMsg is sent to close the current dialog
+// CloseDialogMsg is sent to close the current (topmost) dialog
 type CloseDialogMsg struct{}
+
+// CloseAllDialogsMsg is sent to close all dialogs in the stack
+type CloseAllDialogsMsg struct{}
 
 // Dialog defines the interface that all dialogs must implement
 type Dialog interface {
@@ -25,27 +28,20 @@ type Dialog interface {
 type Manager interface {
 	tea.Model
 
-	GetLayer() *lipgloss.Layer
+	GetLayers() []*lipgloss.Layer
 	HasDialog() bool
 }
 
 // manager implements Manager
 type manager struct {
 	width, height int
-	currentDialog Dialog // Single active dialog
-	keyMap        KeyMap // Global dialog key bindings
-}
-
-// KeyMap defines global dialog key bindings
-type KeyMap struct {
-	// Add any global dialog keys here if needed
+	dialogStack   []Dialog
 }
 
 // New creates a new dialog component manager
 func New() Manager {
 	return &manager{
-		currentDialog: nil,
-		keyMap:        KeyMap{},
+		dialogStack: make([]Dialog, 0),
 	}
 }
 
@@ -60,50 +56,56 @@ func (d *manager) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		d.width = msg.Width
 		d.height = msg.Height
-		// Propagate resize to current dialog if it exists
-		if d.currentDialog != nil {
-			u, cmd := d.currentDialog.Update(msg)
-			d.currentDialog = u.(Dialog)
-			return d, cmd
+		// Propagate resize to all dialogs in the stack
+		var cmds []tea.Cmd
+		for i := range d.dialogStack {
+			u, cmd := d.dialogStack[i].Update(msg)
+			d.dialogStack[i] = u.(Dialog)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
-		return d, nil
+		return d, tea.Batch(cmds...)
 
 	case OpenDialogMsg:
 		return d.handleOpen(msg)
 
 	case CloseDialogMsg:
 		return d.handleClose()
+
+	case CloseAllDialogsMsg:
+		return d.handleCloseAll()
 	}
 
-	// Forward messages to current dialog if it exists
-	if d.currentDialog != nil {
-		u, cmd := d.currentDialog.Update(msg)
-		d.currentDialog = u.(Dialog)
+	// Forward messages to top dialog if it exists
+	// Only the topmost dialog receives input to prevent conflicts
+	if len(d.dialogStack) > 0 {
+		topIndex := len(d.dialogStack) - 1
+		u, cmd := d.dialogStack[topIndex].Update(msg)
+		d.dialogStack[topIndex] = u.(Dialog)
 		return d, cmd
 	}
 	return d, nil
 }
 
-// View renders the current dialog (used for debugging, actual rendering uses GetLayers)
+// View renders all dialogs (used for debugging, actual rendering uses GetLayers)
 func (d *manager) View() string {
 	// This is mainly for debugging - actual rendering uses GetLayers
-	if d.currentDialog == nil {
+	if len(d.dialogStack) == 0 {
 		return ""
 	}
-	return d.currentDialog.View()
+	// Return view of top dialog for debugging
+	return d.dialogStack[len(d.dialogStack)-1].View()
 }
 
-// handleOpen processes dialog opening requests
+// handleOpen processes dialog opening requests and adds to stack
 func (d *manager) handleOpen(msg OpenDialogMsg) (tea.Model, tea.Cmd) {
-	// Set the new dialog as current
-	d.currentDialog = msg.Model
+	d.dialogStack = append(d.dialogStack, msg.Model)
 
-	// Initialize dialog
 	var cmds []tea.Cmd
 	cmd := msg.Model.Init()
 	cmds = append(cmds, cmd)
 
-	// Send initial window size
 	_, cmd = msg.Model.Update(tea.WindowSizeMsg{
 		Width:  d.width,
 		Height: d.height,
@@ -113,28 +115,39 @@ func (d *manager) handleOpen(msg OpenDialogMsg) (tea.Model, tea.Cmd) {
 	return d, tea.Batch(cmds...)
 }
 
-// handleClose processes dialog closing requests
+// handleClose processes dialog closing requests (pops top dialog from stack)
 func (d *manager) handleClose() (tea.Model, tea.Cmd) {
-	if d.currentDialog == nil {
-		return d, nil
+	if len(d.dialogStack) != 0 {
+		d.dialogStack = d.dialogStack[:len(d.dialogStack)-1]
 	}
-
-	d.currentDialog = nil
 
 	return d, nil
 }
 
-// HasDialog returns true if there is an active dialog
-func (d *manager) HasDialog() bool {
-	return d.currentDialog != nil
+// handleCloseAll closes all dialogs in the stack
+func (d *manager) handleCloseAll() (tea.Model, tea.Cmd) {
+	d.dialogStack = make([]Dialog, 0)
+	return d, nil
 }
 
-// GetLayer returns lipgloss layer for rendering the current dialog
-func (d *manager) GetLayer() *lipgloss.Layer {
-	if d.currentDialog == nil {
+// HasDialog returns true if there is at least one active dialog
+func (d *manager) HasDialog() bool {
+	return len(d.dialogStack) > 0
+}
+
+// GetLayers returns lipgloss layers for rendering all dialogs in the stack
+// Dialogs are returned in order from bottom to top (index 0 is bottom-most)
+func (d *manager) GetLayers() []*lipgloss.Layer {
+	if len(d.dialogStack) == 0 {
 		return nil
 	}
-	dialogView := d.currentDialog.View()
-	row, col := d.currentDialog.Position()
-	return lipgloss.NewLayer(dialogView).X(col).Y(row)
+
+	layers := make([]*lipgloss.Layer, 0, len(d.dialogStack))
+	for _, dialog := range d.dialogStack {
+		dialogView := dialog.View()
+		row, col := dialog.Position()
+		layers = append(layers, lipgloss.NewLayer(dialogView).X(col).Y(row))
+	}
+
+	return layers
 }

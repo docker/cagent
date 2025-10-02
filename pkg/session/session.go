@@ -55,6 +55,9 @@ type Session struct {
 	// ToolsApproved is a flag to indicate if the tools have been approved
 	ToolsApproved bool `json:"tools_approved"`
 
+	// WorkingDir is the base directory used for filesystem-aware tools
+	WorkingDir string `json:"working_dir,omitempty"`
+
 	// SendUserMessage is a flag to indicate if the user message should be sent
 	SendUserMessage bool
 
@@ -130,6 +133,14 @@ func (s *Session) AddSubSession(subSession *Session) {
 	s.Messages = append(s.Messages, NewSubSessionItem(subSession))
 }
 
+// AllowedDirectories returns the directories that should be considered safe for tools
+func (s *Session) AllowedDirectories() []string {
+	if s.WorkingDir == "" {
+		return nil
+	}
+	return []string{s.WorkingDir}
+}
+
 // GetAllMessages extracts all messages from the session, including from sub-sessions
 func (s *Session) GetAllMessages() []Message {
 	var messages []Message
@@ -172,6 +183,12 @@ func WithSystemMessage(content string) Opt {
 func WithMaxIterations(maxIterations int) Opt {
 	return func(s *Session) {
 		s.MaxIterations = maxIterations
+	}
+}
+
+func WithWorkingDir(workingDir string) Opt {
+	return func(s *Session) {
+		s.WorkingDir = workingDir
 	}
 }
 
@@ -220,12 +237,29 @@ func (s *Session) GetMessages(a *agent.Agent) []chat.Message {
 		content += "\n\n" + "Today's date: " + time.Now().Format("2006-01-02")
 	}
 
-	if a.AddEnvironmentInfo() {
-		wd, err := os.Getwd()
+	wd := s.WorkingDir
+	if wd == "" {
+		var err error
+		wd, err = os.Getwd()
 		if err != nil {
 			slog.Error("getting current working directory for environment info", "error", err)
-		} else {
+		}
+	}
+	if wd != "" {
+		if a.AddEnvironmentInfo() {
 			content += "\n\n" + getEnvironmentInfo(wd)
+		}
+
+		for _, prompt := range a.AddPromptFiles() {
+			additionalPrompt, err := readPromptFile(wd, prompt)
+			if err != nil {
+				slog.Error("reading prompt file", "file", prompt, "error", err)
+				continue
+			}
+
+			if additionalPrompt == "" {
+				content += "\n\n" + additionalPrompt
+			}
 		}
 	}
 

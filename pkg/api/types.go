@@ -121,6 +121,7 @@ type SessionsResponse struct {
 	InputTokens                int    `json:"input_tokens"`
 	OutputTokens               int    `json:"output_tokens"`
 	GetMostRecentAgentFilename string `json:"most_recent_agent_filename"`
+	WorkingDir                 string `json:"working_dir,omitempty"`
 }
 
 // SessionResponse represents a detailed session
@@ -132,6 +133,7 @@ type SessionResponse struct {
 	ToolsApproved bool              `json:"tools_approved"`
 	InputTokens   int               `json:"input_tokens"`
 	OutputTokens  int               `json:"output_tokens"`
+	WorkingDir    string            `json:"working_dir,omitempty"`
 }
 
 // ResumeSessionRequest represents a request to resume a session

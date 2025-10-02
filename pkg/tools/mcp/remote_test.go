@@ -16,7 +16,7 @@ func TestGlobalTokenManager(t *testing.T) {
 	store2 := GetTokenStore(url2)
 
 	// They should be different instances
-	assert.False(t, store1 == store2, "Expected different token stores for different URLs")
+	assert.NotSame(t, store1, store2, "Expected different token stores for different URLs")
 
 	// Test that same URL returns same token store
 	store1Again := GetTokenStore(url1)
@@ -36,7 +36,7 @@ func TestGlobalTokenManagerConcurrency(t *testing.T) {
 	done := make(chan bool, 10)
 	stores := make([]client.TokenStore, 10)
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		go func(index int) {
 			stores[index] = GetTokenStore(url)
 			done <- true
@@ -44,7 +44,7 @@ func TestGlobalTokenManagerConcurrency(t *testing.T) {
 	}
 
 	// Wait for all goroutines to complete
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 

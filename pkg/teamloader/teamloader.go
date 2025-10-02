@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/docker/cagent/pkg/agent"
 	"github.com/docker/cagent/pkg/codemode"
@@ -148,6 +149,7 @@ func Load(ctx context.Context, path string, runtimeConfig config.RuntimeConfig) 
 			agent.WithDescription(agentConfig.Description),
 			agent.WithAddDate(agentConfig.AddDate),
 			agent.WithAddEnvironmentInfo(agentConfig.AddEnvironmentInfo),
+			agent.WithAddPromptFiles(agentConfig.AddPromptFiles),
 			agent.WithMaxIterations(agentConfig.MaxIterations),
 			agent.WithNumHistoryItems(agentConfig.NumHistoryItems),
 		}
@@ -296,9 +298,13 @@ func createTool(ctx context.Context, toolset latest.Toolset, a *latest.AgentConf
 		return builtin.NewScriptShellTool(toolset.Shell, env), nil
 
 	case toolset.Type == "filesystem":
-		wd, err := os.Getwd()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get working directory: %w", err)
+		wd := runtimeConfig.WorkingDir
+		if wd == "" {
+			var err error
+			wd, err = os.Getwd()
+			if err != nil {
+				return nil, fmt.Errorf("failed to get working directory: %w", err)
+			}
 		}
 
 		opts := []builtin.FileSystemOpt{builtin.WithAllowedTools(toolset.Tools)}
@@ -314,6 +320,14 @@ func createTool(ctx context.Context, toolset latest.Toolset, a *latest.AgentConf
 		}
 
 		return builtin.NewFilesystemTool([]string{wd}, opts...), nil
+
+	case toolset.Type == "fetch":
+		var opts []builtin.FetchToolOption
+		if toolset.Timeout > 0 {
+			timeout := time.Duration(toolset.Timeout) * time.Second
+			opts = append(opts, builtin.WithTimeout(timeout))
+		}
+		return builtin.NewFetchTool(opts...), nil
 
 	case toolset.Type == "mcp" && toolset.Ref != "":
 		mcpServerName := gateway.ParseServerRef(toolset.Ref)

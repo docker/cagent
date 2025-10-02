@@ -152,6 +152,9 @@ func (c *Client) ListTools(ctx context.Context, toolFilter []string) ([]tools.To
 					OpenWorldHint:   t.Annotations.OpenWorldHint,
 				},
 				OutputSchema: tools.ToolOutputSchema{
+					// See missing field in MCP Spec: https://github.com/modelcontextprotocol/modelcontextprotocol/issues/834
+					// Items:      t.OutputSchema.Items,
+					Items:      nil,
 					Type:       t.OutputSchema.Type,
 					Properties: t.OutputSchema.Properties,
 					Required:   t.OutputSchema.Required,

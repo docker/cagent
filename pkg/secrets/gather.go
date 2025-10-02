@@ -95,9 +95,10 @@ func GatherEnvVarsForTools(ctx context.Context, cfg *latest.Config) ([]string, e
 func gatherMCPServerReferences(cfg *latest.Config) []string {
 	servers := map[string]bool{}
 
-	for _, agent := range cfg.Agents {
-		for i := range agent.Toolsets {
-			toolSet := agent.Toolsets[i]
+	for i := range cfg.Agents {
+		agent := cfg.Agents[i]
+		for j := range agent.Toolsets {
+			toolSet := agent.Toolsets[j]
 
 			if toolSet.Type == "mcp" && toolSet.Ref != "" {
 				servers[toolSet.Ref] = true

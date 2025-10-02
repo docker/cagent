@@ -16,12 +16,12 @@ import (
 
 func TestPullNonExistentRegistry(t *testing.T) {
 	_, err := Pull("registry.example.com/non-existent:latest")
-	assert.Error(t, err)
+	require.Error(t, err)
 }
 
 func TestPullWithOptions(t *testing.T) {
 	_, err := Pull("registry.example.com/test:latest", crane.Insecure)
-	assert.Error(t, err)
+	require.Error(t, err)
 }
 
 func TestPullIntegration(t *testing.T) {
@@ -49,5 +49,5 @@ func TestPullIntegration(t *testing.T) {
 	assert.NotNil(t, retrievedImg)
 
 	err = Push("invalid:reference:with:too:many:colons")
-	assert.Error(t, err)
+	require.Error(t, err)
 }

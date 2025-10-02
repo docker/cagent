@@ -20,6 +20,7 @@ type AgentConfig struct {
 	CodeModeTools      bool      `json:"code_mode_tools,omitempty"`
 	MaxIterations      int       `json:"max_iterations,omitempty"`
 	NumHistoryItems    int       `json:"num_history_items,omitempty"`
+	AddPromptFiles     []string  `json:"add_prompt_files,omitempty" yaml:"add_prompt_files,omitempty"`
 }
 
 // ModelConfig represents the configuration for a model
@@ -92,6 +93,9 @@ type Toolset struct {
 
 	// For the `filesystem` tool - post-edit commands
 	PostEdit []PostEditConfig `json:"post_edit,omitempty"`
+
+	// For the `fetch` tool
+	Timeout int `json:"timeout,omitempty"`
 }
 
 func (t *Toolset) UnmarshalYAML(unmarshal func(any) error) error {

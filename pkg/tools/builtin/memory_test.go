@@ -199,7 +199,7 @@ func TestMemoryTool_InvalidArguments(t *testing.T) {
 	}
 
 	result, err := tool.handleAddMemory(t.Context(), toolCall)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Nil(t, result)
 
 	// Invalid JSON for delete_memory
@@ -211,7 +211,7 @@ func TestMemoryTool_InvalidArguments(t *testing.T) {
 	}
 
 	result, err = tool.handleDeleteMemory(t.Context(), toolCall)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Nil(t, result)
 }
 
@@ -226,4 +226,16 @@ func TestMemoryTool_StartStop(t *testing.T) {
 	// Test Stop method
 	err = tool.Stop()
 	require.NoError(t, err)
+}
+
+func TestMemoryTool_OutputSchema(t *testing.T) {
+	tool := NewMemoryTool(nil)
+
+	allTools, err := tool.Tools(t.Context())
+	require.NoError(t, err)
+	require.NotEmpty(t, allTools)
+
+	for _, tool := range allTools {
+		assert.NotEmpty(t, tool.Function.OutputSchema.Type)
+	}
 }

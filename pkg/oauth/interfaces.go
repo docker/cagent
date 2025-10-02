@@ -10,8 +10,8 @@ type Manager interface {
 	// StartAuthorizationFlow signals that user confirmation has been given to start the OAuth flow
 	StartAuthorizationFlow(ctx context.Context, confirmation bool)
 
-	// SendAuthorizationCode sends the OAuth authorization code after user has completed the OAuth flow
-	SendAuthorizationCode(ctx context.Context, code string) error
+	// SendAuthorizationCode sends the OAuth authorization code and state after user has completed the OAuth flow
+	SendAuthorizationCode(ctx context.Context, code, state string) error
 
 	// Cleanup stops any owned resources like callback servers
 	Cleanup(ctx context.Context) error

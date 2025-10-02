@@ -111,7 +111,7 @@ func (mv *toolModel) Render(width int) string {
 		case "run_tools_with_javascript":
 			content += " " + render_run_tools_with_javascript(msg.ToolCall)
 		default:
-			lines := wrapLines(msg.ToolCall.Function.Arguments, mv.width-2)
+			lines := wrapLines(msg.ToolCall.Function.Arguments, min(120, mv.width-2))
 			content += "\n" + strings.Join(lines, "\n")
 		}
 	}

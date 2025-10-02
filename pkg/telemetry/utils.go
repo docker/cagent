@@ -14,14 +14,6 @@ import (
 	"github.com/docker/cagent/pkg/paths"
 )
 
-// Build-time telemetry configuration (set via -ldflags)
-var (
-	TelemetryEnabled  = "true" // Default enabled
-	TelemetryEndpoint = ""     // Set at build time
-	TelemetryAPIKey   = ""     // Set at build time
-	TelemetryHeader   = ""     // Set at build time
-)
-
 // getSystemInfo collects system information for events
 func getSystemInfo() (osName, osVersion, osLanguage string) {
 	osInfo := runtime.GOOS
@@ -39,27 +31,6 @@ func GetTelemetryEnabled() bool {
 	}
 	// Default to true (telemetry enabled)
 	return true
-}
-
-func getTelemetryEndpoint() string {
-	if env := os.Getenv("TELEMETRY_ENDPOINT"); env != "" {
-		return env
-	}
-	return TelemetryEndpoint
-}
-
-func getTelemetryAPIKey() string {
-	if env := os.Getenv("TELEMETRY_API_KEY"); env != "" {
-		return env
-	}
-	return TelemetryAPIKey
-}
-
-func getTelemetryHeader() string {
-	if env := os.Getenv("TELEMETRY_HEADER"); env != "" {
-		return env
-	}
-	return TelemetryHeader
 }
 
 // getUserUUIDFilePath returns the path to the user UUID file

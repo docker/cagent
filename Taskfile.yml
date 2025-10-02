@@ -9,8 +9,8 @@ vars:
   GIT_COMMIT:
     sh: git rev-parse HEAD
   GO_SOURCES: "**/*.go"
-  BUILD_ARGS: '--build-arg GIT_TAG="{{.GIT_TAG}}" --build-arg GIT_COMMIT="{{.GIT_COMMIT}}" --build-arg BUILD_DATE="{{.BUILD_DATE}}" --secret id=telemetry_api_key,env=TELEMETRY_API_KEY --secret id=telemetry_endpoint,env=TELEMETRY_ENDPOINT --secret id=telemetry_header,env=TELEMETRY_HEADER'
-  LDFLAGS: '-X "github.com/docker/cagent/pkg/version.Version={{.GIT_TAG}}" -X "github.com/docker/cagent/pkg/version.Commit={{.GIT_COMMIT}}" -X "github.com/docker/cagent/pkg/telemetry.TelemetryEndpoint={{.TELEMETRY_ENDPOINT}}" -X "github.com/docker/cagent/pkg/telemetry.TelemetryAPIKey={{.TELEMETRY_API_KEY}}" -X "github.com/docker/cagent/pkg/telemetry.TelemetryHeader={{.TELEMETRY_HEADER}}"'
+  BUILD_ARGS: '--build-arg GIT_TAG="{{.GIT_TAG}}" --build-arg GIT_COMMIT="{{.GIT_COMMIT}}"'
+  LDFLAGS: '-X "github.com/docker/cagent/pkg/version.Version={{.GIT_TAG}}" -X "github.com/docker/cagent/pkg/version.Commit={{.GIT_COMMIT}}"'
 
 tasks:
   default:

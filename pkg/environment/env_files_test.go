@@ -56,12 +56,12 @@ func TestAbsolutePath(t *testing.T) {
 		{
 			name:     "tilde with slash",
 			input:    "~/env/slack.env",
-			expected: filepath.Join(homeDir, "env/slack.env"),
+			expected: filepath.Join(homeDir, "env", "slack.env"),
 		},
 		{
 			name:     "tilde with deeper path",
 			input:    "~/config/app/settings.env",
-			expected: filepath.Join(homeDir, "config/app/settings.env"),
+			expected: filepath.Join(homeDir, "config", "app", "settings.env"),
 		},
 		{
 			name:        "unsupported tilde format",

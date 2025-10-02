@@ -170,15 +170,15 @@ func (r *RemoteRuntime) ResumeStartAuthorizationFlow(ctx context.Context, confir
 }
 
 // Resume allows resuming execution after user confirmation
-func (r *RemoteRuntime) ResumeCodeReceived(ctx context.Context, code string) error {
-	slog.Debug("Resuming remote runtime", "agent", r.currentAgent, "code", code, "session_id", r.sessionID)
+func (r *RemoteRuntime) ResumeCodeReceived(ctx context.Context, code, state string) error {
+	slog.Debug("Resuming remote runtime", "agent", r.currentAgent, "code", code, "state", state, "session_id", r.sessionID)
 
 	if r.sessionID == "" {
 		slog.Error("Cannot resume: no session ID available")
 		return fmt.Errorf("session ID cannot be empty")
 	}
 
-	if err := r.client.ResumeCodeReceived(ctx, code); err != nil {
+	if err := r.client.ResumeCodeReceived(ctx, code, state); err != nil {
 		slog.Error("Failed to resume remote session", "error", err, "session_id", r.sessionID)
 		return err
 	}

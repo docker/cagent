@@ -53,8 +53,8 @@ type Runtime interface {
 	Summarize(ctx context.Context, sess *session.Session, events chan Event)
 	// ResumeStartAuthorizationFlow signals that user confirmation has been given to start the OAuth flow
 	ResumeStartAuthorizationFlow(_ context.Context, confirmation bool)
-	// ResumeCodeReceived sends the OAuth authorization code to the runtime after user has completed the OAuth flow in their browser
-	ResumeCodeReceived(_ context.Context, code string) error
+	// ResumeCodeReceived sends the OAuth authorization code and state to the runtime after user has completed the OAuth flow in their browser
+	ResumeCodeReceived(_ context.Context, code, state string) error
 }
 
 // runtime manages the execution of agents
@@ -67,6 +67,7 @@ type runtime struct {
 	tracer            trace.Tracer
 	modelsStore       modelStore
 	sessionCompaction bool
+	managedOAuth      bool
 }
 
 type Opt func(*runtime)
@@ -74,6 +75,12 @@ type Opt func(*runtime)
 func WithCurrentAgent(agentName string) Opt {
 	return func(r *runtime) {
 		r.currentAgent = agentName
+	}
+}
+
+func WithManagedOAuth(managed bool) Opt {
+	return func(r *runtime) {
+		r.managedOAuth = managed
 	}
 }
 
@@ -110,10 +117,23 @@ func New(agents *team.Team, opts ...Opt) (Runtime, error) {
 		resumeChan:        make(chan ResumeType),
 		modelsStore:       modelsStore,
 		sessionCompaction: true,
+		managedOAuth:      true,
 	}
 
 	for _, opt := range opts {
 		opt(r)
+	}
+
+	// Validate that we have at least one agent and that the current agent exists
+	if r.team == nil || r.team.Size() == 0 {
+		return nil, fmt.Errorf("no agents loaded; ensure your agent configuration defines at least one agent")
+	}
+	if r.team.Agent(r.currentAgent) == nil {
+		names := strings.Join(r.team.AgentNames(), ", ")
+		if names == "" {
+			names = "(none)"
+		}
+		return nil, fmt.Errorf("agent %q not found in team; available agents: %s", r.currentAgent, names)
 	}
 
 	slog.Debug("Creating new runtime", "agent", r.currentAgent, "available_agents", agents.Size())
@@ -139,7 +159,7 @@ func (r *runtime) handleOAuthAuthorizationFlow(ctx context.Context, sess *sessio
 		emitAuthRequired := func(serverURL, serverType, status string) {
 			events <- AuthorizationRequired(serverURL, serverType, status, r.currentAgent)
 		}
-		r.oauthManager = oauth.NewManager(emitAuthRequired)
+		r.oauthManager = oauth.NewManager(emitAuthRequired, oauth.WithManagedServer(r.managedOAuth))
 		defer func() {
 			if cleanupErr := r.oauthManager.Cleanup(ctx); cleanupErr != nil {
 				slog.Error("Failed to cleanup OAuth manager", "error", cleanupErr)
@@ -158,7 +178,7 @@ func (r *runtime) finalizeEventChannel(ctx context.Context, sess *session.Sessio
 	telemetry.RecordSessionEnd(ctx)
 
 	if sess.Title == "" && len(sess.GetAllMessages()) > 0 {
-		r.generateSessionTitle(context.Background(), sess, events)
+		r.generateSessionTitle(ctx, sess, events)
 	}
 }
 
@@ -248,7 +268,7 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 			modelID := model.ID()
 			slog.Debug("Using agent", "agent", a.Name(), "model", modelID)
 			slog.Debug("Getting model definition", "model_id", modelID)
-			m, err := r.modelsStore.GetModel(context.Background(), modelID)
+			m, err := r.modelsStore.GetModel(ctx, modelID)
 			if err != nil {
 				slog.Debug("Failed to get model definition", "error", err)
 			}
@@ -407,11 +427,11 @@ func (r *runtime) ResumeStartAuthorizationFlow(ctx context.Context, confirmation
 	}
 }
 
-func (r *runtime) ResumeCodeReceived(ctx context.Context, code string) error {
-	slog.Debug("Sending OAuth authorization code to runtime", "agent", r.currentAgent)
+func (r *runtime) ResumeCodeReceived(ctx context.Context, code, state string) error {
+	slog.Debug("Sending OAuth authorization code and state to runtime", "agent", r.currentAgent)
 
 	if r.oauthManager != nil {
-		return r.oauthManager.SendAuthorizationCode(ctx, code)
+		return r.oauthManager.SendAuthorizationCode(ctx, code, state)
 	}
 
 	return fmt.Errorf("OAuth flow not in progress")

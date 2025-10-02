@@ -43,22 +43,22 @@ func Evaluate(ctx context.Context, t *team.Team, evalsDir string) ([]Result, err
 	}
 
 	var results []Result
-	for _, eval := range evals {
+	for i := range evals {
 		rt, err := runtime.New(t)
 		if err != nil {
 			return nil, err
 		}
 
-		actualMessages, err := runLoop(ctx, rt, &eval)
+		actualMessages, err := runLoop(ctx, rt, &evals[i])
 		if err != nil {
 			return nil, err
 		}
 
-		score := evaluate(eval.GetAllMessages(), actualMessages)
+		score := evaluate(evals[i].GetAllMessages(), actualMessages)
 
 		results = append(results, Result{
 			Score:    score,
-			EvalFile: eval.ID,
+			EvalFile: evals[i].ID,
 		})
 	}
 

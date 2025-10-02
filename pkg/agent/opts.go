@@ -67,6 +67,12 @@ func WithAddEnvironmentInfo(addEnvironmentInfo bool) Opt {
 	}
 }
 
+func WithAddPromptFiles(addPromptFiles []string) Opt {
+	return func(a *Agent) {
+		a.addPromptFiles = addPromptFiles
+	}
+}
+
 func WithMemoryManager(mm memorymanager.Manager) Opt {
 	return func(a *Agent) {
 		a.memoryManager = mm

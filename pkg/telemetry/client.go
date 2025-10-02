@@ -53,9 +53,16 @@ func NewClient(logger *slog.Logger, enabled, debugMode bool, version string, cus
 		}, nil
 	}
 
-	endpoint := getTelemetryEndpoint()
-	apiKey := getTelemetryAPIKey()
-	header := getTelemetryHeader()
+	header := "x-api-key"
+
+	endpoint := "https://api.docker.com/events/v1/track"
+	apiKey := "Gxw1IjiDEP29dWm9DanuE2XhIKKzqDEY4iGlW1P0"
+
+	// Use staging configuration in debug mode
+	if debugMode {
+		endpoint = "https://api-stage.docker.com/events/v1/track"
+		apiKey = "z4sTQ8eDid2nJ53md8ptCaZlVxvIlhvf4AGR7oi5"
+	}
 
 	var httpClient *http.Client
 	if len(customHttpClient) > 0 && customHttpClient[0] != nil {
@@ -77,16 +84,7 @@ func NewClient(logger *slog.Logger, enabled, debugMode bool, version string, cus
 	}
 
 	if debugMode {
-		hasEndpoint := endpoint != ""
-		hasAPIKey := apiKey != ""
-		hasHeader := header != ""
-		telemetryLogger.Debug("Telemetry configuration",
-			"enabled", enabled,
-			"has_endpoint", hasEndpoint,
-			"has_api_key", hasAPIKey,
-			"has_header", hasHeader,
-			"http_enabled", hasEndpoint && hasAPIKey && hasHeader,
-		)
+		telemetryLogger.Debug("Enabled:", enabled)
 	}
 
 	return client, nil

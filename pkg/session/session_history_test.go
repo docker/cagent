@@ -52,7 +52,7 @@ func TestSessionNumHistoryItems(t *testing.T) {
 
 			// Create session with many messages
 			s := New()
-			for i := 0; i < tt.messageCount; i++ {
+			for i := range tt.messageCount {
 				s.AddMessage(UserMessage("", fmt.Sprintf("Message %d", i)))
 				s.AddMessage(&Message{
 					AgentName: "test-agent",
@@ -78,7 +78,7 @@ func TestSessionNumHistoryItems(t *testing.T) {
 			}
 
 			// System messages should always be present (at least the instruction)
-			assert.Greater(t, systemCount, 0, "Should have system messages")
+			assert.Positive(t, systemCount, "Should have system messages")
 
 			// Conversation messages should be limited
 			assert.LessOrEqual(t, conversationCount, tt.expectedConversationMsgs,
@@ -164,7 +164,7 @@ func TestTrimMessagesConversationLimit(t *testing.T) {
 				}
 			}
 
-			assert.Equal(t, tc.expectedTotal, len(trimmed), "Total message count")
+			assert.Len(t, trimmed, tc.expectedTotal, "Total message count")
 			assert.Equal(t, tc.expectedSystem, systemCount, "System message count")
 			assert.Equal(t, tc.expectedConversation, conversationCount, "Conversation message count")
 		})

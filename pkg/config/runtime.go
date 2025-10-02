@@ -5,4 +5,5 @@ type RuntimeConfig struct {
 	ModelsGateway  string
 	RedirectURI    string
 	GlobalCodeMode bool
+	WorkingDir     string
 }

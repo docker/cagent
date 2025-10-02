@@ -2,8 +2,6 @@ package session
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"runtime"
 )
 
@@ -16,12 +14,6 @@ func getEnvironmentInfo(workingDir string) string {
 	Is directory a git repo: %s
 	Platform: %s
 	</env>`, workingDir, boolToYesNo(isGitRepo(workingDir)), runtime.GOOS)
-}
-
-// isGitRepo checks if the given directory is a git repository
-func isGitRepo(dir string) bool {
-	info, err := os.Stat(filepath.Join(dir, ".git"))
-	return err == nil && info.IsDir()
 }
 
 // boolToYesNo converts a boolean to "Yes" or "No" string

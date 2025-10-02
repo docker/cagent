@@ -756,6 +756,7 @@ func (s *Server) getSessions(c echo.Context) error {
 			InputTokens:                sess.InputTokens,
 			OutputTokens:               sess.OutputTokens,
 			GetMostRecentAgentFilename: sess.GetMostRecentAgentFilename(),
+			WorkingDir:                 sess.WorkingDir,
 		}
 	}
 	return c.JSON(http.StatusOK, responses)
@@ -782,6 +783,7 @@ func (s *Server) getSessionsByAgent(c echo.Context) error {
 			InputTokens:                sess.InputTokens,
 			OutputTokens:               sess.OutputTokens,
 			GetMostRecentAgentFilename: sess.GetMostRecentAgentFilename(),
+			WorkingDir:                 sess.WorkingDir,
 		}
 	}
 	return c.JSON(http.StatusOK, responses)
@@ -793,7 +795,28 @@ func (s *Server) createSession(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 	}
 
-	sess := session.New(session.WithMaxIterations(sessionTemplate.MaxIterations))
+	var opts []session.Opt
+	opts = append(opts, session.WithMaxIterations(sessionTemplate.MaxIterations))
+
+	if wd := strings.TrimSpace(sessionTemplate.WorkingDir); wd != "" {
+		absWd, err := filepath.Abs(wd)
+		if err != nil {
+			slog.Error("Invalid working directory", "error", err)
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("invalid working directory: %v", err)})
+		}
+		info, err := os.Stat(absWd)
+		if err != nil {
+			slog.Error("Working directory not accessible", "error", err)
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("working directory not accessible: %v", err)})
+		}
+		if !info.IsDir() {
+			slog.Error("Working directory is not a directory")
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "working directory must be a directory"})
+		}
+		opts = append(opts, session.WithWorkingDir(absWd))
+	}
+
+	sess := session.New(opts...)
 	sess.ToolsApproved = sessionTemplate.ToolsApproved
 
 	if err := s.sessionStore.AddSession(c.Request().Context(), sess); err != nil {
@@ -818,6 +841,7 @@ func (s *Server) getSession(c echo.Context) error {
 		ToolsApproved: sess.ToolsApproved,
 		InputTokens:   sess.InputTokens,
 		OutputTokens:  sess.OutputTokens,
+		WorkingDir:    sess.WorkingDir,
 	}
 
 	return c.JSON(http.StatusOK, sr)
@@ -859,17 +883,28 @@ func (s *Server) runAgent(c echo.Context) error {
 
 	slog.Debug("Running agent", "agent_filename", agentFilename, "session_id", sessionID, "current_agent", currentAgent)
 
-	t, exists := s.teams[agentFilename]
-	if !exists {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": fmt.Sprintf("team not found: %s", agentFilename)})
+	// Build a per-session team so Filesystem tool can be bound to session working dir
+	sess, err := s.sessionStore.GetSession(c.Request().Context(), sessionID)
+	if err != nil {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "session not found"})
+	}
+
+	agentPath, err := s.secureAgentPath(agentFilename)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid agent id"})
+	}
+
+	// Copy runConfig and inject per-session working dir override
+	rc := s.runConfig
+	rc.WorkingDir = sess.WorkingDir
+
+	t, err := teamloader.Load(c.Request().Context(), agentPath, rc)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to load agent for session"})
 	}
 	agent := t.Agent(currentAgent)
 	if agent == nil {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": fmt.Sprintf("agent not found: %s", currentAgent)})
-	}
-	sess, err := s.sessionStore.GetSession(c.Request().Context(), sessionID)
-	if err != nil {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "session not found"})
 	}
 
 	// Only set max iterations the first time the session is run
@@ -882,6 +917,7 @@ func (s *Server) runAgent(c echo.Context) error {
 	if !exists {
 		var opts []runtime.Opt = []runtime.Opt{
 			runtime.WithCurrentAgent(currentAgent),
+			runtime.WithManagedOAuth(false),
 		}
 		rt, err = runtime.New(t, opts...)
 		if err != nil {
@@ -1024,13 +1060,14 @@ func (s *Server) resumeCodeReceivedOauth(c echo.Context) error {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": fmt.Sprintf("runtime not found: %s", sessionID)})
 	}
 
-	// Send the authorization code to the runtime's OAuth channel
-	if err := rt.ResumeCodeReceived(c.Request().Context(), code); err != nil {
+	// Send the authorization code and state to the runtime's OAuth channel
+	// The state will be validated in the OAuth manager to ensure it matches the original state
+	if err := rt.ResumeCodeReceived(c.Request().Context(), code, state); err != nil {
 		slog.Error("Failed to send OAuth code to runtime", "session_id", sessionID, "error", err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "OAuth flow not in progress"})
 	}
 
-	slog.Debug("OAuth authorization code sent to runtime", "session_id", sessionID)
+	slog.Debug("OAuth authorization code and state sent to runtime", "session_id", sessionID)
 
 	return c.JSON(http.StatusOK, map[string]string{"message": "OAuth code received"})
 }

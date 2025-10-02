@@ -71,60 +71,6 @@ func TestGetEnvironmentInfo(t *testing.T) {
 	}
 }
 
-func TestIsGitRepo(t *testing.T) {
-	t.Run("git folder", func(t *testing.T) {
-		t.Parallel()
-
-		dir := t.TempDir()
-		require.NoError(t, os.Mkdir(filepath.Join(dir, ".git"), 0o755))
-
-		assert.True(t, isGitRepo(dir))
-	})
-
-	t.Run("git file", func(t *testing.T) {
-		t.Parallel()
-
-		dir := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(dir, ".git"), nil, 0o644))
-
-		assert.False(t, isGitRepo(dir))
-	})
-}
-
-func TestIsNotGitRepo(t *testing.T) {
-	tests := []struct {
-		name      string
-		setupFunc func() string
-	}{
-		{
-			name: "no git",
-			setupFunc: func() string {
-				return t.TempDir()
-			},
-		},
-		{
-			name: "nonexistent directory",
-			setupFunc: func() string {
-				return "/path/that/does/not/exist"
-			},
-		},
-		{
-			name: "empty path",
-			setupFunc: func() string {
-				return ""
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			dir := tt.setupFunc()
-			assert.False(t, isGitRepo(dir))
-		})
-	}
-}
-
 func TestBoolToYesNo(t *testing.T) {
 	assert.Equal(t, "Yes", boolToYesNo(true))
 	assert.Equal(t, "No", boolToYesNo(false))

@@ -16,10 +16,9 @@ import (
 )
 
 var (
-	listenAddr  string
-	sessionDb   string
-	redirectURI string
-	runConfig   config.RuntimeConfig
+	listenAddr string
+	sessionDb  string
+	runConfig  config.RuntimeConfig
 )
 
 // NewApiCmd creates a new api command
@@ -39,7 +38,7 @@ func NewApiCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVarP(&sessionDb, "session-db", "s", "session.db", "Path to the session database")
 	cmd.PersistentFlags().StringSliceVar(&runConfig.EnvFiles, "env-from-file", nil, "Set environment variables from file")
 	cmd.PersistentFlags().BoolVar(&runConfig.GlobalCodeMode, "code-mode-tools", false, "Provide a single tool to call other tools via Javascript")
-	cmd.PersistentFlags().StringVar(&redirectURI, "redirect-uri", "", "Set the redirect URI for OAuth2 flows")
+	cmd.PersistentFlags().StringVar(&runConfig.RedirectURI, "redirect-uri", "", "Set the redirect URI for OAuth2 flows")
 	addGatewayFlags(cmd)
 
 	return cmd
@@ -93,7 +92,6 @@ func runHttp(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	runConfig.RedirectURI = redirectURI
 	s := server.New(sessionStore, runConfig, teams, opts...)
 	return s.Serve(ctx, ln)
 }

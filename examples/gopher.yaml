@@ -62,6 +62,9 @@ agents:
        - `task lint` - Run golangci-lint for code quality
     add_date: true
     add_environment_info: true
+    add_prompt_files:
+      - CLAUDE.md
+      - agents.md
     toolsets:
       - type: think
       - type: filesystem

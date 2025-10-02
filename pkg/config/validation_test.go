@@ -46,7 +46,7 @@ func TestValidatePathInDirectory(t *testing.T) {
 		},
 		{
 			name:        "path traversal attempt with subdirectory",
-			path:        filepath.Join(tmpDir, "../../../etc/passwd"),
+			path:        filepath.Join(tmpDir, "..", "..", "..", "etc", "passwd"),
 			allowedDir:  tmpDir,
 			expectError: true,
 			errorMsg:    "path outside allowed directory",

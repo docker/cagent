@@ -403,7 +403,7 @@ func (c *Client) ResumeStartAuthorizationFlow(ctx context.Context, id string, co
 	return c.doRequest(ctx, "POST", "/api/"+id+"/resumeStartOauth", req, nil)
 }
 
-func (c *Client) ResumeCodeReceived(ctx context.Context, code string) error {
-	req := api.ResumeCodeReceivedOauthRequest{Code: code}
+func (c *Client) ResumeCodeReceived(ctx context.Context, code, state string) error {
+	req := api.ResumeCodeReceivedOauthRequest{Code: code, State: state}
 	return c.doRequest(ctx, "POST", "/api/resumeCodeReceivedOauth", req, nil)
 }

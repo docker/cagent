@@ -2,7 +2,6 @@ package chat
 
 import (
 	"context"
-	"strings"
 
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/v2/help"
@@ -35,6 +34,8 @@ type Page interface {
 	layout.Model
 	layout.Sizeable
 	layout.Help
+	CompactSession() tea.Cmd
+	CopySessionToClipboard() tea.Cmd
 }
 
 // chatPage implements Page
@@ -66,21 +67,15 @@ type chatPage struct {
 // KeyMap defines key bindings for the chat page
 type KeyMap struct {
 	Tab    key.Binding
-	Quit   key.Binding
 	Cancel key.Binding
-	Copy   key.Binding
 }
 
-// DefaultKeyMap returns the default key bindings
-func DefaultKeyMap() KeyMap {
+// defaultKeyMap returns the default key bindings
+func defaultKeyMap() KeyMap {
 	return KeyMap{
 		Tab: key.NewBinding(
 			key.WithKeys("tab"),
 			key.WithHelp("tab", "switch focus"),
-		),
-		Quit: key.NewBinding(
-			key.WithKeys("ctrl+c"),
-			key.WithHelp("ctrl+c", "quit"),
 		),
 		Cancel: key.NewBinding(
 			key.WithKeys("esc"),
@@ -98,7 +93,7 @@ func New(a *app.App, firstMessage *string) Page {
 		editor:       editor.New(),
 		focusedPanel: PanelEditor,
 		app:          a,
-		keyMap:       DefaultKeyMap(),
+		keyMap:       defaultKeyMap(),
 	}
 }
 
@@ -149,8 +144,6 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyPressMsg:
 		switch {
-		case key.Matches(msg, p.keyMap.Quit):
-			return p, tea.Quit
 		case key.Matches(msg, p.keyMap.Tab):
 			p.switchFocus()
 			return p, nil
@@ -203,10 +196,16 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return p, tea.Batch(cmd, p.messages.ScrollToBottom(), spinnerCmd)
 	case *runtime.AgentChoiceEvent:
 		cmd := p.messages.AppendToLastMessage(msg.AgentName, types.MessageTypeAssistant, msg.Content)
-		return p, tea.Batch(cmd, p.messages.ScrollToBottom())
+		if p.messages.IsAtBottom() {
+			return p, tea.Batch(cmd, p.messages.ScrollToBottom())
+		}
+		return p, cmd
 	case *runtime.AgentChoiceReasoningEvent:
 		cmd := p.messages.AppendToLastMessage(msg.AgentName, types.MessageTypeAssistantReasoning, msg.Content)
-		return p, tea.Batch(cmd, p.messages.ScrollToBottom())
+		if p.messages.IsAtBottom() {
+			return p, tea.Batch(cmd, p.messages.ScrollToBottom())
+		}
+		return p, cmd
 	case *runtime.SessionTitleEvent:
 		p.sessionTitle = msg.Title
 	case *runtime.TokenUsageEvent:
@@ -383,7 +382,6 @@ func (p *chatPage) Bindings() []key.Binding {
 	bindings := []key.Binding{
 		p.keyMap.Tab,
 		p.keyMap.Cancel,
-		p.keyMap.Quit,
 	}
 
 	// Add focused component bindings
@@ -420,10 +418,6 @@ func (p *chatPage) switchFocus() {
 
 // processMessage processes a message with the runtime
 func (p *chatPage) processMessage(content string) tea.Cmd {
-	if handled, cmd := p.handleSlashCommand(content); handled {
-		return cmd
-	}
-
 	if p.msgCancel != nil {
 		p.msgCancel()
 	}
@@ -431,30 +425,35 @@ func (p *chatPage) processMessage(content string) tea.Cmd {
 	var ctx context.Context
 	ctx, p.msgCancel = context.WithCancel(context.Background())
 
-	p.app.Run(ctx, content)
+	p.app.Run(ctx, p.msgCancel, content)
 
-	return tea.Batch(
-		p.messages.ScrollToBottom(),
-	)
+	return p.messages.ScrollToBottom()
 }
 
-func (p *chatPage) handleSlashCommand(content string) (bool, tea.Cmd) {
-	trimmed := strings.TrimSpace(content)
-	if trimmed != "/clipboard" {
-		return false, nil
-	}
-
+func (p *chatPage) CopySessionToClipboard() tea.Cmd {
 	transcript := p.messages.PlainTextTranscript()
 	if transcript == "" {
 		cmd := p.messages.AddSystemMessage("Conversation is empty; nothing copied.")
-		return true, tea.Batch(cmd, p.messages.ScrollToBottom())
+		return tea.Batch(cmd, p.messages.ScrollToBottom())
 	}
 
 	if err := clipboard.WriteAll(transcript); err != nil {
 		cmd := p.messages.AddSystemMessage("Failed to copy conversation: " + err.Error())
-		return true, tea.Batch(cmd, p.messages.ScrollToBottom())
+		return tea.Batch(cmd, p.messages.ScrollToBottom())
 	}
 
 	cmd := p.messages.AddSystemMessage("Conversation copied to clipboard.")
-	return true, tea.Batch(cmd, p.messages.ScrollToBottom())
+	return tea.Batch(cmd, p.messages.ScrollToBottom())
+}
+
+// CompactSession generates a summary and compacts the session history
+func (p *chatPage) CompactSession() tea.Cmd {
+	if p.msgCancel != nil {
+		p.msgCancel()
+		p.msgCancel = nil
+	}
+
+	p.app.CompactSession()
+
+	return p.messages.ScrollToBottom()
 }

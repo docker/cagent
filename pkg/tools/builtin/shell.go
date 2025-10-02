@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"reflect"
 	"runtime"
 
 	"github.com/docker/cagent/pkg/tools"
@@ -181,6 +182,7 @@ func (t *ShellTool) Tools(context.Context) ([]tools.Tool, error) {
 					},
 					Required: []string{"cmd", "cwd"},
 				},
+				OutputSchema: tools.ToOutputSchemaSchema(reflect.TypeFor[string]()),
 			},
 			Handler: t.handler.CallTool,
 		},

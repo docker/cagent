@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/docker/cagent/pkg/tools"
@@ -74,6 +75,7 @@ func (t *ThinkTool) Tools(context.Context) ([]tools.Tool, error) {
 					},
 					Required: []string{"thought"},
 				},
+				OutputSchema: tools.ToOutputSchemaSchema(reflect.TypeFor[string]()),
 			},
 			Handler: t.handler.CallTool,
 		},

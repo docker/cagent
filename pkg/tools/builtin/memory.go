@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/docker/cagent/pkg/memory/database"
@@ -53,6 +54,7 @@ func (t *MemoryTool) Tools(context.Context) ([]tools.Tool, error) {
 					},
 					Required: []string{"memory"},
 				},
+				OutputSchema: tools.ToOutputSchemaSchema(reflect.TypeFor[string]()),
 			},
 			Handler: t.handleAddMemory,
 		},
@@ -64,6 +66,7 @@ func (t *MemoryTool) Tools(context.Context) ([]tools.Tool, error) {
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "Get Memories",
 				},
+				OutputSchema: tools.ToOutputSchemaSchema(reflect.TypeFor[[]database.UserMemory]()),
 			},
 			Handler: t.handleGetMemories,
 		},
@@ -84,6 +87,7 @@ func (t *MemoryTool) Tools(context.Context) ([]tools.Tool, error) {
 					},
 					Required: []string{"id"},
 				},
+				OutputSchema: tools.ToOutputSchemaSchema(reflect.TypeFor[string]()),
 			},
 			Handler: t.handleDeleteMemory,
 		},

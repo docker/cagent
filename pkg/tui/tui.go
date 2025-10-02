@@ -3,14 +3,15 @@ package tui
 import (
 	"time"
 
+	"github.com/charmbracelet/bubbles/v2/help"
 	"github.com/charmbracelet/bubbles/v2/key"
 	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss/v2"
 
 	"github.com/docker/cagent/pkg/app"
 	"github.com/docker/cagent/pkg/runtime"
-	"github.com/docker/cagent/pkg/telemetry"
 	"github.com/docker/cagent/pkg/tui/components/statusbar"
+	"github.com/docker/cagent/pkg/tui/core"
 	"github.com/docker/cagent/pkg/tui/dialog"
 	chatpage "github.com/docker/cagent/pkg/tui/page/chat"
 	"github.com/docker/cagent/pkg/tui/styles"
@@ -33,6 +34,7 @@ func MouseEventFilter(_ tea.Model, msg tea.Msg) tea.Msg {
 
 // appModel represents the main application model
 type appModel struct {
+	application     *app.App
 	wWidth, wHeight int // Window dimensions
 	width, height   int
 	keyMap          KeyMap
@@ -50,7 +52,8 @@ type appModel struct {
 
 // KeyMap defines global key bindings
 type KeyMap struct {
-	Quit key.Binding
+	Quit           key.Binding
+	CommandPalette key.Binding
 }
 
 // DefaultKeyMap returns the default global key bindings
@@ -60,6 +63,10 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("ctrl+c"),
 			key.WithHelp("ctrl+c", "quit"),
 		),
+		CommandPalette: key.NewBinding(
+			key.WithKeys("ctrl+p"),
+			key.WithHelp("ctrl+p", "command palette"),
+		),
 	}
 }
 
@@ -67,24 +74,36 @@ func DefaultKeyMap() KeyMap {
 func New(a *app.App) tea.Model {
 	chatPageInstance := chatpage.New(a, a.FirstMessage())
 
-	return &appModel{
-		chatPage:  chatPageInstance,
-		keyMap:    DefaultKeyMap(),
-		dialog:    dialog.New(),
-		statusBar: statusbar.New(chatPageInstance),
+	t := &appModel{
+		chatPage:    chatPageInstance,
+		keyMap:      DefaultKeyMap(),
+		dialog:      dialog.New(),
+		application: a,
 	}
+
+	t.statusBar = statusbar.New(t)
+
+	return t
 }
 
 // Init initializes the application
 func (a *appModel) Init() tea.Cmd {
-	telemetry.TrackCommand("tui", []string{"init"})
 	return tea.Batch(
-		// Initialize dialog system
 		a.dialog.Init(),
-
-		// Initialize chat page
 		a.chatPage.Init(),
 	)
+}
+
+// Help returns help information
+func (a *appModel) Help() help.KeyMap {
+	return core.NewSimpleHelp(a.Bindings())
+}
+
+func (a *appModel) Bindings() []key.Binding {
+	return append([]key.Binding{
+		a.keyMap.Quit,
+		a.keyMap.CommandPalette,
+	}, a.chatPage.Bindings()...)
 }
 
 // Update handles incoming messages and updates the application state
@@ -193,6 +212,10 @@ func (a *appModel) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 	switch {
 	case key.Matches(msg, a.keyMap.Quit):
 		return tea.Quit
+	case key.Matches(msg, a.keyMap.CommandPalette):
+		// Open command palette
+		categories := a.buildCommandCategories()
+		return dialog.OpenCommandPalette(categories)
 	default:
 		updated, cmd := a.chatPage.Update(msg)
 		a.chatPage = updated.(chatpage.Page)
@@ -247,19 +270,13 @@ func (a *appModel) View() tea.View {
 
 	baseView := lipgloss.JoinVertical(lipgloss.Top, components...)
 
-	// Create layered view if there is a dialog
 	if a.dialog.HasDialog() {
-		// Create background layer with the base view
 		baseLayer := lipgloss.NewLayer(baseView)
+		dialogLayers := a.dialog.GetLayers()
 
-		// Get dialog layers
-		dialogLayer := a.dialog.GetLayer()
-
-		// Combine all layers
 		allLayers := []*lipgloss.Layer{baseLayer}
-		allLayers = append(allLayers, dialogLayer)
+		allLayers = append(allLayers, dialogLayers...)
 
-		// Create and render canvas
 		canvas := lipgloss.NewCanvas(allLayers...)
 		return toFullscreenView(canvas.Render())
 	}
@@ -271,4 +288,47 @@ func toFullscreenView(content string) tea.View {
 	view := tea.NewView(content)
 	view.BackgroundColor = styles.Background
 	return view
+}
+
+// buildCommandCategories builds the list of command categories for the command palette
+func (a *appModel) buildCommandCategories() []dialog.CommandCategory {
+	return []dialog.CommandCategory{
+		{
+			Name: "Session",
+			Commands: []dialog.Command{
+				{
+					ID:          "session.new",
+					Label:       "New ",
+					Description: "Start a new conversation",
+					Category:    "Session",
+					Execute: func() tea.Cmd {
+						a.application.NewSession()
+						a.chatPage = chatpage.New(a.application, new(string))
+						a.dialog = dialog.New()
+						a.statusBar = statusbar.New(a.chatPage)
+
+						return tea.Batch(a.Init(), a.handleWindowResize(a.wWidth, a.wHeight))
+					},
+				},
+				{
+					ID:          "session.compact",
+					Label:       "Compact",
+					Description: "Summarize the current conversation",
+					Category:    "Session",
+					Execute: func() tea.Cmd {
+						return a.chatPage.CompactSession()
+					},
+				},
+				{
+					ID:          "session.clipboard",
+					Label:       "Copy",
+					Description: "Copy the current conversation to the clipboard",
+					Category:    "Session",
+					Execute: func() tea.Cmd {
+						return a.chatPage.CopySessionToClipboard()
+					},
+				},
+			},
+		},
+	}
 }

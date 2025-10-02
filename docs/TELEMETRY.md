@@ -72,11 +72,6 @@ Events are processed synchronously when `Track()` is called, sending HTTP reques
 
 ### Configuration
 
-The system respects these environment variables:
+Telemetry is enabled by default. To disable it, set:
 
-- `TELEMETRY_ENABLED=false` - Disable telemetry collection (default: enabled)
-- `TELEMETRY_ENDPOINT=<url>` - Remote telemetry endpoint (optional)
-- `TELEMETRY_API_KEY=<key>` - API key for remote telemetry (optional)
-- `TELEMETRY_HEADER=<header>` - Authorization header for remote telemetry (optional)
-
-The `--debug` flag enables local event logging without affecting HTTP transmission.
+- `TELEMETRY_ENABLED=false`
