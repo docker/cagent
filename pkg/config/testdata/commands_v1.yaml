@@ -1,0 +1,21 @@
+version: "1"
+
+agents:
+
+  root:
+    model: openai/gpt-4o
+    instruction: you are a helpful computer assistant
+    commands:
+      df: "check disk"
+      ls: "list files"
+  
+  another_agent:
+    model: openai/gpt-4o
+    instruction: you are a helpful computer assistant
+    commands:
+      - df: "check disk"
+      - ls: "list files"
+  
+  yet_another_agent:
+    model: openai/gpt-4o
+    instruction: you are a helpful computer assistant

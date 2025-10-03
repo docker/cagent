@@ -44,6 +44,7 @@ type Agent struct {
 	addPromptFiles     []string
 	toolWrapper        toolWrapper
 	memoryManager      memorymanager.Manager
+	commands           map[string]string
 }
 
 // New creates a new agent
@@ -157,6 +158,11 @@ func (a *Agent) ToolDisplayName(ctx context.Context, toolName string) string {
 
 func (a *Agent) ToolSets() []tools.ToolSet {
 	return a.toolsets
+}
+
+// Commands returns the named commands configured for this agent.
+func (a *Agent) Commands() map[string]string {
+	return a.commands
 }
 
 func (a *Agent) ensureToolSetsAreStarted() error {
