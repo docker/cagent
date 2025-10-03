@@ -296,6 +296,11 @@ func (m *manager) getCallbackServer() *CallbackServer {
 	return m.callbackServer
 }
 
+// UpdateEmitCallback updates the callback function for emitting auth events
+func (m *manager) UpdateEmitCallback(emitAuthRequired func(serverURL, serverType, status string)) {
+	m.emitAuthRequired = emitAuthRequired
+}
+
 // Cleanup stops the callback server if we own it
 func (m *manager) Cleanup(ctx context.Context) error {
 	m.serverMutex.Lock()

@@ -13,6 +13,9 @@ type Manager interface {
 	// SendAuthorizationCode sends the OAuth authorization code and state after user has completed the OAuth flow
 	SendAuthorizationCode(ctx context.Context, code, state string) error
 
+	// UpdateEmitCallback updates the callback function for emitting auth events
+	UpdateEmitCallback(emitAuthRequired func(serverURL, serverType, status string))
+
 	// Cleanup stops any owned resources like callback servers
 	Cleanup(ctx context.Context) error
 }

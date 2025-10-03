@@ -1,0 +1,9 @@
+version: "2"
+
+agents:
+  root:
+    model: openai/gpt-4o
+    description: Simple agent with filesystem access
+    instruction: Use the tools to help the user with filesystem operations.
+    toolsets:
+      - type: filesystem

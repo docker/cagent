@@ -62,6 +62,7 @@ type runtime struct {
 	toolMap           map[string]ToolHandler
 	team              *team.Team
 	currentAgent      string
+	rootSessionID     string // Root session ID for OAuth state encoding (preserved across sub-sessions)
 	resumeChan        chan ResumeType
 	oauthManager      oauth.Manager
 	tracer            trace.Tracer
@@ -81,6 +82,12 @@ func WithCurrentAgent(agentName string) Opt {
 func WithManagedOAuth(managed bool) Opt {
 	return func(r *runtime) {
 		r.managedOAuth = managed
+	}
+}
+
+func WithRootSessionID(sessionID string) Opt {
+	return func(r *runtime) {
+		r.rootSessionID = sessionID
 	}
 }
 
@@ -154,20 +161,37 @@ func (r *runtime) registerDefaultTools() {
 
 // handleOAuthAuthorizationFlow handles a single OAuth authorization flow
 func (r *runtime) handleOAuthAuthorizationFlow(ctx context.Context, sess *session.Session, oauthRequiredErr *oauth.AuthorizationRequiredError, events chan Event) error {
-	// Create OAuth manager if it doesn't exist
+	// Create emitAuthRequired callback with current events channel
+	emitAuthRequired := func(serverURL, serverType, status string) {
+		events <- AuthorizationRequired(serverURL, serverType, status, r.currentAgent)
+	}
+
+	// Create OAuth manager if it doesn't exist, or update callback if it does
 	if r.oauthManager == nil {
-		emitAuthRequired := func(serverURL, serverType, status string) {
-			events <- AuthorizationRequired(serverURL, serverType, status, r.currentAgent)
-		}
 		r.oauthManager = oauth.NewManager(emitAuthRequired, oauth.WithManagedServer(r.managedOAuth))
 		defer func() {
 			if cleanupErr := r.oauthManager.Cleanup(ctx); cleanupErr != nil {
 				slog.Error("Failed to cleanup OAuth manager", "error", cleanupErr)
 			}
 		}()
+	} else {
+		// Update the callback to use the current events channel
+		// This is important when OAuth manager is reused across sub-sessions (e.g., during task transfer)
+		// If we don't update the callback, events may be sent to a closed channel by a previous session
+		slog.Debug("Reusing existing OAuth manager, updating callback with current events channel")
+		r.oauthManager.UpdateEmitCallback(emitAuthRequired)
 	}
 
-	return r.oauthManager.HandleAuthorizationFlow(ctx, sess.ID, oauthRequiredErr)
+	// Use rootSessionID for OAuth state encoding to ensure callback can find the runtime
+	// This is important when OAuth is triggered from a sub-session during task transfer
+	sessionIDForOAuth := r.rootSessionID
+	if sessionIDForOAuth == "" {
+		// Fallback to current session ID if rootSessionID wasn't set (backward compatibility)
+		sessionIDForOAuth = sess.ID
+		slog.Warn("rootSessionID not set, using current session ID for OAuth", "session_id", sess.ID)
+	}
+
+	return r.oauthManager.HandleAuthorizationFlow(ctx, sessionIDForOAuth, oauthRequiredErr)
 }
 
 func (r *runtime) finalizeEventChannel(ctx context.Context, sess *session.Session, events chan Event) {

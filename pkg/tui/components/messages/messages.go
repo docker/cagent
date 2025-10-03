@@ -322,8 +322,9 @@ func (m *model) shouldCacheMessage(index int) bool {
 
 	switch msg.Type {
 	case types.MessageTypeToolCall:
-		// Never cache tool messages - they have dynamic spinners
-		return false
+		return msg.ToolStatus == types.ToolStatusCompleted || msg.ToolStatus == types.ToolStatusError
+	case types.MessageTypeToolResult:
+		return true
 	case types.MessageTypeAssistant:
 		// Only cache assistant messages that have content (completed streaming)
 		// Empty assistant messages have spinners and need constant re-rendering
@@ -524,7 +525,8 @@ func (m *model) AddOrUpdateToolCall(agentName string, toolCall tools.ToolCall, t
 			if toolCall.Function.Arguments != "" {
 				msg.ToolCall.Function.Arguments = toolCall.Function.Arguments
 			}
-			// Update the corresponding view
+			m.invalidateItem(i)
+
 			view := m.createToolCallView(msg)
 			m.views[i] = view
 			return view.Init()
@@ -557,7 +559,8 @@ func (m *model) AddToolResult(msg *runtime.ToolCallResponseEvent, status types.T
 		if toolMessage.ToolCall.ID == msg.ToolCall.ID {
 			toolMessage.Content = msg.Response
 			toolMessage.ToolStatus = status
-			// Update the corresponding view
+			m.invalidateItem(i)
+
 			view := m.createToolCallView(toolMessage)
 			m.views[i] = view
 			return view.Init()
@@ -642,7 +645,7 @@ func (m *model) PlainTextTranscript() string {
 }
 
 func (m *model) createToolCallView(msg *types.Message) layout.Model {
-	view := tool.New(msg, m.app, m.renderer)
+	view := tool.New(msg, m.app)
 	view.SetSize(m.width, 0)
 	return view
 }

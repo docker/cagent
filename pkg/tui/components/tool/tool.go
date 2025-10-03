@@ -7,7 +7,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/v2/spinner"
 	tea "github.com/charmbracelet/bubbletea/v2"
-	"github.com/charmbracelet/glamour/v2"
 
 	"github.com/docker/cagent/pkg/app"
 	"github.com/docker/cagent/pkg/tui/core/layout"
@@ -34,8 +33,8 @@ func (mv *toolModel) SetSize(width, height int) tea.Cmd {
 	return nil
 }
 
-// New creates a new message view
-func New(msg *types.Message, a *app.App, renderer *glamour.TermRenderer) layout.Model {
+// New creates a new tool view
+func New(msg *types.Message, a *app.App) layout.Model {
 	if msg.ToolCall.Function.Name == "transfer_task" {
 		return &transferTaskModel{
 			msg: msg,
@@ -90,13 +89,7 @@ func (mv *toolModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return mv, nil
 }
 
-// View renders the message view
 func (mv *toolModel) View() string {
-	return mv.Render(mv.width)
-}
-
-// Render renders the message view content
-func (mv *toolModel) Render(width int) string {
 	msg := mv.message
 
 	slog.Debug("Rendering tool message", "status", msg.ToolStatus, "content", msg.Content, "args", msg.ToolCall.Function.Arguments)
@@ -110,6 +103,12 @@ func (mv *toolModel) Render(width int) string {
 			content += " " + render_search_files(msg.ToolCall)
 		case "run_tools_with_javascript":
 			content += " " + render_run_tools_with_javascript(msg.ToolCall)
+		case "edit_file":
+			diff, path := render_edit_file(msg.ToolCall)
+			if diff != "" {
+				pathHeader := styles.HighlightStyle.Bold(true).Render(path)
+				content += "\n" + pathHeader + "\n\n" + diff
+			}
 		default:
 			lines := wrapLines(msg.ToolCall.Function.Arguments, min(120, mv.width-2))
 			content += "\n" + strings.Join(lines, "\n")
@@ -128,7 +127,7 @@ func (mv *toolModel) Render(width int) string {
 
 		// Calculate available width for content (accounting for padding)
 		padding := style.Padding().GetHorizontalPadding()
-		availableWidth := max(width-2-padding, 10) // Minimum readable width
+		availableWidth := max(mv.width-2-padding, 10) // Minimum readable width
 
 		// Wrap long lines to fit the component width
 		lines := wrapLines(msg.Content, availableWidth)

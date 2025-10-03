@@ -79,6 +79,8 @@ func New(sessionStore session.Store, runConfig config.RuntimeConfig, teams map[s
 
 	group := e.Group("/api")
 
+	// Health check endpoint
+	group.GET("/ping", s.ping)
 	// List all available agents
 	group.GET("/agents", s.getAgents)
 	// Get an agent by id
@@ -136,6 +138,10 @@ func (s *Server) Serve(_ context.Context, ln net.Listener) error {
 	}
 
 	return nil
+}
+
+func (s *Server) ping(c echo.Context) error {
+	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (s *Server) getDesktopToken(c echo.Context) error {
@@ -918,6 +924,7 @@ func (s *Server) runAgent(c echo.Context) error {
 		var opts []runtime.Opt = []runtime.Opt{
 			runtime.WithCurrentAgent(currentAgent),
 			runtime.WithManagedOAuth(false),
+			runtime.WithRootSessionID(sess.ID),
 		}
 		rt, err = runtime.New(t, opts...)
 		if err != nil {
@@ -925,6 +932,7 @@ func (s *Server) runAgent(c echo.Context) error {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create runtime"})
 		}
 		s.runtimes[sess.ID] = rt
+		slog.Debug("Runtime created for session", "session_id", sess.ID)
 	}
 
 	var messages []api.Message
