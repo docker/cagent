@@ -15,7 +15,6 @@ type Sizeable interface {
 type Focusable interface {
 	Focus() tea.Cmd
 	Blur() tea.Cmd
-	IsFocused() bool
 }
 
 // Help represents components that provide help information

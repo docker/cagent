@@ -120,11 +120,6 @@ func (e *editor) Blur() tea.Cmd {
 	return nil
 }
 
-// IsFocused returns whether the component is focused
-func (e *editor) IsFocused() bool {
-	return e.textarea.Focused()
-}
-
 // Bindings returns key bindings for the component
 func (e *editor) Bindings() []key.Binding {
 	return []key.Binding{

@@ -53,14 +53,12 @@ type renderedItem struct {
 
 // model implements Model
 type model struct {
-	renderer    *glamour.TermRenderer
-	messages    []types.Message
-	views       []layout.Model
-	width       int
-	height      int
-	focused     bool
-	app         *app.App
-	toolFocused layout.Model
+	renderer *glamour.TermRenderer
+	messages []types.Message
+	views    []layout.Model
+	width    int
+	height   int
+	app      *app.App
 
 	// Height tracking system fields
 	scrollOffset  int                  // Current scroll position in lines
@@ -151,16 +149,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.scrollToBottom()
 			return m, nil
 		}
-
-		if m.focused && m.toolFocused != nil {
-			if updatedModel, cmd := m.toolFocused.Update(msg); cmd != nil {
-				m.toolFocused = updatedModel.(layout.Model)
-				return m, cmd
-			} else {
-				m.toolFocused = updatedModel.(layout.Model)
-			}
-			return m, nil
-		}
 	}
 
 	// Forward updates to all message views
@@ -248,19 +236,12 @@ func (m *model) GetSize() (width, height int) {
 
 // Focus gives focus to the component
 func (m *model) Focus() tea.Cmd {
-	m.focused = true
 	return nil
 }
 
 // Blur removes focus from the component
 func (m *model) Blur() tea.Cmd {
-	m.focused = false
 	return nil
-}
-
-// IsFocused returns whether the component is focused
-func (m *model) IsFocused() bool {
-	return m.focused
 }
 
 // Bindings returns key bindings for the component
