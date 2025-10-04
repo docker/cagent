@@ -150,7 +150,9 @@ func (s *Session) GetAllMessages() []Message {
 		} else if item.IsSubSession() {
 			// Recursively get messages from sub-sessions
 			subMessages := item.SubSession.GetAllMessages()
-			messages = append(messages, subMessages...)
+			// The first message in a sub-session is a generic "Follow the
+			// default instructions" user message, we don't really need it
+			messages = append(messages, subMessages[1:]...)
 		}
 	}
 	return messages
