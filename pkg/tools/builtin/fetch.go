@@ -13,6 +13,7 @@ import (
 
 	htmltomarkdown "github.com/JohannesKaufmann/html-to-markdown/v2"
 	"github.com/k3a/html2text"
+	"github.com/temoto/robotstxt"
 
 	"github.com/docker/cagent/pkg/tools"
 )
@@ -29,9 +30,10 @@ type fetchHandler struct {
 
 func (h *fetchHandler) CallTool(ctx context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
 	var params struct {
-		URLs    []string `json:"urls"`
-		Timeout int      `json:"timeout,omitempty"`
-		Format  string   `json:"format,omitempty"`
+		URLs             []string `json:"urls"`
+		Timeout          int      `json:"timeout,omitempty"`
+		Format           string   `json:"format,omitempty"`
+		IgnoreRobotsText bool     `json:"ignoreRobotsText,omitempty"`
 	}
 
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &params); err != nil {
@@ -52,7 +54,7 @@ func (h *fetchHandler) CallTool(ctx context.Context, toolCall tools.ToolCall) (*
 
 	var results []FetchResult
 	for _, urlStr := range params.URLs {
-		result := h.fetchURL(ctx, client, urlStr, params.Format)
+		result := h.fetchURL(ctx, client, urlStr, params.Format, params.IgnoreRobotsText)
 		results = append(results, result)
 	}
 
@@ -87,7 +89,7 @@ type FetchResult struct {
 	Error         string `json:"error,omitempty"`
 }
 
-func (h *fetchHandler) fetchURL(ctx context.Context, client *http.Client, urlStr, format string) FetchResult {
+func (h *fetchHandler) fetchURL(ctx context.Context, client *http.Client, urlStr, format string, ignoreRobotsText bool) FetchResult {
 	result := FetchResult{URL: urlStr}
 
 	// Validate URL
@@ -107,6 +109,14 @@ func (h *fetchHandler) fetchURL(ctx context.Context, client *http.Client, urlStr
 	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
 		result.Error = "only HTTP and HTTPS URLs are supported"
 		return result
+	}
+
+	// Check robots.txt unless explicitly ignored
+	if !ignoreRobotsText {
+		if allowed := h.checkRobotsAllowed(ctx, client, parsedURL, "cagent/1.0"); !allowed {
+			result.Error = "URL blocked by robots.txt"
+			return result
+		}
 	}
 
 	// Create request
@@ -176,6 +186,59 @@ func (h *fetchHandler) fetchURL(ctx context.Context, client *http.Client, urlStr
 	return result
 }
 
+func (h *fetchHandler) checkRobotsAllowed(ctx context.Context, client *http.Client, targetURL *url.URL, userAgent string) bool {
+	// Build robots.txt URL
+	robotsURL := &url.URL{
+		Scheme: targetURL.Scheme,
+		Host:   targetURL.Host,
+		Path:   "/robots.txt",
+	}
+
+	// Create request for robots.txt
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, robotsURL.String(), http.NoBody)
+	if err != nil {
+		// If we can't create request, allow the fetch
+		return true
+	}
+
+	req.Header.Set("User-Agent", userAgent)
+
+	// Create robots client with shorter timeout but same transport as main client
+	robotsClient := &http.Client{
+		Timeout:   10 * time.Second, // Shorter timeout for robots.txt
+		Transport: client.Transport, // Inherit proxy/transport settings
+	}
+
+	resp, err := robotsClient.Do(req)
+	if err != nil {
+		// If robots.txt is unreachable, allow the fetch
+		return true
+	}
+	defer resp.Body.Close()
+
+	// If robots.txt doesn't exist (404) or other error, allow the fetch
+	if resp.StatusCode != http.StatusOK {
+		return true
+	}
+
+	// Read robots.txt content (limit to 64KB)
+	robotsBody, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if err != nil {
+		// If we can't read robots.txt, allow the fetch
+		return true
+	}
+
+	// Parse robots.txt
+	robots, err := robotstxt.FromBytes(robotsBody)
+	if err != nil {
+		// If we can't parse robots.txt, allow the fetch
+		return true
+	}
+
+	// Check if the target URL path is allowed for our user agent
+	return robots.TestAgent(targetURL.Path, userAgent)
+}
+
 func htmlToMarkdown(html string) string {
 	markdown, err := htmltomarkdown.ConvertString(html)
 	if err != nil {
@@ -220,10 +283,12 @@ FEATURES
 - Support for multiple URLs in a single call
 - Returns response body and metadata (status code, content type, length)
 - Specify the output format (text, markdown, html)
+- Respects robots.txt restrictions by default
 
 USAGE TIPS
 - Use single URLs for simple content fetching
-- Use multiple URLs for batch operations`
+- Use multiple URLs for batch operations
+- Set ignoreRobotsText to true to bypass robots.txt restrictions when needed`
 }
 
 func (t *FetchTool) Tools(context.Context) ([]tools.Tool, error) {
@@ -257,6 +322,10 @@ func (t *FetchTool) Tools(context.Context) ([]tools.Tool, error) {
 							"description": "Request timeout in seconds (default: 30)",
 							"minimum":     1,
 							"maximum":     300,
+						},
+						"ignoreRobotsText": map[string]any{
+							"type":        "boolean",
+							"description": "Whether to ignore robots.txt restrictions (default: false)",
 						},
 					},
 					Required: []string{"urls", "format"},

@@ -1,6 +1,7 @@
 package builtin
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -196,4 +197,122 @@ func toolCall(t *testing.T, args map[string]any) tools.ToolCall {
 			Arguments: string(argsJSON),
 		},
 	}
+}
+
+func TestFetch_RobotsAllowed(t *testing.T) {
+	// Create test server that serves robots.txt allowing all
+	robotsContent := "User-agent: *\nAllow: /"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			w.Header().Set("Content-Type", "text/plain")
+			fmt.Fprint(w, robotsContent)
+			return
+		}
+		if r.URL.Path == "/allowed" {
+			w.Header().Set("Content-Type", "text/plain")
+			fmt.Fprint(w, "Content allowed by robots")
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	tool := NewFetchTool()
+	result, err := tool.handler.CallTool(context.Background(), toolCall(t, map[string]any{
+		"urls":   []string{server.URL + "/allowed"},
+		"format": "text",
+	}))
+
+	require.NoError(t, err)
+	assert.Contains(t, result.Output, "Successfully fetched")
+	assert.Contains(t, result.Output, "Content allowed by robots")
+}
+
+func TestFetch_RobotsBlocked(t *testing.T) {
+	// Create test server that serves robots.txt disallowing the test path
+	robotsContent := "User-agent: *\nDisallow: /blocked"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			w.Header().Set("Content-Type", "text/plain")
+			fmt.Fprint(w, robotsContent)
+			return
+		}
+		if r.URL.Path == "/blocked" {
+			w.Header().Set("Content-Type", "text/plain")
+			fmt.Fprint(w, "This should not be fetched")
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	tool := NewFetchTool()
+	result, err := tool.handler.CallTool(context.Background(), toolCall(t, map[string]any{
+		"urls":   []string{server.URL + "/blocked"},
+		"format": "text",
+	}))
+
+	require.NoError(t, err)
+	assert.Contains(t, result.Output, "Error fetching")
+	assert.Contains(t, result.Output, "URL blocked by robots.txt")
+}
+
+func TestFetch_IgnoreRobotsText(t *testing.T) {
+	// Create test server that serves robots.txt disallowing the test path
+	robotsContent := "User-agent: *\nDisallow: /blocked"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			w.Header().Set("Content-Type", "text/plain")
+			fmt.Fprint(w, robotsContent)
+			return
+		}
+		if r.URL.Path == "/blocked" {
+			w.Header().Set("Content-Type", "text/plain")
+			fmt.Fprint(w, "Content fetched despite robots")
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	tool := NewFetchTool()
+	result, err := tool.handler.CallTool(context.Background(), toolCall(t, map[string]any{
+		"urls":             []string{server.URL + "/blocked"},
+		"format":           "text",
+		"ignoreRobotsText": true,
+	}))
+
+	require.NoError(t, err)
+	assert.Contains(t, result.Output, "Successfully fetched")
+	assert.Contains(t, result.Output, "Content fetched despite robots")
+}
+
+func TestFetch_RobotsMissing(t *testing.T) {
+	// Create test server that doesn't serve robots.txt (404)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.URL.Path == "/content" {
+			w.Header().Set("Content-Type", "text/plain")
+			fmt.Fprint(w, "Content without robots.txt")
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	tool := NewFetchTool()
+	result, err := tool.handler.CallTool(context.Background(), toolCall(t, map[string]any{
+		"urls":   []string{server.URL + "/content"},
+		"format": "text",
+	}))
+
+	require.NoError(t, err)
+	assert.Contains(t, result.Output, "Successfully fetched")
+	assert.Contains(t, result.Output, "Content without robots.txt")
 }
