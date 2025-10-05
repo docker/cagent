@@ -6,7 +6,9 @@ import (
 	"github.com/docker/cagent/pkg/tools"
 )
 
-type TransferTaskTool struct{}
+type TransferTaskTool struct {
+	elicitationTool
+}
 
 // Make sure Transfer Tool implements the ToolSet Interface
 var _ tools.ToolSet = (*TransferTaskTool)(nil)

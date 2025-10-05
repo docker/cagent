@@ -11,6 +11,7 @@ import (
 )
 
 type TodoTool struct {
+	elicitationTool
 	handler *todoHandler
 }
 

@@ -223,7 +223,7 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := p.messages.AddOrUpdateToolCall(msg.AgentName, msg.ToolCall, msg.ToolDefinition, types.ToolStatusPending)
 		return p, tea.Batch(cmd, p.messages.ScrollToBottom(), spinnerCmd)
 	case *runtime.ToolCallConfirmationEvent:
-		spinnerCmd := p.setWorking(false) // Stop working indicator during confirmation
+		spinnerCmd := p.setWorking(false)
 		cmd := p.messages.AddOrUpdateToolCall(msg.AgentName, msg.ToolCall, msg.ToolDefinition, types.ToolStatusConfirmation)
 
 		// Open tool confirmation dialog
@@ -251,7 +251,7 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := p.messages.AddToolResult(msg, types.ToolStatusCompleted)
 		return p, tea.Batch(cmd, p.messages.ScrollToBottom(), spinnerCmd)
 	case *runtime.MaxIterationsReachedEvent:
-		spinnerCmd := p.setWorking(false) // Stop working indicator during confirmation
+		spinnerCmd := p.setWorking(false)
 
 		// Open max iterations confirmation dialog
 		dialogCmd := core.CmdHandler(dialog.OpenDialogMsg{
@@ -259,17 +259,16 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		})
 
 		return p, tea.Batch(spinnerCmd, dialogCmd)
-	case *runtime.AuthorizationRequiredEvent:
-		spinnerCmd := p.setWorking(false) // Stop working indicator during confirmation
+	case *runtime.ElicitationRequestEvent:
+		spinnerCmd := p.setWorking(false)
 
-		if msg.Confirmation == "pending" {
-			// Open OAuth authorization confirmation dialog
-			dialogCmd := core.CmdHandler(dialog.OpenDialogMsg{
-				Model: dialog.NewOAuthAuthorizationDialog(msg.ServerURL, msg.ServerType, p.app),
-			})
+		serverURL := msg.Meta["cagent/server_url"].(string)
+		dialogCmd := core.CmdHandler(dialog.OpenDialogMsg{
+			Model: dialog.NewOAuthAuthorizationDialog(serverURL, p.app),
+		})
 
-			return p, tea.Batch(spinnerCmd, dialogCmd)
-		}
+		return p, tea.Batch(spinnerCmd, dialogCmd)
+
 	}
 
 	sidebarModel, sidebarCmd := p.sidebar.Update(msg)

@@ -13,6 +13,7 @@ import (
 )
 
 type MemoryTool struct {
+	elicitationTool
 	manager memorymanager.Manager
 }
 

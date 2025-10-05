@@ -67,12 +67,13 @@ func NewClient(baseURL string, opts ...ClientOption) (*Client, error) {
 			"agent_choice":           func() Event { return &AgentChoiceEvent{} },
 			"stream_started":         func() Event { return &StreamStartedEvent{} },
 			"stream_stopped":         func() Event { return &StreamStoppedEvent{} },
-			"authorization_required": func() Event { return &AuthorizationRequiredEvent{} },
 			"session_compaction":     func() Event { return &SessionCompactionEvent{} },
 			"token_usage":            func() Event { return &TokenUsageEvent{} },
 			"max_iterations_reached": func() Event { return &MaxIterationsReachedEvent{} },
 			"session_title":          func() Event { return &SessionTitleEvent{} },
 			"session_summary":        func() Event { return &SessionSummaryEvent{} },
+			"authorization_event":    func() Event { return &AuthorizationEvent{} },
+			"elicitation_request":    func() Event { return &ElicitationRequestEvent{} },
 			"shell":                  func() Event { return &ShellOutputEvent{} },
 			"error":                  func() Event { return &ErrorEvent{} },
 		},
@@ -378,4 +379,9 @@ func (c *Client) ResumeStartAuthorizationFlow(ctx context.Context, id string, co
 func (c *Client) ResumeCodeReceived(ctx context.Context, code, state string) error {
 	req := api.ResumeCodeReceivedOauthRequest{Code: code, State: state}
 	return c.doRequest(ctx, "POST", "/api/resumeCodeReceivedOauth", req, nil)
+}
+
+func (c *Client) ResumeElicitation(ctx context.Context, action string, content map[string]any) error {
+	req := api.ResumeElicitationRequest{Action: action, Content: content}
+	return c.doRequest(ctx, "POST", "/api/resumeElicitation", req, nil)
 }

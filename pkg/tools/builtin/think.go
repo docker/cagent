@@ -11,6 +11,7 @@ import (
 )
 
 type ThinkTool struct {
+	elicitationTool
 	handler *thinkHandler
 }
 

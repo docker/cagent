@@ -5,24 +5,23 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iter"
 	"log/slog"
 	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
 
-	"github.com/mark3labs/mcp-go/client"
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/docker/cagent/pkg/oauth"
 	"github.com/docker/cagent/pkg/tools"
 )
 
 type mcpClient interface {
 	Start(ctx context.Context) error
-	Initialize(ctx context.Context, request mcp.InitializeRequest) (*mcp.InitializeResult, error)
-	ListTools(ctx context.Context, request mcp.ListToolsRequest) (*mcp.ListToolsResult, error)
-	CallTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error)
+	Initialize(ctx context.Context, request *mcp.InitializeRequest) (*mcp.InitializeResult, error)
+	ListTools(ctx context.Context, request *mcp.ListToolsParams) iter.Seq2[*mcp.Tool, error]
+	CallTool(ctx context.Context, request *mcp.CallToolParams) (*mcp.CallToolResult, error)
 	Close() error
 }
 
@@ -44,7 +43,7 @@ func NewToolsetCommand(command string, args, env, toolFilter []string) *Toolset 
 	slog.Debug("Creating Stdio MCP toolset", "command", command, "args", args, "toolFilter", toolFilter)
 
 	return &Toolset{
-		mcpClient:  newStdioCmdClient(command, env, args),
+		mcpClient:  newStdioCmdClient(command, args, env),
 		logType:    "command",
 		logID:      command,
 		toolFilter: toolFilter,
@@ -55,13 +54,10 @@ func NewToolsetCommand(command string, args, env, toolFilter []string) *Toolset 
 func NewRemoteToolset(url, transport string, headers map[string]string, toolFilter []string, redirectURI string) (*Toolset, error) {
 	slog.Debug("Creating Remote MCP toolset", "url", url, "transport", transport, "headers", headers, "toolFilter", toolFilter, "redirectURI", redirectURI)
 
-	tokenStore := GetTokenStore(url)
+	tokenStore := NewInMemoryTokenStore()
 
-	mcpClient, err := newRemoteClient(url, transport, headers, redirectURI, tokenStore)
-	if err != nil {
-		slog.Error("Failed to create remote MCP client", "error", err)
-		return nil, fmt.Errorf("failed to create remote mcp client: %w", err)
-	}
+	// Create without elicitation handler initially - it will be set later by runtime
+	mcpClient := newRemoteClient(url, transport, headers, redirectURI, tokenStore)
 
 	return &Toolset{
 		mcpClient:  mcpClient,
@@ -79,24 +75,16 @@ func (ts *Toolset) Start(ctx context.Context) error {
 	slog.Debug("Starting MCP toolset", "server", ts.logID)
 
 	if err := ts.mcpClient.Start(ctx); err != nil {
-		// When the MCP client is remote, Start() can fail due to OAuth authorization errors.
-		// Provide more context to the caller.
-		if client.IsOAuthAuthorizationRequiredError(err) {
-			return &oauth.AuthorizationRequiredError{
-				Err:        err,
-				ServerURL:  ts.logID,
-				ServerType: ts.logType,
-			}
-		}
-		return fmt.Errorf("failed to start MCP client: %w", err)
+		return err
 	}
 
-	slog.Debug("Initializing MCP client", ts.logType, ts.logID)
-	initRequest := mcp.InitializeRequest{}
-	initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
-	initRequest.Params.ClientInfo = mcp.Implementation{
-		Name:    "cagent",
-		Version: "1.0.0",
+	initRequest := &mcp.InitializeRequest{
+		Params: &mcp.InitializeParams{
+			ClientInfo: &mcp.Implementation{
+				Name:    "cagent",
+				Version: "1.0.0",
+			},
+		},
 	}
 
 	var result *mcp.InitializeResult
@@ -112,13 +100,6 @@ func (ts *Toolset) Start(ctx context.Context) error {
 		//
 		// Only retry when initialization fails due to sending the initialized notification.
 		if !isInitNotificationSendError(err) {
-			if client.IsOAuthAuthorizationRequiredError(err) {
-				return &oauth.AuthorizationRequiredError{
-					Err:        err,
-					ServerURL:  ts.logID,
-					ServerType: ts.logType,
-				}
-			}
 			slog.Error("Failed to initialize MCP client", "error", err)
 			return fmt.Errorf("failed to initialize MCP client: %w", err)
 		}
@@ -155,27 +136,22 @@ func (ts *Toolset) Tools(ctx context.Context) ([]tools.Tool, error) {
 
 	slog.Debug("Listing MCP tools", "toolFilter", ts.toolFilter)
 
-	resp, err := ts.mcpClient.ListTools(ctx, mcp.ListToolsRequest{})
-	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
-			slog.Debug("MCP tools listing canceled by context")
+	resp := ts.mcpClient.ListTools(ctx, &mcp.ListToolsParams{})
+
+	var toolsList []tools.Tool
+	for t, err := range resp {
+		if err != nil {
 			return nil, err
 		}
 
-		slog.Error("Failed to list MCP tools", "error", err)
-		return nil, err
-	}
-
-	slog.Debug("Received tools from MCP server", "count", len(resp.Tools))
-
-	var toolsList []tools.Tool
-	for i := range resp.Tools {
-		t := &resp.Tools[i]
 		// If toolFilter is not empty, only include tools that are in the filter
 		if len(ts.toolFilter) > 0 && !slices.Contains(ts.toolFilter, t.Name) {
 			slog.Debug("Filtering out tool", "tool", t.Name)
 			continue
 		}
+
+		inputProps := extractProps(t.InputSchema)
+		outputProps := extractProps(t.OutputSchema)
 
 		tool := tools.Tool{
 			Handler: ts.callTool,
@@ -183,26 +159,27 @@ func (ts *Toolset) Tools(ctx context.Context) ([]tools.Tool, error) {
 				Name:        t.Name,
 				Description: t.Description,
 				Parameters: tools.FunctionParameters{
-					Type:       t.InputSchema.Type,
-					Properties: t.InputSchema.Properties,
-					Required:   t.InputSchema.Required,
-				},
-				Annotations: tools.ToolAnnotation{
-					Title:           t.Annotations.Title,
-					ReadOnlyHint:    t.Annotations.ReadOnlyHint,
-					DestructiveHint: t.Annotations.DestructiveHint,
-					IdempotentHint:  t.Annotations.IdempotentHint,
-					OpenWorldHint:   t.Annotations.OpenWorldHint,
+					Type:       inputProps.ttype,
+					Properties: inputProps.properties,
+					Required:   inputProps.required,
 				},
 				OutputSchema: tools.ToolOutputSchema{
 					// See missing field in MCP Spec: https://github.com/modelcontextprotocol/modelcontextprotocol/issues/834
-					// Items:      t.OutputSchema.Items,
-					Items:      nil,
-					Type:       t.OutputSchema.Type,
-					Properties: t.OutputSchema.Properties,
-					Required:   t.OutputSchema.Required,
+					// Items:      ...
+					Type:       outputProps.ttype,
+					Properties: outputProps.properties,
+					Required:   outputProps.required,
 				},
 			},
+		}
+		if t.Annotations != nil {
+			tool.Function.Annotations = tools.ToolAnnotation{
+				Title:           t.Annotations.Title,
+				ReadOnlyHint:    &t.Annotations.ReadOnlyHint,
+				DestructiveHint: t.Annotations.DestructiveHint,
+				IdempotentHint:  &t.Annotations.IdempotentHint,
+				OpenWorldHint:   t.Annotations.OpenWorldHint,
+			}
 		}
 		toolsList = append(toolsList, tool)
 
@@ -211,6 +188,35 @@ func (ts *Toolset) Tools(ctx context.Context) ([]tools.Tool, error) {
 
 	slog.Debug("Listed MCP tools", "count", len(toolsList))
 	return toolsList, nil
+}
+
+type schemaProps struct {
+	ttype      string
+	properties map[string]any
+	required   []string
+}
+
+func extractProps(schema any) schemaProps {
+	var res schemaProps
+
+	if schemaMap, ok := schema.(map[string]any); ok {
+		if typeVal, ok := schemaMap["type"].(string); ok {
+			res.ttype = typeVal
+		}
+		if propsVal, ok := schemaMap["properties"].(map[string]any); ok {
+			res.properties = propsVal
+		}
+		if reqVal, ok := schemaMap["required"].([]any); ok {
+			res.required = make([]string, len(reqVal))
+			for i, r := range reqVal {
+				if s, ok := r.(string); ok {
+					res.required[i] = s
+				}
+			}
+		}
+	}
+
+	return res
 }
 
 func (ts *Toolset) callTool(ctx context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
@@ -225,9 +231,9 @@ func (ts *Toolset) callTool(ctx context.Context, toolCall tools.ToolCall) (*tool
 		return nil, fmt.Errorf("failed to parse tool arguments: %w", err)
 	}
 
-	request := mcp.CallToolRequest{}
-	request.Params.Name = toolCall.Function.Name
-	request.Params.Arguments = args
+	request := &mcp.CallToolParams{}
+	request.Name = toolCall.Function.Name
+	request.Arguments = args
 
 	resp, err := ts.mcpClient.CallTool(ctx, request)
 	if err != nil {
@@ -274,7 +280,7 @@ func isInitNotificationSendError(err error) bool {
 func processMCPContent(toolResult *mcp.CallToolResult) *tools.ToolCallResult {
 	finalContent := ""
 	for _, resultContent := range toolResult.Content {
-		if textContent, ok := resultContent.(mcp.TextContent); ok {
+		if textContent, ok := resultContent.(*mcp.TextContent); ok {
 			finalContent += textContent.Text
 		}
 	}
@@ -286,5 +292,23 @@ func processMCPContent(toolResult *mcp.CallToolResult) *tools.ToolCallResult {
 
 	return &tools.ToolCallResult{
 		Output: finalContent,
+	}
+}
+
+// SetElicitationHandler sets the elicitation handler for remote MCP clients
+// This allows the runtime to provide a handler that propagates elicitation requests
+func (ts *Toolset) SetElicitationHandler(handler tools.ElicitationHandler) {
+	if remoteClient, ok := ts.mcpClient.(*remoteMCPClient); ok {
+		remoteClient.mu.Lock()
+		remoteClient.elicitationHandler = handler
+		remoteClient.mu.Unlock()
+	}
+}
+
+func (ts *Toolset) SetOAuthSuccessHandler(handler func()) {
+	if remoteClient, ok := ts.mcpClient.(*remoteMCPClient); ok {
+		remoteClient.mu.Lock()
+		remoteClient.oauthSuccessHandler = handler
+		remoteClient.mu.Unlock()
 	}
 }

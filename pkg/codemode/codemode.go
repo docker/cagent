@@ -114,6 +114,14 @@ func (c *tool) Stop() error {
 	return errors.Join(errs...)
 }
 
+func (c *tool) SetElicitationHandler(handler tools.ElicitationHandler) {
+	// No-op, this tool does not use elicitation
+}
+
+func (c *tool) SetOAuthSuccessHandler(handler func()) {
+	// No-op, this tool does not use OAuth
+}
+
 func Wrap(toolsets []tools.ToolSet) tools.ToolSet {
 	return &tool{
 		toolsets: toolsets,

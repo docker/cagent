@@ -44,6 +44,14 @@ func (f *fsToolset) Stop() error {
 	return f.inner.Stop()
 }
 
+func (f *fsToolset) SetElicitationHandler(handler tools.ElicitationHandler) {
+	// No-op, this tool does not use elicitation
+}
+
+func (f *fsToolset) SetOAuthSuccessHandler(handler func()) {
+	// No-op, this tool does not use OAuth
+}
+
 func (f *fsToolset) Tools(ctx context.Context) ([]tools.Tool, error) {
 	innerTools, err := f.inner.Tools(ctx)
 	if err != nil {

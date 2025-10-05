@@ -113,6 +113,14 @@ func (t *GatewayToolset) Stop() error {
 	return errors.Join(stopErr, cleanUpSecretsErr, cleanUpConfigErr)
 }
 
+func (t *GatewayToolset) SetElicitationHandler(handler tools.ElicitationHandler) {
+	// TODO: implement elicitations for the gateway
+}
+
+func (t *GatewayToolset) SetOAuthSuccessHandler(handler func()) {
+	// No-op, as the gateway does not support OAuth
+}
+
 func writeSecretsToFile(ctx context.Context, mcpServerName string, secrets []gateway.Secret, envProvider environment.Provider) (string, error) {
 	var secretValues []string
 	for _, secret := range secrets {

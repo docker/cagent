@@ -186,5 +186,22 @@ func (r *RemoteRuntime) ResumeCodeReceived(ctx context.Context, code, state stri
 	return nil
 }
 
+// ResumeElicitation sends an elicitation response back to a waiting elicitation request
+func (r *RemoteRuntime) ResumeElicitation(ctx context.Context, action string, content map[string]any) error {
+	slog.Debug("Resuming remote runtime with elicitation response", "agent", r.currentAgent, "action", action, "session_id", r.sessionID)
+
+	if r.sessionID == "" {
+		slog.Error("Cannot resume: no session ID available")
+		return fmt.Errorf("session ID cannot be empty")
+	}
+
+	if err := r.client.ResumeElicitation(ctx, action, content); err != nil {
+		slog.Error("Failed to resume remote session with elicitation", "error", err, "session_id", r.sessionID)
+		return err
+	}
+
+	return nil
+}
+
 // Verify that RemoteRuntime implements the Interface
 var _ Runtime = (*RemoteRuntime)(nil)

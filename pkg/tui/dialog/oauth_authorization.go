@@ -15,7 +15,6 @@ import (
 type oauthAuthorizationDialog struct {
 	width, height int
 	serverURL     string
-	serverType    string
 	app           *app.App
 	keyMap        oauthAuthorizationKeyMap
 }
@@ -48,12 +47,11 @@ func defaultOAuthAuthorizationKeyMap() oauthAuthorizationKeyMap {
 }
 
 // NewOAuthAuthorizationDialog creates a new OAuth authorization confirmation dialog
-func NewOAuthAuthorizationDialog(serverURL, serverType string, appInstance *app.App) Dialog {
+func NewOAuthAuthorizationDialog(serverURL string, appInstance *app.App) Dialog {
 	return &oauthAuthorizationDialog{
-		serverURL:  serverURL,
-		serverType: serverType,
-		app:        appInstance,
-		keyMap:     defaultOAuthAuthorizationKeyMap(),
+		serverURL: serverURL,
+		app:       appInstance,
+		keyMap:    defaultOAuthAuthorizationKeyMap(),
 	}
 }
 
@@ -167,7 +165,7 @@ func (d *oauthAuthorizationDialog) View() string {
 
 	// Content
 	title := titleStyle.Render("🔐 OAuth Authorization Required")
-	serverInfo := serverInfoStyle.Render(fmt.Sprintf("Server: %s (%s)", d.serverURL, d.serverType))
+	serverInfo := serverInfoStyle.Render(fmt.Sprintf("Server: %s (remote)", d.serverURL))
 	description := messageStyle.Render("This server requires OAuth authentication to access its tools. Your browser will open automatically to complete the authorization process.")
 	instructions := instructionsStyle.Render("After authorizing in your browser, return here and the agent will continue automatically.")
 	options := optionsStyle.Render("Y - Authorize  |  N - Decline")

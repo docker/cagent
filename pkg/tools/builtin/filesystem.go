@@ -25,10 +25,14 @@ type PostEditConfig struct {
 }
 
 type FilesystemTool struct {
+	elicitationTool
+
 	allowedDirectories []string
 	allowedTools       []string
 	postEditCommands   []PostEditConfig
 }
+
+var _ tools.ToolSet = (*FilesystemTool)(nil)
 
 type FileSystemOpt func(*FilesystemTool)
 

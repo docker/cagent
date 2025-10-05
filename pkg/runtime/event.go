@@ -254,21 +254,38 @@ func StreamStopped(sessionID, agentName string) Event {
 	}
 }
 
-type AuthorizationRequiredEvent struct {
-	Type         string `json:"type"`
-	ServerURL    string `json:"server_url"`
-	ServerType   string `json:"server_type"`
-	Confirmation string `json:"confirmation"` // only  "pending" | "confirmed" | "denied"
+// ElicitationRequestEvent is sent when an elicitation request is received from an MCP server
+type ElicitationRequestEvent struct {
+	Type    string         `json:"type"`
+	Message string         `json:"message"`
+	Schema  any            `json:"schema"`
+	Meta    map[string]any `json:"meta,omitempty"`
 	AgentContext
 }
 
-func (e *AuthorizationRequiredEvent) GetAgentName() string { return "" }
+func ElicitationRequest(message string, schema any, meta map[string]any, agentName string) Event {
+	return &ElicitationRequestEvent{
+		Type:         "elicitation_request",
+		Message:      message,
+		Schema:       schema,
+		Meta:         meta,
+		AgentContext: AgentContext{AgentName: agentName},
+	}
+}
 
-func AuthorizationRequired(serverURL, serverType, confirmation, agentName string) Event {
-	return &AuthorizationRequiredEvent{
-		Type:         "authorization_required",
-		ServerURL:    serverURL,
-		ServerType:   serverType,
+func (e *ElicitationRequestEvent) GetAgentName() string { return e.AgentName }
+
+type AuthorizationEvent struct {
+	Type         string `json:"type"`
+	Confirmation string `json:"confirmation"` // only "confirmed"
+	AgentContext
+}
+
+func (e *AuthorizationEvent) GetAgentName() string { return "" }
+
+func Authorization(confirmation, agentName string) Event {
+	return &AuthorizationEvent{
+		Type:         "authorization_event",
 		Confirmation: confirmation,
 		AgentContext: AgentContext{AgentName: agentName},
 	}
@@ -285,4 +302,8 @@ func MaxIterationsReached(maxIterations int) Event {
 		Type:          "max_iterations_reached",
 		MaxIterations: maxIterations,
 	}
+}
+
+func (e *MaxIterationsReachedEvent) GetAgentName() string {
+	return e.AgentName
 }

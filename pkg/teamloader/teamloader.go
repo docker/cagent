@@ -347,8 +347,6 @@ func createTool(ctx context.Context, toolset latest.Toolset, a *latest.AgentConf
 		return mcp.NewToolsetCommand(toolset.Command, toolset.Args, env, toolset.Tools), nil
 
 	case toolset.Type == "mcp" && toolset.Remote.URL != "":
-		// TODO: the tool's config can set env variables that could be used in headers.
-		// Expand env vars in headers.
 		headers := map[string]string{}
 		for k, v := range toolset.Remote.Headers {
 			expanded, err := environment.Expand(ctx, v, envProvider)

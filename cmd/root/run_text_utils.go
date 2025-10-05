@@ -139,9 +139,9 @@ func promptMaxIterationsContinue(maxIterations int) ConfirmationResult {
 	}
 }
 
-func promptOAuthAuthorization(serverURL, serverType string) ConfirmationResult {
+func promptOAuthAuthorization(serverURL string) ConfirmationResult {
 	fmt.Printf("\n%s\n", yellow("🔐 OAuth Authorization Required"))
-	fmt.Printf("%s %s (%s)\n", white("Server:"), blue(serverURL), serverType)
+	fmt.Printf("%s %s (remote)\n", white("Server:"), blue(serverURL))
 	fmt.Printf("%s\n", white("This server requires OAuth authentication to access its tools."))
 	fmt.Printf("%s\n", white("Your browser will open automatically to complete the authorization."))
 	fmt.Printf("\n%s (y/n): ", blue("Do you want to authorize access?"))

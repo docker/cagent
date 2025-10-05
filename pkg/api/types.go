@@ -156,3 +156,9 @@ type ResumeCodeReceivedOauthRequest struct {
 	Code  string `json:"code"`
 	State string `json:"state"`
 }
+
+// ResumeElicitationRequest represents a request to resume with an elicitation response
+type ResumeElicitationRequest struct {
+	Action  string         `json:"action"`  // "accept", "decline", or "cancel"
+	Content map[string]any `json:"content"` // The submitted form data (only present when action is "accept")
+}

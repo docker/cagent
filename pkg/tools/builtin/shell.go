@@ -13,6 +13,7 @@ import (
 )
 
 type ShellTool struct {
+	elicitationTool
 	handler *shellHandler
 }
 

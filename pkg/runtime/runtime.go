@@ -8,8 +8,10 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -17,7 +19,6 @@ import (
 	"github.com/docker/cagent/pkg/agent"
 	"github.com/docker/cagent/pkg/chat"
 	"github.com/docker/cagent/pkg/modelsdev"
-	"github.com/docker/cagent/pkg/oauth"
 	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/team"
 	"github.com/docker/cagent/pkg/telemetry"
@@ -30,6 +31,22 @@ type modelStore interface {
 	GetModel(ctx context.Context, modelID string) (*modelsdev.Model, error)
 }
 
+// ElicitationResult represents the result of an elicitation request
+type ElicitationResult struct {
+	Action  string         // "accept", "decline", or "cancel"
+	Content map[string]any // The submitted form data (only present when action is "accept")
+}
+
+// ElicitationError represents an error from a declined/cancelled elicitation
+type ElicitationError struct {
+	Action  string
+	Message string
+}
+
+func (e *ElicitationError) Error() string {
+	return fmt.Sprintf("elicitation %s: %s", e.Action, e.Message)
+}
+
 const (
 	ResumeTypeApprove        ResumeType = "approve"
 	ResumeTypeApproveSession ResumeType = "approve-session"
@@ -38,6 +55,9 @@ const (
 
 // ToolHandler is a function type for handling tool calls
 type ToolHandler func(ctx context.Context, sess *session.Session, toolCall tools.ToolCall, events chan Event) (*tools.ToolCallResult, error)
+
+// ElicitationRequestHandler is a function type for handling elicitation requests
+type ElicitationRequestHandler func(ctx context.Context, message string, schema map[string]any) (map[string]any, error)
 
 // Runtime defines the contract for runtime execution
 type Runtime interface {
@@ -51,24 +71,24 @@ type Runtime interface {
 	Resume(ctx context.Context, confirmationType string)
 	// Summarize generates a summary for the session
 	Summarize(ctx context.Context, sess *session.Session, events chan Event)
-	// ResumeStartAuthorizationFlow signals that user confirmation has been given to start the OAuth flow
-	ResumeStartAuthorizationFlow(_ context.Context, confirmation bool)
-	// ResumeCodeReceived sends the OAuth authorization code and state to the runtime after user has completed the OAuth flow in their browser
-	ResumeCodeReceived(_ context.Context, code, state string) error
+	// ResumeElicitation sends an elicitation response back to a waiting elicitation request
+	ResumeElicitation(_ context.Context, action string, content map[string]any) error
 }
 
 // runtime manages the execution of agents
 type runtime struct {
-	toolMap           map[string]ToolHandler
-	team              *team.Team
-	currentAgent      string
-	rootSessionID     string // Root session ID for OAuth state encoding (preserved across sub-sessions)
-	resumeChan        chan ResumeType
-	oauthManager      oauth.Manager
-	tracer            trace.Tracer
-	modelsStore       modelStore
-	sessionCompaction bool
-	managedOAuth      bool
+	toolMap                     map[string]ToolHandler
+	team                        *team.Team
+	currentAgent                string
+	rootSessionID               string // Root session ID for OAuth state encoding (preserved across sub-sessions)
+	resumeChan                  chan ResumeType
+	tracer                      trace.Tracer
+	modelsStore                 modelStore
+	sessionCompaction           bool
+	managedOAuth                bool
+	elicitationRequestCh        chan ElicitationResult // Channel for receiving elicitation responses
+	elicitationEventsChannel    chan Event             // Current events channel for sending elicitation requests
+	elicitationEventsChannelMux sync.RWMutex           // Protects elicitationEventsChannel
 }
 
 type Opt func(*runtime)
@@ -118,13 +138,14 @@ func New(agents *team.Team, opts ...Opt) (Runtime, error) {
 	}
 
 	r := &runtime{
-		toolMap:           make(map[string]ToolHandler),
-		team:              agents,
-		currentAgent:      "root",
-		resumeChan:        make(chan ResumeType),
-		modelsStore:       modelsStore,
-		sessionCompaction: true,
-		managedOAuth:      true,
+		toolMap:              make(map[string]ToolHandler),
+		team:                 agents,
+		currentAgent:         "root",
+		resumeChan:           make(chan ResumeType),
+		elicitationRequestCh: make(chan ElicitationResult),
+		modelsStore:          modelsStore,
+		sessionCompaction:    true,
+		managedOAuth:         true,
 	}
 
 	for _, opt := range opts {
@@ -159,35 +180,6 @@ func (r *runtime) registerDefaultTools() {
 	slog.Debug("Registered default tools", "count", len(r.toolMap))
 }
 
-// ensureOAuthManager ensures the OAuth manager is initialized and configured with the current events channel.
-// Returns a cleanup function that should be deferred by the caller.
-func (r *runtime) ensureOAuthManager(ctx context.Context, events chan Event) func() {
-	// Create emitAuthRequired callback with current events channel
-	emitAuthRequired := func(serverURL, serverType, status string) {
-		events <- AuthorizationRequired(serverURL, serverType, status, r.currentAgent)
-	}
-
-	// Create OAuth manager if it doesn't exist, or update callback if it does
-	if r.oauthManager == nil {
-		r.oauthManager = oauth.NewManager(emitAuthRequired, oauth.WithManagedServer(r.managedOAuth))
-	} else {
-		// Update the callback to use the current events channel
-		// This is important when OAuth manager is reused across sub-sessions (e.g., during task transfer)
-		// If we don't update the callback, events may be sent to a closed channel by a previous session
-		slog.Debug("Reusing existing OAuth manager, updating callback with current events channel")
-		r.oauthManager.UpdateEmitCallback(emitAuthRequired)
-	}
-
-	// Return cleanup function for caller to defer
-	return func() {
-		if r.oauthManager != nil {
-			if cleanupErr := r.oauthManager.Cleanup(ctx); cleanupErr != nil {
-				slog.Error("Failed to cleanup OAuth manager", "error", cleanupErr)
-			}
-		}
-	}
-}
-
 func (r *runtime) finalizeEventChannel(ctx context.Context, sess *session.Session, events chan Event) {
 	defer close(events)
 
@@ -216,7 +208,20 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 
 		a := r.team.Agent(r.currentAgent)
 
-		agentTools, err := r.getTools(ctx, sess, events, a, sessionSpan)
+		// Set the events channel for elicitation requests
+		r.setElicitationEventsChannel(events)
+		defer r.clearElicitationEventsChannel()
+
+		toolsets := a.ToolSets()
+		// Set elicitation handler on all MCP toolsets before getting tools
+		for _, toolset := range toolsets {
+			toolset.SetElicitationHandler(r.elicitationHandler)
+			toolset.SetOAuthSuccessHandler(func() {
+				events <- Authorization("confirmed", r.currentAgent)
+			})
+		}
+
+		agentTools, err := r.getTools(ctx, a, sessionSpan)
 		if err != nil {
 			events <- Error(fmt.Sprintf("failed to get tools: %v", err))
 			return
@@ -374,35 +379,18 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 	return events
 }
 
-func (r *runtime) getTools(ctx context.Context, sess *session.Session, events chan Event, a *agent.Agent, sessionSpan trace.Span) ([]tools.Tool, error) {
-	defer r.ensureOAuthManager(ctx, events)()
-
-	// Use rootSessionID for OAuth state encoding to ensure callback can find the runtime
-	// This is important when OAuth is triggered from a sub-session during task transfer
-	sessionIDForOAuth := r.rootSessionID
-	if sessionIDForOAuth == "" {
-		// Fallback to current session ID if rootSessionID wasn't set (backward compatibility)
-		sessionIDForOAuth = sess.ID
-		slog.Warn("rootSessionID not set, using current session ID for OAuth", "session_id", sess.ID)
-	}
-
+func (r *runtime) getTools(ctx context.Context, a *agent.Agent, sessionSpan trace.Span) ([]tools.Tool, error) {
 	// Execute tool retrieval with automatic OAuth handling
 	var agentTools []tools.Tool
-	err := r.oauthManager.ExecuteWithOAuth(ctx, sessionIDForOAuth, func() error {
-		tools, err := a.Tools(ctx)
-		if err != nil {
-			slog.Error("Failed to get agent tools", "agent", a.Name(), "error", err)
-			sessionSpan.RecordError(err)
-			sessionSpan.SetStatus(codes.Error, "failed to get tools")
-			telemetry.RecordError(ctx, err.Error())
-			return err
-		}
-		agentTools = tools
-		return nil
-	})
+	tls, err := a.Tools(ctx)
 	if err != nil {
+		slog.Error("Failed to get agent tools", "agent", a.Name(), "error", err)
+		sessionSpan.RecordError(err)
+		sessionSpan.SetStatus(codes.Error, "failed to get tools")
+		telemetry.RecordError(ctx, err.Error())
 		return nil, err
 	}
+	agentTools = tls
 
 	slog.Debug("Retrieved agent tools", "agent", a.Name(), "tool_count", len(agentTools))
 	return agentTools, nil
@@ -427,24 +415,26 @@ func (r *runtime) Resume(_ context.Context, confirmationType string) {
 	}
 }
 
-func (r *runtime) ResumeStartAuthorizationFlow(ctx context.Context, confirmation bool) {
-	slog.Debug("Resuming runtime to start OAuth flow", "agent", r.currentAgent)
+// ResumeElicitation sends an elicitation response back to a waiting elicitation request
+func (r *runtime) ResumeElicitation(ctx context.Context, action string, content map[string]any) error {
+	slog.Debug("Resuming runtime with elicitation response", "agent", r.currentAgent, "action", action)
 
-	if r.oauthManager != nil {
-		r.oauthManager.StartAuthorizationFlow(ctx, confirmation)
-	} else {
-		slog.Debug("OAuth manager not available, ignoring", "agent", r.currentAgent)
-	}
-}
-
-func (r *runtime) ResumeCodeReceived(ctx context.Context, code, state string) error {
-	slog.Debug("Sending OAuth authorization code and state to runtime", "agent", r.currentAgent)
-
-	if r.oauthManager != nil {
-		return r.oauthManager.SendAuthorizationCode(ctx, code, state)
+	result := ElicitationResult{
+		Action:  action,
+		Content: content,
 	}
 
-	return fmt.Errorf("OAuth flow not in progress")
+	select {
+	case <-ctx.Done():
+		slog.Debug("Context cancelled while sending elicitation response")
+		return ctx.Err()
+	case r.elicitationRequestCh <- result:
+		slog.Debug("Elicitation response sent successfully", "action", action)
+		return nil
+	default:
+		slog.Debug("Elicitation channel not ready")
+		return fmt.Errorf("no elicitation request in progress")
+	}
 }
 
 // Run starts the agent's interaction loop
@@ -706,32 +696,13 @@ func (r *runtime) runTool(ctx context.Context, tool tools.Tool, toolCall tools.T
 	))
 	defer span.End()
 
-	defer r.ensureOAuthManager(ctx, events)()
-
-	// Resolve session ID for OAuth state encoding
-	sessionIDForOAuth := r.rootSessionID
-	if sessionIDForOAuth == "" {
-		sessionIDForOAuth = sess.ID
-	}
-
 	events <- ToolCall(toolCall, tool, a.Name())
 
 	var res *tools.ToolCallResult
 	var err error
 	var duration time.Duration
 
-	// Execute tool with OAuth handling
-	start := time.Now()
-	oauthErr := r.oauthManager.ExecuteWithOAuth(ctx, sessionIDForOAuth, func() error {
-		var handlerErr error
-		res, handlerErr = tool.Handler(ctx, toolCall)
-		return handlerErr
-	})
-	duration = time.Since(start)
-
-	if oauthErr != nil {
-		err = oauthErr
-	}
+	res, err = tool.Handler(ctx, toolCall)
 
 	telemetry.RecordToolCall(ctx, toolCall.Function.Name, sess.ID, a.Name(), duration, err)
 
@@ -1057,4 +1028,51 @@ func (r *runtime) Summarize(ctx context.Context, sess *session.Session, events c
 	sess.Messages = append(sess.Messages, session.Item{Summary: summary})
 	slog.Debug("Generated session summary", "session_id", sess.ID, "summary_length", len(summary))
 	events <- SessionSummary(sess.ID, summary, r.currentAgent)
+}
+
+// setElicitationEventsChannel sets the current events channel for elicitation requests
+func (r *runtime) setElicitationEventsChannel(events chan Event) {
+	r.elicitationEventsChannelMux.Lock()
+	defer r.elicitationEventsChannelMux.Unlock()
+	r.elicitationEventsChannel = events
+}
+
+// clearElicitationEventsChannel clears the current events channel
+func (r *runtime) clearElicitationEventsChannel() {
+	r.elicitationEventsChannelMux.Lock()
+	defer r.elicitationEventsChannelMux.Unlock()
+	r.elicitationEventsChannel = nil
+}
+
+// elicitationHandler creates an elicitation handler that can be used by MCP clients
+// This handler propagates elicitation requests to the runtime's client via events
+func (r *runtime) elicitationHandler(ctx context.Context, req *mcp.ElicitParams) (tools.ElicitationResult, error) {
+	slog.Debug("Elicitation request received from MCP server", "message", req.Message)
+
+	// Get the current events channel
+	r.elicitationEventsChannelMux.RLock()
+	eventsChannel := r.elicitationEventsChannel
+	r.elicitationEventsChannelMux.RUnlock()
+
+	if eventsChannel == nil {
+		return tools.ElicitationResult{}, fmt.Errorf("no events channel available for elicitation")
+	}
+
+	slog.Debug("Sending elicitation request event to client", "message", req.Message, "requested_schema", req.RequestedSchema)
+	slog.Debug("Elicitation request meta", "meta", req.Meta)
+
+	// Send elicitation request event to the runtime's client
+	eventsChannel <- ElicitationRequest(req.Message, req.RequestedSchema, req.Meta, r.currentAgent)
+
+	// Wait for response from the client
+	select {
+	case result := <-r.elicitationRequestCh:
+		return tools.ElicitationResult{
+			Action:  result.Action,
+			Content: result.Content,
+		}, nil
+	case <-ctx.Done():
+		slog.Debug("Context cancelled while waiting for elicitation response")
+		return tools.ElicitationResult{}, ctx.Err()
+	}
 }

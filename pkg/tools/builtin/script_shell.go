@@ -14,6 +14,7 @@ import (
 )
 
 type ScriptShellTool struct {
+	elicitationTool
 	shellTools map[string]latest.ScriptShellToolConfig
 	env        []string
 }

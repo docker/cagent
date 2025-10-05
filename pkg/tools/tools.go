@@ -3,6 +3,8 @@ package tools
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 type ToolHandler = func(ctx context.Context, toolCall ToolCall) (*ToolCallResult, error)
@@ -73,9 +75,20 @@ func (fp FunctionParameters) MarshalJSON() ([]byte, error) {
 	return json.Marshal(Alias(fp))
 }
 
+type ElicitationResult struct {
+	Action  string         `json:"action"` // "accept", "decline", or "cancel"
+	Content map[string]any `json:"content,omitempty"`
+}
+
+// ElicitationHandler is a function type that handles elicitation requests from the MCP server
+// This allows the runtime to handle elicitation requests and propagate them to its own client
+type ElicitationHandler func(ctx context.Context, req *mcp.ElicitParams) (ElicitationResult, error)
+
 type ToolSet interface {
 	Tools(ctx context.Context) ([]Tool, error)
 	Instructions() string
 	Start(ctx context.Context) error
 	Stop() error
+	SetElicitationHandler(handler ElicitationHandler)
+	SetOAuthSuccessHandler(handler func())
 }

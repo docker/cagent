@@ -28,7 +28,6 @@ import (
 	"github.com/docker/cagent/pkg/content"
 	"github.com/docker/cagent/pkg/creator"
 	"github.com/docker/cagent/pkg/desktop"
-	"github.com/docker/cagent/pkg/oauth"
 	"github.com/docker/cagent/pkg/oci"
 	"github.com/docker/cagent/pkg/remote"
 	"github.com/docker/cagent/pkg/runtime"
@@ -133,11 +132,9 @@ func New(sessionStore session.Store, runConfig config.RuntimeConfig, teams map[s
 	group.POST("/sessions/:id/agent/:agent", s.runAgent)
 	group.POST("/sessions/:id/agent/:agent/:agent_name", s.runAgent)
 
-	group.GET("/desktop/token", s.getDesktopToken)
+	group.POST("/sessions/:id/elicitation", s.elicitation)
 
-	// Resume to start an OAuth flow
-	group.POST("/:id/resumeStartOauth", s.resumeStartOauth)
-	group.POST("/resumeCodeReceivedOauth", s.resumeCodeReceivedOauth)
+	group.GET("/desktop/token", s.getDesktopToken)
 
 	return s, nil
 }
@@ -1157,52 +1154,21 @@ func addYamlExt(filename string) string {
 	return filename + ".yaml"
 }
 
-func (s *Server) resumeStartOauth(c echo.Context) error {
+func (s *Server) elicitation(c echo.Context) error {
 	sessionID := c.Param("id")
-	var req api.ResumeStartOauthRequest
+	var req api.ResumeElicitationRequest
 	if err := c.Bind(&req); err != nil {
 		return jsonErr(c, http.StatusBadRequest, "invalid request body")
 	}
 
 	rt, exists := s.runtimes[sessionID]
 	if !exists {
-		return jsonErr(c, http.StatusNotFound, fmt.Sprintf("runtime not found: %s", sessionID))
+		return c.JSON(http.StatusNotFound, map[string]string{"error": fmt.Sprintf("runtime not found: %s", sessionID)})
 	}
 
-	rt.ResumeStartAuthorizationFlow(c.Request().Context(), req.Confirmation)
-
-	return c.JSON(http.StatusOK, map[string]string{"message": "Oauth started"})
-}
-
-func (s *Server) resumeCodeReceivedOauth(c echo.Context) error {
-	var req api.ResumeCodeReceivedOauthRequest
-	if err := c.Bind(&req); err != nil {
-		return jsonErr(c, http.StatusBadRequest, "invalid request body")
+	if err := rt.ResumeElicitation(c.Request().Context(), req.Action, req.Content); err != nil {
+		return jsonErr(c, http.StatusInternalServerError, fmt.Sprintf("failed to resume elicitation: %v", err))
 	}
 
-	code := req.Code
-	state := req.State
-
-	// Extract session ID from the OAuth state parameter
-	sessionID, err := oauth.DecodeSessionIDFromState(state)
-	if err != nil {
-		slog.Error("Failed to decode session ID from OAuth state", "error", err)
-		return jsonErr(c, http.StatusBadRequest, "invalid OAuth state parameter")
-	}
-
-	rt, exists := s.runtimes[sessionID]
-	if !exists {
-		return jsonErr(c, http.StatusNotFound, fmt.Sprintf("runtime not found: %s", sessionID))
-	}
-
-	// Send the authorization code and state to the runtime's OAuth channel
-	// The state will be validated in the OAuth manager to ensure it matches the original state
-	if err := rt.ResumeCodeReceived(c.Request().Context(), code, state); err != nil {
-		slog.Error("Failed to send OAuth code to runtime", "session_id", sessionID, "error", err)
-		return jsonErr(c, http.StatusInternalServerError, "OAuth flow not in progress")
-	}
-
-	slog.Debug("OAuth authorization code and state sent to runtime", "session_id", sessionID)
-
-	return c.JSON(http.StatusOK, map[string]string{"message": "OAuth code received"})
+	return c.JSON(http.StatusOK, nil)
 }

@@ -526,21 +526,20 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt runtime.Runtime
 					rt.Resume(ctx, string(runtime.ResumeTypeReject))
 					return nil
 				}
-			case *runtime.AuthorizationRequiredEvent:
+			case *runtime.ElicitationRequestEvent:
 				if llmIsTyping {
 					fmt.Println()
 					llmIsTyping = false
 				}
 
-				if e.Confirmation == "pending" {
-					result := promptOAuthAuthorization(e.ServerURL, e.ServerType)
-					switch result {
-					case ConfirmationApprove:
-						rt.ResumeStartAuthorizationFlow(ctx, true)
-					case ConfirmationReject:
-						rt.ResumeStartAuthorizationFlow(ctx, false)
-						return fmt.Errorf("OAuth authorization rejected by user")
-					}
+				serverURL := e.Meta["cagent/server_url"].(string)
+				result := promptOAuthAuthorization(serverURL)
+				switch result {
+				case ConfirmationApprove:
+					_ = rt.ResumeElicitation(ctx, "accept", nil)
+				case ConfirmationReject:
+					_ = rt.ResumeElicitation(ctx, "decline", nil)
+					return fmt.Errorf("OAuth authorization rejected by user")
 				}
 			}
 		}

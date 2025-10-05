@@ -1,111 +1,196 @@
 package mcp
 
 import (
+	"context"
 	"fmt"
+	"iter"
 	"log/slog"
 	"net/http"
-	"strings"
+	"sync"
 
-	"github.com/mark3labs/mcp-go/client"
-	"github.com/mark3labs/mcp-go/client/transport"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/docker/cagent/pkg/tools"
 )
 
-// newRemoteClient creates a new MCP client that can connect to a remote MCP server
-func newRemoteClient(url, transportType string, headers map[string]string, redirectURI string, tokenStore client.TokenStore) (*client.Client, error) {
-	slog.Debug("Creating remote MCP client", "url", url, "transport", transportType, "headers", headers, "redirectURI", redirectURI)
-
-	// Detect if the server requires OAuth authentication
-	requiresOAuth := detectOAuthRequirement(url)
-
-	oauthConfig := client.OAuthConfig{
-		RedirectURI: redirectURI,
-		TokenStore:  tokenStore,
-		PKCEEnabled: true,
-	}
-
-	if transportType == "sse" {
-		options := []transport.ClientOption{transport.WithHeaders(headers)}
-		if requiresOAuth {
-			options = append(options, transport.WithOAuth(oauthConfig))
-		}
-
-		c, err := client.NewSSEMCPClient(url, options...)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create MCP client: %w", err)
-		}
-
-		slog.Debug("Created sse remote MCP client successfully", "url", url, "transport", transportType, "requiresOAuth", requiresOAuth)
-		return c, nil
-	}
-
-	options := []transport.StreamableHTTPCOption{transport.WithHTTPHeaders(headers)}
-	if requiresOAuth {
-		options = append(options, transport.WithHTTPOAuth(oauthConfig))
-	}
-
-	c, err := client.NewStreamableHttpClient(url, options...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create MCP client: %w", err)
-	}
-
-	slog.Debug("Created streamable remote MCP client successfully", "url", url, "transport", transportType, "requiresOAuth", requiresOAuth)
-	return c, nil
+type remoteMCPClient struct {
+	session             *mcp.ClientSession
+	url                 string
+	transportType       string
+	headers             map[string]string
+	redirectURI         string
+	tokenStore          OAuthTokenStore
+	elicitationHandler  tools.ElicitationHandler
+	oauthSuccessHandler func()
+	mu                  sync.RWMutex
 }
 
-// detectOAuthRequirement checks if the server requires OAuth authentication
-// by making test requests and checking for WWW-Authenticate header.
-// It tries GET first, then POST if GET returns 405 Method Not Allowed.
-// See https://modelcontextprotocol.io/specification/draft/basic/authorization#authorization-server-location.
-func detectOAuthRequirement(url string) bool {
-	httpClient := &http.Client{}
+func newRemoteClient(url, transportType string, headers map[string]string, redirectURI string, tokenStore OAuthTokenStore) *remoteMCPClient {
+	slog.Debug("Creating remote MCP client", "url", url, "transport", transportType, "headers", headers, "redirectURI", redirectURI)
 
-	// Try GET request first
-	req, err := http.NewRequest(http.MethodGet, url, http.NoBody)
+	if tokenStore == nil {
+		tokenStore = NewInMemoryTokenStore()
+	}
+
+	return &remoteMCPClient{
+		url:           url,
+		transportType: transportType,
+		headers:       headers,
+		redirectURI:   redirectURI,
+		tokenStore:    tokenStore,
+	}
+}
+
+func (c *remoteMCPClient) oauthSuccess() {
+	if c.oauthSuccessHandler != nil {
+		c.oauthSuccessHandler()
+	}
+}
+
+func (c *remoteMCPClient) requestElicitation(ctx context.Context, req *mcp.ElicitParams) (tools.ElicitationResult, error) {
+	if c.elicitationHandler == nil {
+		return tools.ElicitationResult{}, fmt.Errorf("no elicitation handler configured")
+	}
+
+	// Call the handler which should propagate the request to the runtime's client
+	result, err := c.elicitationHandler(ctx, req)
 	if err != nil {
-		slog.Debug("Failed to create GET test request for OAuth detection", "error", err)
-		return false
+		return tools.ElicitationResult{}, err
 	}
 
-	resp, err := httpClient.Do(req)
+	return result, nil
+}
+
+// handleElicitationRequest forwards incoming elicitation requests from the MCP server
+func (c *remoteMCPClient) handleElicitationRequest(ctx context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+	slog.Debug("Received elicitation request from MCP server", "message", req.Params.Message)
+
+	result, err := c.requestElicitation(ctx, req.Params)
 	if err != nil {
-		slog.Debug("Failed to make GET test request for OAuth detection", "error", err)
-		return false
-	}
-	defer resp.Body.Close()
-
-	// Check for WWW-Authenticate header in GET response
-	wwwAuth := resp.Header.Get("WWW-Authenticate")
-	if wwwAuth != "" {
-		slog.Debug("Detected OAuth requirement via GET", "www-authenticate", wwwAuth)
-		return strings.Contains(strings.ToLower(wwwAuth), "bearer") ||
-			strings.Contains(strings.ToLower(wwwAuth), "oauth")
+		return nil, fmt.Errorf("elicitation failed: %w", err)
 	}
 
-	// If GET returned 405 Method Not Allowed, try POST
-	if resp.StatusCode == http.StatusMethodNotAllowed {
-		slog.Debug("GET returned 405, trying POST for OAuth detection")
+	return &mcp.ElicitResult{
+		Action:  result.Action,
+		Content: result.Content,
+	}, nil
+}
 
-		postReq, err := http.NewRequest(http.MethodPost, url, http.NoBody)
-		if err != nil {
-			slog.Debug("Failed to create POST test request for OAuth detection", "error", err)
-			return false
+func (c *remoteMCPClient) Start(ctx context.Context) error {
+	return nil
+}
+
+func (c *remoteMCPClient) Initialize(ctx context.Context, request *mcp.InitializeRequest) (*mcp.InitializeResult, error) {
+	// Create HTTP client with OAuth support
+	httpClient := c.createHTTPClient()
+
+	var transport mcp.Transport
+
+	switch c.transportType {
+	case "sse":
+		transport = &mcp.SSEClientTransport{
+			Endpoint:   c.url,
+			HTTPClient: httpClient,
 		}
-
-		postResp, err := httpClient.Do(postReq)
-		if err != nil {
-			slog.Debug("Failed to make POST test request for OAuth detection", "error", err)
-			return false
+	case "streamable":
+		transport = &mcp.StreamableClientTransport{
+			Endpoint:   c.url,
+			HTTPClient: httpClient,
 		}
-		defer postResp.Body.Close()
+	default:
+		return nil, fmt.Errorf("unsupported transport type: %s", c.transportType)
+	}
 
-		// Check for WWW-Authenticate header in POST response
-		postWwwAuth := postResp.Header.Get("WWW-Authenticate")
-		if postWwwAuth != "" {
-			slog.Debug("Detected OAuth requirement via POST", "www-authenticate", postWwwAuth)
-			return strings.Contains(strings.ToLower(postWwwAuth), "bearer") ||
-				strings.Contains(strings.ToLower(postWwwAuth), "oauth")
+	// Create an MCP client with elicitation support
+	impl := &mcp.Implementation{
+		Name:    "cagent",
+		Version: "1.0.0",
+	}
+
+	opts := &mcp.ClientOptions{
+		ElicitationHandler: c.handleElicitationRequest,
+	}
+
+	client := mcp.NewClient(impl, opts)
+
+	// Connect to the MCP server
+	session, err := client.Connect(ctx, transport, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to MCP server: %w", err)
+	}
+
+	c.mu.Lock()
+	c.session = session
+	c.mu.Unlock()
+
+	slog.Debug("Remote MCP client connected successfully")
+	return session.InitializeResult(), nil
+}
+
+// createHTTPClient creates an HTTP client with OAuth support
+func (c *remoteMCPClient) createHTTPClient() *http.Client {
+	return &http.Client{
+		Transport: &oauthTransport{
+			base:       http.DefaultTransport,
+			client:     c,
+			tokenStore: c.tokenStore,
+			baseURL:    c.url,
+		},
+	}
+}
+
+func (c *remoteMCPClient) Close() error {
+	c.mu.RLock()
+	session := c.session
+	c.mu.RUnlock()
+
+	if session != nil {
+		return session.Close()
+	}
+	return nil
+}
+
+func (c *remoteMCPClient) ListTools(ctx context.Context, params *mcp.ListToolsParams) iter.Seq2[*mcp.Tool, error] {
+	c.mu.RLock()
+	session := c.session
+	c.mu.RUnlock()
+
+	if session == nil {
+		return func(yield func(*mcp.Tool, error) bool) {
+			yield(nil, fmt.Errorf("session not initialized"))
 		}
 	}
 
-	return false
+	return session.Tools(ctx, params)
+}
+
+func (c *remoteMCPClient) CallTool(ctx context.Context, params *mcp.CallToolParams) (*mcp.CallToolResult, error) {
+	c.mu.RLock()
+	session := c.session
+	c.mu.RUnlock()
+
+	if session == nil {
+		return nil, fmt.Errorf("session not initialized")
+	}
+
+	return session.CallTool(ctx, params)
+}
+
+// requestUserConsent requests user consent to start the OAuth flow via elicitation
+func (c *remoteMCPClient) requestUserConsent(ctx context.Context) (bool, error) {
+	result, err := c.requestElicitation(ctx, &mcp.ElicitParams{
+		Message:         fmt.Sprintf("The MCP server at %s requires OAuth authorization. Do you want to proceed?", c.url),
+		RequestedSchema: nil,
+		Meta: map[string]any{
+			"cagent/type":       "oauth_consent",
+			"cagent/server_url": c.url,
+		},
+	})
+	if err != nil {
+		return false, err
+	}
+
+	slog.Debug("Elicitation response received", "result", result)
+
+	return result.Action == "accept", nil
 }

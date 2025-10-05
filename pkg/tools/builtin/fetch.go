@@ -21,6 +21,7 @@ import (
 const userAgent = "cagent/1.0"
 
 type FetchTool struct {
+	elicitationTool
 	handler *fetchHandler
 }
 
