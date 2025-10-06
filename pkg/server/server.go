@@ -37,12 +37,13 @@ import (
 )
 
 type Server struct {
-	e            *echo.Echo
-	runtimes     map[string]runtime.Runtime
-	sessionStore session.Store
-	agentsDir    string
-	runConfig    config.RuntimeConfig
-	teams        map[string]*team.Team
+	e              *echo.Echo
+	runtimes       map[string]runtime.Runtime
+	runtimeCancels map[string]context.CancelFunc
+	sessionStore   session.Store
+	agentsDir      string
+	runConfig      config.RuntimeConfig
+	teams          map[string]*team.Team
 }
 
 type Opt func(*Server) error
@@ -59,11 +60,12 @@ func New(sessionStore session.Store, runConfig config.RuntimeConfig, teams map[s
 	e.Use(middleware.CORS())
 	e.Use(middleware.Logger())
 	s := &Server{
-		e:            e,
-		runtimes:     make(map[string]runtime.Runtime),
-		sessionStore: sessionStore,
-		runConfig:    runConfig,
-		teams:        teams,
+		e:              e,
+		runtimes:       make(map[string]runtime.Runtime),
+		runtimeCancels: make(map[string]context.CancelFunc),
+		sessionStore:   sessionStore,
+		runConfig:      runConfig,
+		teams:          teams,
 	}
 
 	for _, opt := range opts {
@@ -943,8 +945,24 @@ func (s *Server) resumeSession(c echo.Context) error {
 }
 
 func (s *Server) deleteSession(c echo.Context) error {
-	if err := s.sessionStore.DeleteSession(c.Request().Context(), c.Param("id")); err != nil {
-		slog.Error("Failed to delete session", "session_id", c.Param("id"), "error", err)
+	sessionID := c.Param("id")
+
+	// Cancel the runtime context if it's still running
+	if cancel, exists := s.runtimeCancels[sessionID]; exists {
+		slog.Debug("Cancelling runtime for session", "session_id", sessionID)
+		cancel()
+		delete(s.runtimeCancels, sessionID)
+	}
+
+	// Clean up the runtime
+	if _, exists := s.runtimes[sessionID]; exists {
+		slog.Debug("Removing runtime for session", "session_id", sessionID)
+		delete(s.runtimes, sessionID)
+	}
+
+	// Delete the session from storage
+	if err := s.sessionStore.DeleteSession(c.Request().Context(), sessionID); err != nil {
+		slog.Error("Failed to delete session", "session_id", sessionID, "error", err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to delete session"})
 	}
 
@@ -1027,7 +1045,14 @@ func (s *Server) runAgent(c echo.Context) error {
 	c.Response().Header().Set("Connection", "keep-alive")
 	c.Response().WriteHeader(http.StatusOK)
 
-	streamChan := rt.RunStream(c.Request().Context(), sess)
+	// Create a cancellable context for this stream
+	streamCtx, cancel := context.WithCancel(c.Request().Context())
+	s.runtimeCancels[sess.ID] = cancel
+	defer func() {
+		delete(s.runtimeCancels, sess.ID)
+	}()
+
+	streamChan := rt.RunStream(streamCtx, sess)
 	for event := range streamChan {
 		data, err := json.Marshal(event)
 		if err != nil {
