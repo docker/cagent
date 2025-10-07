@@ -21,6 +21,7 @@ import (
 )
 
 func TestServerTODO(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "dummy")
 	ctx := t.Context()
 
 	agentsDir := prepareAgentsDir(t, "pirate.yaml")
