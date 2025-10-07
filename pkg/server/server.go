@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -47,13 +46,6 @@ type Server struct {
 }
 
 type Opt func(*Server)
-
-func WithFrontend(fsys fs.FS) Opt {
-	return func(s *Server) {
-		assetHandler := http.FileServer(http.FS(fsys))
-		s.e.GET("/*", echo.WrapHandler(assetHandler))
-	}
-}
 
 func WithAgentsDir(dir string) Opt {
 	return func(s *Server) {
