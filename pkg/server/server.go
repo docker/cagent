@@ -206,8 +206,10 @@ func (s *Server) editAgentConfigYAML(c echo.Context) error {
 	yamlContent := string(body)
 
 	// Validate the YAML content by attempting to parse it
+	// Use ReferenceDirs to allow YAML files to reference other files relative to the agent directory
+	agentDir := filepath.Dir(agentPath)
 	var tmpConfig latest.Config
-	if err := yaml.UnmarshalWithOptions([]byte(yamlContent), &tmpConfig, yaml.Strict()); err != nil {
+	if err := yaml.UnmarshalWithOptions([]byte(yamlContent), &tmpConfig, yaml.Strict(), yaml.ReferenceDirs(agentDir)); err != nil {
 		slog.Error("Invalid YAML content", "error", err)
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid YAML content: " + err.Error()})
 	}
