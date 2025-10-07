@@ -43,6 +43,7 @@ var (
 	remoteAddress  string
 	dryRun         bool
 	commandName    string
+	modelOverrides []string
 )
 
 const commandListSentinel = "__LIST__"
@@ -68,6 +69,7 @@ func NewRunCmd() *cobra.Command {
 	cmd.PersistentFlags().BoolVar(&useTUI, "tui", true, "Run the agent with a Terminal User Interface (TUI)")
 	cmd.PersistentFlags().StringVar(&remoteAddress, "remote", "", "Use remote runtime with specified address (only supported with TUI)")
 	cmd.PersistentFlags().StringVarP(&commandName, "command", "c", "", "Run a named command from the agent's commands section")
+	cmd.PersistentFlags().StringArrayVar(&modelOverrides, "model", nil, "Override agent model: [agent=]provider/model (repeatable)")
 	if f := cmd.PersistentFlags().Lookup("command"); f != nil {
 		// Allow `-c` without value to list available commands
 		f.NoOptDefVal = commandListSentinel
@@ -194,7 +196,7 @@ func doRunCommand(ctx context.Context, args []string, exec bool) error {
 			runConfig.RedirectURI = "http://localhost:8083/oauth-callback"
 		}
 
-		agents, err = teamloader.Load(ctx, agentFilename, runConfig)
+		agents, err = teamloader.LoadWithOverrides(ctx, agentFilename, runConfig, modelOverrides)
 		if err != nil {
 			return err
 		}

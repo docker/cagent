@@ -97,6 +97,10 @@ func checkRequiredEnvVars(ctx context.Context, cfg *latest.Config, env environme
 }
 
 func Load(ctx context.Context, path string, runtimeConfig config.RuntimeConfig) (*team.Team, error) {
+	return LoadWithOverrides(ctx, path, runtimeConfig, nil)
+}
+
+func LoadWithOverrides(ctx context.Context, path string, runtimeConfig config.RuntimeConfig, modelOverrides []string) (*team.Team, error) {
 	fileName := filepath.Base(path)
 	parentDir := filepath.Dir(path)
 
@@ -120,6 +124,11 @@ func Load(ctx context.Context, path string, runtimeConfig config.RuntimeConfig) 
 	// Load the agent's configuration
 	cfg, err := config.LoadConfigSecureDeprecated(fileName, parentDir)
 	if err != nil {
+		return nil, err
+	}
+
+	// Apply model overrides from CLI flags before checking required env vars
+	if err := config.ApplyModelOverrides(cfg, modelOverrides); err != nil {
 		return nil, err
 	}
 

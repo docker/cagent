@@ -43,6 +43,11 @@ $ cagent run config.yaml --yolo           # Auto-accept all the tool calls
 $ cagent run config.yaml "First message"  # Start the conversation with the agent with a first message
 $ cagent run config.yaml -c df            # Run with a named command from YAML
 
+# Model Override Examples
+$ cagent run config.yaml --model anthropic/claude-sonnet-4-0    # Override all agents to use Claude
+$ cagent run config.yaml --model "agent1=openai/gpt-4o"         # Override specific agent
+$ cagent run config.yaml --model "agent1=openai/gpt-4o,agent2=anthropic/claude-sonnet-4-0"  # Multiple overrides
+
 # One off without TUI
 $ cagent exec config.yaml                 # Run the agent once, with default instructions
 $ cagent exec config.yaml "First message" # Run the agent once with instructions
