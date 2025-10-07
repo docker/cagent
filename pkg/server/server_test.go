@@ -68,6 +68,13 @@ func TestServerTODO(t *testing.T) {
 		assert.Contains(t, string(content), "pirate")
 	})
 
+	t.Run("set agent's yaml", func(t *testing.T) {
+		httpPUT(t, ctx, lnPath, "/api/agents/pirate.yaml/yaml", `version: "2"`)
+
+		content := httpGET(t, ctx, lnPath, "/api/agents/pirate.yaml/yaml")
+		assert.Equal(t, `version: "2"`, string(content))
+	})
+
 	t.Run("list sessions", func(t *testing.T) {
 		buf := httpGET(t, ctx, lnPath, "/api/sessions")
 
@@ -120,6 +127,19 @@ func startServer(t *testing.T, ctx context.Context, agentsDir string) string {
 
 func httpGET(t *testing.T, ctx context.Context, socketPath, path string) []byte {
 	t.Helper()
+	return httpDo(t, ctx, http.MethodGet, socketPath, path, http.NoBody)
+}
+
+func httpPUT(t *testing.T, ctx context.Context, socketPath, path, payload string) {
+	t.Helper()
+	httpDo(t, ctx, http.MethodPut, socketPath, path, strings.NewReader(payload))
+}
+
+func httpDo(t *testing.T, ctx context.Context, method, socketPath, path string, payload io.Reader) []byte {
+	t.Helper()
+
+	req, err := http.NewRequestWithContext(ctx, method, "http://_"+path, payload)
+	require.NoError(t, err)
 
 	client := &http.Client{
 		Transport: &http.Transport{
@@ -129,13 +149,9 @@ func httpGET(t *testing.T, ctx context.Context, socketPath, path string) []byte 
 			},
 		},
 	}
-
-	url := "http://_" + path
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
-	require.NoError(t, err)
-
 	resp, err := client.Do(req)
 	require.NoError(t, err)
+	require.Less(t, resp.StatusCode, 400)
 	defer resp.Body.Close()
 
 	buf, err := io.ReadAll(resp.Body)

@@ -43,16 +43,23 @@ type Server struct {
 	runtimeCancels map[string]context.CancelFunc
 	cancelsMu      sync.RWMutex
 	sessionStore   session.Store
-	agentsDir      string
 	runConfig      config.RuntimeConfig
 	teams          map[string]*team.Team
+	agentsDir      string
+	rootFS         *os.Root
 }
 
 type Opt func(*Server) error
 
 func WithAgentsDir(dir string) Opt {
 	return func(s *Server) error {
+		rootFs, err := os.OpenRoot(dir)
+		if err != nil {
+			return fmt.Errorf("failed to open root filesystem at %s: %w", dir, err)
+		}
+
 		s.agentsDir = dir
+		s.rootFS = rootFs
 		return nil
 	}
 }
@@ -156,9 +163,9 @@ func (s *Server) getDesktopToken(c echo.Context) error {
 
 func (s *Server) getAgentConfig(c echo.Context) error {
 	agentID := c.Param("id")
-	path := toYaml(agentID)
+	path := addYamlExt(agentID)
 
-	cfg, err := config.LoadConfigSecureDeprecated(path, s.agentsDir)
+	cfg, err := config.LoadConfig(path, s.rootFS)
 	if err != nil {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "agent not found"})
 	}
@@ -168,22 +175,18 @@ func (s *Server) getAgentConfig(c echo.Context) error {
 
 func (s *Server) getAgentConfigYAML(c echo.Context) error {
 	agentID := c.Param("id")
-	agentPath, err := s.secureAgentPath(agentID)
-	if err != nil {
-		slog.Error("Invalid agent ID", "agentID", agentID, "error", err)
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid agent id"})
-	}
+	path := addYamlExt(agentID)
 
 	// Check if the file exists
-	if _, err := os.Stat(agentPath); os.IsNotExist(err) {
-		slog.Error("Agent file does not exist", "path", agentPath)
+	if _, err := s.rootFS.Stat(path); os.IsNotExist(err) {
+		slog.Error("Agent file does not exist", "path", path)
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "agent file not found"})
 	}
 
 	// Read the YAML file
-	yamlContent, err := os.ReadFile(agentPath)
+	yamlContent, err := s.rootFS.ReadFile(path)
 	if err != nil {
-		slog.Error("Failed to read agent YAML file", "path", agentPath, "error", err)
+		slog.Error("Failed to read agent YAML file", "path", path, "error", err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to read agent file"})
 	}
 
@@ -192,15 +195,11 @@ func (s *Server) getAgentConfigYAML(c echo.Context) error {
 
 func (s *Server) editAgentConfigYAML(c echo.Context) error {
 	agentID := c.Param("id")
-	agentPath, err := s.secureAgentPath(agentID)
-	if err != nil {
-		slog.Error("Invalid agent ID", "agentID", agentID, "error", err)
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid agent id"})
-	}
+	path := addYamlExt(agentID)
 
 	// Check if the file exists
-	if _, err := os.Stat(agentPath); os.IsNotExist(err) {
-		slog.Error("Agent file does not exist", "path", agentPath)
+	if _, err := s.rootFS.Stat(path); os.IsNotExist(err) {
+		slog.Error("Agent file does not exist", "path", path)
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "agent file not found"})
 	}
 
@@ -214,7 +213,7 @@ func (s *Server) editAgentConfigYAML(c echo.Context) error {
 
 	// Validate the YAML content by attempting to parse it
 	// Use ReferenceDirs to allow YAML files to reference other files relative to the agent directory
-	agentDir := filepath.Dir(agentPath)
+	agentDir := filepath.Dir(path)
 	var tmpConfig latest.Config
 	if err := yaml.UnmarshalWithOptions([]byte(yamlContent), &tmpConfig, yaml.Strict(), yaml.ReferenceDirs(agentDir)); err != nil {
 		slog.Error("Invalid YAML content", "error", err)
@@ -222,20 +221,20 @@ func (s *Server) editAgentConfigYAML(c echo.Context) error {
 	}
 
 	// Reload the agent to update the in-memory configuration
-	t, err := teamloader.Load(c.Request().Context(), agentPath, s.runConfig)
+	t, err := teamloader.Load(c.Request().Context(), filepath.Join(s.agentsDir, path), s.runConfig)
 	if err != nil {
-		slog.Error("Failed to reload agent after YAML edit", "path", agentPath, "error", err)
+		slog.Error("Failed to reload agent after YAML edit", "path", path, "error", err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to reload agent configuration: " + err.Error()})
 	}
 
 	// Write the YAML content to the file
-	if err := os.WriteFile(agentPath, []byte(yamlContent), 0o644); err != nil {
-		slog.Error("Failed to write agent YAML file", "path", agentPath, "error", err)
+	if err := s.rootFS.WriteFile(path, []byte(yamlContent), 0o644); err != nil {
+		slog.Error("Failed to write agent YAML file", "path", path, "error", err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to write agent file"})
 	}
 
 	// Update the teams map with the reloaded agent
-	agentKey := strings.TrimSuffix(filepath.Base(agentPath), filepath.Ext(agentPath))
+	agentKey := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	if oldTeam, exists := s.teams[agentKey]; exists {
 		// Stop old team's toolsets before replacing
 		if err := oldTeam.StopToolSets(); err != nil {
@@ -244,7 +243,7 @@ func (s *Server) editAgentConfigYAML(c echo.Context) error {
 	}
 	s.teams[agentKey] = t
 
-	slog.Info("Agent YAML configuration updated successfully", "path", agentPath)
+	slog.Info("Agent YAML configuration updated successfully", "path", path)
 	return c.String(http.StatusOK, yamlContent)
 }
 
@@ -258,10 +257,10 @@ func (s *Server) editAgentConfig(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "filename is required"})
 	}
 
-	path := toYaml(req.Filename)
+	path := addYamlExt(req.Filename)
 
 	// Load the target file content
-	currentConfig, err := config.LoadConfigSecureDeprecated(path, s.agentsDir)
+	currentConfig, err := config.LoadConfig(path, s.rootFS)
 	if err != nil {
 		slog.Error("Failed to load current config", "path", path, "error", err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to load current configuration"})
@@ -274,14 +273,8 @@ func (s *Server) editAgentConfig(c echo.Context) error {
 	}
 	mergedConfig := *currentConfig
 
-	path, err = s.secureAgentPath(path)
-	if err != nil {
-		slog.Error("Invalid filename", "filename", req.Filename, "error", err)
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid filename"})
-	}
-
 	// Read current file to preserve shebang and metadata structure
-	currentContent, err := os.ReadFile(path)
+	currentContent, err := s.rootFS.ReadFile(path)
 	if err != nil {
 		slog.Error("Failed to read agent file", "path", path, "error", err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to read agent file"})
@@ -314,13 +307,13 @@ func (s *Server) editAgentConfig(c echo.Context) error {
 	}
 
 	// Write the updated configuration back to the file
-	if err := os.WriteFile(path, []byte(finalContent), 0o644); err != nil {
+	if err := s.rootFS.WriteFile(path, []byte(finalContent), 0o644); err != nil {
 		slog.Error("Failed to write agent file", "path", path, "error", err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to write agent file"})
 	}
 
 	// Reload the agent to update the in-memory configuration
-	t, err := teamloader.Load(c.Request().Context(), path, s.runConfig)
+	t, err := teamloader.Load(c.Request().Context(), filepath.Join(s.agentsDir, path), s.runConfig)
 	if err != nil {
 		slog.Error("Failed to reload agent after edit", "path", path, "error", err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to reload agent configuration"})
@@ -989,16 +982,13 @@ func (s *Server) runAgent(c echo.Context) error {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "session not found"})
 	}
 
-	agentPath, err := s.secureAgentPath(agentFilename)
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid agent id"})
-	}
+	path := addYamlExt(agentFilename)
 
 	// Copy runConfig and inject per-session working dir override
 	rc := s.runConfig
 	rc.WorkingDir = sess.WorkingDir
 
-	t, err := teamloader.Load(c.Request().Context(), agentPath, rc)
+	t, err := teamloader.Load(c.Request().Context(), filepath.Join(s.agentsDir, path), rc)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to load agent for session"})
 	}
@@ -1127,15 +1117,7 @@ func (s *Server) validateAgentPath(path string) error {
 	return nil
 }
 
-func (s *Server) secureAgentPath(filename string) (string, error) {
-	if !strings.HasSuffix(filename, ".yaml") && !strings.HasSuffix(filename, ".yml") {
-		filename += ".yaml"
-	}
-
-	return config.ValidatePathInDirectory(filename, s.agentsDir)
-}
-
-func toYaml(filename string) string {
+func addYamlExt(filename string) string {
 	if strings.HasSuffix(filename, ".yaml") || strings.HasSuffix(filename, ".yml") {
 		return filename
 	}
