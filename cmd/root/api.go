@@ -92,6 +92,10 @@ func runHttp(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	s := server.New(sessionStore, runConfig, teams, opts...)
+	s, err := server.New(sessionStore, runConfig, teams, opts...)
+	if err != nil {
+		return fmt.Errorf("failed to create server: %w", err)
+	}
+
 	return s.Serve(ctx, ln)
 }

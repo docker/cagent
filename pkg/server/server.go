@@ -45,15 +45,16 @@ type Server struct {
 	teams        map[string]*team.Team
 }
 
-type Opt func(*Server)
+type Opt func(*Server) error
 
 func WithAgentsDir(dir string) Opt {
-	return func(s *Server) {
+	return func(s *Server) error {
 		s.agentsDir = dir
+		return nil
 	}
 }
 
-func New(sessionStore session.Store, runConfig config.RuntimeConfig, teams map[string]*team.Team, opts ...Opt) *Server {
+func New(sessionStore session.Store, runConfig config.RuntimeConfig, teams map[string]*team.Team, opts ...Opt) (*Server, error) {
 	e := echo.New()
 	e.Use(middleware.CORS())
 	e.Use(middleware.Logger())
@@ -66,7 +67,9 @@ func New(sessionStore session.Store, runConfig config.RuntimeConfig, teams map[s
 	}
 
 	for _, opt := range opts {
-		opt(s)
+		if err := opt(s); err != nil {
+			return nil, err
+		}
 	}
 
 	group := e.Group("/api")
@@ -120,7 +123,7 @@ func New(sessionStore session.Store, runConfig config.RuntimeConfig, teams map[s
 	group.POST("/:id/resumeStartOauth", s.resumeStartOauth)
 	group.POST("/resumeCodeReceivedOauth", s.resumeCodeReceivedOauth)
 
-	return s
+	return s, nil
 }
 
 func (s *Server) Serve(_ context.Context, ln net.Listener) error {
