@@ -30,10 +30,13 @@ func TestServerTODO(t *testing.T) {
 	t.Run("list agents", func(t *testing.T) {
 		buf := httpGET(t, ctx, lnPath, "/api/agents")
 
-		var agents []any
+		var agents []api.Agent
 		unmarshal(t, buf, &agents)
 
-		assert.NotEmpty(t, agents)
+		assert.Len(t, agents, 1)
+		assert.Equal(t, "pirate.yaml", agents[0].Name)
+		assert.Equal(t, "Talk like a pirate", agents[0].Description)
+		assert.False(t, agents[0].Multi)
 	})
 
 	t.Run("get agent (no extension)", func(t *testing.T) {
@@ -58,21 +61,32 @@ func TestServerTODO(t *testing.T) {
 		assert.Contains(t, cfg.Agents["root"].Instruction, "pirate")
 	})
 
-	t.Run("get agent's yaml (no extension)", func(t *testing.T) {
-		content := httpGET(t, ctx, lnPath, "/api/agents/pirate/yaml")
-		assert.Contains(t, string(content), "pirate")
+	t.Run("get/set agent's yaml (no extension)", func(t *testing.T) {
+		url := "/api/agents/pirate/yaml"
+
+		origContent := httpGET(t, ctx, lnPath, url)
+		assert.Contains(t, string(origContent), "pirate")
+
+		httpPUT(t, ctx, lnPath, url, `version: "2"`)
+
+		newContent := httpGET(t, ctx, lnPath, url)
+		assert.Equal(t, `version: "2"`, string(newContent))
+
+		httpPUT(t, ctx, lnPath, url, string(origContent))
 	})
 
-	t.Run("get agent's yaml", func(t *testing.T) {
-		content := httpGET(t, ctx, lnPath, "/api/agents/pirate.yaml/yaml")
-		assert.Contains(t, string(content), "pirate")
-	})
+	t.Run("get/set agent's yaml", func(t *testing.T) {
+		url := "/api/agents/pirate.yaml/yaml"
 
-	t.Run("set agent's yaml", func(t *testing.T) {
-		httpPUT(t, ctx, lnPath, "/api/agents/pirate.yaml/yaml", `version: "2"`)
+		origContent := httpGET(t, ctx, lnPath, url)
+		assert.Contains(t, string(origContent), "pirate")
 
-		content := httpGET(t, ctx, lnPath, "/api/agents/pirate.yaml/yaml")
-		assert.Equal(t, `version: "2"`, string(content))
+		httpPUT(t, ctx, lnPath, url, `version: "2"`)
+
+		newContent := httpGET(t, ctx, lnPath, url)
+		assert.Equal(t, `version: "2"`, string(newContent))
+
+		httpPUT(t, ctx, lnPath, url, string(origContent))
 	})
 
 	t.Run("list sessions", func(t *testing.T) {

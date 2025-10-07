@@ -776,20 +776,22 @@ func (s *Server) getAgents(c echo.Context) error {
 		slog.Error("Failed to refresh agents from disk", "error", err)
 	}
 
-	agentList := make([]map[string]any, 0)
+	var agents []api.Agent
 	for id, t := range s.teams {
 		a := t.Agent("root")
 		if a == nil {
 			slog.Error("Agent root not found", "team", id)
 			continue
 		}
-		agentList = append(agentList, map[string]any{
-			"name":        id,
-			"description": a.Description(),
-			"multi":       a.HasSubAgents(),
+
+		agents = append(agents, api.Agent{
+			Name:        id,
+			Description: a.Description(),
+			Multi:       a.HasSubAgents(),
 		})
 	}
-	return c.JSON(http.StatusOK, agentList)
+
+	return c.JSON(http.StatusOK, agents)
 }
 
 func (s *Server) refreshAgentsFromDisk(ctx context.Context) error {
