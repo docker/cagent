@@ -77,6 +77,10 @@ func New(sessionStore session.Store, runConfig config.RuntimeConfig, teams map[s
 	group.GET("/agents", s.getAgents)
 	// Get an agent by id
 	group.GET("/agents/:id", s.getAgentConfig)
+	// Get an agent's raw YAML configuration by id
+	group.GET("/agents/:id/yaml", s.getAgentConfigYAML)
+	// Edit an agent's raw YAML configuration by id
+	group.PUT("/agents/:id/yaml", s.editAgentConfigYAML)
 	// Edit an agent configuration by id
 	group.PUT("/agents/config", s.editAgentConfig)
 	// Create a new agent
@@ -153,6 +157,86 @@ func (s *Server) getAgentConfig(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, cfg)
+}
+
+func (s *Server) getAgentConfigYAML(c echo.Context) error {
+	agentID := c.Param("id")
+	agentPath, err := s.secureAgentPath(agentID)
+	if err != nil {
+		slog.Error("Invalid agent ID", "agentID", agentID, "error", err)
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid agent id"})
+	}
+
+	// Check if the file exists
+	if _, err := os.Stat(agentPath); os.IsNotExist(err) {
+		slog.Error("Agent file does not exist", "path", agentPath)
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "agent file not found"})
+	}
+
+	// Read the YAML file
+	yamlContent, err := os.ReadFile(agentPath)
+	if err != nil {
+		slog.Error("Failed to read agent YAML file", "path", agentPath, "error", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to read agent file"})
+	}
+
+	return c.String(http.StatusOK, string(yamlContent))
+}
+
+func (s *Server) editAgentConfigYAML(c echo.Context) error {
+	agentID := c.Param("id")
+	agentPath, err := s.secureAgentPath(agentID)
+	if err != nil {
+		slog.Error("Invalid agent ID", "agentID", agentID, "error", err)
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid agent id"})
+	}
+
+	// Check if the file exists
+	if _, err := os.Stat(agentPath); os.IsNotExist(err) {
+		slog.Error("Agent file does not exist", "path", agentPath)
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "agent file not found"})
+	}
+
+	// Read the YAML content from request body
+	body, err := io.ReadAll(c.Request().Body)
+	if err != nil {
+		slog.Error("Failed to read request body", "error", err)
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "failed to read request body"})
+	}
+	yamlContent := string(body)
+
+	// Validate the YAML content by attempting to parse it
+	var tmpConfig latest.Config
+	if err := yaml.UnmarshalWithOptions([]byte(yamlContent), &tmpConfig, yaml.Strict()); err != nil {
+		slog.Error("Invalid YAML content", "error", err)
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid YAML content: " + err.Error()})
+	}
+
+	// Write the YAML content to the file
+	if err := os.WriteFile(agentPath, []byte(yamlContent), 0o644); err != nil {
+		slog.Error("Failed to write agent YAML file", "path", agentPath, "error", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to write agent file"})
+	}
+
+	// Reload the agent to update the in-memory configuration
+	t, err := teamloader.Load(c.Request().Context(), agentPath, s.runConfig)
+	if err != nil {
+		slog.Error("Failed to reload agent after YAML edit", "path", agentPath, "error", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to reload agent configuration"})
+	}
+
+	// Update the teams map with the reloaded agent
+	agentKey := strings.TrimSuffix(filepath.Base(agentPath), filepath.Ext(agentPath))
+	if oldTeam, exists := s.teams[agentKey]; exists {
+		// Stop old team's toolsets before replacing
+		if err := oldTeam.StopToolSets(); err != nil {
+			slog.Error("Failed to stop old team toolsets", "agentKey", agentKey, "error", err)
+		}
+	}
+	s.teams[agentKey] = t
+
+	slog.Info("Agent YAML configuration updated successfully", "path", agentPath)
+	return c.String(http.StatusOK, yamlContent)
 }
 
 func (s *Server) editAgentConfig(c echo.Context) error {
