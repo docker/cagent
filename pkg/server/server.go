@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"dario.cat/mergo"
@@ -40,6 +41,7 @@ type Server struct {
 	e              *echo.Echo
 	runtimes       map[string]runtime.Runtime
 	runtimeCancels map[string]context.CancelFunc
+	cancelsMu      sync.RWMutex
 	sessionStore   session.Store
 	agentsDir      string
 	runConfig      config.RuntimeConfig
@@ -948,11 +950,13 @@ func (s *Server) deleteSession(c echo.Context) error {
 	sessionID := c.Param("id")
 
 	// Cancel the runtime context if it's still running
+	s.cancelsMu.Lock()
 	if cancel, exists := s.runtimeCancels[sessionID]; exists {
 		slog.Debug("Cancelling runtime for session", "session_id", sessionID)
 		cancel()
 		delete(s.runtimeCancels, sessionID)
 	}
+	s.cancelsMu.Unlock()
 
 	// Clean up the runtime
 	if _, exists := s.runtimes[sessionID]; exists {
@@ -1047,9 +1051,13 @@ func (s *Server) runAgent(c echo.Context) error {
 
 	// Create a cancellable context for this stream
 	streamCtx, cancel := context.WithCancel(c.Request().Context())
+	s.cancelsMu.Lock()
 	s.runtimeCancels[sess.ID] = cancel
+	s.cancelsMu.Unlock()
 	defer func() {
+		s.cancelsMu.Lock()
 		delete(s.runtimeCancels, sess.ID)
+		s.cancelsMu.Unlock()
 	}()
 
 	streamChan := rt.RunStream(streamCtx, sess)
