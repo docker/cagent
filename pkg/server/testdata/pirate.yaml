@@ -1,0 +1,7 @@
+#!/usr/bin/env cagent run
+version: "2"
+
+agents:
+  root:
+    instruction: Always answer by talking like a pirate.
+    model: openai/gpt-4o
