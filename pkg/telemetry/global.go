@@ -9,7 +9,7 @@ import (
 // TrackCommand records a command event using automatic telemetry initialization
 func TrackCommand(action string, args []string) {
 	// Automatically initialize telemetry if not already done
-	ensureGlobalTelemetryInitialized()
+	EnsureGlobalTelemetryInitialized()
 
 	if globalToolTelemetryClient != nil {
 		ctx := context.Background()
@@ -32,7 +32,7 @@ var (
 
 // GetGlobalTelemetryClient returns the global telemetry client for adding to context
 func GetGlobalTelemetryClient() *Client {
-	ensureGlobalTelemetryInitialized()
+	EnsureGlobalTelemetryInitialized()
 	return globalToolTelemetryClient
 }
 
@@ -53,9 +53,9 @@ func SetGlobalTelemetryDebugMode(debug bool) {
 	globalTelemetryDebugMode = debug
 }
 
-// ensureGlobalTelemetryInitialized ensures telemetry is initialized exactly once
+// EnsureGlobalTelemetryInitialized ensures telemetry is initialized exactly once
 // This handles all the setup automatically - no explicit initialization needed
-func ensureGlobalTelemetryInitialized() {
+func EnsureGlobalTelemetryInitialized() {
 	globalTelemetryOnce.Do(func() {
 		// Use the debug mode set by the root package via --debug flag
 		debugMode := globalTelemetryDebugMode
@@ -69,12 +69,7 @@ func ensureGlobalTelemetryInitialized() {
 		// Use the version set by SetGlobalTelemetryVersion or default
 		version := globalTelemetryVersion
 
-		// Try to initialize telemetry
-		client, err := NewClient(logger, enabled, debugMode, version)
-		if err != nil {
-			// If initialization fails, create a disabled client
-			client, _ = NewClient(logger, false, debugMode, version)
-		}
+		client := newClient(logger, enabled, debugMode, version)
 
 		globalToolTelemetryClient = client
 
@@ -84,9 +79,4 @@ func ensureGlobalTelemetryInitialized() {
 			telemetryLogger.Info("Auto-initialized telemetry", "enabled", enabled, "debug", debugMode)
 		}
 	})
-}
-
-// EnsureGlobalTelemetryInitialized makes the private initialization function public
-func EnsureGlobalTelemetryInitialized() {
-	ensureGlobalTelemetryInitialized()
 }

@@ -20,6 +20,7 @@ const (
 // ModelAliases maps alias model IDs to their actual model IDs
 var ModelAliases = map[string]string{
 	"anthropic/claude-sonnet-4-0": "anthropic/claude-sonnet-4-20250514",
+	"anthropic/claude-sonnet-4-5": "anthropic/claude-sonnet-4-5-20250929",
 }
 
 // Store manages the models.dev data with local caching

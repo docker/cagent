@@ -81,32 +81,44 @@ func TestValidatePathInDirectory(t *testing.T) {
 	}
 }
 
-func TestValidateMemoryPath(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "test_config_secure")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+func TestLoadConfig_InvalidPath(t *testing.T) {
+	tmp := openRoot(t, t.TempDir())
 
 	validConfig := `version: 1
-models:
-  gpt-4:
-    provider: "openai"
-    model: "gpt-4"
 agents:
-  test:
-    model: "gpt-4"
-    description: "test agent"
+  root:
+    model: "openai/gpt-4"
 `
-	testFile := filepath.Join(tmpDir, "valid.yaml")
-	err = os.WriteFile(testFile, []byte(validConfig), 0o644)
+
+	err := tmp.WriteFile("valid.yaml", []byte(validConfig), 0o644)
 	require.NoError(t, err)
 
-	cfg, err := LoadConfigSecure(testFile, tmpDir)
+	cfg, err := LoadConfig("valid.yaml", tmp)
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 
-	_, err = LoadConfigSecure("../../../etc/passwd", tmpDir)
+	_, err = LoadConfig("../../../etc/passwd", tmp)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "path validation failed")
+}
+
+func TestLoadConfigSecureDeprecated_InvalidPath(t *testing.T) {
+	tmp := t.TempDir()
+
+	validConfig := `version: 1
+agents:
+  root:
+    model: "openai/gpt-4"
+`
+
+	err := os.WriteFile(filepath.Join(tmp, "valid.yaml"), []byte(validConfig), 0o644)
+	require.NoError(t, err)
+
+	cfg, err := LoadConfigSecureDeprecated("valid.yaml", tmp)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	_, err = LoadConfigSecureDeprecated("../../../etc/passwd", tmp)
+	require.Error(t, err)
 }
 
 func TestValidationErrors(t *testing.T) {
@@ -116,15 +128,15 @@ func TestValidationErrors(t *testing.T) {
 	}{
 		{
 			name: "memory toolset missing path",
-			path: "testdata/missing_memory_path_v2.yaml",
+			path: "missing_memory_path_v2.yaml",
 		},
 		{
 			name: "path in non memory toolset",
-			path: "testdata/invalid_path_v2.yaml",
+			path: "invalid_path_v2.yaml",
 		},
 		{
 			name: "post_edit in non filesystem toolset",
-			path: "testdata/invalid_post_edit_v2.yaml",
+			path: "invalid_post_edit_v2.yaml",
 		},
 	}
 
@@ -132,7 +144,9 @@ func TestValidationErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := loadConfig(tt.path)
+			root := openRoot(t, "testdata")
+
+			_, err := LoadConfig(tt.path, root)
 			require.Error(t, err)
 		})
 	}

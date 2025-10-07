@@ -69,8 +69,9 @@ type PostEditConfig struct {
 
 // Toolset represents a tool configuration
 type Toolset struct {
-	Type  string   `json:"type,omitempty"`
-	Tools []string `json:"tools,omitempty"`
+	Type        string   `json:"type,omitempty"`
+	Tools       []string `json:"tools,omitempty"`
+	Instruction string   `json:"instruction,omitempty"`
 
 	// For the `mcp` tool
 	Command string   `json:"command,omitempty"`

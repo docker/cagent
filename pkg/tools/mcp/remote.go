@@ -10,6 +10,48 @@ import (
 	"github.com/mark3labs/mcp-go/client/transport"
 )
 
+// newRemoteClient creates a new MCP client that can connect to a remote MCP server
+func newRemoteClient(url, transportType string, headers map[string]string, redirectURI string, tokenStore client.TokenStore) (*client.Client, error) {
+	slog.Debug("Creating remote MCP client", "url", url, "transport", transportType, "headers", headers, "redirectURI", redirectURI)
+
+	// Detect if the server requires OAuth authentication
+	requiresOAuth := detectOAuthRequirement(url)
+
+	oauthConfig := client.OAuthConfig{
+		RedirectURI: redirectURI,
+		TokenStore:  tokenStore,
+		PKCEEnabled: true,
+	}
+
+	if transportType == "sse" {
+		options := []transport.ClientOption{transport.WithHeaders(headers)}
+		if requiresOAuth {
+			options = append(options, transport.WithOAuth(oauthConfig))
+		}
+
+		c, err := client.NewSSEMCPClient(url, options...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create MCP client: %w", err)
+		}
+
+		slog.Debug("Created sse remote MCP client successfully", "url", url, "transport", transportType, "requiresOAuth", requiresOAuth)
+		return c, nil
+	}
+
+	options := []transport.StreamableHTTPCOption{transport.WithHTTPHeaders(headers)}
+	if requiresOAuth {
+		options = append(options, transport.WithHTTPOAuth(oauthConfig))
+	}
+
+	c, err := client.NewStreamableHttpClient(url, options...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create MCP client: %w", err)
+	}
+
+	slog.Debug("Created streamable remote MCP client successfully", "url", url, "transport", transportType, "requiresOAuth", requiresOAuth)
+	return c, nil
+}
+
 // detectOAuthRequirement checks if the server requires OAuth authentication
 // by making test requests and checking for WWW-Authenticate header.
 // It tries GET first, then POST if GET returns 405 Method Not Allowed.
@@ -66,58 +108,4 @@ func detectOAuthRequirement(url string) bool {
 	}
 
 	return false
-}
-
-// NewRemoteClient creates a new MCP client that can connect to a remote MCP server
-func NewRemoteClient(url, transportType string, headers map[string]string, redirectURI string, tokenStore client.TokenStore) (*Client, error) {
-	slog.Debug("Creating remote MCP client", "url", url, "transport", transportType, "headers", headers, "redirectURI", redirectURI)
-
-	// Detect if the server requires OAuth authentication
-	requiresOAuth := detectOAuthRequirement(url)
-
-	var c *client.Client
-	var err error
-
-	if requiresOAuth {
-		oauthConfig := client.OAuthConfig{
-			RedirectURI: redirectURI,
-			TokenStore:  tokenStore,
-			PKCEEnabled: true,
-		}
-
-		if transportType == "sse" {
-			c, err = client.NewOAuthSSEClient(url, oauthConfig)
-			if err != nil {
-				slog.Error("Failed to create OAuth SSE remote MCP client", "error", err)
-				return nil, fmt.Errorf("failed to create OAuth SSE remote MCP client: %w", err)
-			}
-		} else {
-			c, err = client.NewOAuthStreamableHttpClient(url, oauthConfig)
-			if err != nil {
-				slog.Error("Failed to create OAuth streamable remote MCP client", "error", err)
-				return nil, fmt.Errorf("failed to create OAuth streamable remote MCP client: %w", err)
-			}
-		}
-	} else {
-		if transportType == "sse" {
-			c, err = client.NewSSEMCPClient(url, client.WithHeaders(headers))
-			if err != nil {
-				slog.Error("Failed to create sse remote MCP client", "error", err)
-				return nil, fmt.Errorf("failed to create sse remote MCP client: %w", err)
-			}
-		} else {
-			c, err = client.NewStreamableHttpClient(url, transport.WithHTTPHeaders(headers))
-			if err != nil {
-				slog.Error("Failed to create streamable remote MCP client", "error", err)
-				return nil, fmt.Errorf("failed to create streamable remote MCP client: %w", err)
-			}
-		}
-	}
-
-	slog.Debug("Created remote MCP client successfully", "url", url, "transport", transportType, "requiresOAuth", requiresOAuth)
-	return &Client{
-		client:  c,
-		logType: "remote",
-		logId:   url,
-	}, nil
 }

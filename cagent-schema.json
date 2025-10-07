@@ -43,6 +43,7 @@
             "gpt-4",
             "openai/gpt-4o",
             "anthropic/claude-sonnet-4-0",
+            "anthropic/claude-sonnet-4-5",
             "claude"
           ]
         },
@@ -199,6 +200,10 @@
             "todo",
             "fetch"
           ]
+        },
+        "instruction": {
+          "type": "string",
+          "description": "Additional instruction on how to use this toolset"
         },
         "ref": {
           "type": "string",

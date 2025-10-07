@@ -34,8 +34,9 @@ func (tc *Client) Track(ctx context.Context, structuredEvent StructuredEvent) {
 		tc.printEvent(&event)
 	}
 
-	// Always send the event synchronously
-	tc.sendEvent(&event)
+	go func() {
+		tc.sendEvent(&event)
+	}()
 }
 
 // RecordSessionStart initializes session tracking

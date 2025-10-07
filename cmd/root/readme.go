@@ -2,24 +2,22 @@ package root
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 
 	"github.com/docker/cagent/pkg/config"
+	"github.com/docker/cagent/pkg/filesystem"
 	"github.com/docker/cagent/pkg/telemetry"
 )
 
 // NewReadmeCmd creates a command that prints the README of an agent.
 func NewReadmeCmd() *cobra.Command {
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "readme <agent-name>",
 		Short: "Print the README of an agent",
 		Args:  cobra.ExactArgs(1),
 		RunE:  readmeAgentCommand,
 	}
-
-	return cmd
 }
 
 func readmeAgentCommand(_ *cobra.Command, args []string) error {
@@ -27,14 +25,7 @@ func readmeAgentCommand(_ *cobra.Command, args []string) error {
 
 	agentFilename := args[0]
 
-	// Get current working directory as the base directory for security validation
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get current working directory: %w", err)
-	}
-
-	// Use the secure config loader to prevent directory traversal attacks
-	cfg, err := config.LoadConfigSecure(agentFilename, cwd)
+	cfg, err := config.LoadConfig(agentFilename, filesystem.AllowAll)
 	if err != nil {
 		return err
 	}

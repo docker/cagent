@@ -8,29 +8,33 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"strings"
 	"time"
+
+	htmltomarkdown "github.com/JohannesKaufmann/html-to-markdown/v2"
+	"github.com/k3a/html2text"
+	"github.com/temoto/robotstxt"
 
 	"github.com/docker/cagent/pkg/tools"
 )
 
+const userAgent = "cagent/1.0"
+
 type FetchTool struct {
-	timeout time.Duration
-	client  *http.Client
+	handler *fetchHandler
 }
 
 var _ tools.ToolSet = (*FetchTool)(nil)
 
 type fetchHandler struct {
-	tool *FetchTool
+	timeout time.Duration
 }
 
 func (h *fetchHandler) CallTool(ctx context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
 	var params struct {
-		URLs      []string          `json:"urls"`
-		Headers   map[string]string `json:"headers,omitempty"`
-		Method    string            `json:"method,omitempty"`
-		Timeout   int               `json:"timeout,omitempty"`
-		UserAgent string            `json:"userAgent,omitempty"`
+		URLs    []string `json:"urls"`
+		Timeout int      `json:"timeout,omitempty"`
+		Format  string   `json:"format,omitempty"`
 	}
 
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &params); err != nil {
@@ -41,24 +45,21 @@ func (h *fetchHandler) CallTool(ctx context.Context, toolCall tools.ToolCall) (*
 		return nil, fmt.Errorf("at least one URL is required")
 	}
 
-	// Set defaults
-	if params.Method == "" {
-		params.Method = "GET"
-	}
-	if params.UserAgent == "" {
-		params.UserAgent = "cagent-fetch/1.0"
-	}
-
 	// Set timeout if specified
-	client := h.tool.client
+	client := &http.Client{
+		Timeout: h.timeout,
+	}
 	if params.Timeout > 0 {
-		timeout := time.Duration(params.Timeout) * time.Second
-		client = &http.Client{Timeout: timeout}
+		client.Timeout = time.Duration(params.Timeout) * time.Second
 	}
 
 	var results []FetchResult
+
+	// Group URLs by host to fetch robots.txt once per host
+	robotsCache := make(map[string]bool)
+
 	for _, urlStr := range params.URLs {
-		result := h.fetchURL(ctx, client, urlStr, params.Method, params.Headers, params.UserAgent)
+		result := h.fetchURL(ctx, client, urlStr, params.Format, robotsCache)
 		results = append(results, result)
 	}
 
@@ -93,7 +94,7 @@ type FetchResult struct {
 	Error         string `json:"error,omitempty"`
 }
 
-func (h *fetchHandler) fetchURL(ctx context.Context, client *http.Client, urlStr, method string, headers map[string]string, userAgent string) FetchResult {
+func (h *fetchHandler) fetchURL(ctx context.Context, client *http.Client, urlStr, format string, robotsCache map[string]bool) FetchResult {
 	result := FetchResult{URL: urlStr}
 
 	// Validate URL
@@ -115,8 +116,21 @@ func (h *fetchHandler) fetchURL(ctx context.Context, client *http.Client, urlStr
 		return result
 	}
 
+	// Check robots.txt (with caching per host)
+	host := parsedURL.Host
+	allowed, cached := robotsCache[host]
+	if !cached {
+		allowed = h.checkRobotsAllowed(ctx, client, parsedURL, userAgent)
+		robotsCache[host] = allowed
+	}
+
+	if !allowed {
+		result.Error = "URL blocked by robots.txt"
+		return result
+	}
+
 	// Create request
-	req, err := http.NewRequestWithContext(ctx, method, urlStr, http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, http.NoBody)
 	if err != nil {
 		result.Error = fmt.Sprintf("failed to create request: %v", err)
 		return result
@@ -125,9 +139,15 @@ func (h *fetchHandler) fetchURL(ctx context.Context, client *http.Client, urlStr
 	// Set User-Agent
 	req.Header.Set("User-Agent", userAgent)
 
-	// Set custom headers
-	for key, value := range headers {
-		req.Header.Set(key, value)
+	switch format {
+	case "markdown":
+		req.Header.Set("Accept", "text/markdown;q=1.0, text/plain;q=0.9, text/html;q=0.7, */*;q=0.1")
+	case "html":
+		req.Header.Set("Accept", "text/html;q=1.0, text/plain;q=0.8, */*;q=0.1")
+	case "text":
+		req.Header.Set("Accept", "text/plain;q=1.0,  text/markdown;q=0.9, text/html;q=0.8, */*;q=0.1")
+	default:
+		req.Header.Set("Accept", "text/plain;q=1.0, */*;q=0.1")
 	}
 
 	// Execute request
@@ -143,31 +163,118 @@ func (h *fetchHandler) fetchURL(ctx context.Context, client *http.Client, urlStr
 	result.ContentType = resp.Header.Get("Content-Type")
 
 	// Read response body
-	body, err := io.ReadAll(resp.Body)
+	maxSize := int64(1 << 20) // 1MB
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxSize))
 	if err != nil {
 		result.Error = fmt.Sprintf("failed to read response body: %v", err)
 		return result
 	}
 
-	result.ContentLength = len(body)
-	result.Body = string(body)
+	contentType := resp.Header.Get("Content-Type")
+
+	switch format {
+	case "markdown":
+		if strings.Contains(contentType, "text/html") {
+			result.Body = htmlToMarkdown(string(body))
+		} else {
+			result.Body = string(body)
+		}
+	case "html":
+		result.Body = string(body)
+	case "text":
+		if strings.Contains(contentType, "text/html") {
+			result.Body = htmlToText(string(body))
+		} else {
+			result.Body = string(body)
+		}
+	default:
+		result.Body = string(body)
+	}
+
+	result.ContentLength = len(result.Body)
 
 	return result
 }
 
+func (h *fetchHandler) checkRobotsAllowed(ctx context.Context, client *http.Client, targetURL *url.URL, userAgent string) bool {
+	// Build robots.txt URL
+	robotsURL := &url.URL{
+		Scheme: targetURL.Scheme,
+		Host:   targetURL.Host,
+		Path:   "/robots.txt",
+	}
+
+	// Create request for robots.txt
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, robotsURL.String(), http.NoBody)
+	if err != nil {
+		// If we can't create request, allow the fetch
+		return true
+	}
+
+	req.Header.Set("User-Agent", userAgent)
+
+	// Create robots client with same timeout and transport as main client
+	robotsClient := &http.Client{
+		Timeout:   client.Timeout,   // Same timeout as main client
+		Transport: client.Transport, // Inherit proxy/transport settings
+	}
+
+	resp, err := robotsClient.Do(req)
+	if err != nil {
+		// If robots.txt is unreachable, allow the fetch
+		return true
+	}
+	defer resp.Body.Close()
+
+	// If robots.txt doesn't exist (404), allow the fetch
+	if resp.StatusCode == http.StatusNotFound {
+		return true
+	}
+
+	// For other non-200 status codes, fail the fetch
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+
+	// Read robots.txt content (limit to 64KB)
+	robotsBody, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if err != nil {
+		// If we can't read robots.txt, fail the fetch
+		return false
+	}
+
+	// Parse robots.txt
+	robots, err := robotstxt.FromBytes(robotsBody)
+	if err != nil {
+		// If we can't parse robots.txt, fail the fetch
+		return false
+	}
+
+	// Check if the target URL path is allowed for our user agent
+	return robots.TestAgent(targetURL.Path, userAgent)
+}
+
+func htmlToMarkdown(html string) string {
+	markdown, err := htmltomarkdown.ConvertString(html)
+	if err != nil {
+		return html
+	}
+	return markdown
+}
+
+func htmlToText(html string) string {
+	return html2text.HTML2Text(html)
+}
+
 func NewFetchTool(options ...FetchToolOption) *FetchTool {
 	tool := &FetchTool{
-		timeout: 30 * time.Second,
+		handler: &fetchHandler{
+			timeout: 30 * time.Second,
+		},
 	}
 
-	// Apply options
 	for _, opt := range options {
 		opt(tool)
-	}
-
-	// Create HTTP client with timeout
-	tool.client = &http.Client{
-		Timeout: tool.timeout,
 	}
 
 	return tool
@@ -177,32 +284,25 @@ type FetchToolOption func(*FetchTool)
 
 func WithTimeout(timeout time.Duration) FetchToolOption {
 	return func(t *FetchTool) {
-		t.timeout = timeout
+		t.handler.timeout = timeout
 	}
 }
 
 func (t *FetchTool) Instructions() string {
-	return `## Fetch Tool Instructions
+	return `## "fetch" tool instructions
 
 This tool allows you to fetch content from HTTP and HTTPS URLs.
 
-### Features
+FEATURES
+
 - Support for multiple URLs in a single call
-- Customizable HTTP headers
-- Configurable request method (GET, POST, etc.)
-- Timeout control
-- User-Agent customization
+- Returns response body and metadata (status code, content type, length)
+- Specify the output format (text, markdown, html)
+- Respects robots.txt restrictions
 
-### Security
-- Only HTTP and HTTPS protocols are supported
-- No local file access or other protocols
-- Request timeouts prevent hanging requests
-
-### Usage Tips
+USAGE TIPS
 - Use single URLs for simple content fetching
-- Use multiple URLs for batch operations
-- Set appropriate headers for APIs that require authentication
-- Consider timeout values for slow or large responses`
+- Use multiple URLs for batch operations`
 }
 
 func (t *FetchTool) Tools(context.Context) ([]tools.Tool, error) {
@@ -226,18 +326,10 @@ func (t *FetchTool) Tools(context.Context) ([]tools.Tool, error) {
 							"description": "Array of URLs to fetch",
 							"minItems":    1,
 						},
-						"method": map[string]any{
+						"format": map[string]any{
 							"type":        "string",
-							"description": "HTTP method to use (default: GET)",
-							"default":     "GET",
-							"enum":        []string{"GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "PATCH"},
-						},
-						"headers": map[string]any{
-							"type": "object",
-							"additionalProperties": map[string]any{
-								"type": "string",
-							},
-							"description": "Optional HTTP headers to send with the request",
+							"description": "The format to return the content in (text, markdown, or html)",
+							"enum":        []string{"text", "markdown", "html"},
 						},
 						"timeout": map[string]any{
 							"type":        "integer",
@@ -245,16 +337,12 @@ func (t *FetchTool) Tools(context.Context) ([]tools.Tool, error) {
 							"minimum":     1,
 							"maximum":     300,
 						},
-						"userAgent": map[string]any{
-							"type":        "string",
-							"description": "Custom User-Agent header (default: cagent-fetch/1.0)",
-						},
 					},
-					Required: []string{"urls"},
+					Required: []string{"urls", "format"},
 				},
 				OutputSchema: tools.ToOutputSchemaSchema(reflect.TypeFor[string]()),
 			},
-			Handler: (&fetchHandler{tool: t}).CallTool,
+			Handler: t.handler.CallTool,
 		},
 	}, nil
 }

@@ -153,14 +153,9 @@ func (s *Server) getDesktopToken(c echo.Context) error {
 
 func (s *Server) getAgentConfig(c echo.Context) error {
 	agentID := c.Param("id")
+	path := toYaml(agentID)
 
-	path, err := s.secureAgentPath(agentID)
-	if err != nil {
-		slog.Error("Invalid agent ID", "agentID", agentID, "error", err)
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid agent ID"})
-	}
-
-	cfg, err := config.LoadConfigSecure(path, s.agentsDir)
+	cfg, err := config.LoadConfigSecureDeprecated(path, s.agentsDir)
 	if err != nil {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "agent not found"})
 	}
@@ -178,19 +173,10 @@ func (s *Server) editAgentConfig(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "filename is required"})
 	}
 
-	path, err := s.secureAgentPath(req.Filename)
-	if err != nil {
-		slog.Error("Invalid filename", "filename", req.Filename, "error", err)
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid filename"})
-	}
-
-	// Check if the file exists
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "agent not found"})
-	}
+	path := toYaml(req.Filename)
 
 	// Load the target file content
-	currentConfig, err := config.LoadConfigSecure(path, s.agentsDir)
+	currentConfig, err := config.LoadConfigSecureDeprecated(path, s.agentsDir)
 	if err != nil {
 		slog.Error("Failed to load current config", "path", path, "error", err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to load current configuration"})
@@ -203,6 +189,12 @@ func (s *Server) editAgentConfig(c echo.Context) error {
 	}
 	mergedConfig := *currentConfig
 
+	path, err = s.secureAgentPath(path)
+	if err != nil {
+		slog.Error("Invalid filename", "filename", req.Filename, "error", err)
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid filename"})
+	}
+
 	// Read current file to preserve shebang and metadata structure
 	currentContent, err := os.ReadFile(path)
 	if err != nil {
@@ -212,13 +204,9 @@ func (s *Server) editAgentConfig(c echo.Context) error {
 
 	// Extract shebang and version lines if they exist
 	shebang := ""
-	versionLine := ""
-	currentLines := strings.Split(string(currentContent), "\n")
-	for i, line := range currentLines {
+	for i, line := range strings.Split(string(currentContent), "\n") {
 		if i == 0 && strings.HasPrefix(line, "#!/") {
-			shebang = line + "\n"
-		} else if strings.HasPrefix(line, "version:") {
-			versionLine = line + "\n"
+			shebang = line + "\n\n"
 			break
 		}
 	}
@@ -230,12 +218,15 @@ func (s *Server) editAgentConfig(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to generate merged YAML configuration"})
 	}
 
-	// Combine shebang, version, and merged YAML content
-	finalContent := shebang + versionLine
-	if shebang != "" || versionLine != "" {
-		finalContent += "\n"
+	// Combine shebang and merged YAML content
+	finalContent := shebang + string(yamlData)
+
+	// Make sure the content we are about to write is valid YAML
+	var tmpConfig latest.Config
+	if err := yaml.UnmarshalWithOptions([]byte(finalContent), &tmpConfig, yaml.Strict()); err != nil {
+		slog.Error("Failed to unmarshal final content", "error", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to validate YAML content"})
 	}
-	finalContent += string(yamlData)
 
 	// Write the updated configuration back to the file
 	if err := os.WriteFile(path, []byte(finalContent), 0o644); err != nil {
@@ -1028,6 +1019,13 @@ func (s *Server) secureAgentPath(filename string) (string, error) {
 	}
 
 	return config.ValidatePathInDirectory(filename, s.agentsDir)
+}
+
+func toYaml(filename string) string {
+	if strings.HasSuffix(filename, ".yaml") || strings.HasSuffix(filename, ".yml") {
+		return filename
+	}
+	return filename + ".yaml"
 }
 
 func (s *Server) resumeStartOauth(c echo.Context) error {

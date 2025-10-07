@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"text/template"
 	"time"
@@ -16,6 +15,7 @@ import (
 	"github.com/goccy/go-yaml"
 
 	"github.com/docker/cagent/pkg/config"
+	"github.com/docker/cagent/pkg/filesystem"
 	"github.com/docker/cagent/pkg/secrets"
 )
 
@@ -29,10 +29,8 @@ type Options struct {
 	Pull    bool
 }
 
-func BuildDockerImage(ctx context.Context, agentFilePath, dockerImageName string, opts Options) error {
-	fileName := filepath.Base(agentFilePath)
-	parentDir := filepath.Dir(agentFilePath)
-	cfg, err := config.LoadConfigSecure(fileName, parentDir)
+func BuildDockerImage(ctx context.Context, agentFilePath string, fs filesystem.FS, dockerImageName string, opts Options) error {
+	cfg, err := config.LoadConfig(agentFilePath, fs)
 	if err != nil {
 		return err
 	}

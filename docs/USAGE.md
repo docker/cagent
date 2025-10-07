@@ -35,16 +35,23 @@ We really think we're getting somewhere as we build out the primitives of `cagen
 cagent provides multiple interfaces and deployment modes:
 
 ```bash
-# Terminal UI
+# Terminal UI (TUI)
 $ cagent run config.yaml
-$ cagent run config.yaml -a agent_name  # Run specific agent
-$ cagent run config.yaml --debug        # Enable debug logging
+$ cagent run config.yaml -a agent_name    # Run a specific agent
+$ cagent run config.yaml --debug          # Enable debug logging
+$ cagent run config.yaml --yolo           # Auto-accept all the tool calls
+$ cagent run config.yaml "First message"  # Start the conversation with the agent with a first message
+
+# One off without TUI
+$ cagent exec config.yaml                 # Run the agent once, with default instructions
+$ cagent exec config.yaml "First message" # Run the agent once with instructions
+$ cagent exec config.yaml --yolo          # Run the agent once and auto-accept all the tool calls
 
 # API Server (HTTP REST API)
 $ cagent api config.yaml
 $ cagent api config.yaml --listen :8080
 
-# Project Management
+# Other commands
 $ cagent new                          # Initialize new project
 $ cagent new --model openai/gpt-5-mini --max-tokens 32000  # Override max tokens during generation
 $ cagent eval config.yaml             # Run evaluations

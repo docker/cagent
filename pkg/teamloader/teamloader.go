@@ -118,7 +118,7 @@ func Load(ctx context.Context, path string, runtimeConfig config.RuntimeConfig) 
 	)
 
 	// Load the agent's configuration
-	cfg, err := config.LoadConfigSecure(fileName, parentDir)
+	cfg, err := config.LoadConfigSecureDeprecated(fileName, parentDir)
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +238,7 @@ func getToolsForAgent(ctx context.Context, a *latest.AgentConfig, parentDir stri
 			return nil, err
 		}
 
-		t = append(t, tool)
+		t = append(t, WithInstructions(tool, a.Instruction))
 	}
 
 	return t, nil
@@ -349,7 +349,7 @@ func createTool(ctx context.Context, toolset latest.Toolset, a *latest.AgentConf
 			headers[k] = expanded
 		}
 
-		return mcp.NewToolsetRemote(toolset.Remote.URL, toolset.Remote.TransportType, headers, toolset.Tools, runtimeConfig.RedirectURI)
+		return mcp.NewRemoteToolset(toolset.Remote.URL, toolset.Remote.TransportType, headers, toolset.Tools, runtimeConfig.RedirectURI)
 
 	default:
 		return nil, fmt.Errorf("unknown toolset type: %s", toolset.Type)

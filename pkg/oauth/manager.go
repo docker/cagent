@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -69,8 +70,35 @@ func WithManagedServer(managed bool) ManagerOption {
 	}
 }
 
-// HandleAuthorizationFlow handles a single OAuth authorization flow
-func (m *manager) HandleAuthorizationFlow(ctx context.Context, sessionID string, oauthErr *AuthorizationRequiredError) error {
+// ExecuteWithOAuth wraps an operation that may require OAuth authorization with automatic retry logic.
+// If the operation fails with an OAuth authorization error, it handles the OAuth flow and retries the operation.
+func (m *manager) ExecuteWithOAuth(ctx context.Context, sessionID string, operation func() error) error {
+	for {
+		err := operation()
+		if err == nil {
+			return nil
+		}
+
+		var oauthErr *AuthorizationRequiredError
+		if isOAuthErr := errors.As(err, &oauthErr); !isOAuthErr {
+			// Not an OAuth error, cannot recover
+			return err
+		}
+
+		// Handle OAuth authorization flow
+		oauthFlowErr := m.handleAuthorizationFlow(ctx, sessionID, oauthErr)
+		if oauthFlowErr != nil {
+			return oauthFlowErr
+		}
+
+		slog.Debug("OAuth authorization completed, retrying operation", "server", oauthErr.ServerURL)
+		// Continue the loop to retry the operation
+	}
+}
+
+// handleAuthorizationFlow requests user approval and performs the OAuth authorization flow.
+// This is an internal method called by ExecuteWithOAuth when an operation requires OAuth.
+func (m *manager) handleAuthorizationFlow(ctx context.Context, sessionID string, oauthErr *AuthorizationRequiredError) error {
 	m.emitAuthRequired(oauthErr.ServerURL, oauthErr.ServerType, "pending")
 
 	slog.Debug("Waiting for OAuth authorization to start", "server", oauthErr.ServerURL, "type", oauthErr.ServerType)
@@ -183,12 +211,16 @@ func (m *manager) performOAuthAuthorization(ctx context.Context, sessionID strin
 	slog.Debug("Waiting for OAuth authorization code")
 	var code string
 
-	// Ensure callback server is started if needed
-	if err := m.ensureCallbackServer(ctx); err != nil {
-		slog.Warn("Failed to start callback server, falling back to manual input", "error", err)
-	}
-
 	if m.managedServer {
+		// Ensure callback server is started if needed
+		if err := m.ensureCallbackServer(ctx); err != nil {
+			slog.Warn("Failed to start callback server, falling back to manual input", "error", err)
+		}
+
+		defer func() {
+			SetGlobalCallbackServer(nil)
+		}()
+
 		// Check if we have a callback server running (either global or our own)
 		if callbackServer := m.getCallbackServer(); callbackServer != nil {
 			slog.Debug("Using callback server for OAuth authorization")

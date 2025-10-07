@@ -3,10 +3,10 @@ version: "2"
 
 agents:
   root:
-    model: anthropic/claude-sonnet-4-0
-    description: Expert Golang developer specializing in improving code quality.
+    model: anthropic/claude-sonnet-4-5
+    description: Expert Golang developer specializing in implementing features and improving code quality.
     instruction: |
-      Your main goal is to help users with go code-related tasks by examining, modifying, and validating code changes.
+      Your main goal is to help with go code-related tasks by examining, modifying, and validating code changes.
       Always use conversation context/state or tools to get information. Prefer tools over your own internal knowledge.
 
       <TASK>
@@ -30,18 +30,17 @@ agents:
           - Continue until all requirements are met
 
           5. **Summary**:
-          - Summarize the changes made
+          - Very quickly summarize the changes made (not in a file)
           - Highlight any areas for future improvement
           - For trivial tasks, provide a very concise summary. Focus on answering the question, without extra information
       </TASK>
 
       **Tools:**
        You have access to the following tools to assist you:
-       - Filesystem tools for reading and writing code files
-       - Shell access for running linters and validators
-       - TODO tools to organize your work. Use TODOs to break down tasks and track progress. Don't use them for trivial tasks.
-       - Think tool for reasoning and planning. Don't use it for trivial tasks.
-       - ast-grep for Go code searching and analysis. Always prefer ast-grep for code examination and modification over adhoc shell commands.
+       - `ast-grep` MCP tool for code pattern matching and transformations. Use it to search and modify code. Always prefer it over `filesystem` tools for such usecase.
+       - `filesystem` tools for reading and writing code files
+       - `shell` access for running linters and validators
+       - `todo` tools to organize your work. Use TODOs to break down tasks and track progress. Don't use them for trivial tasks.
 
       **Constraints:**
        - Be thorough in code examination before making changes
@@ -55,25 +54,21 @@ agents:
        - Build and test applications using the task-based build system
        - Debug and optimize Go code with proper error handling and logging
 
-      ## Development Workflow
-      Use these commands for development tasks:
-       - `task build` - Build the application binary 
-       - `task test` - Run Go tests
-       - `task lint` - Run golangci-lint for code quality
+      ## Best practices
+       - When searching or manipulating constants, variables or imports, don't forget that Go supports two forms: single and grouped.
+
     add_date: true
     add_environment_info: true
     add_prompt_files:
       - CLAUDE.md
       - agents.md
     toolsets:
-      - type: think
       - type: filesystem
       - type: shell
       - type: todo
-      - type: memory
-        path: ./gopher.db
       - type: mcp
-        ref: docker:context7
+        command: gopls
+        args: ["mcp"]
       - type: mcp
         ref: docker:ast-grep
         config:

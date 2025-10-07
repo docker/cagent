@@ -4,6 +4,7 @@ go 1.25.1
 
 require (
 	dario.cat/mergo v1.0.2
+	github.com/JohannesKaufmann/html-to-markdown/v2 v2.4.0
 	github.com/Microsoft/go-winio v0.6.2
 	github.com/alecthomas/chroma/v2 v2.20.0
 	github.com/anthropics/anthropic-sdk-go v1.13.0
@@ -18,6 +19,7 @@ require (
 	github.com/goccy/go-yaml v1.18.0
 	github.com/google/go-containerregistry v0.20.6
 	github.com/google/uuid v1.6.0
+	github.com/k3a/html2text v1.2.1
 	github.com/labstack/echo/v4 v4.13.4
 	github.com/mark3labs/mcp-go v0.41.1
 	github.com/mattn/go-runewidth v0.0.16
@@ -38,6 +40,7 @@ require (
 	cloud.google.com/go v0.121.6 // indirect
 	cloud.google.com/go/auth v0.16.5 // indirect
 	cloud.google.com/go/compute/metadata v0.8.0 // indirect
+	github.com/JohannesKaufmann/dom v0.2.0 // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect
@@ -91,6 +94,7 @@ require (
 	github.com/spf13/cast v1.9.2 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
+	github.com/temoto/robotstxt v1.1.2 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect

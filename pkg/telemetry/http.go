@@ -50,6 +50,9 @@ func (tc *Client) printEvent(event *EventPayload) {
 
 // sendEvent sends a single event to Docker events API and handles logging
 func (tc *Client) sendEvent(event *EventPayload) {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+
 	// Send to Docker events API if conditions are met
 	if tc.apiKey != "" && tc.endpoint != "" && tc.enabled {
 		tc.logger.Debug("Sending telemetry event via HTTP", "event_type", event.Event, "endpoint", tc.endpoint)

@@ -1,12 +1,11 @@
 package root
 
 import (
-	"path/filepath"
-
 	"github.com/goccy/go-yaml"
 	"github.com/spf13/cobra"
 
 	"github.com/docker/cagent/pkg/config"
+	"github.com/docker/cagent/pkg/filesystem"
 	"github.com/docker/cagent/pkg/telemetry"
 )
 
@@ -24,7 +23,7 @@ func printCommand(cmd *cobra.Command, args []string) error {
 
 	agentFilename := args[0]
 
-	cfg, err := config.LoadConfigSecure(filepath.Base(agentFilename), filepath.Dir(agentFilename))
+	cfg, err := config.LoadConfig(agentFilename, filesystem.AllowAll)
 	if err != nil {
 		return err
 	}

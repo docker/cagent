@@ -3,7 +3,7 @@ version: "2"
 
 agents:
   root:
-    model: gemini/gemini-2.5-flash
+    model: google/gemini-2.5-flash
     description: Create a biography of the user based on internet searches.
     instruction: |
       Your goal is to present the user with a concise and informative biography based on their online presence.

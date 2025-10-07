@@ -11,19 +11,18 @@ import (
 	"net/http"
 	"net/url"
 	"path"
-	"strings"
 	"time"
 
 	"github.com/docker/cagent/pkg/api"
 	v2 "github.com/docker/cagent/pkg/config/v2"
 	"github.com/docker/cagent/pkg/session"
-	"github.com/docker/cagent/pkg/tools"
 )
 
 // Client is an HTTP client for the cagent server API
 type Client struct {
 	baseURL    *url.URL
 	httpClient *http.Client
+	registry   map[string]func() Event
 }
 
 // ClientOption is a function for configuring the Client
@@ -58,6 +57,25 @@ func NewClient(baseURL string, opts ...ClientOption) (*Client, error) {
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
+		registry: map[string]func() Event{
+			"user_message":           func() Event { return &UserMessageEvent{} },
+			"tool_call_confirmation": func() Event { return &ToolCallConfirmationEvent{} },
+			"partial_tool_call":      func() Event { return &PartialToolCallEvent{} },
+			"tool_call":              func() Event { return &ToolCallEvent{} },
+			"tool_call_response":     func() Event { return &ToolCallResponseEvent{} },
+			"agent_choice_reasoning": func() Event { return &AgentChoiceReasoningEvent{} },
+			"agent_choice":           func() Event { return &AgentChoiceEvent{} },
+			"stream_started":         func() Event { return &StreamStartedEvent{} },
+			"stream_stopped":         func() Event { return &StreamStoppedEvent{} },
+			"authorization_required": func() Event { return &AuthorizationRequiredEvent{} },
+			"session_compaction":     func() Event { return &SessionCompactionEvent{} },
+			"token_usage":            func() Event { return &TokenUsageEvent{} },
+			"max_iterations_reached": func() Event { return &MaxIterationsReachedEvent{} },
+			"session_title":          func() Event { return &SessionTitleEvent{} },
+			"session_summary":        func() Event { return &SessionSummaryEvent{} },
+			"shell":                  func() Event { return &ShellOutputEvent{} },
+			"error":                  func() Event { return &ErrorEvent{} },
+		},
 	}
 
 	for _, opt := range opts {
@@ -70,20 +88,6 @@ func NewClient(baseURL string, opts ...ClientOption) (*Client, error) {
 // ErrorResponse represents an error response from the API
 type ErrorResponse struct {
 	Error string `json:"error"`
-}
-
-// parseToolCall safely converts an any to tools.ToolCall
-func parseToolCall(data, toolDefinition []byte) (tools.ToolCall, tools.Tool, error) {
-	var toolCall tools.ToolCall
-	if err := json.Unmarshal(data, &toolCall); err != nil {
-		return tools.ToolCall{}, tools.Tool{}, fmt.Errorf("failed to unmarshal tool call: %w", err)
-	}
-	var toolDef tools.Tool
-	if err := json.Unmarshal(toolDefinition, &toolDef); err != nil {
-		return tools.ToolCall{}, tools.Tool{}, fmt.Errorf("failed to unmarshal tool definition: %w", err)
-	}
-
-	return toolCall, toolDef, nil
 }
 
 // doRequest performs an HTTP request and handles common response patterns
@@ -321,73 +325,41 @@ func (c *Client) runAgentWithAgentName(ctx context.Context, sessionID, agent, ag
 
 		scanner := bufio.NewScanner(resp.Body)
 		for scanner.Scan() {
-			line := scanner.Text()
-
-			if line == "" || strings.HasPrefix(line, ":") {
+			line := scanner.Bytes()
+			if len(line) == 0 || line[0] == ':' {
 				continue
 			}
 
-			if after, ok := strings.CutPrefix(line, "data: "); ok {
-				var event map[string]any
-				if err := json.Unmarshal([]byte(after), &event); err != nil {
-					continue
-				}
-
-				slog.Debug("event", "event", after)
-
-				switch event["type"] {
-				case "user_message":
-					eventChan <- UserMessage(event["message"].(string))
-				case "tool_call_confirmation":
-					if toolCall, toolDef, err := parseToolCall(event["tool_call"].([]byte), event["tool_definition"].([]byte)); err == nil {
-						eventChan <- ToolCallConfirmation(toolCall, toolDef, event["agent_name"].(string))
-					}
-				case "partial_tool_call":
-					if toolCall, toolDef, err := parseToolCall(event["tool_call"].([]byte), event["tool_definition"].([]byte)); err == nil {
-						eventChan <- PartialToolCall(toolCall, toolDef, event["agent_name"].(string))
-					}
-				case "tool_call":
-					if toolCall, toolDef, err := parseToolCall(event["tool_call"].([]byte), event["tool_definition"].([]byte)); err == nil {
-						eventChan <- ToolCall(toolCall, toolDef, event["agent_name"].(string))
-					}
-				case "tool_call_response":
-					if toolCall, _, err := parseToolCall(event["tool_call"].([]byte), event["tool_definition"].([]byte)); err == nil {
-						eventChan <- ToolCallResponse(toolCall, event["response"].(string), event["agent_name"].(string))
-					}
-				case "agent_choice_reasoning":
-					eventChan <- AgentChoiceReasoning(event["agent_name"].(string), event["content"].(string))
-				case "agent_choice":
-					eventChan <- AgentChoice(event["agent_name"].(string), event["content"].(string))
-				case "stream_started":
-					eventChan <- StreamStarted(sessionID, event["agent_name"].(string))
-				case "stream_stopped":
-					eventChan <- StreamStopped(sessionID, event["agent_name"].(string))
-				case "authorization_required":
-					eventChan <- AuthorizationRequired(event["server_url"].(string), event["server_type"].(string), event["confirmation"].(string), event["agent_name"].(string))
-				case "session_compaction":
-					eventChan <- SessionCompaction(event["session_id"].(string), event["status"].(string), event["agent_name"].(string))
-				case "token_usage":
-					usage := event["usage"].(map[string]any)
-					inputTokens, _ := usage["input_tokens"].(float64)
-					outputTokens, _ := usage["output_tokens"].(float64)
-					contextLength, _ := usage["context_length"].(float64)
-					contextLimit, _ := usage["context_limit"].(float64)
-					cost, _ := usage["cost"].(float64)
-
-					eventChan <- TokenUsage(int(inputTokens), int(outputTokens), int(contextLength), int(contextLimit), cost)
-				case "max_iterations_reached":
-					maxIterations, _ := event["max_iterations"].(float64)
-					eventChan <- MaxIterationsReached(int(maxIterations))
-				case "session_title":
-					eventChan <- SessionTitle(event["session_id"].(string), event["title"].(string), event["agent_name"].(string))
-				case "session_summary":
-					eventChan <- SessionSummary(event["session_id"].(string), event["summary"].(string), event["agent_name"].(string))
-				case "shell":
-					eventChan <- ShellOutput(event["output"].(string))
-				case "error":
-					eventChan <- Error(event["error"].(string))
-				}
+			after, ok := bytes.CutPrefix(line, []byte("data: "))
+			if !ok {
+				continue
 			}
+
+			slog.Debug("event", "event", string(after))
+
+			// First unmarshal to get the type
+			var baseEvent struct {
+				Type string `json:"type"`
+			}
+			if err := json.Unmarshal(after, &baseEvent); err != nil {
+				slog.Debug("event", "error", err)
+				continue
+			}
+
+			// Then unmarshal the full event
+			createEvent, found := c.registry[baseEvent.Type]
+			if !found {
+				slog.Debug("event", "invalid_type", baseEvent.Type)
+				continue
+			}
+
+			e := createEvent()
+			if err := json.Unmarshal(after, &e); err != nil {
+				slog.Debug("event", "error", err)
+				continue
+			}
+
+			eventChan <- e
 		}
 
 		if err := scanner.Err(); err != nil {

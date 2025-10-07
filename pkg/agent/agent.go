@@ -12,20 +12,6 @@ import (
 	"github.com/docker/cagent/pkg/tools"
 )
 
-// ToolSetError wraps toolset startup failures with context
-type ToolSetError struct {
-	Err     error
-	Toolset tools.ToolSet
-}
-
-func (e *ToolSetError) Error() string {
-	return fmt.Sprintf("failed to start toolset: %v", e.Err)
-}
-
-func (e *ToolSetError) Unwrap() error {
-	return e.Err
-}
-
 // Agent represents an AI agent
 type Agent struct {
 	name               string
@@ -176,10 +162,7 @@ func (a *Agent) ensureToolSetsAreStarted() error {
 		// Use background context for starting toolsets to ensure they persist beyond request lifecycle
 		// This is critical for OAuth flows where the toolset connection needs to remain alive after the initial HTTP request completes.
 		if err := toolSet.Start(context.Background()); err != nil {
-			return &ToolSetError{
-				Err:     err,
-				Toolset: toolSet,
-			}
+			return err
 		}
 
 		// Mark toolset as started

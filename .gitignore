@@ -6,6 +6,7 @@ evals
 *.db
 /cagent
 .crush
+.vscode
 
 # agents
 agent.yaml

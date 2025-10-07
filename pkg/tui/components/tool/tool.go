@@ -104,7 +104,7 @@ func (mv *toolModel) View() string {
 		case "run_tools_with_javascript":
 			content += " " + render_run_tools_with_javascript(msg.ToolCall)
 		case "edit_file":
-			diff, path := render_edit_file(msg.ToolCall)
+			diff, path := render_edit_file(msg.ToolCall, mv.width)
 			if diff != "" {
 				pathHeader := styles.HighlightStyle.Bold(true).Render(path)
 				content += "\n" + pathHeader + "\n\n" + diff

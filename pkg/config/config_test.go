@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -8,7 +9,11 @@ import (
 )
 
 func TestAutoRegisterModels(t *testing.T) {
-	cfg, err := loadConfig("testdata/autoregister.yaml")
+	t.Parallel()
+
+	root := openRoot(t, "testdata")
+
+	cfg, err := LoadConfig("autoregister.yaml", root)
 	require.NoError(t, err)
 
 	assert.Len(t, cfg.Models, 2)
@@ -19,7 +24,11 @@ func TestAutoRegisterModels(t *testing.T) {
 }
 
 func TestAutoRegisterAlloy(t *testing.T) {
-	cfg, err := loadConfig("testdata/autoregister_alloy.yaml")
+	t.Parallel()
+
+	root := openRoot(t, "testdata")
+
+	cfg, err := LoadConfig("autoregister_alloy.yaml", root)
 	require.NoError(t, err)
 
 	assert.Len(t, cfg.Models, 2)
@@ -30,21 +39,33 @@ func TestAutoRegisterAlloy(t *testing.T) {
 }
 
 func TestMigrate_v0_v1_provider(t *testing.T) {
-	cfg, err := loadConfig("testdata/provider_v0.yaml")
+	t.Parallel()
+
+	root := openRoot(t, "testdata")
+
+	cfg, err := LoadConfig("provider_v0.yaml", root)
 	require.NoError(t, err)
 
 	assert.Equal(t, "openai", cfg.Models["openai"].Provider)
 }
 
 func TestMigrate_v1_provider(t *testing.T) {
-	cfg, err := loadConfig("testdata/provider_v1.yaml")
+	t.Parallel()
+
+	root := openRoot(t, "testdata")
+
+	cfg, err := LoadConfig("provider_v1.yaml", root)
 	require.NoError(t, err)
 
 	assert.Equal(t, "openai", cfg.Models["openai"].Provider)
 }
 
 func TestMigrate_v0_v1_todo(t *testing.T) {
-	cfg, err := loadConfig("testdata/todo_v0.yaml")
+	t.Parallel()
+
+	root := openRoot(t, "testdata")
+
+	cfg, err := LoadConfig("todo_v0.yaml", root)
 	require.NoError(t, err)
 
 	assert.Len(t, cfg.Agents["root"].Toolsets, 2)
@@ -54,7 +75,11 @@ func TestMigrate_v0_v1_todo(t *testing.T) {
 }
 
 func TestMigrate_v1_todo(t *testing.T) {
-	cfg, err := loadConfig("testdata/todo_v1.yaml")
+	t.Parallel()
+
+	root := openRoot(t, "testdata")
+
+	cfg, err := LoadConfig("todo_v1.yaml", root)
 	require.NoError(t, err)
 
 	assert.Len(t, cfg.Agents["root"].Toolsets, 2)
@@ -64,7 +89,11 @@ func TestMigrate_v1_todo(t *testing.T) {
 }
 
 func TestMigrate_v0_v1_shared_todo(t *testing.T) {
-	cfg, err := loadConfig("testdata/shared_todo_v0.yaml")
+	t.Parallel()
+
+	root := openRoot(t, "testdata")
+
+	cfg, err := LoadConfig("shared_todo_v0.yaml", root)
 	require.NoError(t, err)
 
 	assert.Len(t, cfg.Agents["root"].Toolsets, 2)
@@ -74,7 +103,11 @@ func TestMigrate_v0_v1_shared_todo(t *testing.T) {
 }
 
 func TestMigrate_v1_shared_todo(t *testing.T) {
-	cfg, err := loadConfig("testdata/shared_todo_v1.yaml")
+	t.Parallel()
+
+	root := openRoot(t, "testdata")
+
+	cfg, err := LoadConfig("shared_todo_v1.yaml", root)
 	require.NoError(t, err)
 
 	assert.Len(t, cfg.Agents["root"].Toolsets, 2)
@@ -84,7 +117,11 @@ func TestMigrate_v1_shared_todo(t *testing.T) {
 }
 
 func TestMigrate_v0_v1_think(t *testing.T) {
-	cfg, err := loadConfig("testdata/think_v0.yaml")
+	t.Parallel()
+
+	root := openRoot(t, "testdata")
+
+	cfg, err := LoadConfig("think_v0.yaml", root)
 	require.NoError(t, err)
 
 	assert.Len(t, cfg.Agents["root"].Toolsets, 2)
@@ -93,7 +130,11 @@ func TestMigrate_v0_v1_think(t *testing.T) {
 }
 
 func TestMigrate_v1_think(t *testing.T) {
-	cfg, err := loadConfig("testdata/think_v1.yaml")
+	t.Parallel()
+
+	root := openRoot(t, "testdata")
+
+	cfg, err := LoadConfig("think_v1.yaml", root)
 	require.NoError(t, err)
 
 	assert.Len(t, cfg.Agents["root"].Toolsets, 2)
@@ -102,7 +143,11 @@ func TestMigrate_v1_think(t *testing.T) {
 }
 
 func TestMigrate_v0_v1_memory(t *testing.T) {
-	cfg, err := loadConfig("testdata/memory_v0.yaml")
+	t.Parallel()
+
+	root := openRoot(t, "testdata")
+
+	cfg, err := LoadConfig("memory_v0.yaml", root)
 	require.NoError(t, err)
 
 	assert.Len(t, cfg.Agents["root"].Toolsets, 2)
@@ -112,7 +157,11 @@ func TestMigrate_v0_v1_memory(t *testing.T) {
 }
 
 func TestMigrate_v1_memory(t *testing.T) {
-	cfg, err := loadConfig("testdata/memory_v1.yaml")
+	t.Parallel()
+
+	root := openRoot(t, "testdata")
+
+	cfg, err := LoadConfig("memory_v1.yaml", root)
 	require.NoError(t, err)
 
 	assert.Len(t, cfg.Agents["root"].Toolsets, 2)
@@ -122,6 +171,20 @@ func TestMigrate_v1_memory(t *testing.T) {
 }
 
 func TestMigrate_v1(t *testing.T) {
-	_, err := loadConfig("testdata/v1.yaml")
+	t.Parallel()
+
+	root := openRoot(t, "testdata")
+
+	_, err := LoadConfig("v1.yaml", root)
 	require.NoError(t, err)
+}
+
+func openRoot(t *testing.T, dir string) *os.Root {
+	t.Helper()
+
+	root, err := os.OpenRoot(dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { root.Close() })
+
+	return root
 }

@@ -75,6 +75,23 @@ type Message struct {
 	AgentFilename string       `json:"agentFilename"`
 	AgentName     string       `json:"agentName"` // TODO: rename to agent_name
 	Message       chat.Message `json:"message"`
+	// Implicit is an optional field to indicate if the message shouldn't be shown to the user. It's needed for special  situations
+	// like when an agent transfers a task to another agent - new session is created with a default user message, but this shouldn't be shown to the user.
+	// Such messages should be marked as true
+	Implicit bool `json:"implicit,omitempty"`
+}
+
+func ImplicitUserMessage(agentFilename, content string) *Message {
+	return &Message{
+		AgentFilename: agentFilename,
+		AgentName:     "",
+		Message: chat.Message{
+			Role:      chat.MessageRoleUser,
+			Content:   content,
+			CreatedAt: time.Now().Format(time.RFC3339),
+		},
+		Implicit: true,
+	}
 }
 
 func UserMessage(agentFilename, content string) *Message {
@@ -171,6 +188,12 @@ type Opt func(s *Session)
 func WithUserMessage(agentFilename, content string) Opt {
 	return func(s *Session) {
 		s.AddMessage(UserMessage(agentFilename, content))
+	}
+}
+
+func WithImplicitUserMessage(agentFilename, content string) Opt {
+	return func(s *Session) {
+		s.AddMessage(ImplicitUserMessage(agentFilename, content))
 	}
 }
 

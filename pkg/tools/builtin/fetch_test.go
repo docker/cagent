@@ -1,7 +1,6 @@
 package builtin
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,404 +8,276 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/docker/cagent/pkg/tools"
 )
 
-func TestNewFetchTool(t *testing.T) {
-	tool := NewFetchTool()
-	if tool == nil {
-		t.Fatal("NewFetchTool() returned nil")
-	}
-
-	if tool.timeout != 30*time.Second {
-		t.Errorf("Expected default timeout 30s, got %v", tool.timeout)
-	}
-
-	if tool.client == nil {
-		t.Fatal("HTTP client not initialized")
-	}
-}
-
 func TestFetchToolWithOptions(t *testing.T) {
 	customTimeout := 60 * time.Second
+
 	tool := NewFetchTool(WithTimeout(customTimeout))
 
-	if tool.timeout != customTimeout {
-		t.Errorf("Expected timeout %v, got %v", customTimeout, tool.timeout)
-	}
+	assert.Equal(t, customTimeout, tool.handler.timeout)
 }
 
 func TestFetchTool_Tools(t *testing.T) {
 	tool := NewFetchTool()
-	ctx := context.TODO()
 
-	toolSet, err := tool.Tools(ctx)
-	if err != nil {
-		t.Fatalf("Tools() error: %v", err)
-	}
-
-	if len(toolSet) != 1 {
-		t.Fatalf("Expected 1 tool, got %d", len(toolSet))
-	}
+	toolSet, err := tool.Tools(t.Context())
+	require.NoError(t, err)
+	require.Len(t, toolSet, 1)
 
 	fetchTool := toolSet[0]
-	if fetchTool.Function.Name != "fetch" {
-		t.Errorf("Expected tool name 'fetch', got %s", fetchTool.Function.Name)
-	}
-
-	if fetchTool.Handler == nil {
-		t.Fatal("Tool handler is nil")
-	}
+	assert.Equal(t, "fetch", fetchTool.Function.Name)
+	assert.NotNil(t, fetchTool.Handler)
 }
 
 func TestFetchTool_Instructions(t *testing.T) {
 	tool := NewFetchTool()
+
 	instructions := tool.Instructions()
 
-	if instructions == "" {
-		t.Fatal("Instructions should not be empty")
-	}
-
-	if !containsAllSubstrings(instructions, []string{"Fetch Tool Instructions", "HTTP", "HTTPS", "URLs"}) {
-		t.Error("Instructions missing expected content")
-	}
+	assert.Contains(t, instructions, `"fetch" tool instructions`)
 }
 
 func TestFetchTool_StartStop(t *testing.T) {
 	tool := NewFetchTool()
-	ctx := context.TODO()
 
-	if err := tool.Start(ctx); err != nil {
-		t.Errorf("Start() error: %v", err)
-	}
+	err := tool.Start(t.Context())
+	require.NoError(t, err)
 
-	if err := tool.Stop(); err != nil {
-		t.Errorf("Stop() error: %v", err)
-	}
+	err = tool.Stop()
+	require.NoError(t, err)
 }
 
-func TestFetchHandler_CallTool_Success(t *testing.T) {
-	// Create test server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func TestFetch_Call_Success(t *testing.T) {
+	url := runHTTPServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		fmt.Fprint(w, "Hello, World!")
-	}))
-	defer server.Close()
+	})
 
 	tool := NewFetchTool()
-	ctx := context.TODO()
 
-	args := map[string]any{
-		"urls": []string{server.URL},
-	}
-	argsJSON, _ := json.Marshal(args)
+	result, err := tool.handler.CallTool(t.Context(), fetch(t, url))
+	require.NoError(t, err)
 
-	toolCall := tools.ToolCall{
-		Function: tools.FunctionCall{
-			Arguments: string(argsJSON),
-		},
-	}
-
-	handler := &fetchHandler{tool: tool}
-	result, err := handler.CallTool(ctx, toolCall)
-	if err != nil {
-		t.Fatalf("CallTool() error: %v", err)
-	}
-
-	if result == nil {
-		t.Fatal("Result is nil")
-	}
-
-	if !containsAllSubstrings(result.Output, []string{"Successfully fetched", "Status: 200", "Hello, World!"}) {
-		t.Errorf("Unexpected output: %s", result.Output)
-	}
+	assert.Contains(t, result.Output, "Successfully fetched")
+	assert.Contains(t, result.Output, "Status: 200")
+	assert.Contains(t, result.Output, "Length: 13 bytes")
+	assert.Contains(t, result.Output, "Hello, World!")
 }
 
-func TestFetchHandler_CallTool_MultipleURLs(t *testing.T) {
-	// Create test servers
-	server1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func TestFetch_Call_MultipleURLs(t *testing.T) {
+	url1 := runHTTPServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprint(w, "Server 1")
-	}))
-	defer server1.Close()
-
-	server2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	})
+	url2 := runHTTPServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprint(w, "Server 2")
-	}))
-	defer server2.Close()
+	})
 
 	tool := NewFetchTool()
-	ctx := context.TODO()
 
-	args := map[string]any{
-		"urls": []string{server1.URL, server2.URL},
-	}
-	argsJSON, _ := json.Marshal(args)
+	result, err := tool.handler.CallTool(t.Context(), fetch(t, url1, url2))
+	require.NoError(t, err)
 
-	toolCall := tools.ToolCall{
-		Function: tools.FunctionCall{
-			Arguments: string(argsJSON),
-		},
-	}
-
-	handler := &fetchHandler{tool: tool}
-	result, err := handler.CallTool(ctx, toolCall)
-	if err != nil {
-		t.Fatalf("CallTool() error: %v", err)
-	}
-
-	// Should return JSON for multiple URLs
 	var results []FetchResult
-	if err := json.Unmarshal([]byte(result.Output), &results); err != nil {
-		t.Fatalf("Failed to unmarshal results: %v", err)
-	}
+	err = json.Unmarshal([]byte(result.Output), &results)
+	require.NoError(t, err)
 
-	if len(results) != 2 {
-		t.Fatalf("Expected 2 results, got %d", len(results))
-	}
-
-	if results[0].Body != "Server 1" {
-		t.Errorf("Expected 'Server 1', got %s", results[0].Body)
-	}
-
-	if results[1].Body != "Server 2" {
-		t.Errorf("Expected 'Server 2', got %s", results[1].Body)
-	}
+	require.Len(t, results, 2)
+	assert.Equal(t, "Server 1", results[0].Body)
+	assert.Equal(t, "Server 2", results[1].Body)
 }
 
-func TestFetchHandler_CallTool_CustomHeaders(t *testing.T) {
-	// Create test server that checks headers
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer token123" {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-		if r.Header.Get("X-Custom-Header") != "custom-value" {
-			http.Error(w, "Missing custom header", http.StatusBadRequest)
-			return
-		}
-		fmt.Fprint(w, "Authorized!")
-	}))
-	defer server.Close()
-
+func TestFetch_Call_InvalidURL(t *testing.T) {
 	tool := NewFetchTool()
-	ctx := context.TODO()
 
-	args := map[string]any{
-		"urls": []string{server.URL},
-		"headers": map[string]string{
-			"Authorization":   "Bearer token123",
-			"X-Custom-Header": "custom-value",
-		},
-	}
-	argsJSON, _ := json.Marshal(args)
+	result, err := tool.handler.CallTool(t.Context(), fetch(t, "invalid-url"))
+	require.NoError(t, err)
 
-	toolCall := tools.ToolCall{
-		Function: tools.FunctionCall{
-			Arguments: string(argsJSON),
-		},
-	}
-
-	handler := &fetchHandler{tool: tool}
-	result, err := handler.CallTool(ctx, toolCall)
-	if err != nil {
-		t.Fatalf("CallTool() error: %v", err)
-	}
-
-	if !containsAllSubstrings(result.Output, []string{"Status: 200", "Authorized!"}) {
-		t.Errorf("Headers not properly sent: %s", result.Output)
-	}
+	assert.Contains(t, result.Output, "Error fetching")
 }
 
-func TestFetchHandler_CallTool_InvalidURL(t *testing.T) {
+func TestFetch_Call_UnsupportedProtocol(t *testing.T) {
 	tool := NewFetchTool()
-	ctx := context.TODO()
 
-	args := map[string]any{
-		"urls": []string{"not-a-url"},
-	}
-	argsJSON, _ := json.Marshal(args)
+	result, err := tool.handler.CallTool(t.Context(), fetch(t, "ftp://example.com"))
+	require.NoError(t, err)
 
-	toolCall := tools.ToolCall{
-		Function: tools.FunctionCall{
-			Arguments: string(argsJSON),
-		},
-	}
-
-	handler := &fetchHandler{tool: tool}
-	result, err := handler.CallTool(ctx, toolCall)
-	if err != nil {
-		t.Fatalf("CallTool() error: %v", err)
-	}
-
-	if !containsAllSubstrings(result.Output, []string{"Error fetching", "invalid URL: missing scheme or host"}) {
-		t.Errorf("Expected URL validation error: %s", result.Output)
-	}
+	assert.Contains(t, result.Output, "Error fetching")
+	assert.Contains(t, result.Output, "only HTTP and HTTPS URLs are supported")
 }
 
-func TestFetchHandler_CallTool_UnsupportedProtocol(t *testing.T) {
+func TestFetch_Call_NoURLs(t *testing.T) {
 	tool := NewFetchTool()
-	ctx := context.TODO()
 
-	args := map[string]any{
-		"urls": []string{"ftp://example.com"},
-	}
-	argsJSON, _ := json.Marshal(args)
-
-	toolCall := tools.ToolCall{
-		Function: tools.FunctionCall{
-			Arguments: string(argsJSON),
-		},
-	}
-
-	handler := &fetchHandler{tool: tool}
-	result, err := handler.CallTool(ctx, toolCall)
-	if err != nil {
-		t.Fatalf("CallTool() error: %v", err)
-	}
-
-	if !containsAllSubstrings(result.Output, []string{"Error fetching", "only HTTP and HTTPS URLs are supported"}) {
-		t.Errorf("Expected protocol validation error: %s", result.Output)
-	}
+	_, err := tool.handler.CallTool(t.Context(), fetch(t))
+	require.ErrorContains(t, err, "at least one URL is required")
 }
 
-func TestFetchHandler_CallTool_NoURLs(t *testing.T) {
+func TestFetch_Call_InvalidJSON(t *testing.T) {
 	tool := NewFetchTool()
-	ctx := context.TODO()
 
-	args := map[string]any{
-		"urls": []string{},
-	}
-	argsJSON, _ := json.Marshal(args)
-
-	toolCall := tools.ToolCall{
-		Function: tools.FunctionCall{
-			Arguments: string(argsJSON),
-		},
-	}
-
-	handler := &fetchHandler{tool: tool}
-	_, err := handler.CallTool(ctx, toolCall)
-	if err == nil {
-		t.Fatal("Expected error for empty URLs")
-	}
-
-	if err.Error() != "at least one URL is required" {
-		t.Errorf("Unexpected error: %v", err)
-	}
-}
-
-func TestFetchHandler_CallTool_InvalidJSON(t *testing.T) {
-	tool := NewFetchTool()
-	ctx := context.TODO()
-
-	toolCall := tools.ToolCall{
+	_, err := tool.handler.CallTool(t.Context(), tools.ToolCall{
 		Function: tools.FunctionCall{
 			Arguments: "invalid json",
 		},
-	}
-
-	handler := &fetchHandler{tool: tool}
-	_, err := handler.CallTool(ctx, toolCall)
-	if err == nil {
-		t.Fatal("Expected error for invalid JSON")
-	}
+	})
+	require.ErrorContains(t, err, "invalid arguments")
 }
 
-func TestFetchHandler_CallTool_CustomMethod(t *testing.T) {
-	// Create test server that checks method
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		fmt.Fprint(w, "POST received")
-	}))
-	defer server.Close()
+func TestFetch_Markdown(t *testing.T) {
+	url := runHTTPServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, "<h1>Hello cagent</h1>")
+	})
 
 	tool := NewFetchTool()
-	ctx := context.TODO()
 
-	args := map[string]any{
-		"urls":   []string{server.URL},
-		"method": "POST",
-	}
-	argsJSON, _ := json.Marshal(args)
+	result, err := tool.handler.CallTool(t.Context(), toolCall(t, map[string]any{
+		"urls":   []string{url},
+		"format": "markdown",
+	}))
+	require.NoError(t, err)
 
-	toolCall := tools.ToolCall{
+	assert.Contains(t, result.Output, "Successfully fetched")
+	assert.Contains(t, result.Output, "Status: 200")
+	assert.Contains(t, result.Output, "Length: 14 bytes")
+	assert.Contains(t, result.Output, "# Hello cagent")
+}
+
+func TestFetch_Text(t *testing.T) {
+	url := runHTTPServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, "<h1>Hello cagent</h1>")
+	})
+
+	tool := NewFetchTool()
+
+	result, err := tool.handler.CallTool(t.Context(), toolCall(t, map[string]any{
+		"urls":   []string{url},
+		"format": "text",
+	}))
+	require.NoError(t, err)
+
+	assert.Contains(t, result.Output, "Successfully fetched")
+	assert.Contains(t, result.Output, "Status: 200")
+	assert.Contains(t, result.Output, "Length: 12 bytes")
+	assert.Contains(t, result.Output, "Hello cagent")
+}
+
+func runHTTPServer(t *testing.T, handler http.HandlerFunc) string {
+	t.Helper()
+
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	return server.URL
+}
+
+func fetch(t *testing.T, urls ...string) tools.ToolCall {
+	t.Helper()
+
+	return toolCall(t, map[string]any{
+		"urls": urls,
+	})
+}
+
+func toolCall(t *testing.T, args map[string]any) tools.ToolCall {
+	t.Helper()
+
+	argsJSON, err := json.Marshal(args)
+	require.NoError(t, err)
+
+	return tools.ToolCall{
 		Function: tools.FunctionCall{
 			Arguments: string(argsJSON),
 		},
 	}
-
-	handler := &fetchHandler{tool: tool}
-	result, err := handler.CallTool(ctx, toolCall)
-	if err != nil {
-		t.Fatalf("CallTool() error: %v", err)
-	}
-
-	if !containsAllSubstrings(result.Output, []string{"Status: 200", "POST received"}) {
-		t.Errorf("POST method not working: %s", result.Output)
-	}
 }
 
-func TestFetchHandler_CallTool_CustomUserAgent(t *testing.T) {
-	customUA := "MyBot/1.0"
+func TestFetch_RobotsAllowed(t *testing.T) {
+	// Create test server that serves robots.txt allowing all
+	robotsContent := "User-agent: *\nAllow: /"
 
-	// Create test server that checks User-Agent
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("User-Agent") != customUA {
-			http.Error(w, "Wrong User-Agent", http.StatusBadRequest)
+	url := runHTTPServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			w.Header().Set("Content-Type", "text/plain")
+			fmt.Fprint(w, robotsContent)
 			return
 		}
-		fmt.Fprint(w, "User-Agent OK")
-	}))
-	defer server.Close()
+		if r.URL.Path == "/allowed" {
+			w.Header().Set("Content-Type", "text/plain")
+			fmt.Fprint(w, "Content allowed by robots")
+			return
+		}
+		http.NotFound(w, r)
+	})
 
 	tool := NewFetchTool()
-	ctx := context.TODO()
+	result, err := tool.handler.CallTool(t.Context(), toolCall(t, map[string]any{
+		"urls":   []string{url + "/allowed"},
+		"format": "text",
+	}))
 
-	args := map[string]any{
-		"urls":      []string{server.URL},
-		"userAgent": customUA,
-	}
-	argsJSON, _ := json.Marshal(args)
-
-	toolCall := tools.ToolCall{
-		Function: tools.FunctionCall{
-			Arguments: string(argsJSON),
-		},
-	}
-
-	handler := &fetchHandler{tool: tool}
-	result, err := handler.CallTool(ctx, toolCall)
-	if err != nil {
-		t.Fatalf("CallTool() error: %v", err)
-	}
-
-	if !containsAllSubstrings(result.Output, []string{"Status: 200", "User-Agent OK"}) {
-		t.Errorf("Custom User-Agent not working: %s", result.Output)
-	}
+	require.NoError(t, err)
+	assert.Contains(t, result.Output, "Successfully fetched")
+	assert.Contains(t, result.Output, "Content allowed by robots")
 }
 
-// Helper function to check if a string contains all required substrings
-func containsAllSubstrings(text string, substrings []string) bool {
-	for _, substr := range substrings {
-		if !containsSubstring(text, substr) {
-			return false
+func TestFetch_RobotsBlocked(t *testing.T) {
+	// Create test server that serves robots.txt disallowing the test path
+	robotsContent := "User-agent: *\nDisallow: /blocked"
+
+	url := runHTTPServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			w.Header().Set("Content-Type", "text/plain")
+			fmt.Fprint(w, robotsContent)
+			return
 		}
-	}
-	return true
-}
-
-func containsSubstring(text, substr string) bool {
-	return len(text) >= len(substr) && findSubstring(text, substr)
-}
-
-func findSubstring(text, substr string) bool {
-	for i := 0; i <= len(text)-len(substr); i++ {
-		if text[i:i+len(substr)] == substr {
-			return true
+		if r.URL.Path == "/blocked" {
+			w.Header().Set("Content-Type", "text/plain")
+			fmt.Fprint(w, "This should not be fetched")
+			return
 		}
-	}
-	return false
+		http.NotFound(w, r)
+	})
+
+	tool := NewFetchTool()
+	result, err := tool.handler.CallTool(t.Context(), toolCall(t, map[string]any{
+		"urls":   []string{url + "/blocked"},
+		"format": "text",
+	}))
+
+	require.NoError(t, err)
+	assert.Contains(t, result.Output, "Error fetching")
+	assert.Contains(t, result.Output, "URL blocked by robots.txt")
+}
+
+func TestFetch_RobotsMissing(t *testing.T) {
+	// Create test server that doesn't serve robots.txt (404)
+	url := runHTTPServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.URL.Path == "/content" {
+			w.Header().Set("Content-Type", "text/plain")
+			fmt.Fprint(w, "Content without robots.txt")
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	tool := NewFetchTool()
+	result, err := tool.handler.CallTool(t.Context(), toolCall(t, map[string]any{
+		"urls":   []string{url + "/content"},
+		"format": "text",
+	}))
+
+	require.NoError(t, err)
+	assert.Contains(t, result.Output, "Successfully fetched")
+	assert.Contains(t, result.Output, "Content without robots.txt")
 }

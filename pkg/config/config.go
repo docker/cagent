@@ -12,76 +12,22 @@ import (
 	v1 "github.com/docker/cagent/pkg/config/v1"
 	latest "github.com/docker/cagent/pkg/config/v2"
 	v2 "github.com/docker/cagent/pkg/config/v2"
+	"github.com/docker/cagent/pkg/filesystem"
 )
 
-// LoadConfigSecure loads the configuration from a file with path validation
-func LoadConfigSecure(path, allowedDir string) (*latest.Config, error) {
-	validatedPath, err := ValidatePathInDirectory(path, allowedDir)
+func LoadConfigSecureDeprecated(path, allowedDir string) (*latest.Config, error) {
+	fs, err := os.OpenRoot(allowedDir)
 	if err != nil {
-		return nil, fmt.Errorf("path validation failed: %w", err)
+		return nil, fmt.Errorf("opening filesystem %s: %w", allowedDir, err)
 	}
 
-	return loadConfig(validatedPath)
+	return LoadConfig(path, fs)
 }
 
-func ValidatePathInDirectory(path, allowedDir string) (string, error) {
-	if path == "" {
-		return "", fmt.Errorf("empty path")
-	}
-
-	cleanPath := filepath.Clean(path)
-
-	if cleanPath == "" || cleanPath == "." {
-		return "", fmt.Errorf("empty or invalid path")
-	}
-
-	if filepath.IsAbs(cleanPath) && allowedDir == "" {
-		if strings.Contains(path, "..") {
-			return "", fmt.Errorf("path contains directory traversal sequences")
-		}
-		return cleanPath, nil
-	}
-
-	if allowedDir == "" {
-		if strings.HasPrefix(cleanPath, "..") {
-			return "", fmt.Errorf("path contains directory traversal sequences")
-		}
-		return cleanPath, nil
-	}
-
-	cleanAllowedDir := filepath.Clean(allowedDir)
-	absAllowedDir, err := filepath.Abs(cleanAllowedDir)
-	if err != nil {
-		return "", fmt.Errorf("invalid allowed directory: %w", err)
-	}
-
-	var targetPath string
-	if filepath.IsAbs(cleanPath) {
-		targetPath = cleanPath
-	} else {
-		targetPath = filepath.Join(absAllowedDir, cleanPath)
-	}
-
-	absTargetPath, err := filepath.Abs(targetPath)
-	if err != nil {
-		return "", fmt.Errorf("invalid path: %w", err)
-	}
-
-	relPath, err := filepath.Rel(absAllowedDir, absTargetPath)
-	if err != nil {
-		return "", fmt.Errorf("cannot determine relative path: %w", err)
-	}
-
-	if strings.HasPrefix(relPath, "..") {
-		return "", fmt.Errorf("path outside allowed directory: %s", path)
-	}
-
-	return absTargetPath, nil
-}
-
-func loadConfig(path string) (*latest.Config, error) {
+func LoadConfig(path string, fs filesystem.FS) (*latest.Config, error) {
 	dir := filepath.Dir(path)
-	data, err := os.ReadFile(path)
+
+	data, err := fs.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading config file: %w", err)
 	}
@@ -196,4 +142,59 @@ func validateConfig(cfg *latest.Config) error {
 
 func boolPtr(b bool) *bool {
 	return &b
+}
+
+func ValidatePathInDirectory(path, allowedDir string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("empty path")
+	}
+
+	cleanPath := filepath.Clean(path)
+
+	if cleanPath == "" || cleanPath == "." {
+		return "", fmt.Errorf("empty or invalid path")
+	}
+
+	if filepath.IsAbs(cleanPath) && allowedDir == "" {
+		if strings.Contains(path, "..") {
+			return "", fmt.Errorf("path contains directory traversal sequences")
+		}
+		return cleanPath, nil
+	}
+
+	if allowedDir == "" {
+		if strings.HasPrefix(cleanPath, "..") {
+			return "", fmt.Errorf("path contains directory traversal sequences")
+		}
+		return cleanPath, nil
+	}
+
+	cleanAllowedDir := filepath.Clean(allowedDir)
+	absAllowedDir, err := filepath.Abs(cleanAllowedDir)
+	if err != nil {
+		return "", fmt.Errorf("invalid allowed directory: %w", err)
+	}
+
+	var targetPath string
+	if filepath.IsAbs(cleanPath) {
+		targetPath = cleanPath
+	} else {
+		targetPath = filepath.Join(absAllowedDir, cleanPath)
+	}
+
+	absTargetPath, err := filepath.Abs(targetPath)
+	if err != nil {
+		return "", fmt.Errorf("invalid path: %w", err)
+	}
+
+	relPath, err := filepath.Rel(absAllowedDir, absTargetPath)
+	if err != nil {
+		return "", fmt.Errorf("cannot determine relative path: %w", err)
+	}
+
+	if strings.HasPrefix(relPath, "..") {
+		return "", fmt.Errorf("path outside allowed directory: %s", path)
+	}
+
+	return absTargetPath, nil
 }

@@ -40,7 +40,7 @@ func render_run_tools_with_javascript(toolCall tools.ToolCall) string {
 	return args.Script
 }
 
-func render_edit_file(toolCall tools.ToolCall) (string, string) {
+func render_edit_file(toolCall tools.ToolCall, width int) (string, string) {
 	var args struct {
 		Path  string `json:"path"`
 		Edits []struct {
@@ -65,7 +65,7 @@ func render_edit_file(toolCall tools.ToolCall) (string, string) {
 			}
 
 			diff := computeDiff(edit.OldText, edit.NewText)
-			output.WriteString(renderDiffWithSyntaxHighlight(diff, args.Path))
+			output.WriteString(renderDiffWithSyntaxHighlight(diff, args.Path, width))
 		}
 	}
 

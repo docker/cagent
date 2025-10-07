@@ -19,22 +19,22 @@ func NewTelemetryLogger(logger *slog.Logger) *telemetryLogger {
 
 // Debug logs a debug message with "[Telemetry]" prefix
 func (tl *telemetryLogger) Debug(msg string, args ...any) {
-	tl.logger.Debug("🔎 [Telemetry] "+msg, args...)
+	tl.logger.Debug("[Telemetry] "+msg, args...)
 }
 
 // Info logs an info message with "[Telemetry]" prefix
 func (tl *telemetryLogger) Info(msg string, args ...any) {
-	tl.logger.Info("💬 [Telemetry] "+msg, args...)
+	tl.logger.Info("[Telemetry] "+msg, args...)
 }
 
 // Warn logs a warning message with "[Telemetry]" prefix
 func (tl *telemetryLogger) Warn(msg string, args ...any) {
-	tl.logger.Warn("⚠️ [Telemetry] "+msg, args...)
+	tl.logger.Warn("[Telemetry] "+msg, args...)
 }
 
 // Error logs an error message with "[Telemetry]" prefix
 func (tl *telemetryLogger) Error(msg string, args ...any) {
-	tl.logger.Error("❌ [Telemetry] "+msg, args...)
+	tl.logger.Error("[Telemetry] "+msg, args...)
 }
 
 // Enabled returns whether the logger is enabled for the given level
@@ -42,7 +42,7 @@ func (tl *telemetryLogger) Enabled(ctx context.Context, level slog.Level) bool {
 	return tl.logger.Enabled(ctx, level)
 }
 
-func NewClient(logger *slog.Logger, enabled, debugMode bool, version string, customHttpClient ...*http.Client) (*Client, error) {
+func newClient(logger *slog.Logger, enabled, debugMode bool, version string, customHttpClient ...*http.Client) *Client {
 	telemetryLogger := NewTelemetryLogger(logger)
 
 	if !enabled {
@@ -50,7 +50,7 @@ func NewClient(logger *slog.Logger, enabled, debugMode bool, version string, cus
 			logger:  telemetryLogger,
 			enabled: false,
 			version: version,
-		}, nil
+		}
 	}
 
 	header := "x-api-key"
@@ -83,9 +83,7 @@ func NewClient(logger *slog.Logger, enabled, debugMode bool, version string, cus
 		version:    version,
 	}
 
-	if debugMode {
-		telemetryLogger.Debug("Enabled:", enabled)
-	}
+	telemetryLogger.Debug("Enabled:", enabled)
 
-	return client, nil
+	return client
 }

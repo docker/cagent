@@ -10,6 +10,8 @@ agents:
     toolsets:
       - type: mcp
         ref: docker:github-official
+        instruction: |
+          Use these tools to help users with their GitHub-related tasks effectively.
 
 models:
   claude:

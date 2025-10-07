@@ -79,8 +79,8 @@ func chromaToLipgloss(tokenType chroma.TokenType, style *chroma.Style) lipgloss.
 	return lipStyle
 }
 
-func renderDiffWithSyntaxHighlight(diff []*udiff.Hunk, filePath string) string {
-	const fullWidth = 120
+func renderDiffWithSyntaxHighlight(diff []*udiff.Hunk, filePath string, width int) string {
+	fullWidth := min(120, width)
 	const tabWidth = 4
 	var output strings.Builder
 
@@ -103,6 +103,11 @@ func renderDiffWithSyntaxHighlight(diff []*udiff.Hunk, filePath string) string {
 
 			expandedContent := strings.ReplaceAll(line.Content, "\t", strings.Repeat(" ", tabWidth))
 			expandedContent = strings.TrimRight(expandedContent, "\n")
+
+			contentWidth := runewidth.StringWidth(expandedContent)
+			if contentWidth > fullWidth {
+				expandedContent = runewidth.Truncate(expandedContent, fullWidth-3, "...")
+			}
 
 			tokens := syntaxHighlight(expandedContent, filePath)
 

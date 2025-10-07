@@ -93,12 +93,7 @@ func TestNewClient(t *testing.T) {
 
 	// Test enabled client with mock HTTP client to capture HTTP calls
 	// Note: debug mode does NOT disable HTTP calls - it only adds extra logging
-	mockHTTP := NewMockHTTPClient()
-	_, err := NewClient(logger, true, true, "test-version", mockHTTP.Client)
-	require.NoError(t, err)
-	// Test disabled client
-	client, err := NewClient(logger, false, false, "test-version")
-	require.NoError(t, err)
+	client := newClient(logger, false, false, "test-version")
 
 	// This should not panic
 	commandEvent := &CommandEvent{
@@ -114,8 +109,7 @@ func TestNewClient(t *testing.T) {
 func TestSessionTracking(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	mockHTTP := NewMockHTTPClient()
-	client, err := NewClient(logger, true, true, "test-version", mockHTTP.Client)
-	require.NoError(t, err)
+	client := newClient(logger, true, true, "test-version", mockHTTP.Client)
 
 	// Set endpoint, apiKey, and header to verify HTTP calls are made correctly
 	client.endpoint = "https://test-session-tracking.com/api"
@@ -158,8 +152,7 @@ func TestSessionTracking(t *testing.T) {
 func TestCommandTracking(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	mockHTTP := NewMockHTTPClient()
-	client, err := NewClient(logger, true, true, "test-version", mockHTTP.Client)
-	require.NoError(t, err)
+	client := newClient(logger, true, true, "test-version", mockHTTP.Client)
 
 	// Set endpoint, apiKey, and header to verify HTTP calls are made correctly
 	client.endpoint = "https://test-command-tracking.com/api"
@@ -172,7 +165,7 @@ func TestCommandTracking(t *testing.T) {
 		Args:   []string{},
 		Flags:  []string{},
 	}
-	err = client.TrackCommand(t.Context(), cmdInfo, func(ctx context.Context) error {
+	err := client.TrackCommand(t.Context(), cmdInfo, func(ctx context.Context) error {
 		executed = true
 		time.Sleep(10 * time.Millisecond)
 		return nil
@@ -199,8 +192,7 @@ func TestCommandTracking(t *testing.T) {
 func TestCommandTrackingWithError(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	mockHTTP := NewMockHTTPClient()
-	client, err := NewClient(logger, true, true, "test-version", mockHTTP.Client)
-	require.NoError(t, err)
+	client := newClient(logger, true, true, "test-version", mockHTTP.Client)
 
 	// Set endpoint, apiKey, and header to verify HTTP calls are made correctly
 	client.endpoint = "https://test-command-error.com/api"
@@ -213,7 +205,7 @@ func TestCommandTrackingWithError(t *testing.T) {
 		Args:   []string{},
 		Flags:  []string{},
 	}
-	err = client.TrackCommand(t.Context(), cmdInfo, func(ctx context.Context) error {
+	err := client.TrackCommand(t.Context(), cmdInfo, func(ctx context.Context) error {
 		return testErr
 	})
 
@@ -232,8 +224,7 @@ func TestCommandTrackingWithError(t *testing.T) {
 func TestStructuredEvent(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	// Use debug mode to avoid HTTP calls in tests
-	client, err := NewClient(logger, true, true, "test-version")
-	require.NoError(t, err)
+	client := newClient(logger, true, true, "test-version")
 
 	event := CommandEvent{
 		Action:  "test-command",
@@ -336,8 +327,7 @@ func TestAllEventTypes(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	// Use mock HTTP client to avoid actual HTTP calls in tests
 	mockHTTP := NewMockHTTPClient()
-	client, err := NewClient(logger, true, true, "test-version", mockHTTP.Client)
-	require.NoError(t, err)
+	client := newClient(logger, true, true, "test-version", mockHTTP.Client)
 
 	// Set endpoint, apiKey, and header to verify HTTP calls are made correctly
 	client.endpoint = "https://test-telemetry-all-events.com/api"
@@ -576,8 +566,7 @@ func TestAllEventTypes(t *testing.T) {
 // TestTrackServerStart tests long-running server command tracking
 func TestTrackServerStart(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	client, err := NewClient(logger, true, true, "test-version")
-	require.NoError(t, err)
+	client := newClient(logger, true, true, "test-version")
 
 	executed := false
 	cmdInfo := CommandInfo{
@@ -585,7 +574,7 @@ func TestTrackServerStart(t *testing.T) {
 		Args:   []string{},
 		Flags:  []string{"--port", "8080"},
 	}
-	err = client.TrackServerStart(t.Context(), cmdInfo, func(ctx context.Context) error {
+	err := client.TrackServerStart(t.Context(), cmdInfo, func(ctx context.Context) error {
 		executed = true
 		// Simulate server running briefly
 		time.Sleep(10 * time.Millisecond)
@@ -694,8 +683,7 @@ func TestHTTPRequestVerification(t *testing.T) {
 	mockHTTP := NewMockHTTPClient()
 
 	// Create client with mock HTTP client, endpoint, and API key to trigger HTTP calls
-	client, err := NewClient(logger, true, true, "test-version", mockHTTP.Client)
-	require.NoError(t, err)
+	client := newClient(logger, true, true, "test-version", mockHTTP.Client)
 
 	// Set endpoint, API key, and header to ensure HTTP calls are made
 	client.endpoint = "https://test-telemetry.example.com/api/events"
@@ -772,8 +760,7 @@ func TestHTTPRequestVerification(t *testing.T) {
 	// Test that no HTTP calls are made when endpoint/apiKey are missing
 	t.Run("NoHTTPWhenMissingCredentials", func(t *testing.T) {
 		mockHTTP2 := NewMockHTTPClient()
-		client2, err := NewClient(logger, true, true, "test-version", mockHTTP2.Client)
-		require.NoError(t, err)
+		client2 := newClient(logger, true, true, "test-version", mockHTTP2.Client)
 
 		// Leave endpoint and API key empty
 		client2.endpoint = ""
@@ -793,8 +780,7 @@ func TestHTTPRequestVerification(t *testing.T) {
 	// Test that no HTTP calls are made when client is disabled
 	t.Run("NoHTTPWhenDisabled", func(t *testing.T) {
 		mockHTTP3 := NewMockHTTPClient()
-		client3, err := NewClient(logger, false, true, "test-version", mockHTTP3.Client)
-		require.NoError(t, err)
+		client3 := newClient(logger, false, true, "test-version", mockHTTP3.Client)
 
 		event := &CommandEvent{
 			Action:  "version",
@@ -826,46 +812,11 @@ func (s *SlowMockHTTPClient) RoundTrip(req *http.Request) (*http.Response, error
 	return s.MockHTTPClient.RoundTrip(req)
 }
 
-// TestEventBufferOverflowDropsEvents verifies that events are dropped when buffer is full
-func TestEventBufferOverflowDropsEvents(t *testing.T) {
-	// Create a slow HTTP mock to cause backpressure
-	slowMock := NewSlowMockHTTPClient(50 * time.Millisecond)
-
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	client, err := NewClient(logger, true, true, "test-version", slowMock.Client)
-	require.NoError(t, err)
-
-	client.endpoint = "https://test-overflow.com/api"
-	client.apiKey = "overflow-key"
-	client.header = "test-header"
-
-	// With synchronous processing, there's no buffer overflow to test
-	// Events are processed immediately, so we just verify they all get processed
-	numEvents := 10 // Send a reasonable number for synchronous processing
-
-	// Send events synchronously
-	for range numEvents {
-		client.Track(t.Context(), &CommandEvent{
-			Action:  "overflow-test",
-			Success: true,
-		})
-	}
-
-	// With synchronous processing, all events should be processed immediately
-	expectedRequests := numEvents
-	assert.Equal(t, expectedRequests, slowMock.GetRequestCount(), "Expected all requests with synchronous processing")
-
-	t.Logf("Synchronous processing handled %d events correctly", numEvents)
-
-	// Clean shutdown
-}
-
 // TestNon2xxHTTPResponseHandling ensures that 5xx responses are logged and handled gracefully
 func TestNon2xxHTTPResponseHandling(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	mockHTTP := NewMockHTTPClient()
-	client, err := NewClient(logger, true, true, "test-version", mockHTTP.Client)
-	require.NoError(t, err)
+	client := newClient(logger, true, true, "test-version", mockHTTP.Client)
 
 	client.endpoint = "https://test-error-response.com/api"
 	client.apiKey = "error-key"

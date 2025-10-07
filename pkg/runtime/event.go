@@ -5,7 +5,6 @@ import (
 )
 
 type Event interface {
-	isEvent()
 	GetAgentName() string
 }
 
@@ -23,18 +22,14 @@ type UserMessageEvent struct {
 	Message string `json:"message"`
 }
 
+func (e *UserMessageEvent) GetAgentName() string { return "" }
+
 func UserMessage(message string) Event {
 	return &UserMessageEvent{
 		Type:    "user_message",
 		Message: message,
 	}
 }
-
-func (e *UserMessageEvent) GetAgentName() string {
-	return ""
-}
-
-func (e *UserMessageEvent) isEvent() {}
 
 // PartialToolCallEvent is sent when a tool call is first received (partial/complete)
 type PartialToolCallEvent struct {
@@ -53,8 +48,6 @@ func PartialToolCall(toolCall tools.ToolCall, toolDefinition tools.Tool, agentNa
 	}
 }
 
-func (e *PartialToolCallEvent) isEvent() {}
-
 // ToolCallEvent is sent when a tool call is received
 type ToolCallEvent struct {
 	Type           string         `json:"type"`
@@ -71,8 +64,6 @@ func ToolCall(toolCall tools.ToolCall, toolDefinition tools.Tool, agentName stri
 	}
 }
 
-func (e *ToolCallEvent) isEvent() {}
-
 type ToolCallConfirmationEvent struct {
 	Type           string         `json:"type"`
 	ToolCall       tools.ToolCall `json:"tool_call"`
@@ -88,7 +79,6 @@ func ToolCallConfirmation(toolCall tools.ToolCall, toolDefinition tools.Tool, ag
 		AgentContext:   AgentContext{AgentName: agentName},
 	}
 }
-func (e *ToolCallConfirmationEvent) isEvent() {}
 
 type ToolCallResponseEvent struct {
 	Type     string         `json:"type"`
@@ -105,7 +95,6 @@ func ToolCallResponse(toolCall tools.ToolCall, response, agentName string) Event
 		AgentContext: AgentContext{AgentName: agentName},
 	}
 }
-func (e *ToolCallResponseEvent) isEvent() {}
 
 type StreamStartedEvent struct {
 	Type      string `json:"type"`
@@ -121,26 +110,19 @@ func StreamStarted(sessionID, agentName string) Event {
 	}
 }
 
-func (e *StreamStartedEvent) GetAgentName() string {
-	return e.AgentName
-}
-
-func (e *StreamStartedEvent) isEvent() {}
-
 type AgentChoiceEvent struct {
 	Type    string `json:"type"`
 	Content string `json:"content"`
 	AgentContext
 }
 
-func AgentChoice(agentName, content string) Event { //nolint:gocritic
+func AgentChoice(agentName, content string) Event {
 	return &AgentChoiceEvent{
 		Type:         "agent_choice",
 		Content:      content,
 		AgentContext: AgentContext{AgentName: agentName},
 	}
 }
-func (e *AgentChoiceEvent) isEvent() {}
 
 type AgentChoiceReasoningEvent struct {
 	Type    string `json:"type"`
@@ -148,14 +130,13 @@ type AgentChoiceReasoningEvent struct {
 	AgentContext
 }
 
-func AgentChoiceReasoning(agentName, content string) Event { //nolint:gocritic
+func AgentChoiceReasoning(agentName, content string) Event {
 	return &AgentChoiceReasoningEvent{
 		Type:         "agent_choice_reasoning",
 		Content:      content,
 		AgentContext: AgentContext{AgentName: agentName},
 	}
 }
-func (e *AgentChoiceReasoningEvent) isEvent() {}
 
 type ErrorEvent struct {
 	Type  string `json:"type"`
@@ -169,12 +150,13 @@ func Error(msg string) Event {
 		Error: msg,
 	}
 }
-func (e *ErrorEvent) isEvent() {}
 
 type ShellOutputEvent struct {
 	Type   string `json:"type"`
 	Output string `json:"error"`
 }
+
+func (e *ShellOutputEvent) GetAgentName() string { return "" }
 
 func ShellOutput(output string) Event {
 	return &ShellOutputEvent{
@@ -182,8 +164,6 @@ func ShellOutput(output string) Event {
 		Output: output,
 	}
 }
-func (e *ShellOutputEvent) isEvent()             {}
-func (e *ShellOutputEvent) GetAgentName() string { return "" }
 
 type TokenUsageEvent struct {
 	Type  string `json:"type"`
@@ -211,7 +191,6 @@ func TokenUsage(inputTokens, outputTokens, contextLength, contextLimit int, cost
 		},
 	}
 }
-func (e *TokenUsageEvent) isEvent() {}
 
 type SessionTitleEvent struct {
 	Type      string `json:"type"`
@@ -222,15 +201,12 @@ type SessionTitleEvent struct {
 
 func SessionTitle(sessionID, title, agentName string) Event {
 	return &SessionTitleEvent{
-		Type:      "session_title",
-		SessionID: sessionID,
-		Title:     title,
-		AgentContext: AgentContext{
-			AgentName: agentName,
-		},
+		Type:         "session_title",
+		SessionID:    sessionID,
+		Title:        title,
+		AgentContext: AgentContext{AgentName: agentName},
 	}
 }
-func (e *SessionTitleEvent) isEvent() {}
 
 type SessionSummaryEvent struct {
 	Type      string `json:"type"`
@@ -241,15 +217,12 @@ type SessionSummaryEvent struct {
 
 func SessionSummary(sessionID, summary, agentName string) Event {
 	return &SessionSummaryEvent{
-		Type:      "session_summary",
-		SessionID: sessionID,
-		Summary:   summary,
-		AgentContext: AgentContext{
-			AgentName: agentName,
-		},
+		Type:         "session_summary",
+		SessionID:    sessionID,
+		Summary:      summary,
+		AgentContext: AgentContext{AgentName: agentName},
 	}
 }
-func (e *SessionSummaryEvent) isEvent() {}
 
 type SessionCompactionEvent struct {
 	Type      string `json:"type"`
@@ -260,15 +233,12 @@ type SessionCompactionEvent struct {
 
 func SessionCompaction(sessionID, status, agentName string) Event {
 	return &SessionCompactionEvent{
-		Type:      "session_compaction",
-		SessionID: sessionID,
-		Status:    status,
-		AgentContext: AgentContext{
-			AgentName: agentName,
-		},
+		Type:         "session_compaction",
+		SessionID:    sessionID,
+		Status:       status,
+		AgentContext: AgentContext{AgentName: agentName},
 	}
 }
-func (e *SessionCompactionEvent) isEvent() {}
 
 type StreamStoppedEvent struct {
 	Type      string `json:"type"`
@@ -284,12 +254,6 @@ func StreamStopped(sessionID, agentName string) Event {
 	}
 }
 
-func (e *StreamStoppedEvent) GetAgentName() string {
-	return e.AgentName
-}
-
-func (e *StreamStoppedEvent) isEvent() {}
-
 type AuthorizationRequiredEvent struct {
 	Type         string `json:"type"`
 	ServerURL    string `json:"server_url"`
@@ -297,6 +261,8 @@ type AuthorizationRequiredEvent struct {
 	Confirmation string `json:"confirmation"` // only  "pending" | "confirmed" | "denied"
 	AgentContext
 }
+
+func (e *AuthorizationRequiredEvent) GetAgentName() string { return "" }
 
 func AuthorizationRequired(serverURL, serverType, confirmation, agentName string) Event {
 	return &AuthorizationRequiredEvent{
@@ -306,12 +272,6 @@ func AuthorizationRequired(serverURL, serverType, confirmation, agentName string
 		Confirmation: confirmation,
 		AgentContext: AgentContext{AgentName: agentName},
 	}
-}
-
-func (e *AuthorizationRequiredEvent) isEvent() {}
-
-func (e *AuthorizationRequiredEvent) GetAgentName() string {
-	return ""
 }
 
 type MaxIterationsReachedEvent struct {
@@ -325,10 +285,4 @@ func MaxIterationsReached(maxIterations int) Event {
 		Type:          "max_iterations_reached",
 		MaxIterations: maxIterations,
 	}
-}
-
-func (e *MaxIterationsReachedEvent) isEvent() {}
-
-func (e *MaxIterationsReachedEvent) GetAgentName() string {
-	return e.AgentName
 }

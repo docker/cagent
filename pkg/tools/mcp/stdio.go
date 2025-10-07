@@ -18,20 +18,6 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-// NewStdioClient creates a new MCP client that can start an stdio MCP server
-func NewStdioClient(command string, args, env []string) *Client {
-	slog.Debug("Creating stdio MCP client", "command", command, "args", args)
-
-	c := newStdioCmdClient(command, env, args)
-
-	slog.Debug("Created stdio MCP client successfully")
-	return &Client{
-		client:  c,
-		logType: "command",
-		logId:   command,
-	}
-}
-
 type stdioMCPClient struct {
 	command string
 	env     []string
@@ -68,7 +54,7 @@ func newStdioCmdClient(command string, env, args []string) *stdioMCPClient {
 	}
 }
 
-func (c *stdioMCPClient) Start(context.Context) error {
+func (c *stdioMCPClient) Start(ctx context.Context) error {
 	return nil
 }
 
@@ -173,26 +159,6 @@ func (c *stdioMCPClient) Initialize(ctx context.Context, request mcp.InitializeR
 	return &result, nil
 }
 
-func (c *stdioMCPClient) Close() error {
-	err := c.close()
-
-	c.initialized.Store(false)
-
-	c.responses.Range(func(key, value any) bool {
-		if ch, ok := value.(chan RPCResponse); ok {
-			msg := "client closed"
-			select {
-			case ch <- RPCResponse{Error: &msg}:
-			default:
-			}
-		}
-		c.responses.Delete(key)
-		return true
-	})
-
-	return err
-}
-
 func (c *stdioMCPClient) readResponses(stdout *bufio.Reader) error {
 	for {
 		buf, err := stdout.ReadBytes('\n')
@@ -272,30 +238,6 @@ func (c *stdioMCPClient) ListTools(ctx context.Context, request mcp.ListToolsReq
 	return &result, nil
 }
 
-func (c *stdioMCPClient) ListPrompts(ctx context.Context, request mcp.ListPromptsRequest) (*mcp.ListPromptsResult, error) {
-	var result mcp.ListPromptsResult
-	if err := c.request(ctx, "prompts/list", request, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
-func (c *stdioMCPClient) ListResources(ctx context.Context, request mcp.ListResourcesRequest) (*mcp.ListResourcesResult, error) {
-	var result mcp.ListResourcesResult
-	if err := c.request(ctx, "resources/list", request, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
-func (c *stdioMCPClient) ListResourceTemplates(ctx context.Context, request mcp.ListResourceTemplatesRequest) (*mcp.ListResourceTemplatesResult, error) {
-	var result mcp.ListResourceTemplatesResult
-	if err := c.request(ctx, "resources/templates/list", request, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
 func (c *stdioMCPClient) CallTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	response, err := c.sendRequest(ctx, "tools/call", request.Params)
 	if err != nil {
@@ -305,20 +247,22 @@ func (c *stdioMCPClient) CallTool(ctx context.Context, request mcp.CallToolReque
 	return mcp.ParseCallToolResult(response)
 }
 
-func (c *stdioMCPClient) GetPrompt(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-	response, err := c.sendRequest(ctx, "prompts/get", request.Params)
-	if err != nil {
-		return nil, err
-	}
+func (c *stdioMCPClient) Close() error {
+	err := c.close()
 
-	return mcp.ParseGetPromptResult(response)
-}
+	c.initialized.Store(false)
 
-func (c *stdioMCPClient) ReadResource(ctx context.Context, request mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-	response, err := c.sendRequest(ctx, "resources/read", request.Params)
-	if err != nil {
-		return nil, err
-	}
+	c.responses.Range(func(key, value any) bool {
+		if ch, ok := value.(chan RPCResponse); ok {
+			msg := "client closed"
+			select {
+			case ch <- RPCResponse{Error: &msg}:
+			default:
+			}
+		}
+		c.responses.Delete(key)
+		return true
+	})
 
-	return mcp.ParseReadResourceResult(response)
+	return err
 }

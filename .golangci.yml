@@ -25,10 +25,14 @@ linters:
     - unused
     - usestdlibvars
     - forbidigo
+    - iotamixing
   settings:
     forbidigo:
       forbid:
         - pattern: context\.Background()
+          msg: "do not use context.Background() in tests, use t.Context()"
+        - pattern: context\.TODO()
+          msg: "do not use context.TODO() in tests, use t.Context()"
     depguard:
       rules:
         internal:

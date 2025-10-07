@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/xeipuuv/gojsonschema"
+
+	"github.com/docker/cagent/pkg/filesystem"
 )
 
 func collectExamples(t *testing.T) []string {
@@ -36,7 +38,7 @@ func TestParseExamples(t *testing.T) {
 		t.Run(file, func(t *testing.T) {
 			t.Parallel()
 
-			cfg, err := loadConfig(file)
+			cfg, err := LoadConfig(file, filesystem.AllowAll)
 
 			require.NoError(t, err)
 			require.Equal(t, "2", cfg.Version, "Version should be 2 in %s", file)
