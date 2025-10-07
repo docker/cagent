@@ -214,17 +214,17 @@ func (s *Server) editAgentConfigYAML(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid YAML content: " + err.Error()})
 	}
 
-	// Write the YAML content to the file
-	if err := os.WriteFile(agentPath, []byte(yamlContent), 0o644); err != nil {
-		slog.Error("Failed to write agent YAML file", "path", agentPath, "error", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to write agent file"})
-	}
-
 	// Reload the agent to update the in-memory configuration
 	t, err := teamloader.Load(c.Request().Context(), agentPath, s.runConfig)
 	if err != nil {
 		slog.Error("Failed to reload agent after YAML edit", "path", agentPath, "error", err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to reload agent configuration"})
+	}
+
+	// Write the YAML content to the file
+	if err := os.WriteFile(agentPath, []byte(yamlContent), 0o644); err != nil {
+		slog.Error("Failed to write agent YAML file", "path", agentPath, "error", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to write agent file"})
 	}
 
 	// Update the teams map with the reloaded agent
