@@ -26,25 +26,44 @@ func TestServerTODO(t *testing.T) {
 	lnPath := startServer(t, ctx, agentsDir)
 
 	t.Run("list agents", func(t *testing.T) {
+		buf := httpGET(t, ctx, lnPath, "/api/agents")
+
 		var agents []any
-		httpGET(t, ctx, lnPath, "/api/agents", &agents)
+		unmarshal(t, buf, &agents)
+
 		assert.NotEmpty(t, agents)
 	})
 
 	t.Run("get agent (no extension)", func(t *testing.T) {
+		buf := httpGET(t, ctx, lnPath, "/api/agents/pirate")
+
 		var cfg latest.Config
-		httpGET(t, ctx, lnPath, "/api/agents/pirate", &cfg)
+		unmarshal(t, buf, &cfg)
+
 		assert.NotEmpty(t, cfg.Version)
 		require.NotEmpty(t, cfg.Agents)
 		assert.Contains(t, cfg.Agents["root"].Instruction, "pirate")
 	})
 
 	t.Run("get agent", func(t *testing.T) {
+		buf := httpGET(t, ctx, lnPath, "/api/agents/pirate.yaml")
+
 		var cfg latest.Config
-		httpGET(t, ctx, lnPath, "/api/agents/pirate.yaml", &cfg)
+		unmarshal(t, buf, &cfg)
+
 		assert.NotEmpty(t, cfg.Version)
 		require.NotEmpty(t, cfg.Agents)
 		assert.Contains(t, cfg.Agents["root"].Instruction, "pirate")
+	})
+
+	t.Run("get agent's yaml (no extension)", func(t *testing.T) {
+		content := httpGET(t, ctx, lnPath, "/api/agents/pirate/yaml")
+		assert.Contains(t, string(content), "pirate")
+	})
+
+	t.Run("get agent's yaml", func(t *testing.T) {
+		content := httpGET(t, ctx, lnPath, "/api/agents/pirate.yaml/yaml")
+		assert.Contains(t, string(content), "pirate")
 	})
 }
 
@@ -88,7 +107,7 @@ func startServer(t *testing.T, ctx context.Context, agentsDir string) string {
 	return socketPath
 }
 
-func httpGET(t *testing.T, ctx context.Context, socketPath, path string, v any) {
+func httpGET(t *testing.T, ctx context.Context, socketPath, path string) []byte {
 	t.Helper()
 
 	client := &http.Client{
@@ -111,7 +130,12 @@ func httpGET(t *testing.T, ctx context.Context, socketPath, path string, v any) 
 	buf, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 
-	err = json.Unmarshal(buf, &v)
+	return buf
+}
+
+func unmarshal(t *testing.T, buf []byte, v any) {
+	t.Helper()
+	err := json.Unmarshal(buf, &v)
 	require.NoError(t, err)
 }
 
