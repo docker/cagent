@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/docker/cagent/pkg/api"
 	"github.com/docker/cagent/pkg/config"
 	latest "github.com/docker/cagent/pkg/config/v2"
 	"github.com/docker/cagent/pkg/session"
@@ -64,6 +65,15 @@ func TestServerTODO(t *testing.T) {
 	t.Run("get agent's yaml", func(t *testing.T) {
 		content := httpGET(t, ctx, lnPath, "/api/agents/pirate.yaml/yaml")
 		assert.Contains(t, string(content), "pirate")
+	})
+
+	t.Run("list sessions", func(t *testing.T) {
+		buf := httpGET(t, ctx, lnPath, "/api/sessions")
+
+		var sessions []api.SessionsResponse
+		unmarshal(t, buf, &sessions)
+
+		assert.Empty(t, sessions)
 	})
 }
 
@@ -141,4 +151,8 @@ func unmarshal(t *testing.T, buf []byte, v any) {
 
 type mockStore struct {
 	session.Store
+}
+
+func (s mockStore) GetSessions(ctx context.Context) ([]*session.Session, error) {
+	return nil, nil
 }
