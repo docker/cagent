@@ -218,7 +218,7 @@ func (s *Server) editAgentConfigYAML(c echo.Context) error {
 	t, err := teamloader.Load(c.Request().Context(), agentPath, s.runConfig)
 	if err != nil {
 		slog.Error("Failed to reload agent after YAML edit", "path", agentPath, "error", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to reload agent configuration"})
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to reload agent configuration: " + err.Error()})
 	}
 
 	// Write the YAML content to the file
