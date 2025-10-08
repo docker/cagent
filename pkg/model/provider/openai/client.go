@@ -260,11 +260,23 @@ func (c *Client) CreateChatCompletionStream(
 					Parameters:  tool.Function.Parameters,
 				},
 			}
+
 			slog.Debug("Added tool to OpenAI request", "tool_name", tool.Function.Name)
 		}
 		if c.config.ParallelToolCalls != nil {
 			request.ParallelToolCalls = *c.config.ParallelToolCalls
 		}
+	}
+
+	// Apply thinking budget: set reasoning_effort parameter
+	if c.config.ThinkingBudget != nil {
+		effort, err := getOpenAIReasoningEffort(c.config)
+		if err != nil {
+			slog.Error("OpenAI request using thinking_budget failed", "error", err)
+			return nil, err
+		}
+		request.ReasoningEffort = effort
+		slog.Debug("OpenAI request using thinking_budget", "reasoning_effort", effort)
 	}
 
 	// Log the request in JSON format for debugging
@@ -322,6 +334,16 @@ func (c *Client) CreateChatCompletion(
 	if c.useGateway {
 		client = c.newGatewayClient(ctx)
 	}
+	// Apply thinking budget: set reasoning_effort parameter
+	if c.config.ThinkingBudget != nil {
+		effort, err := getOpenAIReasoningEffort(c.config)
+		if err != nil {
+			slog.Error("OpenAI request using thinking_budget failed", "error", err)
+			return "", err
+		}
+		request.ReasoningEffort = effort
+		slog.Debug("OpenAI request using thinking_budget", "reasoning_effort", effort)
+	}
 	response, err := client.CreateChatCompletion(ctx, request)
 	if err != nil {
 		// Fallback for future models: retry without max_tokens if server complains
@@ -357,6 +379,17 @@ func isResponsesOnlyModel(model string) bool {
 	return false
 }
 
+func isOpenAIReasoningModel(model string) bool {
+	m := strings.ToLower(model)
+	if strings.HasPrefix(m, "o1") || strings.HasPrefix(m, "o3") || strings.HasPrefix(m, "o4") {
+		return true
+	}
+	if strings.HasPrefix(m, "gpt-5") {
+		return true
+	}
+	return false
+}
+
 // isMaxTokensUnsupportedError returns true if the error indicates the server expects
 // max_completion_tokens instead of max_tokens (Responses API models)
 func isMaxTokensUnsupportedError(err error) bool {
@@ -370,4 +403,24 @@ func isMaxTokensUnsupportedError(err error) bool {
 
 func (c *Client) ID() string {
 	return c.config.Provider + "/" + c.config.Model
+}
+
+// getOpenAIReasoningEffort resolves the reasoning effort value from the
+// model configuration's ThinkingBudget. Returns the effort (minimal|low|medium|high) or an error
+func getOpenAIReasoningEffort(cfg *latest.ModelConfig) (effort string, err error) {
+	if cfg == nil || cfg.ThinkingBudget == nil {
+		return "", nil
+	}
+
+	if !isOpenAIReasoningModel(cfg.Model) {
+		slog.Warn("OpenAI reasoning effort is not supported for this model, ignoring thinking_budget", "model", cfg.Model)
+		return "", nil
+	}
+
+	effort = strings.TrimSpace(strings.ToLower(cfg.ThinkingBudget.Effort))
+	if effort == "minimal" || effort == "low" || effort == "medium" || effort == "high" {
+		return effort, nil
+	}
+
+	return "", fmt.Errorf("OpenAI requests only support 'minimal', 'low', 'medium', 'high' as values for thinking_budget effort, got effort: '%s', tokens: '%d'", effort, cfg.ThinkingBudget.Tokens)
 }

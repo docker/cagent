@@ -134,16 +134,17 @@ cagent run ./agent.yaml --command ls
 
 ### Model Properties
 
-| Property            | Type    | Description                                      | Required |
-|---------------------|---------|--------------------------------------------------|----------|
-| `provider`          | string  | Provider: `openai`, `anthropic`, `dmr`           | ✓        |
-| `model`             | string  | Model name (e.g., `gpt-4o`, `claude-sonnet-4-0`) | ✓        |
-| `temperature`       | float   | Randomness (0.0-1.0)                             | ✗        |
-| `max_tokens`        | integer | Response length limit                            | ✗        |
-| `top_p`             | float   | Nucleus sampling (0.0-1.0)                       | ✗        |
-| `frequency_penalty` | float   | Repetition penalty (0.0-2.0)                     | ✗        |
-| `presence_penalty`  | float   | Topic repetition penalty (0.0-2.0)               | ✗        |
-| `base_url`          | string  | Custom API endpoint                              | ✗        |
+| Property            | Type    | Description                                                           | Required |
+|---------------------|---------|-----------------------------------------------------------------------|----------|
+| `provider`          | string  | Provider: `openai`, `anthropic`, `dmr`                                | ✓        |
+| `model`             | string  | Model name (e.g., `gpt-4o`, `claude-sonnet-4-0`)                      | ✓        |
+| `temperature`       | float   | Randomness (0.0-1.0)                                                  | ✗        |
+| `max_tokens`        | integer | Response length limit                                                 | ✗        |
+| `top_p`             | float   | Nucleus sampling (0.0-1.0)                                            | ✗        |
+| `frequency_penalty` | float   | Repetition penalty (0.0-2.0)                                          | ✗        |
+| `presence_penalty`  | float   | Topic repetition penalty (0.0-2.0)                                    | ✗        |
+| `base_url`          | string  | Custom API endpoint                                                   | ✗        |
+| `thinking_budget`   | string  | Reasoning effort — OpenAI: minimal/low/medium/high; Anthropic: tokens | ✗        |
 
 #### Example
 
@@ -158,7 +159,36 @@ models:
     frequency_penalty: float # Repetition penalty (0.0-2.0)
     presence_penalty: float # Topic repetition penalty (0.0-2.0)
     parallel_tool_calls: boolean
+    thinking_budget: string # How much the model should think. Currently only string supported for OpenAI models
 ```
+
+### Reasoning Effort (thinking_budget)
+
+Determine how much the model should think by setting the `thinking_budget`
+
+- **OpenAI**: use effort levels — `minimal`, `low`, `medium`, `high`
+- **Anthropic, Google (Gemini), DMR, others**: coming soon
+
+Examples (OpenAI):
+
+```yaml
+models:
+  openai:
+    provider: openai
+    model: gpt-5-mini
+    thinking_budget: low
+
+agents:
+  root:
+    model: openai
+    instruction: you are a helpful assistant
+```
+
+Notes:
+
+- If an invalid OpenAI effort value is set, the request will fail with a clear error
+- For unsupported providers, `thinking_budget` has no effect
+- Debug logs include the applied effort (e.g., "OpenAI request using thinking_budget")
 
 #### Model Examples
 

@@ -43,6 +43,11 @@ type ModelConfig struct {
 	// ProviderOpts allows provider-specific options. Currently used for "dmr" provider only.
 	ProviderOpts map[string]any `json:"provider_opts,omitempty"`
 	TrackUsage   *bool          `json:"track_usage,omitempty"`
+	// ThinkingBudget controls reasoning effort/budget:
+	// - For OpenAI: accepts string levels "minimal", "low", "medium", "high"
+	// - For Anthropic: accepts integer token budget (1024-32000)
+	// - For other providers: may be ignored
+	ThinkingBudget *ThinkingBudget `json:"thinking_budget,omitempty"`
 }
 
 type Metadata struct {
@@ -133,4 +138,33 @@ type Remote struct {
 	URL           string            `json:"url"`
 	TransportType string            `json:"transport_type,omitempty"`
 	Headers       map[string]string `json:"headers,omitempty"`
+}
+
+// ThinkingBudget represents reasoning budget configuration.
+// It accepts either a string effort level or an integer token budget:
+// - String: "minimal", "low", "medium", "high" (for OpenAI)
+// - Integer: token count (for Anthropic, range 1024-32000)
+type ThinkingBudget struct {
+	// Effort stores string-based reasoning effort levels
+	Effort string `json:"effort,omitempty"`
+	// Tokens stores integer-based token budgets
+	Tokens int `json:"tokens,omitempty"`
+}
+
+func (t *ThinkingBudget) UnmarshalYAML(unmarshal func(any) error) error {
+	// Try integer tokens first
+	var n int
+	if err := unmarshal(&n); err == nil {
+		*t = ThinkingBudget{Tokens: n}
+		return nil
+	}
+
+	// Try string level
+	var s string
+	if err := unmarshal(&s); err == nil {
+		*t = ThinkingBudget{Effort: s}
+		return nil
+	}
+
+	return nil
 }

@@ -176,6 +176,17 @@
         "track_usage": {
           "type": "boolean",
           "description": "Whether to track usage"
+        },
+        "thinking_budget": {
+          "description": "Controls reasoning effort/budget. For OpenAI: string levels ('minimal', 'low', 'medium', 'high').",
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": ["minimal", "low", "medium", "high"],
+              "description": "Reasoning effort level (OpenAI)"
+            }
+          ],
+          "examples": ["minimal", "low", "medium", "high"]
         }
       },
       "additionalProperties": false
