@@ -20,83 +20,106 @@ import (
 	"github.com/docker/cagent/pkg/session"
 )
 
-func TestServerTODO(t *testing.T) {
+func TestServer_ListAgents(t *testing.T) {
+	// t.Parallel()
 	t.Setenv("OPENAI_API_KEY", "dummy")
+
 	ctx := t.Context()
+	lnPath := startServer(t, ctx, prepareAgentsDir(t, "pirate.yaml"))
 
-	agentsDir := prepareAgentsDir(t, "pirate.yaml")
-	lnPath := startServer(t, ctx, agentsDir)
+	buf := httpGET(t, ctx, lnPath, "/api/agents")
 
-	t.Run("list agents", func(t *testing.T) {
-		buf := httpGET(t, ctx, lnPath, "/api/agents")
+	var agents []api.Agent
+	unmarshal(t, buf, &agents)
 
-		var agents []api.Agent
-		unmarshal(t, buf, &agents)
+	assert.Len(t, agents, 1)
+	assert.Equal(t, "pirate.yaml", agents[0].Name)
+	assert.Equal(t, "Talk like a pirate", agents[0].Description)
+	assert.False(t, agents[0].Multi)
+}
 
-		assert.Len(t, agents, 1)
-		assert.Equal(t, "pirate.yaml", agents[0].Name)
-		assert.Equal(t, "Talk like a pirate", agents[0].Description)
-		assert.False(t, agents[0].Multi)
-	})
+func TestServer_GetAgent_NoExtension(t *testing.T) {
+	t.Parallel()
 
-	t.Run("get agent (no extension)", func(t *testing.T) {
-		buf := httpGET(t, ctx, lnPath, "/api/agents/pirate")
+	ctx := t.Context()
+	lnPath := startServer(t, ctx, prepareAgentsDir(t, "pirate.yaml"))
 
-		var cfg latest.Config
-		unmarshal(t, buf, &cfg)
+	buf := httpGET(t, ctx, lnPath, "/api/agents/pirate")
 
-		assert.NotEmpty(t, cfg.Version)
-		require.NotEmpty(t, cfg.Agents)
-		assert.Contains(t, cfg.Agents["root"].Instruction, "pirate")
-	})
+	var cfg latest.Config
+	unmarshal(t, buf, &cfg)
 
-	t.Run("get agent", func(t *testing.T) {
-		buf := httpGET(t, ctx, lnPath, "/api/agents/pirate.yaml")
+	assert.NotEmpty(t, cfg.Version)
+	require.NotEmpty(t, cfg.Agents)
+	assert.Contains(t, cfg.Agents["root"].Instruction, "pirate")
+}
 
-		var cfg latest.Config
-		unmarshal(t, buf, &cfg)
+func TestServer_GetAgent(t *testing.T) {
+	t.Parallel()
 
-		assert.NotEmpty(t, cfg.Version)
-		require.NotEmpty(t, cfg.Agents)
-		assert.Contains(t, cfg.Agents["root"].Instruction, "pirate")
-	})
+	ctx := t.Context()
+	lnPath := startServer(t, ctx, prepareAgentsDir(t, "pirate.yaml"))
 
-	t.Run("get/set agent's yaml (no extension)", func(t *testing.T) {
-		url := "/api/agents/pirate/yaml"
+	buf := httpGET(t, ctx, lnPath, "/api/agents/pirate.yaml")
 
-		origContent := httpGET(t, ctx, lnPath, url)
-		assert.Contains(t, string(origContent), "pirate")
+	var cfg latest.Config
+	unmarshal(t, buf, &cfg)
 
-		httpPUT(t, ctx, lnPath, url, `version: "2"`)
+	assert.NotEmpty(t, cfg.Version)
+	require.NotEmpty(t, cfg.Agents)
+	assert.Contains(t, cfg.Agents["root"].Instruction, "pirate")
+}
 
-		newContent := httpGET(t, ctx, lnPath, url)
-		assert.Equal(t, `version: "2"`, string(newContent))
+func TestServer_GetSetYaml_NoExtension(t *testing.T) {
+	// t.Parallel()
+	t.Setenv("OPENAI_API_KEY", "dummy")
 
-		httpPUT(t, ctx, lnPath, url, string(origContent))
-	})
+	ctx := t.Context()
+	lnPath := startServer(t, ctx, prepareAgentsDir(t, "pirate.yaml"))
 
-	t.Run("get/set agent's yaml", func(t *testing.T) {
-		url := "/api/agents/pirate.yaml/yaml"
+	url := "/api/agents/pirate/yaml"
+	origContent := httpGET(t, ctx, lnPath, url)
+	assert.Contains(t, string(origContent), "pirate")
 
-		origContent := httpGET(t, ctx, lnPath, url)
-		assert.Contains(t, string(origContent), "pirate")
+	httpPUT(t, ctx, lnPath, url, `version: "2"`)
 
-		httpPUT(t, ctx, lnPath, url, `version: "2"`)
+	newContent := httpGET(t, ctx, lnPath, url)
+	assert.Equal(t, `version: "2"`, string(newContent))
 
-		newContent := httpGET(t, ctx, lnPath, url)
-		assert.Equal(t, `version: "2"`, string(newContent))
+	httpPUT(t, ctx, lnPath, url, string(origContent))
+}
 
-		httpPUT(t, ctx, lnPath, url, string(origContent))
-	})
+func TestServer_GetSetYaml(t *testing.T) {
+	// t.Parallel()
+	t.Setenv("OPENAI_API_KEY", "dummy")
 
-	t.Run("list sessions", func(t *testing.T) {
-		buf := httpGET(t, ctx, lnPath, "/api/sessions")
+	ctx := t.Context()
+	lnPath := startServer(t, ctx, prepareAgentsDir(t, "pirate.yaml"))
 
-		var sessions []api.SessionsResponse
-		unmarshal(t, buf, &sessions)
+	url := "/api/agents/pirate.yaml/yaml"
+	origContent := httpGET(t, ctx, lnPath, url)
+	assert.Contains(t, string(origContent), "pirate")
 
-		assert.Empty(t, sessions)
-	})
+	httpPUT(t, ctx, lnPath, url, `version: "2"`)
+
+	newContent := httpGET(t, ctx, lnPath, url)
+	assert.Equal(t, `version: "2"`, string(newContent))
+
+	httpPUT(t, ctx, lnPath, url, string(origContent))
+}
+
+func TestServer_ListSessions(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	lnPath := startServer(t, ctx, prepareAgentsDir(t, "pirate.yaml"))
+
+	buf := httpGET(t, ctx, lnPath, "/api/sessions")
+
+	var sessions []api.SessionsResponse
+	unmarshal(t, buf, &sessions)
+
+	assert.Empty(t, sessions)
 }
 
 func prepareAgentsDir(t *testing.T, testFiles ...string) string {
@@ -126,7 +149,7 @@ func startServer(t *testing.T, ctx context.Context, agentsDir string) string {
 	srv, err := New(store, runConfig, nil, WithAgentsDir(agentsDir))
 	require.NoError(t, err)
 
-	socketPath := "unix://" + filepath.Join(t.TempDir(), "test.sock")
+	socketPath := "unix://" + filepath.Join(t.TempDir(), "sock")
 	ln, err := Listen(ctx, socketPath)
 	require.NoError(t, err)
 	go func() {

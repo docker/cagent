@@ -68,6 +68,11 @@ func New(sessionStore session.Store, runConfig config.RuntimeConfig, teams map[s
 	e := echo.New()
 	e.Use(middleware.CORS())
 	e.Use(middleware.Logger())
+
+	if teams == nil {
+		teams = make(map[string]*team.Team)
+	}
+
 	s := &Server{
 		e:              e,
 		runtimes:       make(map[string]runtime.Runtime),
