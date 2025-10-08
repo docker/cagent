@@ -18,6 +18,7 @@ import (
 	"github.com/docker/cagent/pkg/api"
 	"github.com/docker/cagent/pkg/config"
 	latest "github.com/docker/cagent/pkg/config/v2"
+	v2 "github.com/docker/cagent/pkg/config/v2"
 	"github.com/docker/cagent/pkg/session"
 )
 
@@ -113,6 +114,27 @@ func TestServer_GetSetYaml(t *testing.T) {
 	assert.Equal(t, []byte(`version: "2"`), httpGET(t, ctx, lnPath, url))
 }
 
+func TestServer_Edit_Noop(t *testing.T) {
+	// t.Parallel()
+	t.Setenv("OPENAI_API_KEY", "dummy")
+
+	ctx := t.Context()
+	lnPath := startServer(t, ctx, prepareAgentsDir(t, "pirate.yaml"))
+
+	edit := api.EditAgentConfigRequest{
+		Filename:    "pirate.yaml",
+		AgentConfig: v2.Config{},
+	}
+	httpPUT(t, ctx, lnPath, "/api/agents/config", edit)
+
+	buf := httpGET(t, ctx, lnPath, "/api/agents/pirate.yaml")
+	var cfg latest.Config
+	unmarshal(t, buf, &cfg)
+	assert.NotEmpty(t, cfg.Version)
+	require.NotEmpty(t, cfg.Agents)
+	assert.Contains(t, cfg.Agents["root"].Instruction, "pirate")
+}
+
 func TestServer_ListSessions(t *testing.T) {
 	t.Parallel()
 
@@ -169,19 +191,38 @@ func startServer(t *testing.T, ctx context.Context, agentsDir string) string {
 
 func httpGET(t *testing.T, ctx context.Context, socketPath, path string) []byte {
 	t.Helper()
-	return httpDo(t, ctx, http.MethodGet, socketPath, path, http.NoBody)
+	return httpDo(t, ctx, http.MethodGet, socketPath, path, nil)
 }
 
-func httpPUT(t *testing.T, ctx context.Context, socketPath, path string, payload []byte) {
+func httpPUT(t *testing.T, ctx context.Context, socketPath, path string, payload any) []byte {
 	t.Helper()
-	httpDo(t, ctx, http.MethodPut, socketPath, path, bytes.NewReader(payload))
+	return httpDo(t, ctx, http.MethodPut, socketPath, path, payload)
 }
 
-func httpDo(t *testing.T, ctx context.Context, method, socketPath, path string, payload io.Reader) []byte {
+func httpDo(t *testing.T, ctx context.Context, method, socketPath, path string, payload any) []byte {
 	t.Helper()
 
-	req, err := http.NewRequestWithContext(ctx, method, "http://_"+path, payload)
+	var body io.Reader
+	var contentType string
+	if payload == nil {
+		body = http.NoBody
+	} else if text, ok := payload.([]byte); ok {
+		body = bytes.NewReader(text)
+	} else if text, ok := payload.(string); ok {
+		body = strings.NewReader(text)
+	} else {
+		buf, err := json.Marshal(payload)
+		require.NoError(t, err)
+		body = bytes.NewReader(buf)
+		contentType = "application/json"
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, "http://_"+path, body)
 	require.NoError(t, err)
+
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
 
 	client := &http.Client{
 		Transport: &http.Transport{
@@ -193,12 +234,12 @@ func httpDo(t *testing.T, ctx context.Context, method, socketPath, path string, 
 	}
 	resp, err := client.Do(req)
 	require.NoError(t, err)
-	require.Less(t, resp.StatusCode, 400)
 	defer resp.Body.Close()
 
 	buf, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 
+	require.Less(t, resp.StatusCode, 400, string(buf))
 	return buf
 }
 
