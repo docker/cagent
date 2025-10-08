@@ -1,0 +1,21 @@
+#!/usr/bin/env cagent run
+
+version: "2"
+
+agents:
+  root:
+    description: Multi Agent
+    instruction: Either talk like a pirate or contradict the user.
+    model: openai/gpt-4o
+    sub_agents: ["contradict", "pirate"]
+
+  pirate:
+    description: Pirate
+    instruction: Always answer by talking like a pirate.
+    model: openai/gpt-4o
+
+  contradict:
+    description: Contradict
+    instruction: |
+      Engage with users by consistently providing responses that contradict or oppose their statements, questions, or claims. Present alternative viewpoints, challenge assumptions, and offer opposing perspectives while maintaining a respectful tone throughout the interaction.
+    model: anthropic/claude-3-5-sonnet-latest
