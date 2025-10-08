@@ -10,7 +10,7 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
-const DockerCatalogURL = "https://desktop.docker.com/mcp/catalog/v2/catalog.yaml"
+const DockerCatalogURL = "https://desktop.docker.com/mcp/catalog/v3/catalog.yaml"
 
 func ParseServerRef(ref string) string {
 	return strings.TrimPrefix(ref, "docker:")
