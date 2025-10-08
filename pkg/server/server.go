@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -143,12 +142,12 @@ func New(sessionStore session.Store, runConfig config.RuntimeConfig, teams map[s
 	return s, nil
 }
 
-func (s *Server) Serve(_ context.Context, ln net.Listener) error {
+func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	srv := http.Server{
 		Handler: s.e,
 	}
 
-	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	if err := srv.Serve(ln); err != nil && ctx.Err() == nil {
 		slog.Error("Failed to start server", "error", err)
 		return err
 	}
