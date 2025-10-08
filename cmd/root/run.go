@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 
 	"github.com/docker/cagent/pkg/app"
 	"github.com/docker/cagent/pkg/chat"
+	"github.com/docker/cagent/pkg/config"
 	"github.com/docker/cagent/pkg/content"
 	"github.com/docker/cagent/pkg/evaluation"
 	"github.com/docker/cagent/pkg/remote"
@@ -40,7 +42,10 @@ var (
 	useTUI         bool
 	remoteAddress  string
 	dryRun         bool
+	commandName    string
 )
+
+const commandListSentinel = "__LIST__"
 
 // NewRunCmd creates a new run command
 func NewRunCmd() *cobra.Command {
@@ -64,6 +69,11 @@ func NewRunCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&attachmentPath, "attach", "", "Attach an image file to the message")
 	cmd.PersistentFlags().BoolVar(&useTUI, "tui", true, "Run the agent with a Terminal User Interface (TUI)")
 	cmd.PersistentFlags().StringVar(&remoteAddress, "remote", "", "Use remote runtime with specified address (only supported with TUI)")
+	cmd.PersistentFlags().StringVarP(&commandName, "command", "c", "", "Run a named command from the agent's commands section")
+	if f := cmd.PersistentFlags().Lookup("command"); f != nil {
+		// Allow `-c` without value to list available commands
+		f.NoOptDefVal = commandListSentinel
+	}
 	addGatewayFlags(cmd)
 
 	return cmd
@@ -200,6 +210,52 @@ func doRunCommand(ctx context.Context, args []string, exec bool) error {
 		slog.Debug("Skipping local agent file loading for remote runtime", "filename", agentFilename)
 	}
 
+	// Resolve --command/-c into a first message if provided
+	var commandFirstMessage *string
+	if trimmed := strings.TrimSpace(commandName); trimmed != "" {
+		// Handle listing commands when -c is provided without a value
+		if trimmed == commandListSentinel {
+			// If the next positional arg looks like a value (not a flag), treat it as the command value.
+			if len(args) == 2 && !strings.HasPrefix(args[1], "-") {
+				trimmed = args[1]
+				// consume the positional so it won't be treated as a message later
+				args = args[:1]
+			} else {
+				cmds, err := getCommandsForAgent(agentFilename, remoteAddress != "", agents, agentName)
+				if err != nil {
+					return err
+				}
+				if len(cmds) == 0 {
+					return fmt.Errorf("No commands defined for agent '%s'.", agentName)
+				}
+				printAvailableCommands(agentName, cmds)
+				fmt.Println()
+				return nil
+			}
+		}
+
+		if len(args) == 2 {
+			return fmt.Errorf("cannot use --command (-c) together with a message argument")
+		}
+
+		cmds, err := getCommandsForAgent(agentFilename, remoteAddress != "", agents, agentName)
+		if err != nil {
+			return err
+		}
+		if len(cmds) == 0 {
+			return fmt.Errorf("agent '%s' has no commands", agentName)
+		}
+		if msg, ok := cmds[trimmed]; ok {
+			commandFirstMessage = &msg
+		} else {
+			var names []string
+			for k := range cmds {
+				names = append(names, k)
+			}
+			return fmt.Errorf("'%s' is an unknown command.\n\nAvailable: %s", trimmed, strings.Join(names, ", "))
+		}
+	}
+
 	// Validate remote flag usage
 	if remoteAddress != "" && (!useTUI || exec) {
 		return fmt.Errorf("--remote flag can only be used with TUI mode")
@@ -267,6 +323,10 @@ func doRunCommand(ctx context.Context, args []string, exec bool) error {
 
 	// For `cagent run --tui=false`
 	if !useTUI {
+		// Inject first message for non-TUI if --command was used
+		if commandFirstMessage != nil {
+			args = []string{args[0], *commandFirstMessage}
+		}
 		return runWithoutTUI(ctx, agentFilename, rt, sess, args)
 	}
 
@@ -284,6 +344,11 @@ func doRunCommand(ctx context.Context, args []string, exec bool) error {
 		} else {
 			firstMessage = &args[1]
 		}
+	}
+
+	// Override firstMessage if --command was provided (cannot be combined with a message arg)
+	if commandFirstMessage != nil {
+		firstMessage = commandFirstMessage
 	}
 
 	a := app.New("cagent", agentFilename, rt, agents, sess, firstMessage)
@@ -766,4 +831,51 @@ func fileToDataURL(filePath string) (string, error) {
 	dataURL := fmt.Sprintf("data:%s;base64,%s", mimeType, encoded)
 
 	return dataURL, nil
+}
+
+// getCommandsForAgent returns the commands map for the selected agent,
+// loading from the in-memory team for local runs or from the YAML file for remote runs.
+func getCommandsForAgent(agentFilename string, isRemote bool, agents *team.Team, agentName string) (map[string]string, error) {
+	if !isRemote {
+		if agents == nil {
+			return nil, fmt.Errorf("failed to load agent team")
+		}
+		ag := agents.Agent(agentName)
+		if ag == nil {
+			return nil, fmt.Errorf("agent not found: %s", agentName)
+		}
+		return ag.Commands(), nil
+	}
+
+	parentDir := filepath.Dir(agentFilename)
+	fileName := filepath.Base(agentFilename)
+	root, err := os.OpenRoot(parentDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open root: %w", err)
+	}
+	defer func() {
+		if err := root.Close(); err != nil {
+			slog.Error("Failed to close root", "error", err)
+		}
+	}()
+
+	cfg, err := config.LoadConfig(fileName, root)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load agent config: %w", err)
+	}
+
+	return map[string]string(cfg.Agents[agentName].Commands), nil
+}
+
+// printAvailableCommands pretty-prints the agent's commands sorted by name.
+func printAvailableCommands(agentName string, cmds map[string]string) {
+	fmt.Printf("Available commands for agent '%s':\n", agentName)
+	var names []string
+	for k := range cmds {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		fmt.Printf(" - %s: %s\n", n, cmds[n])
+	}
 }

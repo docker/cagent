@@ -41,6 +41,7 @@ $ cagent run config.yaml -a agent_name    # Run a specific agent
 $ cagent run config.yaml --debug          # Enable debug logging
 $ cagent run config.yaml --yolo           # Auto-accept all the tool calls
 $ cagent run config.yaml "First message"  # Start the conversation with the agent with a first message
+$ cagent run config.yaml -c df            # Run with a named command from YAML
 
 # One off without TUI
 $ cagent exec config.yaml                 # Run the agent once, with default instructions
@@ -76,17 +77,18 @@ During CLI sessions, you can use special commands:
 
 ### Agent Properties
 
-| Property               | Type    | Description                                                     | Required |
-|------------------------|---------|-----------------------------------------------------------------|----------|
-| `name`                 | string  | Agent identifier                                                | ✓        |
-| `model`                | string  | Model reference                                                 | ✓        |
-| `description`          | string  | Agent purpose                                                   | ✓        |
-| `instruction`          | string  | Detailed behavior instructions                                  | ✓        |
-| `sub_agents`           | array   | List of sub-agent names                                         | ✗        |
-| `toolsets`             | array   | Available tools                                                 | ✗        |
-| `add_date`             | boolean | Add current date to context                                     | ✗        |
-| `add_environment_info` | boolean | Add information about the environment (working dir, OS, git...) | ✗        |
-| `max_iterations`       | int     | Specifies how many times the agent can loop when using tools    | ✗        |
+| Property               | Type         | Description                                                     | Required |
+|------------------------|--------------|-----------------------------------------------------------------|----------|
+| `name`                 | string       | Agent identifier                                                | ✓        |
+| `model`                | string       | Model reference                                                 | ✓        |
+| `description`          | string       | Agent purpose                                                   | ✓        |
+| `instruction`          | string       | Detailed behavior instructions                                  | ✓        |
+| `sub_agents`           | array        | List of sub-agent names                                         | ✗        |
+| `toolsets`             | array        | Available tools                                                 | ✗        |
+| `add_date`             | boolean      | Add current date to context                                     | ✗        |
+| `add_environment_info` | boolean      | Add information about the environment (working dir, OS, git...) | ✗        |
+| `max_iterations`       | int          | Specifies how many times the agent can loop when using tools    | ✗        |
+| `commands`             | object/array | Named prompts for quick-start commands (used with `--command`)  | ✗        |
 
 #### Example
 
@@ -101,6 +103,33 @@ agents:
     add_date: boolean # Add current date to context (optional)
     add_environment_info: boolean # Add information about the environment (working dir, OS, git...) (optional)
     max_iterations: int # How many times this agent can loop when calling tools (optional, default = unlimited)
+    commands: # Either mapping or list of singleton maps
+      df: "check how much free space i have on my disk"
+      ls: "list the files in the current directory"
+```
+
+### Running with named commands
+
+- Use `--command` (or `-c`) to send a predefined prompt from the agent config as the first message.
+- Example YAML forms supported:
+
+```yaml
+commands:
+  df: "check how much free space i have on my disk"
+  ls: "list the files in the current directory"
+```
+
+```yaml
+commands:
+  - df: "check how much free space i have on my disk"
+  - ls: "list the files in the current directory"
+```
+
+Run:
+
+```bash
+cagent run ./agent.yaml -c df
+cagent run ./agent.yaml --command ls
 ```
 
 ### Model Properties

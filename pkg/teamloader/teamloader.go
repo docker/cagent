@@ -152,6 +152,7 @@ func Load(ctx context.Context, path string, runtimeConfig config.RuntimeConfig) 
 			agent.WithAddPromptFiles(agentConfig.AddPromptFiles),
 			agent.WithMaxIterations(agentConfig.MaxIterations),
 			agent.WithNumHistoryItems(agentConfig.NumHistoryItems),
+			agent.WithCommands(map[string]string(agentConfig.Commands)),
 		}
 		for _, model := range models {
 			opts = append(opts, agent.WithModel(model))

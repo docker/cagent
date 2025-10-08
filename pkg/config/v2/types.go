@@ -1,5 +1,9 @@
 package v2
 
+import (
+	"github.com/docker/cagent/pkg/config/types"
+)
+
 // Config represents the entire configuration file
 type Config struct {
 	Version  string                 `json:"version,omitempty"`
@@ -10,17 +14,18 @@ type Config struct {
 
 // AgentConfig represents a single agent configuration
 type AgentConfig struct {
-	Model              string    `json:"model,omitempty"`
-	Description        string    `json:"description,omitempty"`
-	Toolsets           []Toolset `json:"toolsets,omitempty"`
-	Instruction        string    `json:"instruction,omitempty"`
-	SubAgents          []string  `json:"sub_agents,omitempty"`
-	AddDate            bool      `json:"add_date,omitempty"`
-	AddEnvironmentInfo bool      `json:"add_environment_info,omitempty"`
-	CodeModeTools      bool      `json:"code_mode_tools,omitempty"`
-	MaxIterations      int       `json:"max_iterations,omitempty"`
-	NumHistoryItems    int       `json:"num_history_items,omitempty"`
-	AddPromptFiles     []string  `json:"add_prompt_files,omitempty" yaml:"add_prompt_files,omitempty"`
+	Model              string         `json:"model,omitempty"`
+	Description        string         `json:"description,omitempty"`
+	Toolsets           []Toolset      `json:"toolsets,omitempty"`
+	Instruction        string         `json:"instruction,omitempty"`
+	SubAgents          []string       `json:"sub_agents,omitempty"`
+	AddDate            bool           `json:"add_date,omitempty"`
+	AddEnvironmentInfo bool           `json:"add_environment_info,omitempty"`
+	CodeModeTools      bool           `json:"code_mode_tools,omitempty"`
+	MaxIterations      int            `json:"max_iterations,omitempty"`
+	NumHistoryItems    int            `json:"num_history_items,omitempty"`
+	AddPromptFiles     []string       `json:"add_prompt_files,omitempty" yaml:"add_prompt_files,omitempty"`
+	Commands           types.Commands `json:"commands,omitempty"`
 }
 
 // ModelConfig represents the configuration for a model
@@ -45,6 +50,21 @@ type Metadata struct {
 	License string `json:"license,omitempty"`
 	Readme  string `json:"readme,omitempty"`
 }
+
+// Commands represents a set of named prompts for quick-starting conversations.
+// It supports two YAML formats:
+//
+// commands:
+//
+//	df: "check disk space"
+//	ls: "list files"
+//
+// or
+//
+// commands:
+//   - df: "check disk space"
+//   - ls: "list files"
+// Commands YAML unmarshalling is implemented in pkg/config/types/commands.go
 
 // ScriptShellToolConfig represents a custom shell tool configuration
 type ScriptShellToolConfig struct {

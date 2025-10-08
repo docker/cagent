@@ -90,3 +90,9 @@ func WithNumHistoryItems(numHistoryItems int) Opt {
 		a.numHistoryItems = numHistoryItems
 	}
 }
+
+func WithCommands(commands map[string]string) Opt {
+	return func(a *Agent) {
+		a.commands = commands
+	}
+}

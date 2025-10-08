@@ -1039,6 +1039,32 @@ func (s *Server) runAgent(c echo.Context) error {
 	// TODO(dga): for now, we only receive one message and it's always a user message.
 	for _, msg := range messages {
 		sess.AddMessage(session.UserMessage(agentFilename, msg.Content))
+		// Optional: run using a named command (?command=name)
+		if cmd := strings.TrimSpace(c.QueryParam("command")); cmd != "" {
+			cmds := agent.Commands()
+			if len(cmds) == 0 {
+				return c.JSON(http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("agent '%s' has no commands", currentAgent)})
+			}
+			text, ok := cmds[cmd]
+			if !ok {
+				var names []string
+				for k := range cmds {
+					names = append(names, k)
+				}
+				sort.Strings(names)
+				return c.JSON(http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("unknown command '%s'. Available: %s", cmd, strings.Join(names, ", "))})
+			}
+			sess.AddMessage(session.UserMessage(agentFilename, text))
+		} else {
+			var messages []api.Message
+			if err := json.NewDecoder(c.Request().Body).Decode(&messages); err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+			}
+			// TODO(dga): for now, we only receive one message and it's always a user message.
+			for _, msg := range messages {
+				sess.AddMessage(session.UserMessage(agentFilename, msg.Content))
+			}
+		}
 	}
 
 	if err := s.sessionStore.UpdateSession(c.Request().Context(), sess); err != nil {

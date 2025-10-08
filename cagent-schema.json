@@ -8,8 +8,8 @@
     "version": {
       "type": "string",
       "description": "Configuration version",
-      "enum": ["2"],
-      "examples": ["2"]
+      "enum": ["1", "2", "v1", "v2"],
+      "examples": ["1", "2", "v1", "v2"]
     },
     "agents": {
       "type": "object",
@@ -93,6 +93,22 @@
           "items": {
             "type": "string"
           }
+        },
+        "commands": {
+          "description": "Named prompts for quick-start commands used with --command/-c",
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": { "type": "string" }
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": { "type": "string" }
+              }
+            }
+          ]
         }
       },
       "additionalProperties": false
