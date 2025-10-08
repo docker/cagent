@@ -30,7 +30,6 @@ func NewApiCmd() *cobra.Command {
 
 	cmd.PersistentFlags().StringVarP(&listenAddr, "listen", "l", ":8080", "Address to listen on")
 	cmd.PersistentFlags().StringVarP(&sessionDb, "session-db", "s", "session.db", "Path to the session database")
-	cmd.PersistentFlags().StringVar(&runConfig.RedirectURI, "redirect-uri", "", "Set the redirect URI for OAuth2 flows")
 	addGatewayFlags(cmd)
 	addRuntimeConfigFlags(cmd)
 
