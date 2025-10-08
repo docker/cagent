@@ -71,7 +71,7 @@ tasks:
 
   push-image:
     desc: Build and Push Docker image
-    cmd: docker buildx build --push -t docker/cagent {{.BUILD_ARGS}} .
+    cmd: docker buildx build --push --platform linux/amd64,linux/arm64 -t docker/cagent {{.BUILD_ARGS}} .
 
   push-agent:
     desc: Build dockerized agent
