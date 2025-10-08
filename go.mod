@@ -26,6 +26,7 @@ require (
 	github.com/sashabaranov/go-openai v1.41.2
 	github.com/spf13/cobra v1.10.1
 	github.com/stretchr/testify v1.11.1
+	github.com/temoto/robotstxt v1.1.2
 	github.com/xeipuuv/gojsonschema v1.2.0
 	go.opentelemetry.io/otel v1.38.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.38.0
@@ -94,7 +95,6 @@ require (
 	github.com/spf13/cast v1.9.2 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
-	github.com/temoto/robotstxt v1.1.2 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
