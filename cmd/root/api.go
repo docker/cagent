@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -78,6 +79,8 @@ func runHttp(cmd *cobra.Command, args []string) error {
 	}
 	if stat.IsDir() {
 		opts = append(opts, server.WithAgentsDir(agentsPath))
+	} else {
+		opts = append(opts, server.WithAgentsDir(filepath.Dir(agentsPath)))
 	}
 
 	teams, err := teamloader.LoadTeams(ctx, agentsPath, runConfig)
