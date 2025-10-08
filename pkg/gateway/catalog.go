@@ -2,42 +2,36 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
-	"github.com/goccy/go-yaml"
+	"github.com/docker/cagent/pkg/sync"
 )
 
 const DockerCatalogURL = "https://desktop.docker.com/mcp/catalog/v3/catalog.yaml"
 
-func ParseServerRef(ref string) string {
-	return strings.TrimPrefix(ref, "docker:")
-}
-
-func RequiredEnvVars(ctx context.Context, serverName, catalogURL string) ([]Secret, error) {
-	catalog, err := readCatalog(ctx, catalogURL)
+func RequiredEnvVars(ctx context.Context, serverName string) ([]Secret, error) {
+	catalog, err := readCatalogOnce()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to fetch MCP catalog: %w", err)
 	}
 
 	server, ok := catalog[serverName]
 	if !ok {
-		return nil, fmt.Errorf("MCP server %q not found in catalog %q", serverName, catalogURL)
+		return nil, fmt.Errorf("MCP server %q not found in MCP catalog", serverName)
 	}
 
 	return server.Secrets, nil
 }
 
-// TODO(dga): cache the catalog.
-func readCatalog(ctx context.Context, url string) (Catalog, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
-	if err != nil {
-		return nil, err
-	}
+// Read the MCP Catalog only once and cache the result.
+var readCatalogOnce = sync.OnceErr(func() (Catalog, error) {
+	// Use the JSON version because it's 3x time faster to parse than YAML.
+	url := strings.Replace(DockerCatalogURL, ".yaml", ".json", 1)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := http.Get(url)
 	if err != nil {
 		return nil, err
 	}
@@ -47,15 +41,10 @@ func readCatalog(ctx context.Context, url string) (Catalog, error) {
 		return nil, fmt.Errorf("failed to fetch URL: %s, status: %s", url, resp.Status)
 	}
 
-	buf, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
 	var topLevel topLevel
-	if err := yaml.Unmarshal(buf, &topLevel); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&topLevel); err != nil {
 		return nil, err
 	}
 
 	return topLevel.Catalog, nil
-}
+})

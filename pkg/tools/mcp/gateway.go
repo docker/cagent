@@ -35,10 +35,11 @@ func NewGatewayToolset(mcpServerName string, config any, toolFilter []string, en
 	slog.Debug("Creating MCP Gateway toolset", "name", mcpServerName, "toolFilter", toolFilter)
 
 	return &GatewayToolset{
-		mcpServerName:  mcpServerName,
-		config:         config,
-		toolFilter:     toolFilter,
-		envProvider:    envProvider,
+		mcpServerName: mcpServerName,
+		config:        config,
+		toolFilter:    toolFilter,
+		envProvider:   envProvider,
+
 		cleanUpConfig:  func() error { return nil },
 		cleanUpSecrets: func() error { return nil },
 	}
@@ -50,7 +51,7 @@ func (t *GatewayToolset) Instructions() string {
 
 func (t *GatewayToolset) configureOnce(ctx context.Context) error {
 	// Check which secrets (env vars) are required by the MCP server.
-	secrets, err := gateway.RequiredEnvVars(ctx, t.mcpServerName, gateway.DockerCatalogURL)
+	secrets, err := gateway.RequiredEnvVars(ctx, t.mcpServerName)
 	if err != nil {
 		return fmt.Errorf("reading which secrets the MCP server needs: %w", err)
 	}

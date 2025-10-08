@@ -79,7 +79,7 @@ func GatherEnvVarsForTools(ctx context.Context, cfg *latest.Config) ([]string, e
 	for _, ref := range gatherMCPServerReferences(cfg) {
 		mcpServerName := gateway.ParseServerRef(ref)
 
-		secrets, err := gateway.RequiredEnvVars(ctx, mcpServerName, gateway.DockerCatalogURL)
+		secrets, err := gateway.RequiredEnvVars(ctx, mcpServerName)
 		if err != nil {
 			return nil, fmt.Errorf("reading which secrets the MCP server needs: %w", err)
 		}
