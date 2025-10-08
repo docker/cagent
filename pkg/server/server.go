@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -795,6 +796,11 @@ func (s *Server) getAgents(c echo.Context) error {
 			Multi:       a.HasSubAgents(),
 		})
 	}
+
+	// Sort agents by name
+	sort.Slice(agents, func(i, j int) bool {
+		return agents[i].Name < agents[j].Name
+	})
 
 	return c.JSON(http.StatusOK, agents)
 }

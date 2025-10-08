@@ -23,19 +23,25 @@ import (
 func TestServer_ListAgents(t *testing.T) {
 	// t.Parallel()
 	t.Setenv("OPENAI_API_KEY", "dummy")
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
 
 	ctx := t.Context()
-	lnPath := startServer(t, ctx, prepareAgentsDir(t, "pirate.yaml"))
+	lnPath := startServer(t, ctx, prepareAgentsDir(t, "pirate.yaml", "contradict.yaml"))
 
 	buf := httpGET(t, ctx, lnPath, "/api/agents")
 
 	var agents []api.Agent
 	unmarshal(t, buf, &agents)
 
-	assert.Len(t, agents, 1)
-	assert.Equal(t, "pirate.yaml", agents[0].Name)
-	assert.Equal(t, "Talk like a pirate", agents[0].Description)
+	assert.Len(t, agents, 2)
+
+	assert.Equal(t, "contradict.yaml", agents[0].Name)
+	assert.Equal(t, "Contrarian viewpoint provider", agents[0].Description)
 	assert.False(t, agents[0].Multi)
+
+	assert.Equal(t, "pirate.yaml", agents[1].Name)
+	assert.Equal(t, "Talk like a pirate", agents[1].Description)
+	assert.False(t, agents[1].Multi)
 }
 
 func TestServer_GetAgent_NoExtension(t *testing.T) {
