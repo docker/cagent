@@ -9,17 +9,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/docker/cagent/pkg/config"
 	"github.com/docker/cagent/pkg/server"
 	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/teamloader"
 	"github.com/docker/cagent/pkg/telemetry"
-)
-
-var (
-	listenAddr string
-	sessionDb  string
-	runConfig  config.RuntimeConfig
 )
 
 // NewApiCmd creates a new api command
@@ -37,10 +30,9 @@ func NewApiCmd() *cobra.Command {
 
 	cmd.PersistentFlags().StringVarP(&listenAddr, "listen", "l", ":8080", "Address to listen on")
 	cmd.PersistentFlags().StringVarP(&sessionDb, "session-db", "s", "session.db", "Path to the session database")
-	cmd.PersistentFlags().StringSliceVar(&runConfig.EnvFiles, "env-from-file", nil, "Set environment variables from file")
-	cmd.PersistentFlags().BoolVar(&runConfig.GlobalCodeMode, "code-mode-tools", false, "Provide a single tool to call other tools via Javascript")
 	cmd.PersistentFlags().StringVar(&runConfig.RedirectURI, "redirect-uri", "", "Set the redirect URI for OAuth2 flows")
 	addGatewayFlags(cmd)
+	addRuntimeConfigFlags(cmd)
 
 	return cmd
 }
