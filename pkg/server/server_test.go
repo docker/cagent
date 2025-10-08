@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -87,12 +88,11 @@ func TestServer_GetSetYaml_NoExtension(t *testing.T) {
 	origContent := httpGET(t, ctx, lnPath, url)
 	assert.Contains(t, string(origContent), "pirate")
 
-	httpPUT(t, ctx, lnPath, url, `version: "2"`)
+	httpPUT(t, ctx, lnPath, url, origContent)
+	assert.Equal(t, origContent, httpGET(t, ctx, lnPath, url))
 
-	newContent := httpGET(t, ctx, lnPath, url)
-	assert.Equal(t, `version: "2"`, string(newContent))
-
-	httpPUT(t, ctx, lnPath, url, string(origContent))
+	httpPUT(t, ctx, lnPath, url, []byte(`version: "2"`))
+	assert.Equal(t, []byte(`version: "2"`), httpGET(t, ctx, lnPath, url))
 }
 
 func TestServer_GetSetYaml(t *testing.T) {
@@ -106,12 +106,11 @@ func TestServer_GetSetYaml(t *testing.T) {
 	origContent := httpGET(t, ctx, lnPath, url)
 	assert.Contains(t, string(origContent), "pirate")
 
-	httpPUT(t, ctx, lnPath, url, `version: "2"`)
+	httpPUT(t, ctx, lnPath, url, origContent)
+	assert.Equal(t, origContent, httpGET(t, ctx, lnPath, url))
 
-	newContent := httpGET(t, ctx, lnPath, url)
-	assert.Equal(t, `version: "2"`, string(newContent))
-
-	httpPUT(t, ctx, lnPath, url, string(origContent))
+	httpPUT(t, ctx, lnPath, url, []byte(`version: "2"`))
+	assert.Equal(t, []byte(`version: "2"`), httpGET(t, ctx, lnPath, url))
 }
 
 func TestServer_ListSessions(t *testing.T) {
@@ -173,9 +172,9 @@ func httpGET(t *testing.T, ctx context.Context, socketPath, path string) []byte 
 	return httpDo(t, ctx, http.MethodGet, socketPath, path, http.NoBody)
 }
 
-func httpPUT(t *testing.T, ctx context.Context, socketPath, path, payload string) {
+func httpPUT(t *testing.T, ctx context.Context, socketPath, path string, payload []byte) {
 	t.Helper()
-	httpDo(t, ctx, http.MethodPut, socketPath, path, strings.NewReader(payload))
+	httpDo(t, ctx, http.MethodPut, socketPath, path, bytes.NewReader(payload))
 }
 
 func httpDo(t *testing.T, ctx context.Context, method, socketPath, path string, payload io.Reader) []byte {
