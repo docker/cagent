@@ -24,7 +24,9 @@ VOLUME /data
 ENV TELEMETRY_ENABLED=true
 ENV CAGENT_HIDE_FEEDBACK_LINK=0
 ENV CAGENT_HIDE_TELEMETRY_BANNER=0
-CMD ["api", "--listen", "unix:///data/agent.sock", "--session-db", "/data/session.db", "/agent.yaml"]
-RUN cat <<EOF >/agent.yaml
+USER root
+RUN cat <<EOF >/agent.yaml && chmod 777 /agent.yaml
 {{ .AgentConfig }}
 EOF
+USER cagent
+CMD ["api", "--listen", "unix:///data/agent.sock", "--session-db", "/data/session.db", "/agent.yaml"]
