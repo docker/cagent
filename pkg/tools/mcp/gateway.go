@@ -46,7 +46,7 @@ func NewGatewayToolset(mcpServerName string, config any, toolFilter []string, en
 }
 
 func (t *GatewayToolset) Instructions() string {
-	return ""
+	return t.cmdToolset.Instructions()
 }
 
 func (t *GatewayToolset) configureOnce(ctx context.Context) error {
