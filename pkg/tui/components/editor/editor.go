@@ -6,6 +6,7 @@ import (
 	"github.com/charmbracelet/bubbles/v2/textarea"
 	tea "github.com/charmbracelet/bubbletea/v2"
 
+	"github.com/docker/cagent/pkg/attachment"
 	"github.com/docker/cagent/pkg/tui/core"
 	"github.com/docker/cagent/pkg/tui/core/layout"
 	"github.com/docker/cagent/pkg/tui/styles"
@@ -13,7 +14,8 @@ import (
 
 // SendMsg represents a message to send
 type SendMsg struct {
-	Content string
+	Content        string
+	AttachmentPath string
 }
 
 // Editor represents an input editor component
@@ -70,8 +72,13 @@ func (e *editor) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			value := e.textarea.Value()
 			if value != "" && !e.working {
+				// Parse for /attach commands in the message
+				messageText, attachPath := attachment.ParseAttachCommand(value)
 				e.textarea.Reset()
-				return e, core.CmdHandler(SendMsg{Content: value})
+				return e, core.CmdHandler(SendMsg{
+					Content:        messageText,
+					AttachmentPath: attachPath,
+				})
 			}
 			return e, nil
 		case "ctrl+c":

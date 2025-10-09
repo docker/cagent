@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea/v2"
 
+	"github.com/docker/cagent/pkg/attachment"
 	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/team"
@@ -50,8 +51,17 @@ func (a *App) Title() string {
 	return a.title
 }
 
+func (a *App) ConfigFilename() string {
+	return a.agentFilename
+}
+
 // Run one agent loop
 func (a *App) Run(ctx context.Context, cancel context.CancelFunc, message string) {
+	a.RunWithAttachment(ctx, cancel, message, "")
+}
+
+// RunWithAttachment runs one agent loop with optional attachment support
+func (a *App) RunWithAttachment(ctx context.Context, cancel context.CancelFunc, message, attachmentPath string) {
 	a.cancel = cancel
 	go func() {
 		// Special shell command
@@ -61,8 +71,9 @@ func (a *App) Run(ctx context.Context, cancel context.CancelFunc, message string
 			return
 		}
 
-		// User message
-		a.session.AddMessage(session.UserMessage(a.agentFilename, message))
+		// User message with optional attachment
+		userMessage := attachment.CreateUserMessageWithAttachment(a.agentFilename, message, attachmentPath)
+		a.session.AddMessage(userMessage)
 		for event := range a.runtime.RunStream(ctx, a.session) {
 			if ctx.Err() != nil {
 				return

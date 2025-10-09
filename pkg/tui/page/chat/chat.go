@@ -177,7 +177,7 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return p, cmd
 
 	case editor.SendMsg:
-		cmd := p.processMessage(msg.Content)
+		cmd := p.processMessage(msg.Content, msg.AttachmentPath)
 		return p, cmd
 
 	// Runtime events
@@ -415,7 +415,7 @@ func (p *chatPage) switchFocus() {
 }
 
 // processMessage processes a message with the runtime
-func (p *chatPage) processMessage(content string) tea.Cmd {
+func (p *chatPage) processMessage(content, attachmentPath string) tea.Cmd {
 	if p.msgCancel != nil {
 		p.msgCancel()
 	}
@@ -423,7 +423,8 @@ func (p *chatPage) processMessage(content string) tea.Cmd {
 	var ctx context.Context
 	ctx, p.msgCancel = context.WithCancel(context.Background())
 
-	p.app.Run(ctx, p.msgCancel, content)
+	// Run with attachment support
+	p.app.RunWithAttachment(ctx, p.msgCancel, content, attachmentPath)
 
 	return p.messages.ScrollToBottom()
 }
