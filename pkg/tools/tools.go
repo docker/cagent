@@ -42,13 +42,7 @@ type FunctionDefinition struct {
 	OutputSchema ToolOutputSchema   `json:"outputSchema"`
 }
 
-type ToolAnnotations struct {
-	Title           string `json:"title,omitempty"`
-	ReadOnlyHint    *bool  `json:"readOnlyHint,omitempty"`
-	DestructiveHint *bool  `json:"destructiveHint,omitempty"`
-	IdempotentHint  *bool  `json:"idempotentHint,omitempty"`
-	OpenWorldHint   *bool  `json:"openWorldHint,omitempty"`
-}
+type ToolAnnotations mcp.ToolAnnotations
 
 type ToolOutputSchema struct {
 	Ref        string         `json:"$ref,omitempty"`

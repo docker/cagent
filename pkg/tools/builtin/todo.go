@@ -152,7 +152,7 @@ func (t *TodoTool) Tools(context.Context) ([]tools.Tool, error) {
 				Description: "Create a new todo item with a description",
 				Annotations: tools.ToolAnnotations{
 					// This is technically not read-only but has practically no destructive side effects.
-					ReadOnlyHint: &[]bool{true}[0],
+					ReadOnlyHint: true,
 					Title:        "Create TODO",
 				},
 				Parameters: tools.FunctionParameters{
@@ -175,7 +175,7 @@ func (t *TodoTool) Tools(context.Context) ([]tools.Tool, error) {
 				Description: "Create a list of new todo items with descriptions",
 				Annotations: tools.ToolAnnotations{
 					// This is technically not read-only but has practically no destructive side effects.
-					ReadOnlyHint: &[]bool{true}[0],
+					ReadOnlyHint: true,
 					Title:        "Create TODOs",
 				},
 				Parameters: tools.FunctionParameters{
@@ -207,7 +207,7 @@ func (t *TodoTool) Tools(context.Context) ([]tools.Tool, error) {
 				Description: "Update the status of a todo item",
 				Annotations: tools.ToolAnnotations{
 					// This is technically not read-only but has practically no destructive side effects.
-					ReadOnlyHint: &[]bool{true}[0],
+					ReadOnlyHint: true,
 					Title:        "Update TODO",
 				},
 				Parameters: tools.FunctionParameters{
@@ -233,7 +233,7 @@ func (t *TodoTool) Tools(context.Context) ([]tools.Tool, error) {
 				Name:        "list_todos",
 				Description: "List all current todos with their status",
 				Annotations: tools.ToolAnnotations{
-					ReadOnlyHint: &[]bool{true}[0],
+					ReadOnlyHint: true,
 					Title:        "List TODOs",
 				},
 				OutputSchema: tools.ToOutputSchemaSchema(reflect.TypeFor[string]()),

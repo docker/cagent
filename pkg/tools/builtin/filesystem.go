@@ -113,7 +113,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 				Name:        "directory_tree",
 				Description: "Get a recursive tree view of files and directories as a JSON structure.",
 				Annotations: tools.ToolAnnotations{
-					ReadOnlyHint: &[]bool{true}[0],
+					ReadOnlyHint: true,
 					Title:        "Directory Tree",
 				},
 				Parameters: tools.FunctionParameters{
@@ -178,7 +178,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 				Name:        "get_file_info",
 				Description: "Retrieve detailed metadata about a file or directory.",
 				Annotations: tools.ToolAnnotations{
-					ReadOnlyHint: &[]bool{true}[0],
+					ReadOnlyHint: true,
 					Title:        "Get File Info",
 				},
 				Parameters: tools.FunctionParameters{
@@ -200,7 +200,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 				Name:        "list_allowed_directories",
 				Description: "Returns a list of directories that the server has permission to access. Don't call if you access only the current working directory. It's always allowed.",
 				Annotations: tools.ToolAnnotations{
-					ReadOnlyHint: &[]bool{true}[0],
+					ReadOnlyHint: true,
 					Title:        "List Allowed Directories",
 				},
 				OutputSchema: tools.ToOutputSchemaSchema(reflect.TypeFor[[]string]()),
@@ -241,7 +241,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 				Name:        "list_directory",
 				Description: "Get a detailed listing of all files and directories in a specified path.",
 				Annotations: tools.ToolAnnotations{
-					ReadOnlyHint: &[]bool{true}[0],
+					ReadOnlyHint: true,
 					Title:        "List Directory",
 				},
 				Parameters: tools.FunctionParameters{
@@ -263,7 +263,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 				Name:        "list_directory_with_sizes",
 				Description: "Get a detailed listing of all files and directories in a specified path, including sizes.",
 				Annotations: tools.ToolAnnotations{
-					ReadOnlyHint: &[]bool{true}[0],
+					ReadOnlyHint: true,
 					Title:        "List Directory With Sizes",
 				},
 				Parameters: tools.FunctionParameters{
@@ -310,7 +310,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 				Name:        "read_file",
 				Description: "Read the complete contents of a file from the file system.",
 				Annotations: tools.ToolAnnotations{
-					ReadOnlyHint: &[]bool{true}[0],
+					ReadOnlyHint: true,
 					Title:        "Read File",
 				},
 				Parameters: tools.FunctionParameters{
@@ -332,7 +332,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 				Name:        "read_multiple_files",
 				Description: "Read the contents of multiple files simultaneously.",
 				Annotations: tools.ToolAnnotations{
-					ReadOnlyHint: &[]bool{true}[0],
+					ReadOnlyHint: true,
 					Title:        "Read Multiple Files",
 				},
 				Parameters: tools.FunctionParameters{
@@ -362,7 +362,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 				Name:        "search_files",
 				Description: "Recursively search for files and directories matching a pattern. Prints the full paths of matching files and the total number of files found.",
 				Annotations: tools.ToolAnnotations{
-					ReadOnlyHint: &[]bool{true}[0],
+					ReadOnlyHint: true,
 					Title:        "Search Files",
 				},
 				Parameters: tools.FunctionParameters{
@@ -395,7 +395,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 				Name:        "search_files_content",
 				Description: "Searches for text or regex patterns in the content of files matching a GLOB pattern.",
 				Annotations: tools.ToolAnnotations{
-					ReadOnlyHint: &[]bool{true}[0],
+					ReadOnlyHint: true,
 					Title:        "Search Files Content",
 				},
 				Parameters: tools.FunctionParameters{

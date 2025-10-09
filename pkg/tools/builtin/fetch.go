@@ -313,7 +313,7 @@ func (t *FetchTool) Tools(context.Context) ([]tools.Tool, error) {
 				Name:        "fetch",
 				Description: "Fetch content from one or more HTTP/HTTPS URLs. Returns the response body and metadata.",
 				Annotations: tools.ToolAnnotations{
-					ReadOnlyHint: &[]bool{true}[0],
+					ReadOnlyHint: true,
 					Title:        "Fetch URLs",
 				},
 				Parameters: tools.FunctionParameters{

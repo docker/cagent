@@ -64,7 +64,7 @@ func (t *MemoryTool) Tools(context.Context) ([]tools.Tool, error) {
 				Name:        "get_memories",
 				Description: "Retrieve all stored memories",
 				Annotations: tools.ToolAnnotations{
-					ReadOnlyHint: &[]bool{true}[0],
+					ReadOnlyHint: true,
 					Title:        "Get Memories",
 				},
 				OutputSchema: tools.ToOutputSchemaSchema(reflect.TypeFor[[]database.UserMemory]()),
