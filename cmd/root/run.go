@@ -292,17 +292,20 @@ func doRunCommand(ctx context.Context, args []string, exec bool) error {
 		rt = remoteRt
 		slog.Debug("Using remote runtime", "address", remoteAddress, "agent", agentName)
 	} else {
-		// Create local runtime
+		// Create session first to get its ID for OAuth state encoding
+		sess = session.New(session.WithMaxIterations(agents.Agent(agentName).MaxIterations()))
+		sess.ToolsApproved = autoApprove
+
+		// Create local runtime with root session ID for OAuth state encoding
 		localRt, err := runtime.New(agents,
 			runtime.WithCurrentAgent(agentName),
 			runtime.WithTracer(tracer),
+			runtime.WithRootSessionID(sess.ID),
 		)
 		if err != nil {
 			return fmt.Errorf("failed to create runtime: %w", err)
 		}
 		rt = localRt
-		sess = session.New(session.WithMaxIterations(rt.CurrentAgent().MaxIterations()))
-		sess.ToolsApproved = autoApprove
 		slog.Debug("Using local runtime", "agent", agentName)
 	}
 
