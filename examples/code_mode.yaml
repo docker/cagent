@@ -1,0 +1,14 @@
+#!/usr/bin/env cagent run
+version: "2"
+
+agents:
+  root:
+    model: anthropic/claude-sonnet-4-5
+    description: Demonstrates the use of Code Mode with tools
+    instruction: Use your tool to help the user with their github requests.
+    code_mode_tools: true
+    commands:
+      demo: How many issues in docker/cagent have a number that is prime?
+    toolsets:
+      - type: mcp
+        ref: docker:github-official

@@ -62,6 +62,10 @@
           "type": "string",
           "description": "Instructions for the agent"
         },
+        "code_mode_tools": {
+          "type": "boolean",
+          "description": "Enable Code Mode for tools"
+        },
         "sub_agents": {
           "type": "array",
           "description": "List of sub-agents",
