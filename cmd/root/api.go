@@ -15,8 +15,8 @@ import (
 	"github.com/docker/cagent/pkg/telemetry"
 )
 
-// NewApiCmd creates a new api command
-func NewApiCmd() *cobra.Command {
+// NewAPICmd creates a new api command
+func NewAPICmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "api <agent-file>|<agents-dir>",
 		Short: "Start the API server",
@@ -24,19 +24,19 @@ func NewApiCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			telemetry.TrackCommand("api", args)
-			return runHttp(cmd, args)
+			return runHTTP(cmd, args)
 		},
 	}
 
 	cmd.PersistentFlags().StringVarP(&listenAddr, "listen", "l", ":8080", "Address to listen on")
-	cmd.PersistentFlags().StringVarP(&sessionDb, "session-db", "s", "session.db", "Path to the session database")
+	cmd.PersistentFlags().StringVarP(&sessionDB, "session-db", "s", "session.db", "Path to the session database")
 	addGatewayFlags(cmd)
 	addRuntimeConfigFlags(cmd)
 
 	return cmd
 }
 
-func runHttp(cmd *cobra.Command, args []string) error {
+func runHTTP(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	agentsPath := args[0]
 
@@ -57,7 +57,7 @@ func runHttp(cmd *cobra.Command, args []string) error {
 
 	slog.Debug("Starting server", "agents", agentsPath, "debug_mode", debugMode)
 
-	sessionStore, err := session.NewSQLiteSessionStore(sessionDb)
+	sessionStore, err := session.NewSQLiteSessionStore(sessionDB)
 	if err != nil {
 		return fmt.Errorf("failed to create session store: %w", err)
 	}

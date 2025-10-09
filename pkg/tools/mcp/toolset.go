@@ -30,7 +30,7 @@ type mcpClient interface {
 type Toolset struct {
 	mcpClient  mcpClient
 	logType    string
-	logId      string
+	logID      string
 	toolFilter []string
 
 	instructions string
@@ -46,7 +46,7 @@ func NewToolsetCommand(command string, args, env, toolFilter []string) *Toolset 
 	return &Toolset{
 		mcpClient:  newStdioCmdClient(command, env, args),
 		logType:    "command",
-		logId:      command,
+		logID:      command,
 		toolFilter: toolFilter,
 	}
 }
@@ -66,7 +66,7 @@ func NewRemoteToolset(url, transport string, headers map[string]string, toolFilt
 	return &Toolset{
 		mcpClient:  mcpClient,
 		logType:    "remote",
-		logId:      url,
+		logID:      url,
 		toolFilter: toolFilter,
 	}, nil
 }
@@ -76,7 +76,7 @@ func (ts *Toolset) Start(ctx context.Context) error {
 		return errors.New("toolset already started")
 	}
 
-	slog.Debug("Starting MCP toolset", "server", ts.logId)
+	slog.Debug("Starting MCP toolset", "server", ts.logID)
 
 	if err := ts.mcpClient.Start(ctx); err != nil {
 		// When the MCP client is remote, Start() can fail due to OAuth authorization errors.
@@ -84,14 +84,14 @@ func (ts *Toolset) Start(ctx context.Context) error {
 		if client.IsOAuthAuthorizationRequiredError(err) {
 			return &oauth.AuthorizationRequiredError{
 				Err:        err,
-				ServerURL:  ts.logId,
+				ServerURL:  ts.logID,
 				ServerType: ts.logType,
 			}
 		}
 		return fmt.Errorf("failed to start MCP client: %w", err)
 	}
 
-	slog.Debug("Initializing MCP client", ts.logType, ts.logId)
+	slog.Debug("Initializing MCP client", ts.logType, ts.logID)
 	initRequest := mcp.InitializeRequest{}
 	initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
 	initRequest.Params.ClientInfo = mcp.Implementation{
@@ -115,7 +115,7 @@ func (ts *Toolset) Start(ctx context.Context) error {
 			if client.IsOAuthAuthorizationRequiredError(err) {
 				return &oauth.AuthorizationRequiredError{
 					Err:        err,
-					ServerURL:  ts.logId,
+					ServerURL:  ts.logID,
 					ServerType: ts.logType,
 				}
 			}
@@ -127,7 +127,7 @@ func (ts *Toolset) Start(ctx context.Context) error {
 			return fmt.Errorf("failed to initialize MCP client after retries: %w", err)
 		}
 		backoff := time.Duration(200*(attempt+1)) * time.Millisecond
-		slog.Debug("MCP initialize failed to send initialized notification; retrying", "id", ts.logId, "attempt", attempt+1, "backoff_ms", backoff.Milliseconds())
+		slog.Debug("MCP initialize failed to send initialized notification; retrying", "id", ts.logID, "attempt", attempt+1, "backoff_ms", backoff.Milliseconds())
 		select {
 		case <-time.After(backoff):
 		case <-ctx.Done():
@@ -135,7 +135,7 @@ func (ts *Toolset) Start(ctx context.Context) error {
 		}
 	}
 
-	slog.Debug("Started MCP toolset successfully", "server", ts.logId)
+	slog.Debug("Started MCP toolset successfully", "server", ts.logID)
 	ts.instructions = result.Instructions
 	ts.started.Store(true)
 	return nil
@@ -246,14 +246,14 @@ func (ts *Toolset) callTool(ctx context.Context, toolCall tools.ToolCall) (*tool
 }
 
 func (ts *Toolset) Stop() error {
-	slog.Debug("Stopping MCP toolset", "server", ts.logId)
+	slog.Debug("Stopping MCP toolset", "server", ts.logID)
 
 	if err := ts.mcpClient.Close(); err != nil {
-		slog.Error("Failed to stop MCP toolset", "server", ts.logId, "error", err)
+		slog.Error("Failed to stop MCP toolset", "server", ts.logID, "error", err)
 		return err
 	}
 
-	slog.Debug("Stopped MCP toolset successfully", "server", ts.logId)
+	slog.Debug("Stopped MCP toolset successfully", "server", ts.logID)
 	return nil
 }
 

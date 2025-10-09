@@ -247,7 +247,7 @@ func (a *App) mergeEvents(events []tea.Msg) []tea.Msg {
 		case *runtime.PartialToolCallEvent:
 			// For PartialToolCallEvent, keep only the latest one per tool call ID
 			// Check if there's a newer one in the buffer
-			var latest *runtime.PartialToolCallEvent = ev
+			latest := ev
 			for j := i + 1; j < len(events); j++ {
 				if next, ok := events[j].(*runtime.PartialToolCallEvent); ok {
 					if next.ToolCall.ID == ev.ToolCall.ID {

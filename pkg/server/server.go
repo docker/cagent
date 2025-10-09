@@ -1017,7 +1017,7 @@ func (s *Server) runAgent(c echo.Context) error {
 
 	rt, exists := s.runtimes[sess.ID]
 	if !exists {
-		var opts []runtime.Opt = []runtime.Opt{
+		opts := []runtime.Opt{
 			runtime.WithCurrentAgent(currentAgent),
 			runtime.WithManagedOAuth(false),
 			runtime.WithRootSessionID(sess.ID),

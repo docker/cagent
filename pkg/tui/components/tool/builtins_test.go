@@ -8,7 +8,7 @@ import (
 	"github.com/docker/cagent/pkg/tools"
 )
 
-func TestRender_search_files(t *testing.T) {
+func TestRenderSearchFiles(t *testing.T) {
 	tests := []struct {
 		name     string
 		toolCall tools.ToolCall
@@ -199,7 +199,7 @@ func TestRender_search_files(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			result := render_search_files(tt.toolCall)
+			result := renderSearchFiles(tt.toolCall)
 
 			assert.Equal(t, tt.expected, result)
 		})

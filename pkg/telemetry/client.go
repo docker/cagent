@@ -42,7 +42,7 @@ func (tl *telemetryLogger) Enabled(ctx context.Context, level slog.Level) bool {
 	return tl.logger.Enabled(ctx, level)
 }
 
-func newClient(logger *slog.Logger, enabled, debugMode bool, version string, customHttpClient ...*http.Client) *Client {
+func newClient(logger *slog.Logger, enabled, debugMode bool, version string, customHTTPClient ...*http.Client) *Client {
 	telemetryLogger := NewTelemetryLogger(logger)
 
 	if !enabled {
@@ -65,8 +65,8 @@ func newClient(logger *slog.Logger, enabled, debugMode bool, version string, cus
 	}
 
 	var httpClient *http.Client
-	if len(customHttpClient) > 0 && customHttpClient[0] != nil {
-		httpClient = customHttpClient[0]
+	if len(customHTTPClient) > 0 && customHTTPClient[0] != nil {
+		httpClient = customHTTPClient[0]
 	} else {
 		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}

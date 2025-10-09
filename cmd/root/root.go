@@ -111,7 +111,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.AddCommand(NewExecCmd())
 	cmd.AddCommand(NewTuiCmd())
 	cmd.AddCommand(NewNewCmd())
-	cmd.AddCommand(NewApiCmd())
+	cmd.AddCommand(NewAPICmd())
 	cmd.AddCommand(NewEvalCmd())
 	cmd.AddCommand(NewPushCmd())
 	cmd.AddCommand(NewPullCmd())

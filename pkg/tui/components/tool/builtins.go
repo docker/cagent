@@ -11,7 +11,7 @@ import (
 	"github.com/docker/cagent/pkg/tools/builtin"
 )
 
-func render_search_files(toolCall tools.ToolCall) string {
+func renderSearchFiles(toolCall tools.ToolCall) string {
 	var args builtin.SearchFilesArgs
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
 		return ""
@@ -33,7 +33,7 @@ func render_search_files(toolCall tools.ToolCall) string {
 	return output
 }
 
-func render_run_tools_with_javascript(toolCall tools.ToolCall, renderer *glamour.TermRenderer) string {
+func renderRunToolsWithJavascript(toolCall tools.ToolCall, renderer *glamour.TermRenderer) string {
 	var args codemode.RunToolsWithJavascriptArgs
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
 		return ""
@@ -47,7 +47,7 @@ func render_run_tools_with_javascript(toolCall tools.ToolCall, renderer *glamour
 	return md
 }
 
-func render_edit_file(toolCall tools.ToolCall, width int) (string, string) {
+func renderEditFile(toolCall tools.ToolCall, width int) (string, string) {
 	var args struct {
 		Path  string `json:"path"`
 		Edits []struct {

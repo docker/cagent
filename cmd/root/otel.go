@@ -13,7 +13,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 )
 
-const APP_NAME = "cagent"
+const AppName = "cagent"
 
 // initOTelSDK initializes OpenTelemetry SDK with OTLP exporter
 func initOTelSDK(ctx context.Context) (shutdown func(context.Context) error, err error) {
@@ -21,7 +21,7 @@ func initOTelSDK(ctx context.Context) (shutdown func(context.Context) error, err
 		resource.Default(),
 		resource.NewWithAttributes(
 			semconv.SchemaURL,
-			semconv.ServiceName(APP_NAME),
+			semconv.ServiceName(AppName),
 			semconv.ServiceVersion("dev"), // TODO: use actual version
 		),
 	)

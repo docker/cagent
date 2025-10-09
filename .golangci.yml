@@ -73,21 +73,13 @@ linters:
           disabled: false
     staticcheck:
       checks:
-        - "-ST1019"
+        - all
   exclusions:
     generated: lax
     presets:
       - comments
-      - common-false-positives
-      - legacy
       - std-error-handling
     rules:
-      - path: _test\.go
-        linters:
-          - dupl
-          - errcheck
-          - gocyclo
-          - gosec   
       - path-except: _test\.go
         linters:
           - forbidigo

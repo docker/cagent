@@ -905,7 +905,7 @@ func (t *FilesystemTool) handleReadFile(_ context.Context, toolCall tools.ToolCa
 func (t *FilesystemTool) handleReadMultipleFiles(ctx context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
 	var args struct {
 		Paths []string `json:"paths"`
-		Json  bool     `json:"json"`
+		JSON  bool     `json:"json"`
 	}
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
 		return nil, fmt.Errorf("failed to parse arguments: %w", err)
@@ -946,7 +946,7 @@ func (t *FilesystemTool) handleReadMultipleFiles(ctx context.Context, toolCall t
 		})
 	}
 
-	if args.Json {
+	if args.JSON {
 		jsonResult, err := json.MarshalIndent(contents, "", "  ")
 		if err != nil {
 			return &tools.ToolCallResult{Output: fmt.Sprintf("Error formatting JSON: %s", err)}, nil

@@ -652,7 +652,7 @@ func (r *runtime) processToolCalls(ctx context.Context, sess *session.Session, c
 			}
 			slog.Debug("Using agent tool handler", "tool", toolCall.Function.Name)
 
-			if sess.ToolsApproved || (tool.Function.Annotations.ReadOnlyHint != nil && *tool.Function.Annotations.ReadOnlyHint == true) {
+			if sess.ToolsApproved || (tool.Function.Annotations.ReadOnlyHint != nil && *tool.Function.Annotations.ReadOnlyHint) {
 				slog.Debug("Tools approved, running tool", "tool", toolCall.Function.Name, "session_id", sess.ID)
 				r.runTool(callCtx, tool, toolCall, events, sess, a)
 			} else {

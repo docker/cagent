@@ -91,7 +91,7 @@ func fetchHubRepos(ctx context.Context, org string) ([]hubRepo, error) {
 
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			_ = resp.Body.Close()
-			return nil, fmt.Errorf("Docker Hub API request failed: %s", resp.Status)
+			return nil, fmt.Errorf("docker Hub API request failed: %s", resp.Status)
 		}
 
 		var page hubRepoList

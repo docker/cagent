@@ -7,16 +7,16 @@ Add a new `Alias` to `ProviderAliases` [`pkg/model/provider/provider.go`](https:
 ```go
 var ProviderAliases = map[string]Alias{
  "requesty": {
-  ApiType:     "openai",
+  APIType:     "openai",
   BaseURL:     "https://router.requesty.ai/v1",
   TokenEnvVar: "REQUESTY_API_KEY",
  },
  "azure": {
-  ApiType:     "openai",
+  APIType:     "openai",
   TokenEnvVar: "AZURE_API_KEY",
  },
  "YOUR_PROVIDER": {
-    ApiType: "openai"
+    APIType: "openai"
     TokenEnvVar: "YOUR_PROVIDER_API_KEY"
     BaseURL: "https://your-provider.ai/v1"
  }

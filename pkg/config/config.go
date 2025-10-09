@@ -11,7 +11,6 @@ import (
 	v0 "github.com/docker/cagent/pkg/config/v0"
 	v1 "github.com/docker/cagent/pkg/config/v1"
 	latest "github.com/docker/cagent/pkg/config/v2"
-	v2 "github.com/docker/cagent/pkg/config/v2"
 	"github.com/docker/cagent/pkg/filesystem"
 )
 
@@ -69,7 +68,7 @@ func parseCurrentVersion(dir string, data []byte, version any) (any, error) {
 		err := yaml.UnmarshalWithOptions(data, &cfg, options...)
 		return cfg, err
 	default:
-		var cfg v2.Config
+		var cfg latest.Config
 		err := yaml.UnmarshalWithOptions(data, &cfg, options...)
 		return cfg, err
 	}

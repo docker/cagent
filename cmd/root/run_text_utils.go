@@ -38,7 +38,7 @@ const (
 // text utility functions
 
 func printWelcomeMessage() {
-	fmt.Printf("\n%s\n%s\n\n", blue("------- Welcome to %s! -------", bold(APP_NAME)), white("(Ctrl+C to stop the agent or exit)"))
+	fmt.Printf("\n%s\n%s\n\n", blue("------- Welcome to %s! -------", bold(AppName)), white("(Ctrl+C to stop the agent or exit)"))
 }
 
 func printError(err error) {

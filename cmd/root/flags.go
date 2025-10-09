@@ -8,7 +8,7 @@ import (
 
 var (
 	listenAddr string
-	sessionDb  string
+	sessionDB  string
 	runConfig  config.RuntimeConfig
 )
 

@@ -80,7 +80,7 @@ func NewNewCmd() *cobra.Command {
 			} else {
 				reader := bufio.NewReader(os.Stdin)
 
-				fmt.Printf("%s\n", blue("------- Welcome to %s! -------", bold(APP_NAME)))
+				fmt.Printf("%s\n", blue("------- Welcome to %s! -------", bold(AppName)))
 				fmt.Printf("%s\n\n", white("         (Ctrl+C to exit)"))
 				fmt.Printf("%s\n\n", blue("What should your agent/agent team do? (describe its purpose)"))
 				fmt.Print(blue("> "))

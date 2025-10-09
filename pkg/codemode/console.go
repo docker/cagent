@@ -16,26 +16,26 @@ func console() map[string]any {
 	}
 }
 
-func console_debug(args ...any) {
+func console_debug(args ...any) { //nolint:staticcheck // match JavaScript's console method names.
 	fmt.Fprintln(os.Stdout, args...)
 }
 
-func console_error(args ...any) {
+func console_error(args ...any) { //nolint:staticcheck // match JavaScript's console method names.
 	fmt.Fprintln(os.Stdout, args...)
 }
 
-func console_info(args ...any) {
+func console_info(args ...any) { //nolint:staticcheck // match JavaScript's console method names.
 	fmt.Fprintln(os.Stdout, args...)
 }
 
-func console_log(args ...any) {
+func console_log(args ...any) { //nolint:staticcheck // match JavaScript's console method names.
 	fmt.Fprintln(os.Stdout, args...)
 }
 
-func console_trace(args ...any) {
+func console_trace(args ...any) { //nolint:staticcheck // match JavaScript's console method names.
 	fmt.Fprintln(os.Stdout, args...)
 }
 
-func console_warn(args ...any) {
+func console_warn(args ...any) { //nolint:staticcheck // match JavaScript's console method names.
 	fmt.Fprintln(os.Stdout, args...)
 }

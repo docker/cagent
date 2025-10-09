@@ -50,8 +50,6 @@ func getUserUUID() string {
 			return existingUUID
 		}
 		// UUID file exists but is empty/invalid - will generate new one
-	} else {
-		// UUID file cannot be read (likely first run) - will generate new one
 	}
 
 	// Generate new UUID and save it

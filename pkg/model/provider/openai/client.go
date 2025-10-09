@@ -218,11 +218,7 @@ func (c *Client) CreateChatCompletionStream(
 		return nil, errors.New("at least one message is required")
 	}
 
-	trackUsage := true
-
-	if c.config.TrackUsage != nil && *c.config.TrackUsage == false {
-		trackUsage = false
-	}
+	trackUsage := c.config.TrackUsage == nil || *c.config.TrackUsage
 
 	request := openai.ChatCompletionRequest{
 		Model:            c.config.Model,

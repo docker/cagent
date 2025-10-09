@@ -252,7 +252,9 @@ func startServer(t *testing.T, ctx context.Context, agentsDir string) string {
 		_ = ln.Close()
 	}()
 
-	go srv.Serve(ctx, ln)
+	go func() {
+		_ = srv.Serve(ctx, ln)
+	}()
 
 	return socketPath
 }

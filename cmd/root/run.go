@@ -262,7 +262,7 @@ func doRunCommand(ctx context.Context, args []string, exec bool) error {
 		return fmt.Errorf("--remote flag can only be used with TUI mode")
 	}
 
-	tracer := otel.Tracer(APP_NAME)
+	tracer := otel.Tracer(AppName)
 
 	var sess *session.Session
 

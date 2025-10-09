@@ -103,11 +103,11 @@ func (mv *toolModel) View() string {
 	if msg.ToolCall.Function.Arguments != "" {
 		switch msg.ToolCall.Function.Name {
 		case "search_files":
-			content += " " + render_search_files(msg.ToolCall)
+			content += " " + renderSearchFiles(msg.ToolCall)
 		case "run_tools_with_javascript":
-			content += " " + render_run_tools_with_javascript(msg.ToolCall, mv.renderer)
+			content += " " + renderRunToolsWithJavascript(msg.ToolCall, mv.renderer)
 		case "edit_file":
-			diff, path := render_edit_file(msg.ToolCall, mv.width)
+			diff, path := renderEditFile(msg.ToolCall, mv.width)
 			if diff != "" {
 				pathHeader := styles.HighlightStyle.Bold(true).Render(path)
 				content += "\n" + pathHeader + "\n\n" + diff

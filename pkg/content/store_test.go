@@ -60,10 +60,8 @@ func TestStoreMultipleArtifacts(t *testing.T) {
 		"app3:latest",
 	}
 
-	var digests []string
-
 	for i, ref := range testRefs {
-		testData := []byte(fmt.Sprintf("Test artifact %d", i+1))
+		testData := fmt.Appendf(nil, "Test artifact %d", i+1)
 		layer := static.NewLayer(testData, types.OCIUncompressedLayer)
 		img := empty.Image
 		img, err = mutate.AppendLayers(img, layer)
@@ -72,7 +70,7 @@ func TestStoreMultipleArtifacts(t *testing.T) {
 		digest, err := store.StoreArtifact(img, ref)
 		require.NoError(t, err)
 
-		digests = append(digests, digest)
+		assert.NotEmpty(t, digest)
 	}
 
 	artifacts, err := store.ListArtifacts()
