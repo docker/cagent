@@ -33,7 +33,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.38.0
 	go.opentelemetry.io/otel/trace v1.38.0
 	golang.org/x/term v0.35.0
-	google.golang.org/genai v1.26.0
+	google.golang.org/genai v1.29.0
 	modernc.org/sqlite v1.39.0
 )
 
