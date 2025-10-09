@@ -76,7 +76,7 @@ func (t *ThinkTool) Tools(context.Context) ([]tools.Tool, error) {
 					},
 					Required: []string{"thought"},
 				},
-				OutputSchema: tools.ToOutputSchemaSchema(reflect.TypeFor[string]()),
+				OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
 			},
 			Handler: t.handler.CallTool,
 		},

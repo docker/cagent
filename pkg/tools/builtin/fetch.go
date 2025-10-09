@@ -341,7 +341,7 @@ func (t *FetchTool) Tools(context.Context) ([]tools.Tool, error) {
 					},
 					Required: []string{"urls", "format"},
 				},
-				OutputSchema: tools.ToOutputSchemaSchema(reflect.TypeFor[string]()),
+				OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
 			},
 			Handler: t.handler.CallTool,
 		},

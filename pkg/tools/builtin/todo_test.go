@@ -385,6 +385,6 @@ func TestTodoToolOutputSchema(t *testing.T) {
 	require.NotEmpty(t, allTools)
 
 	for _, tool := range allTools {
-		assert.NotEmpty(t, tool.Function.OutputSchema.Type)
+		assert.NotNil(t, tool.Function.OutputSchema)
 	}
 }

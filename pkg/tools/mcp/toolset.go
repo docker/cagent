@@ -151,7 +151,6 @@ func (ts *Toolset) Tools(ctx context.Context) ([]tools.Tool, error) {
 		}
 
 		inputProps := extractProps(t.InputSchema)
-		outputProps := extractProps(t.OutputSchema)
 
 		tool := tools.Tool{
 			Handler: ts.callTool,
@@ -163,13 +162,7 @@ func (ts *Toolset) Tools(ctx context.Context) ([]tools.Tool, error) {
 					Properties: inputProps.properties,
 					Required:   inputProps.required,
 				},
-				OutputSchema: tools.ToolOutputSchema{
-					// See missing field in MCP Spec: https://github.com/modelcontextprotocol/modelcontextprotocol/issues/834
-					// Items:      ...
-					Type:       outputProps.ttype,
-					Properties: outputProps.properties,
-					Required:   outputProps.required,
-				},
+				OutputSchema: t.OutputSchema,
 			},
 		}
 		if t.Annotations != nil {

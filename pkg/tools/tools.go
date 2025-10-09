@@ -39,18 +39,10 @@ type FunctionDefinition struct {
 	Strict       bool               `json:"strict,omitempty"`
 	Parameters   FunctionParameters `json:"parameters"`
 	Annotations  ToolAnnotations    `json:"annotations"`
-	OutputSchema ToolOutputSchema   `json:"outputSchema"`
+	OutputSchema any                `json:"outputSchema"`
 }
 
 type ToolAnnotations mcp.ToolAnnotations
-
-type ToolOutputSchema struct {
-	Ref        string         `json:"$ref,omitempty"`
-	Type       string         `json:"type"`
-	Items      map[string]any `json:"items,omitempty"`
-	Properties map[string]any `json:"properties,omitempty"`
-	Required   []string       `json:"required,omitempty"`
-}
 
 type FunctionParameters struct {
 	Type       string         `json:"type"`
