@@ -39,7 +39,7 @@ type editor struct {
 func New() Editor {
 	ta := textarea.New()
 	ta.SetStyles(styles.InputStyle)
-	ta.Placeholder = "Type your message here..."
+	ta.Placeholder = "Type your message here... (use /attach <path> to add images)"
 	ta.Prompt = "│ "
 	ta.CharLimit = -1
 	ta.SetWidth(50)
@@ -133,6 +133,10 @@ func (e *editor) Bindings() []key.Binding {
 		key.NewBinding(
 			key.WithKeys("enter"),
 			key.WithHelp("enter", "send"),
+		),
+		key.NewBinding(
+			key.WithKeys("/attach"),
+			key.WithHelp("/attach <path>", "attach image"),
 		),
 	}
 }
