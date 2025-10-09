@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/v2/spinner"
 	tea "github.com/charmbracelet/bubbletea/v2"
+	"github.com/charmbracelet/glamour/v2"
 
 	"github.com/docker/cagent/pkg/app"
 	"github.com/docker/cagent/pkg/tui/core/layout"
@@ -18,7 +19,8 @@ import (
 type toolModel struct {
 	message *types.Message
 
-	spinner spinner.Model
+	spinner  spinner.Model
+	renderer *glamour.TermRenderer
 
 	width  int
 	height int
@@ -34,7 +36,7 @@ func (mv *toolModel) SetSize(width, height int) tea.Cmd {
 }
 
 // New creates a new tool view
-func New(msg *types.Message, a *app.App) layout.Model {
+func New(msg *types.Message, a *app.App, renderer *glamour.TermRenderer) layout.Model {
 	if msg.ToolCall.Function.Name == "transfer_task" {
 		return &transferTaskModel{
 			msg: msg,
@@ -42,11 +44,12 @@ func New(msg *types.Message, a *app.App) layout.Model {
 	}
 
 	return &toolModel{
-		message: msg,
-		width:   80,
-		height:  1,
-		spinner: spinner.New(spinner.WithSpinner(spinner.Points)),
-		app:     a,
+		message:  msg,
+		width:    80,
+		height:   1,
+		spinner:  spinner.New(spinner.WithSpinner(spinner.Points)),
+		renderer: renderer,
+		app:      a,
 	}
 }
 
@@ -102,7 +105,7 @@ func (mv *toolModel) View() string {
 		case "search_files":
 			content += " " + render_search_files(msg.ToolCall)
 		case "run_tools_with_javascript":
-			content += " " + render_run_tools_with_javascript(msg.ToolCall)
+			content += " " + render_run_tools_with_javascript(msg.ToolCall, mv.renderer)
 		case "edit_file":
 			diff, path := render_edit_file(msg.ToolCall, mv.width)
 			if diff != "" {

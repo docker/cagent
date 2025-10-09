@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/charmbracelet/glamour/v2"
+
 	"github.com/docker/cagent/pkg/codemode"
 	"github.com/docker/cagent/pkg/tools"
 	"github.com/docker/cagent/pkg/tools/builtin"
@@ -31,13 +33,18 @@ func render_search_files(toolCall tools.ToolCall) string {
 	return output
 }
 
-func render_run_tools_with_javascript(toolCall tools.ToolCall) string {
+func render_run_tools_with_javascript(toolCall tools.ToolCall, renderer *glamour.TermRenderer) string {
 	var args codemode.RunToolsWithJavascriptArgs
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
 		return ""
 	}
 
-	return args.Script
+	md, err := renderer.Render("```javascript\n" + args.Script + "\n```")
+	if err != nil {
+		return args.Script
+	}
+
+	return md
 }
 
 func render_edit_file(toolCall tools.ToolCall, width int) (string, string) {

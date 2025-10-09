@@ -626,7 +626,7 @@ func (m *model) PlainTextTranscript() string {
 }
 
 func (m *model) createToolCallView(msg *types.Message) layout.Model {
-	view := tool.New(msg, m.app)
+	view := tool.New(msg, m.app, m.renderer)
 	view.SetSize(m.width, 0)
 	return view
 }
