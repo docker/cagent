@@ -79,10 +79,10 @@ func TestFileToDataURL(t *testing.T) {
 	tmpFile.Close()
 
 	tests := []struct {
-		name        string
-		filePath    string
-		wantErr     bool
-		wantPrefix  string
+		name       string
+		filePath   string
+		wantErr    bool
+		wantPrefix string
 	}{
 		{
 			name:       "valid SVG file",

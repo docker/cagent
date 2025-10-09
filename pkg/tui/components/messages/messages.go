@@ -8,7 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/v2/key"
 	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/charmbracelet/glamour/v2"
-	"github.com/charmbracelet/glamour/v2/styles"
+	glamourstyles "github.com/charmbracelet/glamour/v2/styles"
 	"github.com/charmbracelet/lipgloss/v2"
 
 	"github.com/docker/cagent/pkg/app"
@@ -208,7 +208,7 @@ func (m *model) SetSize(width, height int) tea.Cmd {
 	}
 
 	// Build a custom style
-	customDarkStyle := *styles.DefaultStyles["dark"]
+	customDarkStyle := *glamourstyles.DefaultStyles["dark"]
 	customDarkStyle.Document.Margin = uintPtr(0)
 
 	// Initialize or update renderer

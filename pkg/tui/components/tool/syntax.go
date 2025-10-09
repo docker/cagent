@@ -5,7 +5,7 @@ import (
 
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/lexers"
-	"github.com/alecthomas/chroma/v2/styles"
+	chromastyles "github.com/alecthomas/chroma/v2/styles"
 	"github.com/aymanbagabas/go-udiff"
 	"github.com/charmbracelet/lipgloss/v2"
 	"github.com/mattn/go-runewidth"
@@ -19,9 +19,9 @@ func syntaxHighlight(code, filePath string) []chromaToken {
 	}
 	lexer = chroma.Coalesce(lexer)
 
-	style := styles.Get("monokai")
+	style := chromastyles.Get("monokai")
 	if style == nil {
-		style = styles.Fallback
+		style = chromastyles.Fallback
 	}
 
 	iterator, err := lexer.Tokenise(nil, code)
