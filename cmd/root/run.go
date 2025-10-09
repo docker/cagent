@@ -225,7 +225,7 @@ func doRunCommand(ctx context.Context, args []string, exec bool) error {
 					return err
 				}
 				if len(cmds) == 0 {
-					return fmt.Errorf("No commands defined for agent '%s'.", agentName)
+					return fmt.Errorf("no commands defined for agent '%s'", agentName)
 				}
 				printAvailableCommands(agentName, cmds)
 				fmt.Println()
