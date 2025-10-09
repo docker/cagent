@@ -10,6 +10,7 @@ import (
 
 	"github.com/docker/cagent/pkg/app"
 	"github.com/docker/cagent/pkg/runtime"
+	"github.com/docker/cagent/pkg/tui/components/editor"
 	"github.com/docker/cagent/pkg/tui/components/statusbar"
 	"github.com/docker/cagent/pkg/tui/core"
 	"github.com/docker/cagent/pkg/tui/dialog"
@@ -326,6 +327,22 @@ func (a *appModel) buildCommandCategories() []dialog.CommandCategory {
 					Category:    "Session",
 					Execute: func() tea.Cmd {
 						return a.chatPage.CopySessionToClipboard()
+					},
+				},
+			},
+		},
+		{
+			Name: "Input",
+			Commands: []dialog.Command{
+				{
+					ID:          "input.attach",
+					Label:       "Attach Image",
+					Description: "Insert /attach command to attach an image file",
+					Category:    "Input",
+					Execute: func() tea.Cmd {
+						return core.CmdHandler(editor.InsertMsg{
+							Text: "/attach ",
+						})
 					},
 				},
 			},

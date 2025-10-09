@@ -18,6 +18,11 @@ type SendMsg struct {
 	AttachmentPath string
 }
 
+// InsertMsg represents text to insert into the editor
+type InsertMsg struct {
+	Text string
+}
+
 // Editor represents an input editor component
 type Editor interface {
 	layout.Model
@@ -61,6 +66,10 @@ func (e *editor) Init() tea.Cmd {
 // Update handles messages and updates the component state
 func (e *editor) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case InsertMsg:
+		// Insert text at current cursor position
+		e.textarea.InsertString(msg.Text)
+		return e, nil
 	case tea.WindowSizeMsg:
 		e.textarea.SetWidth(msg.Width - 2)
 		return e, nil
@@ -133,10 +142,6 @@ func (e *editor) Bindings() []key.Binding {
 		key.NewBinding(
 			key.WithKeys("enter"),
 			key.WithHelp("enter", "send"),
-		),
-		key.NewBinding(
-			key.WithKeys("/attach"),
-			key.WithHelp("/attach <path>", "attach image"),
 		),
 	}
 }
