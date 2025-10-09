@@ -297,6 +297,10 @@
           "items": {
             "$ref": "#/definitions/PostEditConfig"
           }
+        },
+        "ignore_vcs": {
+          "type": "boolean",
+          "description": "Ignore VCS directories and gitignore patterns in filesystem tool"
         }
       },
       "additionalProperties": false,

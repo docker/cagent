@@ -328,6 +328,9 @@ func createTool(ctx context.Context, toolset latest.Toolset, a *latest.AgentConf
 			}
 			opts = append(opts, builtin.WithPostEditCommands(postEditConfigs))
 		}
+		if toolset.IgnoreVCS {
+			opts = append(opts, builtin.WithIgnoreVCS(true))
+		}
 
 		return builtin.NewFilesystemTool([]string{wd}, opts...), nil
 

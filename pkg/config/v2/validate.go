@@ -39,6 +39,9 @@ func (t *Toolset) validate() error {
 	if len(t.PostEdit) > 0 && t.Type != "filesystem" {
 		return errors.New("post_edit can only be used with type 'filesystem'")
 	}
+	if t.IgnoreVCS && t.Type != "filesystem" {
+		return errors.New("ignore_vcs can only be used with type 'filesystem'")
+	}
 	if len(t.Env) > 0 && (t.Type != "shell" && t.Type != "script" && t.Type != "mcp") {
 		return errors.New("env can only be used with type 'shell', 'script' or 'mcp'")
 	}

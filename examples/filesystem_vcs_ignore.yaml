@@ -1,0 +1,47 @@
+version: "2"
+
+agents:
+  root:
+    model: openai/gpt-4o
+    description: "Development assistant with VCS-aware filesystem tools"
+    instruction: |
+      You are a development assistant that helps with code analysis and file management.
+      Your filesystem tools are configured to ignore VCS directories (like .git) and 
+      files listed in .gitignore automatically. This means you won't see or search 
+      through git internals, build artifacts, or other ignored files.
+
+      When searching files or analyzing code, focus on the actual source code and
+      documentation rather than generated or temporary files.
+    toolsets:
+      - type: filesystem
+        ignore_vcs: true
+      - type: shell
+
+models:
+  gpt4:
+    provider: openai
+    model: gpt-4o
+    temperature: 0.3
+    max_tokens: 4000
+
+metadata:
+  author: "Docker cagent"
+  license: "Apache-2.0"
+  readme: |
+    # VCS-Aware Filesystem Configuration
+
+    This configuration demonstrates how to use the filesystem tool with VCS ignore
+    functionality enabled. When `ignore_vcs: true` is set, the filesystem tool will:
+
+    1. Automatically ignore common VCS directories (.git, .svn, .hg, etc.)
+    2. Parse .gitignore files and ignore patterns listed there
+    3. Provide cleaner search results by filtering out generated/temporary files
+
+    ## Usage
+
+    ```bash
+    cagent run examples/filesystem_vcs_ignore.yaml
+    ```
+
+    Try searching for files or content - you'll notice that VCS directories and
+    gitignored files are automatically excluded from the results.

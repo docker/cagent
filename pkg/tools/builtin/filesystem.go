@@ -30,6 +30,8 @@ type FilesystemTool struct {
 	allowedDirectories []string
 	allowedTools       []string
 	postEditCommands   []PostEditConfig
+	ignoreVCS          bool
+	vcsPatterns        []string
 }
 
 var _ tools.ToolSet = (*FilesystemTool)(nil)
@@ -48,17 +50,41 @@ func WithPostEditCommands(postEditCommands []PostEditConfig) FileSystemOpt {
 	}
 }
 
+func WithIgnoreVCS(ignoreVCS bool) FileSystemOpt {
+	return func(t *FilesystemTool) {
+		t.ignoreVCS = ignoreVCS
+	}
+}
+
 func NewFilesystemTool(allowedDirectories []string, opts ...FileSystemOpt) *FilesystemTool {
 	t := &FilesystemTool{
 		allowedDirectories: allowedDirectories,
 	}
+	
+	// Apply all options first
 	for _, opt := range opts {
 		opt(t)
 	}
+	
+	// Initialize VCS patterns after options are applied
+	if t.ignoreVCS && len(t.allowedDirectories) > 0 {
+		t.vcsPatterns = findGitignorePatterns(t.allowedDirectories[0])
+	}
+	
 	return t
 }
 
 func (t *FilesystemTool) Instructions() string {
+	vcsInfo := ""
+	if t.ignoreVCS {
+		vcsInfo = `
+
+### VCS Ignore Mode (Enabled)
+- VCS directories (.git, .svn, .hg, etc.) are automatically ignored
+- Files matching .gitignore patterns are excluded from search results
+- This provides cleaner results by filtering out generated/temporary files`
+	}
+
 	return `## Filesystem Tool Instructions
 
 This toolset provides comprehensive filesystem operations with built-in security restrictions.
@@ -82,7 +108,7 @@ This toolset provides comprehensive filesystem operations with built-in security
 ### Performance Tips
 - Use read_multiple_files instead of multiple read_file calls
 - Use directory_tree with max_depth to limit large traversals
-- Use appropriate exclude patterns in search operations`
+- Use appropriate exclude patterns in search operations` + vcsInfo
 }
 
 func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
@@ -1015,6 +1041,18 @@ func (t *FilesystemTool) handleSearchFiles(_ context.Context, toolCall tools.Too
 				return nil
 			}
 		}
+		
+		// Check VCS patterns if enabled
+		if t.ignoreVCS {
+			for _, vcsPattern := range t.vcsPatterns {
+				if matchExcludePattern(vcsPattern, relPath) {
+					if d.IsDir() {
+						return fs.SkipDir
+					}
+					return nil
+				}
+			}
+		}
 		if match(pattern, filepath.Base(path)) {
 			matches = append(matches, path)
 		}
@@ -1081,6 +1119,18 @@ func (t *FilesystemTool) handleSearchFilesContent(_ context.Context, toolCall to
 					return fs.SkipDir // Skip entire directory
 				}
 				return nil // Skip this file
+			}
+		}
+		
+		// Check VCS patterns if enabled
+		if t.ignoreVCS {
+			for _, vcsPattern := range t.vcsPatterns {
+				if matchExcludePattern(vcsPattern, relPath) {
+					if d.IsDir() {
+						return fs.SkipDir // Skip entire directory
+					}
+					return nil // Skip this file
+				}
 			}
 		}
 
