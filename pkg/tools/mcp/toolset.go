@@ -173,7 +173,7 @@ func (ts *Toolset) Tools(ctx context.Context) ([]tools.Tool, error) {
 			},
 		}
 		if t.Annotations != nil {
-			tool.Function.Annotations = tools.ToolAnnotation{
+			tool.Function.Annotations = tools.ToolAnnotations{
 				Title:           t.Annotations.Title,
 				ReadOnlyHint:    &t.Annotations.ReadOnlyHint,
 				DestructiveHint: t.Annotations.DestructiveHint,

@@ -58,7 +58,7 @@ func (c *tool) Tools(ctx context.Context) ([]tools.Tool, error) {
 		Function: &tools.FunctionDefinition{
 			Name:        "run_tools_with_javascript",
 			Description: description,
-			Annotations: tools.ToolAnnotation{
+			Annotations: tools.ToolAnnotations{
 				Title: "Run tools with Javascript",
 			},
 			Parameters: tools.FunctionParameters{

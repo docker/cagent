@@ -91,7 +91,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			Function: &tools.FunctionDefinition{
 				Name:        "create_directory",
 				Description: "Create a new directory or ensure a directory exists. Can create multiple nested directories in one operation.",
-				Annotations: tools.ToolAnnotation{
+				Annotations: tools.ToolAnnotations{
 					Title: "Create Directory",
 				},
 				Parameters: tools.FunctionParameters{
@@ -112,7 +112,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			Function: &tools.FunctionDefinition{
 				Name:        "directory_tree",
 				Description: "Get a recursive tree view of files and directories as a JSON structure.",
-				Annotations: tools.ToolAnnotation{
+				Annotations: tools.ToolAnnotations{
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "Directory Tree",
 				},
@@ -138,7 +138,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			Function: &tools.FunctionDefinition{
 				Name:        "edit_file",
 				Description: "Make line-based edits to a text file. Each edit replaces exact line sequences with new content.",
-				Annotations: tools.ToolAnnotation{
+				Annotations: tools.ToolAnnotations{
 					Title: "Edit File",
 				},
 				Parameters: tools.FunctionParameters{
@@ -177,7 +177,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			Function: &tools.FunctionDefinition{
 				Name:        "get_file_info",
 				Description: "Retrieve detailed metadata about a file or directory.",
-				Annotations: tools.ToolAnnotation{
+				Annotations: tools.ToolAnnotations{
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "Get File Info",
 				},
@@ -199,7 +199,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			Function: &tools.FunctionDefinition{
 				Name:        "list_allowed_directories",
 				Description: "Returns a list of directories that the server has permission to access. Don't call if you access only the current working directory. It's always allowed.",
-				Annotations: tools.ToolAnnotation{
+				Annotations: tools.ToolAnnotations{
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "List Allowed Directories",
 				},
@@ -211,7 +211,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			Function: &tools.FunctionDefinition{
 				Name:        "add_allowed_directory",
 				Description: "Request to add a new directory to the allowed directories list. This requires explicit user consent for security reasons.",
-				Annotations: tools.ToolAnnotation{
+				Annotations: tools.ToolAnnotations{
 					Title: "Add Allowed Directory",
 				},
 				Parameters: tools.FunctionParameters{
@@ -240,7 +240,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			Function: &tools.FunctionDefinition{
 				Name:        "list_directory",
 				Description: "Get a detailed listing of all files and directories in a specified path.",
-				Annotations: tools.ToolAnnotation{
+				Annotations: tools.ToolAnnotations{
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "List Directory",
 				},
@@ -262,7 +262,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			Function: &tools.FunctionDefinition{
 				Name:        "list_directory_with_sizes",
 				Description: "Get a detailed listing of all files and directories in a specified path, including sizes.",
-				Annotations: tools.ToolAnnotation{
+				Annotations: tools.ToolAnnotations{
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "List Directory With Sizes",
 				},
@@ -284,7 +284,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			Function: &tools.FunctionDefinition{
 				Name:        "move_file",
 				Description: "Move or rename files and directories.",
-				Annotations: tools.ToolAnnotation{
+				Annotations: tools.ToolAnnotations{
 					Title: "Move File",
 				},
 				Parameters: tools.FunctionParameters{
@@ -309,7 +309,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			Function: &tools.FunctionDefinition{
 				Name:        "read_file",
 				Description: "Read the complete contents of a file from the file system.",
-				Annotations: tools.ToolAnnotation{
+				Annotations: tools.ToolAnnotations{
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "Read File",
 				},
@@ -331,7 +331,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			Function: &tools.FunctionDefinition{
 				Name:        "read_multiple_files",
 				Description: "Read the contents of multiple files simultaneously.",
-				Annotations: tools.ToolAnnotation{
+				Annotations: tools.ToolAnnotations{
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "Read Multiple Files",
 				},
@@ -361,7 +361,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			Function: &tools.FunctionDefinition{
 				Name:        "search_files",
 				Description: "Recursively search for files and directories matching a pattern. Prints the full paths of matching files and the total number of files found.",
-				Annotations: tools.ToolAnnotation{
+				Annotations: tools.ToolAnnotations{
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "Search Files",
 				},
@@ -394,7 +394,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			Function: &tools.FunctionDefinition{
 				Name:        "search_files_content",
 				Description: "Searches for text or regex patterns in the content of files matching a GLOB pattern.",
-				Annotations: tools.ToolAnnotation{
+				Annotations: tools.ToolAnnotations{
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "Search Files Content",
 				},
@@ -431,7 +431,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			Function: &tools.FunctionDefinition{
 				Name:        "write_file",
 				Description: "Create a new file or completely overwrite an existing file with new content.",
-				Annotations: tools.ToolAnnotation{
+				Annotations: tools.ToolAnnotations{
 					Title: "Write File",
 				},
 				Parameters: tools.FunctionParameters{

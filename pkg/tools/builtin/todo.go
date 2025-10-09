@@ -150,7 +150,7 @@ func (t *TodoTool) Tools(context.Context) ([]tools.Tool, error) {
 			Function: &tools.FunctionDefinition{
 				Name:        "create_todo",
 				Description: "Create a new todo item with a description",
-				Annotations: tools.ToolAnnotation{
+				Annotations: tools.ToolAnnotations{
 					// This is technically not read-only but has practically no destructive side effects.
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "Create TODO",
@@ -173,7 +173,7 @@ func (t *TodoTool) Tools(context.Context) ([]tools.Tool, error) {
 			Function: &tools.FunctionDefinition{
 				Name:        "create_todos",
 				Description: "Create a list of new todo items with descriptions",
-				Annotations: tools.ToolAnnotation{
+				Annotations: tools.ToolAnnotations{
 					// This is technically not read-only but has practically no destructive side effects.
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "Create TODOs",
@@ -205,7 +205,7 @@ func (t *TodoTool) Tools(context.Context) ([]tools.Tool, error) {
 			Function: &tools.FunctionDefinition{
 				Name:        "update_todo",
 				Description: "Update the status of a todo item",
-				Annotations: tools.ToolAnnotation{
+				Annotations: tools.ToolAnnotations{
 					// This is technically not read-only but has practically no destructive side effects.
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "Update TODO",
@@ -232,7 +232,7 @@ func (t *TodoTool) Tools(context.Context) ([]tools.Tool, error) {
 			Function: &tools.FunctionDefinition{
 				Name:        "list_todos",
 				Description: "List all current todos with their status",
-				Annotations: tools.ToolAnnotation{
+				Annotations: tools.ToolAnnotations{
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "List TODOs",
 				},

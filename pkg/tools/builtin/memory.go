@@ -42,7 +42,7 @@ func (t *MemoryTool) Tools(context.Context) ([]tools.Tool, error) {
 			Function: &tools.FunctionDefinition{
 				Name:        "add_memory",
 				Description: "Add a new memory to the database",
-				Annotations: tools.ToolAnnotation{
+				Annotations: tools.ToolAnnotations{
 					Title: "Add Memory",
 				},
 				Parameters: tools.FunctionParameters{
@@ -63,7 +63,7 @@ func (t *MemoryTool) Tools(context.Context) ([]tools.Tool, error) {
 			Function: &tools.FunctionDefinition{
 				Name:        "get_memories",
 				Description: "Retrieve all stored memories",
-				Annotations: tools.ToolAnnotation{
+				Annotations: tools.ToolAnnotations{
 					ReadOnlyHint: &[]bool{true}[0],
 					Title:        "Get Memories",
 				},
@@ -75,7 +75,7 @@ func (t *MemoryTool) Tools(context.Context) ([]tools.Tool, error) {
 			Function: &tools.FunctionDefinition{
 				Name:        "delete_memory",
 				Description: "Delete a specific memory by ID",
-				Annotations: tools.ToolAnnotation{
+				Annotations: tools.ToolAnnotations{
 					Title: "Delete Memory",
 				},
 				Parameters: tools.FunctionParameters{
