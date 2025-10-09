@@ -1,3 +1,4 @@
+#!/usr/bin/env cagent run
 version: "2"
 
 agents:
