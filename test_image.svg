@@ -1,5 +1,0 @@
-<svg width="200" height="100" xmlns="http://www.w3.org/2000/svg">
-  <rect width="200" height="100" fill="lightblue"/>
-  <text x="10" y="50" font-family="Arial" font-size="16" fill="black">Test Image for TUI</text>
-  <rect x="5" y="5" width="190" height="90" stroke="blue" stroke-width="2" fill="none"/>
-</svg>
