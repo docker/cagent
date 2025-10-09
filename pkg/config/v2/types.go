@@ -143,7 +143,7 @@ type Remote struct {
 // ThinkingBudget represents reasoning budget configuration.
 // It accepts either a string effort level or an integer token budget:
 // - String: "minimal", "low", "medium", "high" (for OpenAI)
-// - Integer: token count (for Anthropic, range 1024-32000)
+// - Integer: token count (for Anthropic, range 1024-32768)
 type ThinkingBudget struct {
 	// Effort stores string-based reasoning effort levels
 	Effort string `json:"effort,omitempty"`

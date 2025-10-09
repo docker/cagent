@@ -91,6 +91,14 @@ type runtime struct {
 	elicitationEventsChannelMux sync.RWMutex           // Protects elicitationEventsChannel
 }
 
+type streamResult struct {
+	Calls             []tools.ToolCall
+	Content           string
+	ReasoningContent  string
+	ThinkingSignature string // Used with Anthropic's extended thinking feature
+	Stopped           bool
+}
+
 type Opt func(*runtime)
 
 func WithCurrentAgent(agentName string) Opt {
@@ -310,7 +318,7 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 			}
 
 			slog.Debug("Processing stream", "agent", a.Name())
-			calls, content, reasoningContent, stopped, err := r.handleStream(ctx, stream, a, agentTools, sess, m, events)
+			res, err := r.handleStream(ctx, stream, a, agentTools, sess, m, events)
 			if err != nil {
 				// Treat context cancellation as a graceful stop
 				if errors.Is(err, context.Canceled) {
@@ -328,22 +336,23 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 				return
 			}
 			streamSpan.SetAttributes(
-				attribute.Int("tool.calls", len(calls)),
-				attribute.Int("content.length", len(content)),
-				attribute.Bool("stopped", stopped),
+				attribute.Int("tool.calls", len(res.Calls)),
+				attribute.Int("content.length", len(res.Content)),
+				attribute.Bool("stopped", res.Stopped),
 			)
 			streamSpan.End()
-			slog.Debug("Stream processed", "agent", a.Name(), "tool_calls", len(calls), "content_length", len(content), "stopped", stopped)
+			slog.Debug("Stream processed", "agent", a.Name(), "tool_calls", len(res.Calls), "content_length", len(res.Content), "stopped", res.Stopped)
 
 			// Add assistant message to conversation history, but skip empty assistant messages
 			// Providers reject assistant messages that have neither content nor tool calls.
-			if strings.TrimSpace(content) != "" || len(calls) > 0 {
+			if strings.TrimSpace(res.Content) != "" || len(res.Calls) > 0 {
 				assistantMessage := chat.Message{
-					Role:             chat.MessageRoleAssistant,
-					Content:          content,
-					ReasoningContent: reasoningContent,
-					ToolCalls:        calls,
-					CreatedAt:        time.Now().Format(time.RFC3339),
+					Role:              chat.MessageRoleAssistant,
+					Content:           res.Content,
+					ReasoningContent:  res.ReasoningContent,
+					ThinkingSignature: res.ThinkingSignature,
+					ToolCalls:         res.Calls,
+					CreatedAt:         time.Now().Format(time.RFC3339),
 				}
 
 				sess.AddMessage(session.NewAgentMessage(a, &assistantMessage))
@@ -367,12 +376,12 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 				}
 			}
 
-			if stopped {
+			if res.Stopped {
 				slog.Debug("Conversation stopped", "agent", a.Name())
 				break
 			}
 
-			r.processToolCalls(ctx, sess, calls, agentTools, events)
+			r.processToolCalls(ctx, sess, res.Calls, agentTools, events)
 		}
 	}()
 
@@ -450,12 +459,12 @@ func (r *runtime) Run(ctx context.Context, sess *session.Session) ([]session.Mes
 	return sess.GetAllMessages(), nil
 }
 
-// handleStream handles the stream processing
-func (r *runtime) handleStream(ctx context.Context, stream chat.MessageStream, a *agent.Agent, agentTools []tools.Tool, sess *session.Session, m *modelsdev.Model, events chan Event) (calls []tools.ToolCall, content, reasoningContent string, stopped bool, err error) {
+func (r *runtime) handleStream(ctx context.Context, stream chat.MessageStream, a *agent.Agent, agentTools []tools.Tool, sess *session.Session, m *modelsdev.Model, events chan Event) (streamResult, error) {
 	defer stream.Close()
 
 	var fullContent strings.Builder
 	var fullReasoningContent strings.Builder
+	var thinkingSignature string
 	var toolCalls []tools.ToolCall
 	// Track which tool call indices we've already emitted partial events for
 	emittedPartialEvents := make(map[string]bool)
@@ -466,7 +475,7 @@ func (r *runtime) handleStream(ctx context.Context, stream chat.MessageStream, a
 			break
 		}
 		if err != nil {
-			return nil, "", "", true, fmt.Errorf("error receiving from stream: %w", err)
+			return streamResult{Stopped: true}, fmt.Errorf("error receiving from stream: %w", err)
 		}
 
 		if response.Usage != nil {
@@ -492,7 +501,13 @@ func (r *runtime) handleStream(ctx context.Context, stream chat.MessageStream, a
 		}
 		choice := response.Choices[0]
 		if choice.FinishReason == chat.FinishReasonStop || choice.FinishReason == chat.FinishReasonLength {
-			return toolCalls, fullContent.String(), fullReasoningContent.String(), true, nil
+			return streamResult{
+				Calls:             toolCalls,
+				Content:           fullContent.String(),
+				ReasoningContent:  fullReasoningContent.String(),
+				ThinkingSignature: thinkingSignature,
+				Stopped:           true,
+			}, nil
 		}
 
 		// Handle tool calls
@@ -561,6 +576,11 @@ func (r *runtime) handleStream(ctx context.Context, stream chat.MessageStream, a
 			fullReasoningContent.WriteString(choice.Delta.ReasoningContent)
 		}
 
+		// Capture thinking signature for Anthropic extended thinking
+		if choice.Delta.ThinkingSignature != "" {
+			thinkingSignature = choice.Delta.ThinkingSignature
+		}
+
 		if choice.Delta.Content != "" {
 			events <- AgentChoice(a.Name(), choice.Delta.Content)
 			fullContent.WriteString(choice.Delta.Content)
@@ -570,7 +590,13 @@ func (r *runtime) handleStream(ctx context.Context, stream chat.MessageStream, a
 	// If the stream completed without producing any content or tool calls, likely because of a token limit, stop to avoid breaking the request loop
 	// NOTE(krissetto): this can likely be removed once compaction works properly with all providers (aka dmr)
 	stoppedDueToNoOutput := fullContent.Len() == 0 && len(toolCalls) == 0
-	return toolCalls, fullContent.String(), fullReasoningContent.String(), stoppedDueToNoOutput, nil
+	return streamResult{
+		Calls:             toolCalls,
+		Content:           fullContent.String(),
+		ReasoningContent:  fullReasoningContent.String(),
+		ThinkingSignature: thinkingSignature,
+		Stopped:           stoppedDueToNoOutput,
+	}, nil
 }
 
 // processToolCalls handles the execution of tool calls for an agent

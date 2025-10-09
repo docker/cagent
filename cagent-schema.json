@@ -174,7 +174,7 @@
         },
         "provider_opts": {
           "type": "object",
-          "description": "Provider-specific options (currently used for dmr provider only)",
+          "description": "Provider-specific options. dmr: runtime_flags. anthropic: interleaved_thinking (boolean, default false)",
           "additionalProperties": true
         },
         "track_usage": {
@@ -182,15 +182,21 @@
           "description": "Whether to track usage"
         },
         "thinking_budget": {
-          "description": "Controls reasoning effort/budget. For OpenAI: string levels ('minimal', 'low', 'medium', 'high').",
+          "description": "Controls reasoning effort/budget. For OpenAI: string levels ('minimal', 'low', 'medium', 'high'). For Anthropic: integer token budget (1024-32768)",
           "oneOf": [
             {
               "type": "string",
               "enum": ["minimal", "low", "medium", "high"],
               "description": "Reasoning effort level (OpenAI)"
+            },
+            {
+              "type": "integer",
+              "minimum": 1024,
+              "maximum": 32768,
+              "description": "Token budget for extended thinking (Anthropic)"
             }
           ],
-          "examples": ["minimal", "low", "medium", "high"]
+          "examples": ["minimal", "low", "medium", "high", 1024, 32768]
         }
       },
       "additionalProperties": false

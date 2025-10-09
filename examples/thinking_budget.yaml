@@ -1,0 +1,40 @@
+#!/usr/bin/env cagent run
+
+# Run the demo command with:
+# cagent run thinking_budget.yaml -c demo
+
+version: "2"
+
+agents:
+  root:
+    model: gpt-5-mini-min # <- try with gpt-5-mini-high
+    # model: claude-4-5-sonnet-min # <- try with claude-4-5-sonnet-high
+    description: a helpful assistant that thinks
+    instruction: you are a helpful assistant
+    commands:
+      demo: "hey i need python code for a mandelbrot fractal"
+    toolsets:
+      - type: shell
+
+models:
+  gpt-5-mini-min:
+    provider: openai
+    model: gpt-5-mini
+    thinking_budget: minimal # <- openai supports "minimal", "low", "medium", "high"
+
+  gpt-5-mini-high:
+    provider: openai
+    model: gpt-5-mini
+    thinking_budget: high
+
+  claude-4-5-sonnet-min:
+    provider: anthropic
+    model: claude-sonnet-4-5-20250929
+    thinking_budget: 1024 # <- tokens, 1024 is the minimum
+  
+  claude-4-5-sonnet-high:
+    provider: anthropic
+    model: claude-sonnet-4-5-20250929
+    thinking_budget: 32768 # <- tokens, 32768 is the suggested maximum without batching
+    provider_opts:
+      interleaved_thinking: true # <- enable interleaved thinking, aka tool calling during model reasoning

@@ -29,6 +29,34 @@ type Client struct {
 	gatewayBaseURL string
 }
 
+// interleavedThinkingEnabled returns false unless explicitly enabled via
+// models:provider_opts:interleaved_thinking: true
+func (c *Client) interleavedThinkingEnabled() bool {
+	// Default to false if not provided
+	if c == nil || c.config == nil || len(c.config.ProviderOpts) == 0 {
+		return false
+	}
+	v, ok := c.config.ProviderOpts["interleaved_thinking"]
+	if !ok {
+		return false
+	}
+	switch t := v.(type) {
+	case bool:
+		return t
+	case string:
+		s := strings.TrimSpace(strings.ToLower(t))
+		return s != "false" && s != "0" && s != "no"
+	case int:
+		return t != 0
+	case int64:
+		return t != 0
+	case float64:
+		return t != 0
+	default:
+		return false
+	}
+}
+
 // NewClient creates a new Anthropic client from the provided configuration
 func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Provider, opts ...options.Opt) (*Client, error) {
 	if cfg == nil {
@@ -113,7 +141,18 @@ func (c *Client) CreateChatCompletionStream(
 
 	maxTokens := int64(c.config.MaxTokens)
 	if maxTokens == 0 {
-		maxTokens = 8192
+		maxTokens = 8192 // min output limit for anthropic models >= 3.5
+	}
+
+	// Build a fresh client per request when using the gateway
+	client := c.client
+	if c.useGateway {
+		client = c.newGatewayClient(ctx)
+	}
+
+	// Use Beta API with interleaved thinking only when enabled
+	if c.interleavedThinkingEnabled() {
+		return c.createBetaStream(ctx, client, messages, requestTools, maxTokens)
 	}
 
 	params := anthropic.MessageNewParams{
@@ -126,6 +165,20 @@ func (c *Client) CreateChatCompletionStream(
 	// Populate proper Anthropic system prompt from input messages
 	if sys := extractSystemBlocks(messages); len(sys) > 0 {
 		params.System = sys
+	}
+
+	// Apply thinking budget
+	if c.config.ThinkingBudget != nil && c.config.ThinkingBudget.Tokens > 0 {
+		thinkingTokens := int64(c.config.ThinkingBudget.Tokens)
+		switch {
+		case thinkingTokens >= 1024 && thinkingTokens < maxTokens:
+			params.Thinking = anthropic.ThinkingConfigParamOfEnabled(thinkingTokens)
+			slog.Debug("Anthropic API using thinking_budget (standard messages)", "budget_tokens", thinkingTokens)
+		case thinkingTokens >= maxTokens:
+			slog.Warn("Anthropic thinking_budget must be less than max_tokens, ignoring", "tokens", thinkingTokens, "max_tokens", maxTokens)
+		default:
+			slog.Warn("Anthropic thinking_budget below minimum (1024), ignoring", "tokens", thinkingTokens)
+		}
 	}
 
 	if len(requestTools) > 0 {
@@ -146,11 +199,6 @@ func (c *Client) CreateChatCompletionStream(
 		slog.Debug("Request", "request", string(b))
 	}
 
-	// Build a fresh client per request when using the gateway
-	client := c.client
-	if c.useGateway {
-		client = c.newGatewayClient(ctx)
-	}
 	stream := client.Messages.NewStreaming(ctx, params)
 	slog.Debug("Anthropic chat completion stream created successfully", "model", c.config.Model)
 
@@ -163,9 +211,26 @@ func (c *Client) CreateChatCompletion(
 ) (string, error) {
 	slog.Debug("Creating Anthropic chat completion", "model", c.config.Model, "message_count", len(messages))
 
+	maxTokens := int64(c.config.MaxTokens)
+	if maxTokens == 0 {
+		maxTokens = 8192 // min output limit for anthropic models >= 3.5
+	}
+
+	client := c.client
+
+	// Build a fresh client per request when using the gateway
+	if c.useGateway {
+		client = c.newGatewayClient(ctx)
+	}
+
+	// Use Beta API with interleaved thinking
+	if c.interleavedThinkingEnabled() {
+		return c.createBetaCompletion(ctx, client, messages, maxTokens)
+	}
+
 	params := anthropic.MessageNewParams{
 		Model:     anthropic.Model(c.config.Model),
-		MaxTokens: int64(c.config.MaxTokens),
+		MaxTokens: maxTokens,
 		Messages:  convertMessages(messages),
 	}
 
@@ -174,19 +239,35 @@ func (c *Client) CreateChatCompletion(
 		params.System = sys
 	}
 
-	// Build a fresh client per request when using the gateway
-	client := c.client
-	if c.useGateway {
-		client = c.newGatewayClient(ctx)
+	if c.config.ThinkingBudget != nil && c.config.ThinkingBudget.Tokens > 0 {
+		thinkingTokens := int64(c.config.ThinkingBudget.Tokens)
+		switch {
+		case thinkingTokens >= 1024 && thinkingTokens < maxTokens:
+			params.Thinking = anthropic.ThinkingConfigParamOfEnabled(thinkingTokens)
+			slog.Debug("Anthropic API using thinking_budget (standard messages)", "budget_tokens", thinkingTokens)
+		case thinkingTokens >= maxTokens:
+			slog.Warn("Anthropic API thinking_budget must be less than max_tokens, ignoring", "tokens", thinkingTokens, "max_tokens", maxTokens)
+		default:
+			slog.Warn("Anthropic API thinking_budget below minimum (1024), ignoring", "tokens", thinkingTokens)
+		}
 	}
+
 	response, err := client.Messages.New(ctx, params)
 	if err != nil {
-		slog.Error("Anthropic chat completion failed", "error", err, "model", c.config.Model)
+		slog.Error("Anthropic API chat completion failed", "error", err, "model", c.config.Model)
 		return "", err
 	}
 
-	slog.Debug("Anthropic chat completion successful", "model", c.config.Model, "response_length", len(response.Content[0].Text))
-	return response.Content[0].Text, nil
+	// Extract text from response content (skip thinking blocks)
+	var result strings.Builder
+	for i := range response.Content {
+		if response.Content[i].Text != "" {
+			result.WriteString(response.Content[i].Text)
+		}
+	}
+
+	slog.Debug("Anthropic API chat completion successful", "model", c.config.Model, "response_length", result.Len())
+	return result.String(), nil
 }
 
 func convertMessages(messages []chat.Message) []anthropic.MessageParam {
@@ -266,24 +347,37 @@ func convertMessages(messages []chat.Message) []anthropic.MessageParam {
 			continue
 		}
 		if msg.Role == chat.MessageRoleAssistant {
+			contentBlocks := make([]anthropic.ContentBlockParamUnion, 0)
+
+			// Include thinking blocks when present to preserve extended thinking context
+			if msg.ReasoningContent != "" && msg.ThinkingSignature != "" {
+				contentBlocks = append(contentBlocks, anthropic.NewThinkingBlock(msg.ThinkingSignature, msg.ReasoningContent))
+			} else if msg.ThinkingSignature != "" {
+				contentBlocks = append(contentBlocks, anthropic.NewRedactedThinkingBlock(msg.ThinkingSignature))
+			}
+
 			if len(msg.ToolCalls) > 0 {
 				blockLen := len(msg.ToolCalls)
 				msgContent := strings.TrimSpace(msg.Content)
 				offset := 0
 				if msgContent != "" {
 					blockLen++
-					offset = 1
 				}
 				toolUseBlocks := make([]anthropic.ContentBlockParamUnion, blockLen)
+				// If there is prior thinking, append it first
+				if len(contentBlocks) > 0 {
+					toolUseBlocks = append(contentBlocks, toolUseBlocks...)
+				}
 				if msgContent != "" {
-					toolUseBlocks[0] = anthropic.NewTextBlock(msgContent)
+					toolUseBlocks[len(contentBlocks)+offset] = anthropic.NewTextBlock(msgContent)
+					offset = 1
 				}
 				for j, toolCall := range msg.ToolCalls {
 					var inpts map[string]any
 					if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &inpts); err != nil {
 						inpts = map[string]any{}
 					}
-					toolUseBlocks[j+offset] = anthropic.ContentBlockParamUnion{
+					toolUseBlocks[len(contentBlocks)+j+offset] = anthropic.ContentBlockParamUnion{
 						OfToolUse: &anthropic.ToolUseBlockParam{
 							ID:    toolCall.ID,
 							Input: inpts,
@@ -294,7 +388,10 @@ func convertMessages(messages []chat.Message) []anthropic.MessageParam {
 				anthropicMessages = append(anthropicMessages, anthropic.NewAssistantMessage(toolUseBlocks...))
 			} else {
 				if txt := strings.TrimSpace(msg.Content); txt != "" {
-					anthropicMessages = append(anthropicMessages, anthropic.NewAssistantMessage(anthropic.NewTextBlock(txt)))
+					contentBlocks = append(contentBlocks, anthropic.NewTextBlock(txt))
+				}
+				if len(contentBlocks) > 0 {
+					anthropicMessages = append(anthropicMessages, anthropic.NewAssistantMessage(contentBlocks...))
 				}
 			}
 			continue

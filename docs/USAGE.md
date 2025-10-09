@@ -139,17 +139,17 @@ cagent run ./agent.yaml --command ls
 
 ### Model Properties
 
-| Property            | Type    | Description                                                           | Required |
-|---------------------|---------|-----------------------------------------------------------------------|----------|
-| `provider`          | string  | Provider: `openai`, `anthropic`, `dmr`                                | ✓        |
-| `model`             | string  | Model name (e.g., `gpt-4o`, `claude-sonnet-4-0`)                      | ✓        |
-| `temperature`       | float   | Randomness (0.0-1.0)                                                  | ✗        |
-| `max_tokens`        | integer | Response length limit                                                 | ✗        |
-| `top_p`             | float   | Nucleus sampling (0.0-1.0)                                            | ✗        |
-| `frequency_penalty` | float   | Repetition penalty (0.0-2.0)                                          | ✗        |
-| `presence_penalty`  | float   | Topic repetition penalty (0.0-2.0)                                    | ✗        |
-| `base_url`          | string  | Custom API endpoint                                                   | ✗        |
-| `thinking_budget`   | string  | Reasoning effort — OpenAI: minimal/low/medium/high; Anthropic: tokens | ✗        |
+| Property            | Type       | Description                                                           | Required |
+|---------------------|------------|-----------------------------------------------------------------------|----------|
+| `provider`          | string     | Provider: `openai`, `anthropic`, `dmr`                                | ✓        |
+| `model`             | string     | Model name (e.g., `gpt-4o`, `claude-sonnet-4-0`)                      | ✓        |
+| `temperature`       | float      | Randomness (0.0-1.0)                                                  | ✗        |
+| `max_tokens`        | integer    | Response length limit                                                 | ✗        |
+| `top_p`             | float      | Nucleus sampling (0.0-1.0)                                            | ✗        |
+| `frequency_penalty` | float      | Repetition penalty (0.0-2.0)                                          | ✗        |
+| `presence_penalty`  | float      | Topic repetition penalty (0.0-2.0)                                    | ✗        |
+| `base_url`          | string     | Custom API endpoint                                                   | ✗        |
+| `thinking_budget`   | string/int | Reasoning effort — OpenAI: effort string, Anthropic: token budget int | ✗        |
 
 #### Example
 
@@ -164,7 +164,7 @@ models:
     frequency_penalty: float # Repetition penalty (0.0-2.0)
     presence_penalty: float # Topic repetition penalty (0.0-2.0)
     parallel_tool_calls: boolean
-    thinking_budget: string # How much the model should think. Currently only string supported for OpenAI models
+    thinking_budget: string|integer # OpenAI: effort level string; Anthropic: integer token budget
 ```
 
 ### Reasoning Effort (thinking_budget)
@@ -172,7 +172,7 @@ models:
 Determine how much the model should think by setting the `thinking_budget`
 
 - **OpenAI**: use effort levels — `minimal`, `low`, `medium`, `high`
-- **Anthropic, Google (Gemini), DMR, others**: coming soon
+- **Anthropic**: set an integer token budget. Minimum is 1024; range is 1024–32768; must be strictly less than `max_tokens`. When set, cagent uses Anthropic's Beta Messages API with interleaved thinking enabled.
 
 Examples (OpenAI):
 
@@ -189,11 +189,44 @@ agents:
     instruction: you are a helpful assistant
 ```
 
+Examples (Anthropic):
+
+```yaml
+models:
+  claude:
+    provider: anthropic
+    model: claude-sonnet-4-5-20250929
+    thinking_budget: 1024
+
+agents:
+  root:
+    model: claude
+    instruction: you are a helpful assistant that doesn't think very much
+```
+
+#### Interleaved Thinking (Anthropic)
+
+Anthropic's interleaved thinking feature uses the Beta Messages API to provide tool calling during model reasoning. You can control this behavior using the `interleaved_thinking` provider option:
+
+```yaml
+models:
+  claude:
+    provider: anthropic
+    model: claude-sonnet-4-5-20250929
+    thinking_budget: 8192  # Optional: defaults to 16384 when interleaved thinking is enabled
+    provider_opts:
+      interleaved_thinking: true   # Enable interleaved thinking (default: false)
+```
+
 Notes:
 
 - If an invalid OpenAI effort value is set, the request will fail with a clear error
+- For Anthropic, values < 1024 or ≥ `max_tokens` are ignored (warning logged)
+- When `interleaved_thinking` is enabled, cagent uses Anthropic's Beta Messages API with a default thinking budget of 16384 tokens if not specified
 - For unsupported providers, `thinking_budget` has no effect
-- Debug logs include the applied effort (e.g., "OpenAI request using thinking_budget")
+- Debug logs include the applied effort (e.g., "OpenAI request using thinking_budget", "Anthropic Beta API using thinking_budget")
+
+See `examples/thinking_budget.yaml` for a complete runnable demo.
 
 #### Model Examples
 
@@ -282,7 +315,7 @@ Requirements and notes:
 - Docker Model plugin must be available for auto-configure/auto-discovery
   - Verify with: `docker model status --json`
 - Configuration is best-effort; failures fall back to the default base URL
-- `provider_opts` is currently scoped to the `dmr` provider only
+- `provider_opts` currently apply to `dmr` and `anthropic` providers
 - `runtime_flags` are passed after `--` to the inference runtime (e.g., llama.cpp)
 
 Parameter mapping and precedence (DMR):
