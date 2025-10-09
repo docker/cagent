@@ -50,9 +50,6 @@ type Toolset struct {
 
 	// For the filesystem tool - post-edit commands
 	PostEdit []PostEditConfig `json:"post_edit,omitempty" yaml:"post_edit,omitempty"`
-
-	// For the filesystem tool - ignore VCS files and directories
-	IgnoreVCS bool `json:"ignore_vcs,omitempty" yaml:"ignore_vcs,omitempty"`
 }
 
 type Remote struct {
@@ -65,9 +62,6 @@ type Remote struct {
 func (t *Toolset) validate() error {
 	if len(t.Shell) > 0 && t.Type != "script" {
 		return errors.New("shell can only be used with type 'script'")
-	}
-	if t.IgnoreVCS && t.Type != "filesystem" {
-		return errors.New("ignore_vcs can only be used with type 'filesystem'")
 	}
 	if t.Type != "mcp" {
 		return nil
