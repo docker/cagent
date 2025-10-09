@@ -1,0 +1,37 @@
+{
+  "id": "sample-question-eval",
+  "title": "General Knowledge Question Test",
+  "messages": [
+    {
+      "message": {
+        "agentFilename": "agent.yaml",
+        "agentName": "root",
+        "message": {
+          "role": "user",
+          "content": "What is the capital of France?",
+          "created_at": "2024-01-15T11:00:00Z"
+        },
+        "implicit": false
+      }
+    },
+    {
+      "message": {
+        "agentFilename": "agent.yaml", 
+        "agentName": "root",
+        "message": {
+          "role": "assistant",
+          "content": "The capital of France is Paris. Paris is both the largest city in France and serves as its political, economic, and cultural center.",
+          "created_at": "2024-01-15T11:00:05Z"
+        },
+        "implicit": false
+      }
+    }
+  ],
+  "created_at": "2024-01-15T11:00:00Z",
+  "tools_approved": true,
+  "working_dir": "",
+  "max_iterations": 0,
+  "input_tokens": 30,
+  "output_tokens": 85,
+  "cost": 0.001
+}
