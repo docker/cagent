@@ -3,7 +3,7 @@
 # xx is a helper for cross-compilation
 FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.7.0 AS xx
 
-FROM --platform=$BUILDPLATFORM golang:1.25.1-alpine3.22 AS builder-base
+FROM --platform=$BUILDPLATFORM golang:1.25.2-alpine3.22 AS builder-base
 COPY --from=xx / /
 WORKDIR /src
 RUN --mount=type=cache,target=/go/pkg/mod \
