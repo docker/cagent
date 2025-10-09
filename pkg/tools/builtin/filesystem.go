@@ -60,17 +60,17 @@ func NewFilesystemTool(allowedDirectories []string, opts ...FileSystemOpt) *File
 	t := &FilesystemTool{
 		allowedDirectories: allowedDirectories,
 	}
-	
+
 	// Apply all options first
 	for _, opt := range opts {
 		opt(t)
 	}
-	
+
 	// Initialize VCS patterns after options are applied
 	if t.ignoreVCS && len(t.allowedDirectories) > 0 {
 		t.vcsPatterns = findGitignorePatterns(t.allowedDirectories[0])
 	}
-	
+
 	return t
 }
 
@@ -1041,7 +1041,7 @@ func (t *FilesystemTool) handleSearchFiles(_ context.Context, toolCall tools.Too
 				return nil
 			}
 		}
-		
+
 		// Check VCS patterns if enabled
 		if t.ignoreVCS {
 			for _, vcsPattern := range t.vcsPatterns {
@@ -1121,7 +1121,7 @@ func (t *FilesystemTool) handleSearchFilesContent(_ context.Context, toolCall to
 				return nil // Skip this file
 			}
 		}
-		
+
 		// Check VCS patterns if enabled
 		if t.ignoreVCS {
 			for _, vcsPattern := range t.vcsPatterns {

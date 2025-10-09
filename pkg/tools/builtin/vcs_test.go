@@ -56,7 +56,7 @@ Thumbs.db
 
 func TestParseGitignoreFileNotFound(t *testing.T) {
 	patterns, err := parseGitignoreFile("/nonexistent/.gitignore")
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Nil(t, patterns)
 }
 

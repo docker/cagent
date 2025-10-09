@@ -50,7 +50,7 @@ type Toolset struct {
 
 	// For the filesystem tool - post-edit commands
 	PostEdit []PostEditConfig `json:"post_edit,omitempty" yaml:"post_edit,omitempty"`
-	
+
 	// For the filesystem tool - ignore VCS files and directories
 	IgnoreVCS bool `json:"ignore_vcs,omitempty" yaml:"ignore_vcs,omitempty"`
 }
