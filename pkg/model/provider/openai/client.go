@@ -252,7 +252,6 @@ func (c *Client) CreateChatCompletionStream(
 				Function: &openai.FunctionDefinition{
 					Name:        tool.Function.Name,
 					Description: tool.Function.Description,
-					Strict:      tool.Function.Strict,
 					Parameters:  tool.Function.Parameters,
 				},
 			}

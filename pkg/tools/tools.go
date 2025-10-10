@@ -36,7 +36,6 @@ type Tool struct {
 type FunctionDefinition struct {
 	Name         string             `json:"name"`
 	Description  string             `json:"description,omitempty"`
-	Strict       bool               `json:"strict,omitempty"`
 	Parameters   FunctionParameters `json:"parameters"`
 	Annotations  ToolAnnotations    `json:"annotations"`
 	OutputSchema any                `json:"outputSchema"`

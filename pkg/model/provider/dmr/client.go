@@ -342,7 +342,6 @@ func (c *Client) CreateChatCompletionStream(ctx context.Context, messages []chat
 			fd := &openai.FunctionDefinition{
 				Name:        tool.Function.Name,
 				Description: desc,
-				Strict:      tool.Function.Strict,
 			}
 			if len(tool.Function.Parameters.Properties) == 0 {
 				fd.Parameters = map[string]any{
