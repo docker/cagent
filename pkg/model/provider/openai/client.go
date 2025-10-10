@@ -22,8 +22,9 @@ import (
 // Client represents an OpenAI client wrapper
 // It implements the provider.Provider interface
 type Client struct {
-	client *openai.Client
-	config *latest.ModelConfig
+	client       *openai.Client
+	config       *latest.ModelConfig
+	modelOptions options.ModelOptions
 	// When using the Docker AI Gateway, tokens are short-lived. We rebuild
 	// the client per request using these fields.
 	useGateway     bool
@@ -117,6 +118,7 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 		config:         cfg,
 		useGateway:     useGateway,
 		gatewayBaseURL: gatewayBaseURL,
+		modelOptions:   globalOptions,
 	}, nil
 }
 
@@ -274,6 +276,20 @@ func (c *Client) CreateChatCompletionStream(
 		slog.Debug("OpenAI request using thinking_budget", "reasoning_effort", effort)
 	}
 
+	// Apply structured output configuration
+	if c.modelOptions.StructuredOutput != nil {
+		request.ResponseFormat = &openai.ChatCompletionResponseFormat{
+			Type: openai.ChatCompletionResponseFormatTypeJSONSchema,
+			JSONSchema: &openai.ChatCompletionResponseFormatJSONSchema{
+				Name:        c.modelOptions.StructuredOutput.Name,
+				Description: c.modelOptions.StructuredOutput.Description,
+				Schema:      jsonSchema(c.modelOptions.StructuredOutput.Schema),
+				Strict:      c.modelOptions.StructuredOutput.Strict,
+			},
+		}
+		slog.Debug("OpenAI request using structured output", "name", c.modelOptions.StructuredOutput.Name, "strict", c.modelOptions.StructuredOutput.Strict)
+	}
+
 	// Log the request in JSON format for debugging
 	if requestJSON, err := json.Marshal(request); err == nil {
 		slog.Debug("OpenAI chat completion request", "request", string(requestJSON))
@@ -369,4 +385,12 @@ func getOpenAIReasoningEffort(cfg *latest.ModelConfig) (effort string, err error
 	}
 
 	return "", fmt.Errorf("OpenAI requests only support 'minimal', 'low', 'medium', 'high' as values for thinking_budget effort, got effort: '%s', tokens: '%d'", effort, cfg.ThinkingBudget.Tokens)
+}
+
+// jsonSchema is a helper type that implements json.Marshaler for map[string]any
+// This allows us to pass schema maps to the OpenAI library which expects json.Marshaler
+type jsonSchema map[string]any
+
+func (j jsonSchema) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string]any(j))
 }

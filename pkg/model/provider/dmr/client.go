@@ -25,9 +25,10 @@ import (
 // Client represents an DMR client wrapper
 // It implements the provider.Provider interface
 type Client struct {
-	client  *openai.Client
-	config  *latest.ModelConfig
-	baseURL string
+	client       *openai.Client
+	config       *latest.ModelConfig
+	modelOptions options.ModelOptions
+	baseURL      string
 }
 
 // NewClient creates a new DMR client from the provided configuration
@@ -93,9 +94,10 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, opts ...options.Opt
 	slog.Debug("DMR client created successfully", "model", cfg.Model, "base_url", clientConfig.BaseURL)
 
 	return &Client{
-		client:  openai.NewClientWithConfig(clientConfig),
-		config:  cfg,
-		baseURL: clientConfig.BaseURL,
+		client:       openai.NewClientWithConfig(clientConfig),
+		config:       cfg,
+		baseURL:      clientConfig.BaseURL,
+		modelOptions: globalOptions,
 	}, nil
 }
 
@@ -361,6 +363,17 @@ func (c *Client) CreateChatCompletionStream(ctx context.Context, messages []chat
 	} else {
 		slog.Error("Failed to marshal DMR request to JSON", "error", err)
 	}
+	if c.modelOptions.StructuredOutput != nil {
+		request.ResponseFormat = &openai.ChatCompletionResponseFormat{
+			Type: openai.ChatCompletionResponseFormatTypeJSONSchema,
+			JSONSchema: &openai.ChatCompletionResponseFormatJSONSchema{
+				Name:        c.modelOptions.StructuredOutput.Name,
+				Description: c.modelOptions.StructuredOutput.Description,
+				Schema:      jsonSchema(c.modelOptions.StructuredOutput.Schema),
+				Strict:      c.modelOptions.StructuredOutput.Strict,
+			},
+		}
+	}
 
 	stream, err := c.client.CreateChatCompletionStream(ctx, request)
 	if err != nil {
@@ -559,4 +572,12 @@ func buildRuntimeFlagsFromModelConfig(engine string, cfg *latest.ModelConfig) []
 		// Unknown engine: no flags
 	}
 	return flags
+}
+
+// jsonSchema is a helper type that implements json.Marshaler for map[string]any
+// This allows us to pass schema maps to the OpenAI library which expects json.Marshaler
+type jsonSchema map[string]any
+
+func (j jsonSchema) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string]any(j))
 }

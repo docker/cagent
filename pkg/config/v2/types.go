@@ -14,18 +14,19 @@ type Config struct {
 
 // AgentConfig represents a single agent configuration
 type AgentConfig struct {
-	Model              string         `json:"model,omitempty"`
-	Description        string         `json:"description,omitempty"`
-	Toolsets           []Toolset      `json:"toolsets,omitempty"`
-	Instruction        string         `json:"instruction,omitempty"`
-	SubAgents          []string       `json:"sub_agents,omitempty"`
-	AddDate            bool           `json:"add_date,omitempty"`
-	AddEnvironmentInfo bool           `json:"add_environment_info,omitempty"`
-	CodeModeTools      bool           `json:"code_mode_tools,omitempty"`
-	MaxIterations      int            `json:"max_iterations,omitempty"`
-	NumHistoryItems    int            `json:"num_history_items,omitempty"`
-	AddPromptFiles     []string       `json:"add_prompt_files,omitempty" yaml:"add_prompt_files,omitempty"`
-	Commands           types.Commands `json:"commands,omitempty"`
+	Model              string            `json:"model,omitempty"`
+	Description        string            `json:"description,omitempty"`
+	Toolsets           []Toolset         `json:"toolsets,omitempty"`
+	Instruction        string            `json:"instruction,omitempty"`
+	SubAgents          []string          `json:"sub_agents,omitempty"`
+	AddDate            bool              `json:"add_date,omitempty"`
+	AddEnvironmentInfo bool              `json:"add_environment_info,omitempty"`
+	CodeModeTools      bool              `json:"code_mode_tools,omitempty"`
+	MaxIterations      int               `json:"max_iterations,omitempty"`
+	NumHistoryItems    int               `json:"num_history_items,omitempty"`
+	AddPromptFiles     []string          `json:"add_prompt_files,omitempty" yaml:"add_prompt_files,omitempty"`
+	Commands           types.Commands    `json:"commands,omitempty"`
+	StructuredOutput   *StructuredOutput `json:"structured_output,omitempty"`
 }
 
 // ModelConfig represents the configuration for a model
@@ -167,4 +168,16 @@ func (t *ThinkingBudget) UnmarshalYAML(unmarshal func(any) error) error {
 	}
 
 	return nil
+}
+
+// StructuredOutput defines a JSON schema for structured output
+type StructuredOutput struct {
+	// Name is the name of the response format
+	Name string `json:"name"`
+	// Description is optional description of the response format
+	Description string `json:"description,omitempty"`
+	// Schema is a JSON schema object defining the structure
+	Schema map[string]any `json:"schema"`
+	// Strict enables strict schema adherence (OpenAI only)
+	Strict bool `json:"strict,omitempty"`
 }

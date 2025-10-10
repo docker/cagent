@@ -8,8 +8,18 @@
     "version": {
       "type": "string",
       "description": "Configuration version",
-      "enum": ["1", "2", "v1", "v2"],
-      "examples": ["1", "2", "v1", "v2"]
+      "enum": [
+        "1",
+        "2",
+        "v1",
+        "v2"
+      ],
+      "examples": [
+        "1",
+        "2",
+        "v1",
+        "v2"
+      ]
     },
     "agents": {
       "type": "object",
@@ -103,16 +113,79 @@
           "oneOf": [
             {
               "type": "object",
-              "additionalProperties": { "type": "string" }
+              "additionalProperties": {
+                "type": "string"
+              }
             },
             {
               "type": "array",
               "items": {
                 "type": "object",
-                "additionalProperties": { "type": "string" }
+                "additionalProperties": {
+                  "type": "string"
+                }
               }
             }
           ]
+        },
+        "structured_output": {
+          "type": "object",
+          "description": "Structured output configuration for constraining model responses to a specific JSON schema. Supported by OpenAI (native) and Google Gemini (native). Anthropic requires prompt engineering or tool-based approaches.",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Name of the response format schema"
+            },
+            "description": {
+              "type": "string",
+              "description": "Optional description of what the schema represents"
+            },
+            "strict": {
+              "type": "boolean",
+              "description": "Enable strict schema adherence (OpenAI only). When true, all properties must be in required array.",
+              "default": false
+            },
+            "schema": {
+              "type": "object",
+              "description": "JSON Schema object defining the structure of the response. Must include type, properties, and required fields.",
+              "required": [
+                "type",
+                "properties"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "object"
+                  ],
+                  "description": "Schema type, must be 'object' for structured outputs"
+                },
+                "properties": {
+                  "type": "object",
+                  "description": "Object properties with their schemas",
+                  "additionalProperties": true
+                },
+                "required": {
+                  "type": "array",
+                  "description": "List of required property names",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": {
+                  "type": "boolean",
+                  "description": "Whether additional properties are allowed",
+                  "default": false
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "name",
+            "schema"
+          ],
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
@@ -124,7 +197,12 @@
         "provider": {
           "type": "string",
           "description": "Model provider (e.g., openai, anthropic, dmr)",
-          "examples": ["openai", "anthropic", "dmr", "ollama"]
+          "examples": [
+            "openai",
+            "anthropic",
+            "dmr",
+            "ollama"
+          ]
         },
         "model": {
           "type": "string",
@@ -186,7 +264,12 @@
           "oneOf": [
             {
               "type": "string",
-              "enum": ["minimal", "low", "medium", "high"],
+              "enum": [
+                "minimal",
+                "low",
+                "medium",
+                "high"
+              ],
               "description": "Reasoning effort level (OpenAI)"
             },
             {
@@ -196,7 +279,14 @@
               "description": "Token budget for extended thinking (Anthropic, Google)"
             }
           ],
-          "examples": ["minimal", "low", "medium", "high", -1, 0, 1024, 24576, 32768]
+          "examples": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            1024,
+            32768
+          ]
         }
       },
       "additionalProperties": false
@@ -294,7 +384,7 @@
             "^[A-Za-z_][A-Za-z0-9_\\-]*$": {
               "$ref": "#/definitions/ScriptShellToolConfig"
             }
-        },
+          },
           "additionalProperties": false
         },
         "post_edit": {
@@ -309,12 +399,30 @@
       "anyOf": [
         {
           "allOf": [
-            { "properties": { "type": { "const": "mcp" } } },
+            {
+              "properties": {
+                "type": {
+                  "const": "mcp"
+                }
+              }
+            },
             {
               "anyOf": [
-                { "required": ["command"] },
-                { "required": ["remote"] },
-                { "required": ["ref"] }
+                {
+                  "required": [
+                    "command"
+                  ]
+                },
+                {
+                  "required": [
+                    "remote"
+                  ]
+                },
+                {
+                  "required": [
+                    "ref"
+                  ]
+                }
               ]
             }
           ]
@@ -357,7 +465,9 @@
           }
         }
       },
-      "required": ["url"],
+      "required": [
+        "url"
+      ],
       "additionalProperties": false
     },
     "ScriptShellToolConfig": {
@@ -411,7 +521,10 @@
           "description": "Command to execute after edit"
         }
       },
-      "required": ["path", "cmd"],
+      "required": [
+        "path",
+        "cmd"
+      ],
       "additionalProperties": false
     }
   }

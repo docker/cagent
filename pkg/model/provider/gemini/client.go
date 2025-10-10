@@ -22,8 +22,9 @@ import (
 // Client represents a Gemini client wrapper
 // It implements the provider.Provider interface
 type Client struct {
-	client *genai.Client
-	config *latest.ModelConfig
+	client       *genai.Client
+	config       *latest.ModelConfig
+	modelOptions options.ModelOptions
 	// When using the Docker AI Gateway, tokens are short-lived. We rebuild
 	// the client per request when in gateway mode.
 	useGateway     bool
@@ -81,6 +82,7 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 		config:         cfg,
 		useGateway:     useGateway,
 		gatewayBaseURL: gatewayBaseURL,
+		modelOptions:   modelOptions,
 	}, nil
 }
 
@@ -244,6 +246,12 @@ func (c *Client) buildConfig() *genai.GenerateContentConfig {
 			slog.Debug("Gemini request using thinking_budget", "budget_tokens", tokens)
 		}
 	}
+
+	if c.modelOptions.StructuredOutput != nil {
+		config.ResponseMIMEType = "application/json"
+		config.ResponseJsonSchema = c.modelOptions.StructuredOutput.Schema
+	}
+
 	return config
 }
 
