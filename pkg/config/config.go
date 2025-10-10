@@ -136,6 +136,16 @@ func validateConfig(cfg *latest.Config) error {
 		}
 	}
 
+	// Validate workflow steps
+	for i, step := range cfg.Workflow {
+		if step.Type != "agent" {
+			return fmt.Errorf("workflow step %d: unsupported type '%s' (only 'agent' is supported)", i, step.Type)
+		}
+		if _, exists := cfg.Agents[step.Name]; !exists {
+			return fmt.Errorf("workflow step %d: references non-existent agent '%s'", i, step.Name)
+		}
+	}
+
 	return nil
 }
 

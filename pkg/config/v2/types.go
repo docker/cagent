@@ -10,6 +10,7 @@ type Config struct {
 	Agents   map[string]AgentConfig `json:"agents,omitempty"`
 	Models   map[string]ModelConfig `json:"models,omitempty"`
 	Metadata Metadata               `json:"metadata,omitempty"`
+	Workflow []WorkflowStep         `json:"workflow,omitempty"`
 }
 
 // AgentConfig represents a single agent configuration
@@ -167,4 +168,10 @@ func (t *ThinkingBudget) UnmarshalYAML(unmarshal func(any) error) error {
 	}
 
 	return nil
+}
+
+// WorkflowStep represents a step in a workflow
+type WorkflowStep struct {
+	Type string `json:"type"` // Currently only "agent" is supported
+	Name string `json:"name"` // Name of the agent to run
 }

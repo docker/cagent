@@ -138,10 +138,17 @@ type Config struct {
 	Models   map[string]ModelConfig `json:"models,omitempty" yaml:"models,omitempty"`
 	Env      map[string]string      `json:"env,omitempty" yaml:"env,omitempty"`
 	Metadata Metadata               `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+	Workflow []WorkflowStep         `json:"workflow,omitempty" yaml:"workflow,omitempty"`
 }
 
 type Metadata struct {
 	Author  string `json:"author,omitempty" yaml:"author,omitempty"`
 	License string `json:"license,omitempty" yaml:"license,omitempty"`
 	Readme  string `json:"readme,omitempty" yaml:"readme,omitempty"`
+}
+
+// WorkflowStep represents a step in a workflow
+type WorkflowStep struct {
+	Type string `json:"type" yaml:"type"` // Currently only "agent" is supported
+	Name string `json:"name" yaml:"name"` // Name of the agent to run
 }

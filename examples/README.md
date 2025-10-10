@@ -44,6 +44,24 @@ These are more advanced examples, most of them involve some sort of MCP server t
 | [couchbase_agent.yaml](couchbase_agent.yaml)           | Run Database commands using MCP tools       |            |       |      |       |        | docker,[couchbase](https://hub.docker.com/mcp/server/couchbase/overview)                                          |            |
 | [notion-expert.yaml](notion-expert.yaml)               | Notion documentation expert using OAuth      |            |       |      |       |        | [notion](https://mcp.notion.com) (uses OAuth)                                                                     |            |
 
+## **Workflow Configurations**
+
+These examples demonstrate sequential workflow execution where multiple agents are chained together. Each agent processes the output from the previous agent, creating a pipeline of transformations. Workflows don't require a root agent - they execute agents in the order defined in the workflow section.
+
+See [WORKFLOW_README.md](WORKFLOW_README.md) for detailed documentation.
+
+| Name                                                             | Description/Purpose                       | Steps | Models Used |
+|------------------------------------------------------------------|-------------------------------------------|-------|-------------|
+| [story_workflow.yaml](story_workflow.yaml)                       | Creative writing workflow                 | 3     | OpenAI GPT-4o |
+| [product_description_workflow.yaml](product_description_workflow.yaml) | Marketing content generation        | 3     | OpenAI GPT-4o |
+| [joke_workflow.yaml](joke_workflow.yaml)                         | Joke creation, translation, and formatting | 3     | OpenAI GPT-4o |
+
+**How workflows work:**
+- Agents execute sequentially in the order defined
+- Output from each agent becomes input for the next
+- No root agent required
+- Run with: `./bin/cagent run examples/story_workflow.yaml`
+
 ## **Multi-Agent Configurations**
 
 These examples are groups of agents working together. Each of them is specialized for a given task, and usually has some tools assigned to fulfill these tasks.

@@ -28,6 +28,13 @@
     "metadata": {
       "$ref": "#/definitions/Metadata",
       "description": "Configuration metadata"
+    },
+    "workflow": {
+      "type": "array",
+      "description": "Sequential workflow steps",
+      "items": {
+        "$ref": "#/definitions/WorkflowStep"
+      }
     }
   },
   "additionalProperties": false,
@@ -412,6 +419,23 @@
         }
       },
       "required": ["path", "cmd"],
+      "additionalProperties": false
+    },
+    "WorkflowStep": {
+      "type": "object",
+      "description": "A single step in a workflow",
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Type of workflow step",
+          "enum": ["agent"]
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the agent to run"
+        }
+      },
+      "required": ["type", "name"],
       "additionalProperties": false
     }
   }

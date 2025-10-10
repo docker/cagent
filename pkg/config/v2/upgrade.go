@@ -20,11 +20,10 @@ func UpgradeFrom(old v1.Config) (Config, error) {
 		}
 	}
 
-	for _, agent := range old.Agents {
+	for agentName := range old.Agents {
+		agent := old.Agents[agentName]
 		for i := range agent.Toolsets {
-			toolSet := agent.Toolsets[i]
-
-			if len(toolSet.Envfiles) > 0 {
+			if len(agent.Toolsets[i].Envfiles) > 0 {
 				return Config{}, errors.New("toolset Envfiles is not supported anymore")
 			}
 		}

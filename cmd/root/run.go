@@ -23,6 +23,7 @@ import (
 	"github.com/docker/cagent/pkg/app"
 	"github.com/docker/cagent/pkg/chat"
 	"github.com/docker/cagent/pkg/config"
+	v2 "github.com/docker/cagent/pkg/config/v2"
 	"github.com/docker/cagent/pkg/content"
 	"github.com/docker/cagent/pkg/evaluation"
 	"github.com/docker/cagent/pkg/remote"
@@ -32,6 +33,7 @@ import (
 	"github.com/docker/cagent/pkg/teamloader"
 	"github.com/docker/cagent/pkg/telemetry"
 	"github.com/docker/cagent/pkg/tui"
+	"github.com/docker/cagent/pkg/workflow"
 )
 
 var (
@@ -205,6 +207,26 @@ func doRunCommand(ctx context.Context, args []string, exec bool) error {
 				slog.Error("Failed to stop tool sets", "error", err)
 			}
 		}()
+
+		// Check if this is a workflow by loading the config
+		dir := filepath.Dir(agentFilename)
+		fs, err := os.OpenRoot(dir)
+		if err == nil {
+			defer fs.Close()
+			cfg, err := config.LoadConfig(filepath.Base(agentFilename), fs)
+			if err == nil && len(cfg.Workflow) > 0 {
+				// This is a workflow - check if TUI should be used
+				slog.Info("Detected workflow configuration", "steps", len(cfg.Workflow))
+
+				// For exec mode or --tui=false, run without TUI
+				if exec || !useTUI {
+					return runWorkflowCLI(ctx, cfg, agents)
+				}
+
+				// Default: use TUI for workflow
+				return runWorkflowTUI(ctx, agentFilename, cfg, agents)
+			}
+		}
 	} else {
 		// For remote runtime, just store the original agent filename
 		// The remote server will handle agent loading
@@ -881,4 +903,171 @@ func printAvailableCommands(agentName string, cmds map[string]string) {
 	for _, n := range names {
 		fmt.Printf(" - %s: %s\n", n, cmds[n])
 	}
+}
+
+// runWorkflowCLI executes a sequential workflow in CLI mode (--tui=false)
+func runWorkflowCLI(ctx context.Context, cfg *v2.Config, agents *team.Team) error {
+	executor := workflow.New(cfg, agents)
+
+	// Create an events channel
+	events := make(chan runtime.Event, 128)
+
+	// Run the workflow in a goroutine
+	go func() {
+		defer close(events)
+		if err := executor.Execute(ctx, events); err != nil {
+			events <- runtime.Error(err.Error())
+		}
+	}()
+
+	var lastErr error
+	currentAgent := ""
+	llmIsTyping := false
+
+	for event := range events {
+		switch e := event.(type) {
+		case *runtime.WorkflowStepStartedEvent:
+			if llmIsTyping {
+				fmt.Println()
+				llmIsTyping = false
+			}
+			currentAgent = e.AgentName
+			fmt.Printf("\n%s\n", bold(fmt.Sprintf("⏳ Step %d: Running agent '%s'...", e.StepIndex+1, e.AgentName)))
+
+		case *runtime.WorkflowStepCompletedEvent:
+			if llmIsTyping {
+				fmt.Println()
+				llmIsTyping = false
+			}
+			fmt.Printf("%s\n", bold(fmt.Sprintf("✅ Step %d completed", e.StepIndex+1)))
+
+		case *runtime.WorkflowStepFailedEvent:
+			if llmIsTyping {
+				fmt.Println()
+				llmIsTyping = false
+			}
+			fmt.Printf("%s\n", red("❌ Step %d failed: %s", e.StepIndex+1, e.Error))
+			lastErr = fmt.Errorf("workflow step %d failed: %s", e.StepIndex+1, e.Error)
+
+		case *runtime.WorkflowCompletedEvent:
+			if llmIsTyping {
+				fmt.Println()
+				llmIsTyping = false
+			}
+			fmt.Printf("\n%s\n", bold("🎉 Workflow completed successfully!"))
+			fmt.Printf("\n%s\n", bold("Final Output:"))
+			fmt.Printf("%s\n", e.FinalOutput)
+
+		case *runtime.AgentChoiceEvent:
+			if e.AgentName != currentAgent {
+				if llmIsTyping {
+					fmt.Println()
+				}
+				currentAgent = e.AgentName
+				printAgentName(e.AgentName)
+				llmIsTyping = false
+			}
+			if !llmIsTyping {
+				fmt.Println()
+				llmIsTyping = true
+			}
+			fmt.Print(e.Content)
+
+		case *runtime.ToolCallEvent:
+			if llmIsTyping {
+				fmt.Println()
+				llmIsTyping = false
+			}
+			printToolCall(e.ToolCall)
+
+		case *runtime.ToolCallResponseEvent:
+			if llmIsTyping {
+				fmt.Println()
+				llmIsTyping = false
+			}
+			printToolCallResponse(e.ToolCall, e.Response)
+
+		case *runtime.ErrorEvent:
+			if llmIsTyping {
+				fmt.Println()
+				llmIsTyping = false
+			}
+			lastErr = fmt.Errorf("%s", e.Error)
+			printError(lastErr)
+		}
+	}
+
+	if llmIsTyping {
+		fmt.Println()
+	}
+
+	if lastErr != nil {
+		return lastErr
+	}
+
+	return nil
+}
+
+// runWorkflowTUI executes a sequential workflow in TUI mode (default)
+func runWorkflowTUI(ctx context.Context, agentFilename string, cfg *v2.Config, agents *team.Team) error {
+	// Create a dummy session for workflow tracking
+	sess := session.New()
+	sess.Title = "Workflow: " + filepath.Base(agentFilename)
+
+	// Get the first workflow step's agent for runtime (just for app compatibility)
+	var firstAgentName string
+	if len(cfg.Workflow) > 0 {
+		firstAgentName = cfg.Workflow[0].Name
+	} else {
+		return fmt.Errorf("no workflow steps defined")
+	}
+
+	// Create a minimal runtime (we won't actually use it for execution, just for app compatibility)
+	rt, err := runtime.New(agents,
+		runtime.WithCurrentAgent(firstAgentName),
+		runtime.WithSessionCompaction(false),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create runtime: %w", err)
+	}
+
+	// Create the app which will handle event forwarding to TUI
+	a := app.New("cagent", agentFilename, rt, agents, sess, nil)
+	m := tui.New(a)
+
+	progOpts := []tea.ProgramOption{
+		tea.WithAltScreen(),
+		tea.WithContext(ctx),
+		tea.WithFilter(tui.MouseEventFilter),
+		tea.WithMouseCellMotion(),
+		tea.WithMouseAllMotion(),
+	}
+
+	p := tea.NewProgram(m, progOpts...)
+
+	// Start the event subscription in the background
+	go a.Subscribe(ctx, p)
+
+	// Run the workflow executor and forward events to the app's event channel
+	go func() {
+		executor := workflow.New(cfg, agents)
+		events := make(chan runtime.Event, 128)
+
+		// Execute workflow
+		go func() {
+			defer close(events)
+			if err := executor.Execute(ctx, events); err != nil {
+				events <- runtime.Error(err.Error())
+			}
+		}()
+
+		// Forward all workflow events to the app's event channel (which TUI will receive)
+		for event := range events {
+			a.SendEvent(event)
+		}
+	}()
+
+	// Run the TUI
+	_, err = p.Run()
+	return err
 }

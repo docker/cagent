@@ -1,0 +1,22 @@
+version: "2"
+
+agents:
+  story_starter:
+    model: openai/gpt-4o
+    instruction: Write the first paragraph of a short story about a robot learning to cook (3-4 sentences)
+
+  add_dialogue:
+    model: openai/gpt-4o
+    instruction: Continue the story by adding a dialogue between the robot and a chef (3-4 sentences)
+
+  add_ending:
+    model: openai/gpt-4o
+    instruction: Complete the story with a satisfying ending (2-3 sentences)
+
+workflow:
+  - type: agent
+    name: story_starter
+  - type: agent
+    name: add_dialogue
+  - type: agent
+    name: add_ending
