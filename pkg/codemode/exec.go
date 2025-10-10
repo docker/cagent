@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	"github.com/dop251/goja"
+	"github.com/google/jsonschema-go/jsonschema"
 
 	"github.com/docker/cagent/pkg/tools"
 )
@@ -48,8 +49,8 @@ func (c *tool) runJavascript(ctx context.Context, script string) (string, error)
 	return fmt.Sprintf("%v", result), nil
 }
 
-func callTool(ctx context.Context, tool tools.Tool) func(args map[string]any) (string, error) {
-	return func(args map[string]any) (string, error) {
+func callTool(ctx context.Context, tool tools.Tool) func(args map[string]any) (any, error) {
+	return func(args map[string]any) (any, error) {
 		nonNilArgs := make(map[string]any)
 		for k, v := range args {
 			if slices.Contains(tool.Function.Parameters.Required, k) || v != nil {
@@ -59,7 +60,7 @@ func callTool(ctx context.Context, tool tools.Tool) func(args map[string]any) (s
 
 		arguments, err := json.Marshal(nonNilArgs)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 
 		result, err := tool.Handler(ctx, tools.ToolCall{
@@ -69,9 +70,32 @@ func callTool(ctx context.Context, tool tools.Tool) func(args map[string]any) (s
 			},
 		})
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 
-		return result.Output, nil
+		// If the tool has a string output schema or no schema, return as string
+		if tool.Function.OutputSchema == nil {
+			return result.Output, nil
+		}
+
+		// Check if output schema indicates a string type
+		if s, ok := tool.Function.OutputSchema.(*jsonschema.Schema); ok {
+			if s.Type == "string" {
+				return result.Output, nil
+			}
+		} else if schemaMap, ok := tool.Function.OutputSchema.(map[string]any); ok {
+			if schemaType, hasType := schemaMap["type"].(string); hasType && schemaType == "string" {
+				return result.Output, nil
+			}
+		}
+
+		// For non-string schemas, try to parse JSON
+		var parsed any
+		if err := json.Unmarshal([]byte(result.Output), &parsed); err != nil {
+			// If JSON parsing fails, return as string (fallback)
+			return result.Output, nil
+		}
+
+		return parsed, nil
 	}
 }
