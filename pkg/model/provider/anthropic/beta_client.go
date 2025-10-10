@@ -19,11 +19,17 @@ func (c *Client) createBetaStream(
 	requestTools []tools.Tool,
 	maxTokens int64,
 ) (chat.MessageStream, error) {
+	allTools, err := convertBetaTools(requestTools)
+	if err != nil {
+		slog.Error("Failed to convert tools for Anthropic Beta request", "error", err)
+		return nil, err
+	}
+
 	params := anthropic.BetaMessageNewParams{
 		Model:     anthropic.Model(c.config.Model),
 		MaxTokens: maxTokens,
 		Messages:  convertBetaMessages(messages),
-		Tools:     convertBetaTools(requestTools),
+		Tools:     allTools,
 		Betas:     []anthropic.AnthropicBeta{anthropic.AnthropicBetaInterleavedThinking2025_05_14},
 	}
 

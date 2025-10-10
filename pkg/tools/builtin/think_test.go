@@ -29,24 +29,31 @@ func TestThinkTool_Instructions(t *testing.T) {
 func TestThinkTool_Tools(t *testing.T) {
 	tool := NewThinkTool()
 
-	tls, err := tool.Tools(t.Context())
+	allTools, err := tool.Tools(t.Context())
 
 	require.NoError(t, err)
-	assert.Len(t, tls, 1)
+	assert.Len(t, allTools, 1)
 
 	// Verify think function
-	assert.Equal(t, "think", tls[0].Name)
-	assert.Contains(t, tls[0].Description, "Use the tool to think about something")
+	assert.Equal(t, "think", allTools[0].Name)
+	assert.Contains(t, allTools[0].Description, "Use the tool to think about something")
+	assert.NotNil(t, allTools[0].Handler)
 
 	// Check parameters
-	props := tls[0].Parameters.Properties
-	assert.Contains(t, props, "thought")
-
-	// Check required fields
-	assert.Contains(t, tls[0].Parameters.Required, "thought")
-
-	// Verify handler is provided
-	assert.NotNil(t, tls[0].Handler)
+	schema, err := json.Marshal(allTools[0].Parameters)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{
+	"type": "object",
+	"properties": {
+		"thought": {
+			"description": "The thought to think about",
+			"type": "string"
+		}
+	},
+	"required": [
+		"thought"
+	]
+}`, string(schema))
 }
 
 func TestThinkTool_DisplayNames(t *testing.T) {

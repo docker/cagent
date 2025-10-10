@@ -256,105 +256,43 @@ func (c *Client) buildConfig() *genai.GenerateContentConfig {
 }
 
 // convertToolsToGemini converts tools to Gemini format
-func convertToolsToGemini(requestTools []tools.Tool) []*genai.Tool {
+func convertToolsToGemini(requestTools []tools.Tool) ([]*genai.Tool, error) {
 	if len(requestTools) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	funcs := make([]*genai.FunctionDeclaration, 0, len(requestTools))
 	for _, tool := range requestTools {
+		parameters, err := ConvertParametersToSchema(tool.Parameters)
+		if err != nil {
+			return nil, err
+		}
+
 		funcs = append(funcs, &genai.FunctionDeclaration{
 			Name:        tool.Name,
 			Description: tool.Description,
-			Parameters:  ConvertParametersToSchema(tool.Parameters),
+			Parameters:  parameters,
 		})
 	}
 
 	return []*genai.Tool{{
 		FunctionDeclarations: funcs,
-	}}
+	}}, nil
 }
 
 // ConvertParametersToSchema converts parameters to Gemini Schema format
-func ConvertParametersToSchema(params any) *genai.Schema {
-	if params == nil {
-		return nil
+func ConvertParametersToSchema(params any) (*genai.Schema, error) {
+	buf, err := json.Marshal(params)
+	if err != nil {
+		return nil, err
 	}
 
-	// Convert FunctionParameters to Schema
-	if funcParams, ok := params.(tools.FunctionParameters); ok {
-		// Convert type string to Gemini Type
-		var schemaType genai.Type
-		switch funcParams.Type {
-		case "object":
-			schemaType = genai.TypeObject
-		case "string":
-			schemaType = genai.TypeString
-		case "number":
-			schemaType = genai.TypeNumber
-		case "integer":
-			schemaType = genai.TypeInteger
-		case "boolean":
-			schemaType = genai.TypeBoolean
-		case "array":
-			schemaType = genai.TypeArray
-		default:
-			schemaType = genai.TypeObject
-		}
-
-		schema := &genai.Schema{
-			Type:     schemaType,
-			Required: funcParams.Required,
-		}
-
-		// Convert properties map
-		if len(funcParams.Properties) > 0 {
-			schema.Properties = make(map[string]*genai.Schema)
-			for name := range funcParams.Properties {
-				// Parse each property schema
-				if propMap, ok := funcParams.Properties[name].(map[string]any); ok {
-					propSchema := &genai.Schema{}
-					if propType, ok := propMap["type"].(string); ok {
-						switch propType {
-						case "string":
-							propSchema.Type = genai.TypeString
-						case "number":
-							propSchema.Type = genai.TypeNumber
-						case "integer":
-							propSchema.Type = genai.TypeInteger
-						case "boolean":
-							propSchema.Type = genai.TypeBoolean
-						case "array":
-							propSchema.Type = genai.TypeArray
-							propSchema.Items = &genai.Schema{
-								Type: genai.TypeString,
-							}
-						case "object":
-							propSchema.Type = genai.TypeObject
-						default:
-							propSchema.Type = genai.TypeString
-						}
-					}
-					if propDesc, ok := propMap["description"].(string); ok {
-						propSchema.Description = propDesc
-					}
-					schema.Properties[name] = propSchema
-				} else {
-					// Default to string type
-					schema.Properties[name] = &genai.Schema{
-						Type: genai.TypeString,
-					}
-				}
-			}
-		}
-
-		return schema
+	var schema *genai.Schema
+	if err := json.Unmarshal(buf, &schema); err != nil {
+		return nil, err
 	}
 
-	// Fallback for other parameter types
-	return &genai.Schema{
-		Type: genai.TypeObject,
-	}
+	return schema, nil
 }
 
 // CreateChatCompletionStream creates a streaming chat completion request
@@ -371,7 +309,13 @@ func (c *Client) CreateChatCompletionStream(
 
 	// Add tools to config if provided
 	if len(requestTools) > 0 {
-		config.Tools = convertToolsToGemini(requestTools)
+		allTools, err := convertToolsToGemini(requestTools)
+		if err != nil {
+			slog.Error("Failed to convert tools to Gemini format", "error", err)
+			return nil, err
+		}
+
+		config.Tools = allTools
 
 		// Enable function calling
 		config.ToolConfig = &genai.ToolConfig{

@@ -1,6 +1,7 @@
 package builtin
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -30,17 +31,34 @@ func TestTaskTool_Tools(t *testing.T) {
 	assert.Equal(t, "transfer_task", allTools[0].Name)
 	assert.Contains(t, allTools[0].Description, "transfer a task to the selected team member")
 
-	// Check parameters
-	props := allTools[0].Parameters.Properties
-	assert.Contains(t, props, "agent")
-	assert.Contains(t, props, "task")
-
-	// Check required fields
-	assert.Contains(t, allTools[0].Parameters.Required, "agent")
-	assert.Contains(t, allTools[0].Parameters.Required, "task")
-
 	// Verify no handler is provided (it's handled externally)
 	assert.Nil(t, allTools[0].Handler)
+
+	// Check parameters
+	schema, err := json.Marshal(allTools[0].Parameters)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{
+	"type": "object",
+	"properties": {
+		"agent": {
+			"description": "The name of the agent to transfer the task to.",
+			"type": "string"
+		},
+		"expected_output": {
+			"description": "The expected output from the member (optional).",
+			"type": "string"
+		},
+		"task": {
+			"description": "A clear and concise description of the task the member should achieve.",
+			"type": "string"
+		}
+	},
+	"required": [
+		"agent",
+		"task",
+		"expected_output"
+	]
+}`, string(schema))
 }
 
 func TestTaskTool_DisplayNames(t *testing.T) {

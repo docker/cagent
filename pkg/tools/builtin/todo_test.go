@@ -40,24 +40,47 @@ func TestTodoTool_Tools(t *testing.T) {
 	assert.Equal(t, "create_todos", allTools[1].Name)
 	assert.Equal(t, "update_todo", allTools[2].Name)
 	assert.Equal(t, "list_todos", allTools[3].Name)
-
-	// Check create_todo parameters
-	createProps := allTools[0].Parameters.Properties
-	assert.Contains(t, createProps, "description")
-	assert.Contains(t, allTools[0].Parameters.Required, "description")
-
-	// Check update_todo parameters
-	updateProps := allTools[2].Parameters.Properties
-	assert.Contains(t, updateProps, "id")
-	assert.Contains(t, updateProps, "status")
-	assert.Contains(t, allTools[2].Parameters.Required, "id")
-	assert.Contains(t, allTools[2].Parameters.Required, "status")
-
-	// Verify handlers are provided
 	assert.NotNil(t, allTools[0].Handler)
 	assert.NotNil(t, allTools[1].Handler)
 	assert.NotNil(t, allTools[2].Handler)
 	assert.NotNil(t, allTools[3].Handler)
+
+	// Check create_todo parameters
+	schema, err := json.Marshal(allTools[0].Parameters)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{
+	"type": "object",
+	"properties": {
+		"description": {
+			"description": "Description of the todo item",
+			"type": "string"
+		}
+	},
+	"required": [
+		"description"
+	]
+}`, string(schema))
+
+	// Check update_todo parameters
+	schema, err = json.Marshal(allTools[2].Parameters)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{
+	"type": "object",
+	"properties": {
+		"id": {
+			"description": "ID of the todo item",
+			"type": "string"
+		},
+		"status": {
+			"description": "New status (pending, in-progress,completed)",
+			"type": "string"
+		}
+	},
+	"required": [
+		"id",
+		"status"
+	]
+}`, string(schema))
 }
 
 func TestTodoTool_DisplayNames(t *testing.T) {

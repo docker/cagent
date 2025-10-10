@@ -161,11 +161,17 @@ func (c *Client) CreateChatCompletionStream(
 		return c.createBetaStream(ctx, client, messages, requestTools, maxTokens)
 	}
 
+	allTools, err := convertTools(requestTools)
+	if err != nil {
+		slog.Error("Failed to convert tools for Anthropic request", "error", err)
+		return nil, err
+	}
+
 	params := anthropic.MessageNewParams{
 		Model:     anthropic.Model(c.config.Model),
 		MaxTokens: maxTokens,
 		Messages:  convertMessages(messages),
-		Tools:     convertTools(requestTools),
+		Tools:     allTools,
 	}
 
 	// Populate proper Anthropic system prompt from input messages
@@ -370,14 +376,19 @@ func extractSystemBlocks(messages []chat.Message) []anthropic.TextBlockParam {
 	return systemBlocks
 }
 
-func convertTools(tooles []tools.Tool) []anthropic.ToolUnionParam {
+func convertTools(tooles []tools.Tool) ([]anthropic.ToolUnionParam, error) {
 	toolParams := make([]anthropic.ToolParam, len(tooles))
 
 	for i, tool := range tooles {
+		inputSchema, err := ConvertParametersToSchema(tool.Parameters)
+		if err != nil {
+			return nil, err
+		}
+
 		toolParams[i] = anthropic.ToolParam{
 			Name:        tool.Name,
 			Description: anthropic.String(tool.Description),
-			InputSchema: ConvertParametersToSchema(tool.Parameters),
+			InputSchema: inputSchema,
 		}
 	}
 	anthropicTools := make([]anthropic.ToolUnionParam, len(toolParams))
@@ -385,20 +396,22 @@ func convertTools(tooles []tools.Tool) []anthropic.ToolUnionParam {
 		anthropicTools[i] = anthropic.ToolUnionParam{OfTool: &toolParams[i]}
 	}
 
-	return anthropicTools
+	return anthropicTools, nil
 }
 
 // ConvertParametersToSchema converts parameters to Anthropic Schema format
-func ConvertParametersToSchema(params tools.FunctionParameters) anthropic.ToolInputSchemaParam {
-	properties := params.Properties
-	if properties == nil {
-		properties = map[string]any{}
+func ConvertParametersToSchema(params any) (anthropic.ToolInputSchemaParam, error) {
+	buf, err := json.Marshal(params)
+	if err != nil {
+		return anthropic.ToolInputSchemaParam{}, err
 	}
 
-	return anthropic.ToolInputSchemaParam{
-		Properties: properties,
-		Required:   params.Required,
+	var schema anthropic.ToolInputSchemaParam
+	if err := json.Unmarshal(buf, &schema); err != nil {
+		return anthropic.ToolInputSchemaParam{}, err
 	}
+
+	return schema, nil
 }
 
 func (c *Client) ID() string {

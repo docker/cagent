@@ -59,59 +59,74 @@ func parseFunctionParameters(t *testing.T, schemaJSON string) tools.FunctionPara
 
 func TestEmptySchemaForGemini(t *testing.T) {
 	parameters := parseFunctionParameters(t, "{}")
-	schema, err := json.Marshal(gemini.ConvertParametersToSchema(parameters))
 
+	schema, err := gemini.ConvertParametersToSchema(parameters)
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"type": "OBJECT"}`, string(schema))
+
+	schemaJSON, err := json.Marshal(schema)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"type": "object"}`, string(schemaJSON))
 }
 
 func TestSchemaForGemini(t *testing.T) {
 	parameters := parseFunctionParameters(t, schemaJSON)
-	schema, err := json.Marshal(gemini.ConvertParametersToSchema(parameters))
 
+	schema, err := gemini.ConvertParametersToSchema(parameters)
+	require.NoError(t, err)
+
+	schemaJSON, err := json.Marshal(schema)
 	require.NoError(t, err)
 	assert.JSONEq(t, `
 {
-	"type": "OBJECT",
-	"properties": {
-		"direction": {
-			"description": "Order",
-			"type": "STRING"
-		},
-		"labels": {
-			"description": "Filter",
-			"items": {
-				"type": "STRING"
-			},
-			"type": "ARRAY"
-		},
-		"perPage": {
-			"description": "Results",
-			"type": "NUMBER"
-		},
-		"repo": {
-			"description": "Repository",
-			"type": "STRING"
-		}
-	},
-	"required": ["repo"]
-}`, string(schema))
+    "type": "object",
+    "properties": {
+      "direction": {
+        "description": "Order",
+        "enum": [
+          "ASC",
+          "DESC"
+        ],
+        "type": "string"
+      },
+      "labels": {
+        "description": "Filter",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "perPage": {
+        "description": "Results",
+        "maximum": 100,
+        "minimum": 1,
+        "type": "number"
+      },
+      "repo": {
+        "description": "Repository",
+        "type": "string"
+      }
+    },
+    "required": ["repo"]
+}`, string(schemaJSON))
 }
 
 func TestEmptySchemaForAnthropic(t *testing.T) {
 	parameters := parseFunctionParameters(t, "{}")
-	schema, err := json.Marshal(anthropic.ConvertParametersToSchema(parameters))
-
+	shema, err := anthropic.ConvertParametersToSchema(parameters)
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"type": "object", "properties": {}}`, string(schema))
+
+	schemaJSON, err := json.Marshal(shema)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"type": "object", "properties": {}}`, string(schemaJSON))
 }
 
 func TestSchemaForAnthropic(t *testing.T) {
 	parameters := parseFunctionParameters(t, schemaJSON)
-
-	schema, err := json.Marshal(anthropic.ConvertParametersToSchema(parameters))
+	shema, err := anthropic.ConvertParametersToSchema(parameters)
 	require.NoError(t, err)
 
+	schemaJSON, err := json.Marshal(shema)
+	require.NoError(t, err)
 	assert.JSONEq(t, `
 {
 	"type": "object",
@@ -140,23 +155,28 @@ func TestSchemaForAnthropic(t *testing.T) {
 		}
 	},
 	"required": ["repo"]
-}`, string(schema))
+}`, string(schemaJSON))
 }
 
 func TestEmptySchemaForOpenai(t *testing.T) {
 	parameters := parseFunctionParameters(t, "{}")
-	schema, err := json.Marshal(openai.ConvertParametersToSchema(parameters))
 
+	schema, err := openai.ConvertParametersToSchema(parameters)
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"type": "object", "properties": {}}`, string(schema))
+
+	schemaJSON, err := json.Marshal(schema)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"type": "object", "properties": {}}`, string(schemaJSON))
 }
 
 func TestSchemaForOpenai(t *testing.T) {
 	parameters := parseFunctionParameters(t, schemaJSON)
 
-	schema, err := json.Marshal(openai.ConvertParametersToSchema(parameters))
+	schema, err := openai.ConvertParametersToSchema(parameters)
 	require.NoError(t, err)
 
+	schemaJSON, err := json.Marshal(schema)
+	require.NoError(t, err)
 	assert.JSONEq(t, `
 {
 	"type": "object",
@@ -185,23 +205,28 @@ func TestSchemaForOpenai(t *testing.T) {
 		}
 	},
 	"required": ["repo"]
-}`, string(schema))
+}`, string(schemaJSON))
 }
 
 func TestEmptySchemaForDMR(t *testing.T) {
 	parameters := parseFunctionParameters(t, "{}")
-	schema, err := json.Marshal(dmr.ConvertParametersToSchema(parameters))
 
+	schema, err := dmr.ConvertParametersToSchema(parameters)
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"type": "object", "properties": {}}`, string(schema))
+
+	schemaJSON, err := json.Marshal(schema)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"type": "object", "properties": {}}`, string(schemaJSON))
 }
 
 func TestSchemaForDMR(t *testing.T) {
 	parameters := parseFunctionParameters(t, schemaJSON)
 
-	schema, err := json.Marshal(dmr.ConvertParametersToSchema(parameters))
+	schema, err := dmr.ConvertParametersToSchema(parameters)
 	require.NoError(t, err)
 
+	schemaJSON, err := json.Marshal(schema)
+	require.NoError(t, err)
 	assert.JSONEq(t, `
 {
 	"type": "object",
@@ -230,5 +255,5 @@ func TestSchemaForDMR(t *testing.T) {
 		}
 	},
 	"required": ["repo"]
-}`, string(schema))
+}`, string(schemaJSON))
 }

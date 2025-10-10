@@ -341,10 +341,17 @@ func (c *Client) CreateChatCompletionStream(ctx context.Context, messages []chat
 			if desc == "" {
 				desc = "Function " + tool.Name
 			}
+
+			parameters, err := ConvertParametersToSchema(tool.Parameters)
+			if err != nil {
+				slog.Error("Failed to convert tool parameters to DMR schema", "error", err, "tool", tool.Name)
+				return nil, fmt.Errorf("failed to convert tool parameters to DMR schema for tool %s: %w", tool.Name, err)
+			}
+
 			fd := &openai.FunctionDefinition{
 				Name:        tool.Name,
 				Description: desc,
-				Parameters:  ConvertParametersToSchema(tool.Parameters),
+				Parameters:  parameters,
 			}
 			request.Tools[i] = openai.Tool{
 				Type:     openai.ToolTypeFunction,
@@ -387,55 +394,18 @@ func (c *Client) CreateChatCompletionStream(ctx context.Context, messages []chat
 }
 
 // ConvertParametersToSchema converts parameters to DMR Schema format
-func ConvertParametersToSchema(params tools.FunctionParameters) any {
-	if len(params.Properties) == 0 {
-		return map[string]any{
-			"type":       "object",
-			"properties": map[string]any{},
-		}
+func ConvertParametersToSchema(params any) (any, error) {
+	buf, err := json.Marshal(params)
+	if err != nil {
+		return nil, err
 	}
 
-	return sanitizeToolParameters(params)
-}
+	var schema map[string]any
+	if err := json.Unmarshal(buf, &schema); err != nil {
+		return nil, err
+	}
 
-// sanitizeToolParameters ensures the tool parameter schema is safe for engines using Jinja-like templates.
-// In particular, it avoids shadowing built-in mapping methods like `keys()` by removing a literal "keys"
-// field from property schemas if present, and guarantees the outer structure is an object with a properties map.
-func sanitizeToolParameters(p tools.FunctionParameters) any {
-	out := map[string]any{
-		"type":       "object",
-		"properties": map[string]any{},
-	}
-	if p.Type != "" {
-		out["type"] = p.Type
-	}
-	if len(p.Required) > 0 {
-		out["required"] = p.Required
-	}
-	propsOut := out["properties"].(map[string]any)
-	for propName, rawSchema := range p.Properties {
-		// Try to coerce each property's schema to a map for sanitization
-		var schemaMap map[string]any
-		switch v := rawSchema.(type) {
-		case map[string]any:
-			schemaMap = v
-		default:
-			// best-effort JSON roundtrip to map
-			b, err := json.Marshal(rawSchema)
-			if err == nil {
-				_ = json.Unmarshal(b, &schemaMap)
-			}
-		}
-		if schemaMap == nil {
-			// Keep original if we couldn't coerce
-			propsOut[propName] = rawSchema
-			continue
-		}
-		// Remove literal "keys" field if present to avoid shadowing `.keys()` in templates
-		delete(schemaMap, "keys")
-		propsOut[propName] = schemaMap
-	}
-	return out
+	return schema, nil
 }
 
 func (c *Client) ID() string {

@@ -44,18 +44,27 @@ func TestShellTool_Tools(t *testing.T) {
 	// Verify bash function
 	assert.Equal(t, "shell", allTools[0].Name)
 	assert.Contains(t, allTools[0].Description, "Executes the given shell command")
-
-	// Check parameters
-	props := allTools[0].Parameters.Properties
-	assert.Contains(t, props, "cmd")
-	assert.Contains(t, props, "cwd")
-
-	// Check required fields
-	assert.Contains(t, allTools[0].Parameters.Required, "cmd")
-	assert.Contains(t, allTools[0].Parameters.Required, "cwd")
-
-	// Verify handler is provided
 	assert.NotNil(t, allTools[0].Handler)
+
+	schema, err := json.Marshal(allTools[0].Parameters)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{
+	"type": "object",
+	"properties": {
+		"cmd": {
+			"description": "The shell command to execute",
+			"type": "string"
+		},
+		"cwd": {
+			"description": "The working directory to execute the command in",
+			"type": "string"
+		}
+	},
+	"required": [
+		"cmd",
+		"cwd"
+	]
+}`, string(schema))
 }
 
 func TestShellTool_DisplayNames(t *testing.T) {

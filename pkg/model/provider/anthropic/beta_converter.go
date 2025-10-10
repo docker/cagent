@@ -167,16 +167,27 @@ func extractBetaSystemBlocks(messages []chat.Message) []anthropic.BetaTextBlockP
 }
 
 // convertBetaTools converts tools to Beta API format
-func convertBetaTools(t []tools.Tool) []anthropic.BetaToolUnionParam {
-	regularTools := convertTools(t)
+func convertBetaTools(t []tools.Tool) ([]anthropic.BetaToolUnionParam, error) {
+	regularTools, err := convertTools(t)
+	if err != nil {
+		slog.Error("Failed to convert tools for Anthropic Beta request", "error", err)
+		return nil, err
+	}
+
 	betaTools := make([]anthropic.BetaToolUnionParam, len(regularTools))
+
 	for i, tool := range regularTools {
 		// Convert via JSON roundtrip
-		data, _ := json.Marshal(tool)
-		err := json.Unmarshal(data, &betaTools[i])
+		data, err := json.Marshal(tool)
 		if err != nil {
-			slog.Error("Error unmarshalling tool", "error", err, "tool", tool)
+			return nil, err
+		}
+
+		err = json.Unmarshal(data, &betaTools[i])
+		if err != nil {
+			return nil, err
 		}
 	}
-	return betaTools
+
+	return betaTools, nil
 }
