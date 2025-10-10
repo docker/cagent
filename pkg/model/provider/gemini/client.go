@@ -414,3 +414,8 @@ func (c *Client) CreateChatCompletionStream(
 func (c *Client) ID() string {
 	return c.config.Provider + "/" + c.config.Model
 }
+
+// Options returns the effective model options used by this client.
+func (c *Client) Options() options.ModelOptions {
+	return c.modelOptions
+}

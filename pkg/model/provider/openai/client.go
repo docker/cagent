@@ -367,6 +367,11 @@ func (c *Client) ID() string {
 	return c.config.Provider + "/" + c.config.Model
 }
 
+// Options returns the effective model options used by this client.
+func (c *Client) Options() options.ModelOptions {
+	return c.modelOptions
+}
+
 // getOpenAIReasoningEffort resolves the reasoning effort value from the
 // model configuration's ThinkingBudget. Returns the effort (minimal|low|medium|high) or an error
 func getOpenAIReasoningEffort(cfg *latest.ModelConfig) (effort string, err error) {

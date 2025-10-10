@@ -18,6 +18,8 @@ import (
 
 	"github.com/docker/cagent/pkg/agent"
 	"github.com/docker/cagent/pkg/chat"
+	"github.com/docker/cagent/pkg/model/provider"
+	"github.com/docker/cagent/pkg/model/provider/options"
 	"github.com/docker/cagent/pkg/modelsdev"
 	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/team"
@@ -959,9 +961,11 @@ func (r *runtime) generateSessionTitle(ctx context.Context, sess *session.Sessio
 	systemPrompt := "You are a helpful AI assistant that generates concise, descriptive titles for conversations. You will be given a conversation history and asked to create a title that captures the main topic."
 	userPrompt := fmt.Sprintf("Based on the following conversation between a user and an AI assistant, generate a short, descriptive title (maximum 50 characters) that captures the main topic or purpose of the conversation. Return ONLY the title text, nothing else.\n\nConversation history:%s\n\nGenerate a title for this conversation:", conversationHistory.String())
 
+	titleModel := provider.CloneWithOptions(ctx, r.CurrentAgent().Model(), nil, options.WithStructuredOutput(nil))
+
 	newTeam := team.New(
 		team.WithID("title-generator"),
-		team.WithAgents(agent.New("root", systemPrompt, agent.WithModel(r.CurrentAgent().Model()))),
+		team.WithAgents(agent.New("root", systemPrompt, agent.WithModel(titleModel))),
 	)
 
 	titleSession := session.New(session.WithSystemMessage(systemPrompt))
@@ -1019,10 +1023,10 @@ func (r *runtime) Summarize(ctx context.Context, sess *session.Session, events c
 	// Create a new session for summary generation
 	systemPrompt := "You are a helpful AI assistant that creates comprehensive summaries of conversations. You will be given a conversation history and asked to create a concise yet thorough summary that captures the key points, decisions made, and outcomes."
 	userPrompt := fmt.Sprintf("Based on the following conversation between a user and an AI assistant, create a comprehensive summary that captures:\n- The main topics discussed\n- Key information exchanged\n- Decisions made or conclusions reached\n- Important outcomes or results\n\nProvide a well-structured summary (2-4 paragraphs) that someone could read to understand what happened in this conversation. Return ONLY the summary text, nothing else.\n\nConversation history:%s\n\nGenerate a summary for this conversation:", conversationHistory.String())
-
+	newModel := provider.CloneWithOptions(ctx, r.CurrentAgent().Model(), nil, options.WithStructuredOutput(nil))
 	newTeam := team.New(
 		team.WithID("summary-generator"),
-		team.WithAgents(agent.New("root", systemPrompt, agent.WithModel(r.CurrentAgent().Model()))),
+		team.WithAgents(agent.New("root", systemPrompt, agent.WithModel(newModel))),
 	)
 
 	summarySession := session.New(session.WithSystemMessage(systemPrompt))

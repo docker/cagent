@@ -11,6 +11,7 @@ import (
 
 	"github.com/docker/cagent/pkg/agent"
 	"github.com/docker/cagent/pkg/chat"
+	"github.com/docker/cagent/pkg/model/provider/options"
 	"github.com/docker/cagent/pkg/modelsdev"
 	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/team"
@@ -112,6 +113,8 @@ func (m *mockProvider) CreateChatCompletionStream(ctx context.Context, messages 
 	return m.stream, nil
 }
 
+func (m *mockProvider) Options() options.ModelOptions { return options.ModelOptions{} }
+
 type mockProviderWithError struct {
 	id string
 }
@@ -121,6 +124,8 @@ func (m *mockProviderWithError) ID() string { return m.id }
 func (m *mockProviderWithError) CreateChatCompletionStream(ctx context.Context, messages []chat.Message, _ []tools.Tool) (chat.MessageStream, error) {
 	return nil, fmt.Errorf("simulated error creating chat completion stream")
 }
+
+func (m *mockProviderWithError) Options() options.ModelOptions { return options.ModelOptions{} }
 
 type mockModelStore struct{}
 

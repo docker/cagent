@@ -21,8 +21,9 @@ import (
 // Client represents an Anthropic client wrapper implementing provider.Provider
 // It holds the anthropic client and model config
 type Client struct {
-	client anthropic.Client
-	config *latest.ModelConfig
+	client       anthropic.Client
+	config       *latest.ModelConfig
+	modelOptions options.ModelOptions
 	// When using the Docker AI Gateway, tokens are short-lived. We rebuild
 	// the client per request when in gateway mode.
 	useGateway     bool
@@ -114,6 +115,7 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 	return &Client{
 		client:         client,
 		config:         cfg,
+		modelOptions:   globalOptions,
 		useGateway:     useGateway,
 		gatewayBaseURL: gatewayBaseURL,
 	}, nil
@@ -401,4 +403,9 @@ func ConvertParametersToSchema(params tools.FunctionParameters) anthropic.ToolIn
 
 func (c *Client) ID() string {
 	return c.config.Provider + "/" + c.config.Model
+}
+
+// Options returns the effective model options used by this client.
+func (c *Client) Options() options.ModelOptions {
+	return c.modelOptions
 }

@@ -47,6 +47,8 @@ type Provider interface {
 		messages []chat.Message,
 		tools []tools.Tool,
 	) (chat.MessageStream, error)
+	// Options returns the effective model options used by this provider
+	Options() options.ModelOptions
 }
 
 func New(ctx context.Context, cfg *latest.ModelConfig, env environment.Provider, opts ...options.Opt) (Provider, error) {

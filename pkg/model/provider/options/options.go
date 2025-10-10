@@ -26,3 +26,16 @@ func WithStructuredOutput(output *latest.StructuredOutput) Opt {
 		cfg.StructuredOutput = output
 	}
 }
+
+// FromModelOptions converts a concrete ModelOptions value into a slice of
+// Opt configuration functions. Later Opts override earlier ones when applied.
+func FromModelOptions(m ModelOptions) []Opt {
+	var out []Opt
+	if g := m.Gateway(); g != "" {
+		out = append(out, WithGateway(g))
+	}
+	if m.StructuredOutput != nil {
+		out = append(out, WithStructuredOutput(m.StructuredOutput))
+	}
+	return out
+}
