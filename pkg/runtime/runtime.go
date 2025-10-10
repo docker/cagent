@@ -481,19 +481,19 @@ func (r *runtime) handleStream(ctx context.Context, stream chat.MessageStream, a
 		if response.Usage != nil {
 			if m != nil {
 				sess.Cost += (float64(response.Usage.InputTokens)*m.Cost.Input +
-					float64(response.Usage.OutputTokens)*m.Cost.Output +
+					float64(response.Usage.OutputTokens+response.Usage.ReasoningTokens)*m.Cost.Output +
 					float64(response.Usage.CachedInputTokens)*m.Cost.CacheRead +
 					float64(response.Usage.CachedOutputTokens)*m.Cost.CacheWrite) / 1e6
 			}
 
 			sess.InputTokens = response.Usage.InputTokens + response.Usage.CachedInputTokens
-			sess.OutputTokens = response.Usage.OutputTokens + response.Usage.CachedOutputTokens
+			sess.OutputTokens = response.Usage.OutputTokens + response.Usage.CachedOutputTokens + response.Usage.ReasoningTokens
 
 			modelName := "unknown"
 			if m != nil {
 				modelName = m.Name
 			}
-			telemetry.RecordTokenUsage(ctx, modelName, int64(response.Usage.InputTokens), int64(response.Usage.OutputTokens), sess.Cost)
+			telemetry.RecordTokenUsage(ctx, modelName, int64(response.Usage.InputTokens), int64(response.Usage.OutputTokens+response.Usage.ReasoningTokens), sess.Cost)
 		}
 
 		if len(response.Choices) == 0 {

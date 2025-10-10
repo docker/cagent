@@ -9,8 +9,9 @@ agents:
   root:
     model: gpt-5-mini-min # <- try with gpt-5-mini-high
     # model: claude-4-5-sonnet-min # <- try with claude-4-5-sonnet-high
+    # model: gemini-2-5-flash-dynamic-thinking # <- try with -no-thinking, -low or -high variants
     description: a helpful assistant that thinks
-    instruction: you are a helpful assistant
+    instruction: you are a helpful assistant who can also use tools, but only if you need to
     commands:
       demo: "hey i need python code for a mandelbrot fractal"
     toolsets:
@@ -35,6 +36,26 @@ models:
   claude-4-5-sonnet-high:
     provider: anthropic
     model: claude-sonnet-4-5-20250929
-    thinking_budget: 32768 # <- tokens, 32768 is the suggested maximum without batching
+    thinking_budget: 32768 # <- tokens, 32768 is the Anthropic suggested maximum without batching
     provider_opts:
-      interleaved_thinking: true # <- enable interleaved thinking, aka tool calling during model reasoning
+      interleaved_thinking: true # <- enables interleaved thinking, aka tool calling during model reasoning
+
+  gemini-2-5-flash-dynamic-thinking:
+    provider: google
+    model: gemini-2.5-flash
+    thinking_budget: -1 # <- google only, dynamic thinking
+
+  gemini-2-5-flash-no-thinking:
+    provider: google
+    model: gemini-2.5-flash
+    thinking_budget: 0 # <- google only, no thinking
+  
+  gemini-2-5-flash-low:
+    provider: google
+    model: gemini-2.5-flash
+    thinking_budget: 1024
+  
+  gemini-2-5-flash-high:
+    provider: google
+    model: gemini-2.5-flash
+    thinking_budget: 24576 # <- google's maximum thinking budget for all models except Gemini 2.5 Pro (max 32768)

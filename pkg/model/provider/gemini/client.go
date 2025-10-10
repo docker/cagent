@@ -220,6 +220,30 @@ func (c *Client) buildConfig() *genai.GenerateContentConfig {
 	if c.config.MaxTokens > 0 {
 		config.MaxOutputTokens = int32(c.config.MaxTokens)
 	}
+
+	// Apply thinking budget for Gemini models using token-based configuration.
+	// Per official docs: https://ai.google.dev/gemini-api/docs/thinking
+	// - Set thinkingBudget to 0 to disable thinking
+	// - Set thinkingBudget to -1 for dynamic thinking (model decides)
+	// - Set to a specific value for a fixed token budget,
+	//   maximum is 24576 for all models except Gemini 2.5 Pro (max 32768)
+	if c.config.ThinkingBudget != nil {
+		if config.ThinkingConfig == nil {
+			config.ThinkingConfig = &genai.ThinkingConfig{}
+		}
+		config.ThinkingConfig.IncludeThoughts = true
+		tokens := c.config.ThinkingBudget.Tokens
+		config.ThinkingConfig.ThinkingBudget = genai.Ptr(int32(tokens))
+
+		switch tokens {
+		case 0:
+			slog.Debug("Gemini request with thinking disabled", "budget_tokens", tokens)
+		case -1:
+			slog.Debug("Gemini request with dynamic thinking", "budget_tokens", tokens)
+		default:
+			slog.Debug("Gemini request using thinking_budget", "budget_tokens", tokens)
+		}
+	}
 	return config
 }
 

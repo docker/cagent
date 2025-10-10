@@ -139,17 +139,17 @@ cagent run ./agent.yaml --command ls
 
 ### Model Properties
 
-| Property            | Type       | Description                                                           | Required |
-|---------------------|------------|-----------------------------------------------------------------------|----------|
-| `provider`          | string     | Provider: `openai`, `anthropic`, `dmr`                                | ✓        |
-| `model`             | string     | Model name (e.g., `gpt-4o`, `claude-sonnet-4-0`)                      | ✓        |
-| `temperature`       | float      | Randomness (0.0-1.0)                                                  | ✗        |
-| `max_tokens`        | integer    | Response length limit                                                 | ✗        |
-| `top_p`             | float      | Nucleus sampling (0.0-1.0)                                            | ✗        |
-| `frequency_penalty` | float      | Repetition penalty (0.0-2.0)                                          | ✗        |
-| `presence_penalty`  | float      | Topic repetition penalty (0.0-2.0)                                    | ✗        |
-| `base_url`          | string     | Custom API endpoint                                                   | ✗        |
-| `thinking_budget`   | string/int | Reasoning effort — OpenAI: effort string, Anthropic: token budget int | ✗        |
+| Property            | Type       | Description                                                                  | Required |
+|---------------------|------------|------------------------------------------------------------------------------|----------|
+| `provider`          | string     | Provider: `openai`, `anthropic`, `google`, `dmr`                             | ✓        |
+| `model`             | string     | Model name (e.g., `gpt-4o`, `claude-sonnet-4-0`, `gemini-2.5-flash`)         | ✓        |
+| `temperature`       | float      | Randomness (0.0-1.0)                                                         | ✗        |
+| `max_tokens`        | integer    | Response length limit                                                        | ✗        |
+| `top_p`             | float      | Nucleus sampling (0.0-1.0)                                                   | ✗        |
+| `frequency_penalty` | float      | Repetition penalty (0.0-2.0)                                                 | ✗        |
+| `presence_penalty`  | float      | Topic repetition penalty (0.0-2.0)                                           | ✗        |
+| `base_url`          | string     | Custom API endpoint                                                          | ✗        |
+| `thinking_budget`   | string/int | Reasoning effort — OpenAI: effort string, Anthropic/Google: token budget int | ✗        | 
 
 #### Example
 
@@ -164,7 +164,7 @@ models:
     frequency_penalty: float # Repetition penalty (0.0-2.0)
     presence_penalty: float # Topic repetition penalty (0.0-2.0)
     parallel_tool_calls: boolean
-    thinking_budget: string|integer # OpenAI: effort level string; Anthropic: integer token budget
+    thinking_budget: string|integer # OpenAI: effort level string; Anthropic/Google: integer token budget
 ```
 
 ### Reasoning Effort (thinking_budget)
@@ -172,7 +172,8 @@ models:
 Determine how much the model should think by setting the `thinking_budget`
 
 - **OpenAI**: use effort levels — `minimal`, `low`, `medium`, `high`
-- **Anthropic**: set an integer token budget. Minimum is 1024; range is 1024–32768; must be strictly less than `max_tokens`. When set, cagent uses Anthropic's Beta Messages API with interleaved thinking enabled.
+- **Anthropic**: set an integer token budget. Range is 1024–32768; must be strictly less than `max_tokens`.
+- **Google (Gemini)**: set an integer token budget. `0` -> disable thinking, `-1` -> dynamic thinking (model decides). Most models: 0–24576 tokens. Gemini 2.5 Pro: 128–32768 tokens (and cannot disabled thinking). 
 
 Examples (OpenAI):
 
@@ -204,6 +205,31 @@ agents:
     instruction: you are a helpful assistant that doesn't think very much
 ```
 
+Examples (Google):
+
+```yaml
+models:
+  gemini-no-thinking:
+    provider: google
+    model: gemini-2.5-flash
+    thinking_budget: 0  # Disable thinking
+
+  gemini-dynamic:
+    provider: google
+    model: gemini-2.5-flash
+    thinking_budget: -1  # Dynamic thinking (model decides)
+
+  gemini-fixed:
+    provider: google
+    model: gemini-2.5-flash
+    thinking_budget: 8192  # Fixed token budget
+
+agents:
+  root:
+    model: gemini-fixed
+    instruction: you are a helpful assistant
+```
+
 #### Interleaved Thinking (Anthropic)
 
 Anthropic's interleaved thinking feature uses the Beta Messages API to provide tool calling during model reasoning. You can control this behavior using the `interleaved_thinking` provider option:
@@ -220,11 +246,14 @@ models:
 
 Notes:
 
-- If an invalid OpenAI effort value is set, the request will fail with a clear error
-- For Anthropic, values < 1024 or ≥ `max_tokens` are ignored (warning logged)
-- When `interleaved_thinking` is enabled, cagent uses Anthropic's Beta Messages API with a default thinking budget of 16384 tokens if not specified
+- **OpenAI**: If an invalid effort value is set, the request will fail with a clear error
+- **Anthropic**: Values < 1024 or ≥ `max_tokens` are ignored (warning logged). When `interleaved_thinking` is enabled, cagent uses Anthropic's Beta Messages API with a default thinking budget of 16384 tokens if not specified
+- **Google**: 
+  - Most models support values between -1 and 24576 tokens. Set to `0` to disable, `-1` for dynamic thinking
+  - Gemini 2.5 Pro: supports 128–32768 tokens. Cannot be disabled (minimum 128)
+  - Gemini 2.5 Flash-Lite: supports 512–24576 tokens. Set to `0` to disable, `-1` for dynamic thinking
 - For unsupported providers, `thinking_budget` has no effect
-- Debug logs include the applied effort (e.g., "OpenAI request using thinking_budget", "Anthropic Beta API using thinking_budget")
+- Debug logs include the applied effort (e.g., "OpenAI request using thinking_budget", "Gemini request using thinking_budget")
 
 See `examples/thinking_budget.yaml` for a complete runnable demo.
 

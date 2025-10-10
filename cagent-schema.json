@@ -182,7 +182,7 @@
           "description": "Whether to track usage"
         },
         "thinking_budget": {
-          "description": "Controls reasoning effort/budget. For OpenAI: string levels ('minimal', 'low', 'medium', 'high'). For Anthropic: integer token budget (1024-32768)",
+          "description": "Controls reasoning effort/budget. OpenAI: string levels ('minimal','low','medium','high'). Anthropic: integer token budget (1024-32768). Gemini: integer token budget (-1 for unlimited, 0 to disable, 24576 max).",
           "oneOf": [
             {
               "type": "string",
@@ -191,12 +191,12 @@
             },
             {
               "type": "integer",
-              "minimum": 1024,
+              "minimum": -1,
               "maximum": 32768,
-              "description": "Token budget for extended thinking (Anthropic)"
+              "description": "Token budget for extended thinking (Anthropic, Google)"
             }
           ],
-          "examples": ["minimal", "low", "medium", "high", 1024, 32768]
+          "examples": ["minimal", "low", "medium", "high", -1, 0, 1024, 24576, 32768]
         }
       },
       "additionalProperties": false
