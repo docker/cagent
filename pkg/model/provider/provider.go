@@ -47,11 +47,6 @@ type Provider interface {
 		messages []chat.Message,
 		tools []tools.Tool,
 	) (chat.MessageStream, error)
-
-	CreateChatCompletion(
-		ctx context.Context,
-		messages []chat.Message,
-	) (string, error)
 }
 
 func New(ctx context.Context, cfg *latest.ModelConfig, env environment.Provider, opts ...options.Opt) (Provider, error) {

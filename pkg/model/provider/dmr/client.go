@@ -384,24 +384,6 @@ func ConvertParametersToSchema(params tools.FunctionParameters) any {
 	return sanitizeToolParameters(params)
 }
 
-func (c *Client) CreateChatCompletion(ctx context.Context, messages []chat.Message) (string, error) {
-	slog.Debug("Creating DMR chat completion", "model", c.config.Model, "message_count", len(messages), "base_url", c.baseURL)
-
-	request := openai.ChatCompletionRequest{
-		Model:    c.config.Model,
-		Messages: convertMessages(messages),
-	}
-
-	response, err := c.client.CreateChatCompletion(ctx, request)
-	if err != nil {
-		slog.Error("DMR chat completion failed", "error", err, "model", c.config.Model)
-		return "", err
-	}
-
-	slog.Debug("DMR chat completion successful", "model", c.config.Model, "response_length", len(response.Choices[0].Message.Content))
-	return response.Choices[0].Message.Content, nil
-}
-
 // sanitizeToolParameters ensures the tool parameter schema is safe for engines using Jinja-like templates.
 // In particular, it avoids shadowing built-in mapping methods like `keys()` by removing a literal "keys"
 // field from property schemas if present, and guarantees the outer structure is an object with a properties map.

@@ -309,60 +309,6 @@ func ConvertParametersToSchema(params tools.FunctionParameters) tools.FunctionPa
 	return params
 }
 
-func (c *Client) CreateChatCompletion(
-	ctx context.Context,
-	messages []chat.Message,
-) (string, error) {
-	slog.Debug("Creating OpenAI chat completion", "model", c.config.Model, "message_count", len(messages))
-
-	request := openai.ChatCompletionRequest{
-		Model:    c.config.Model,
-		Messages: convertMessages(messages),
-	}
-
-	// Set appropriate token limit depending on model family
-	if c.config.MaxTokens > 0 {
-		if isResponsesOnlyModel(c.config.Model) {
-			request.MaxCompletionTokens = c.config.MaxTokens
-		} else {
-			request.MaxTokens = c.config.MaxTokens
-		}
-	}
-
-	// Build a fresh client per request when using the gateway
-	client := c.client
-	if c.useGateway {
-		client = c.newGatewayClient(ctx)
-	}
-	// Apply thinking budget: set reasoning_effort parameter
-	if c.config.ThinkingBudget != nil {
-		effort, err := getOpenAIReasoningEffort(c.config)
-		if err != nil {
-			slog.Error("OpenAI request using thinking_budget failed", "error", err)
-			return "", err
-		}
-		request.ReasoningEffort = effort
-		slog.Debug("OpenAI request using thinking_budget", "reasoning_effort", effort)
-	}
-	response, err := client.CreateChatCompletion(ctx, request)
-	if err != nil {
-		// Fallback for future models: retry without max_tokens if server complains
-		if isMaxTokensUnsupportedError(err) {
-			slog.Debug("Retrying OpenAI request without max_tokens due to server requirement", "model", c.config.Model)
-			request.MaxTokens = 0
-			request.MaxCompletionTokens = c.config.MaxTokens
-			response, err = client.CreateChatCompletion(ctx, request)
-		}
-		if err != nil {
-			slog.Error("OpenAI chat completion failed", "error", err, "model", c.config.Model)
-			return "", err
-		}
-	}
-
-	slog.Debug("OpenAI chat completion successful", "model", c.config.Model, "response_length", len(response.Choices[0].Message.Content))
-	return response.Choices[0].Message.Content, nil
-}
-
 // isResponsesOnlyModel returns true for newer OpenAI models that use the Responses API
 // and expect max_completion_tokens/max_output_tokens instead of max_tokens
 func isResponsesOnlyModel(model string) bool {

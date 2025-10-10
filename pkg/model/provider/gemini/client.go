@@ -403,53 +403,6 @@ func (c *Client) CreateChatCompletionStream(
 	return NewStreamAdapter(iter, c.config.Model), nil
 }
 
-// CreateChatCompletion creates a non-streaming chat completion
-func (c *Client) CreateChatCompletion(
-	ctx context.Context,
-	messages []chat.Message,
-) (string, error) {
-	// Build a fresh client per request when using the gateway
-	var client *genai.Client
-	if c.useGateway {
-		if gwClient, err := c.newGatewayClient(ctx); err == nil {
-			client = gwClient
-		} else {
-			client = c.client
-		}
-	} else {
-		client = c.client
-	}
-	result, err := client.Models.GenerateContent(ctx, c.config.Model, convertMessagesToGemini(messages), c.buildConfig())
-	if err != nil {
-		return "", err
-	}
-
-	// Check if there are function calls in the response
-	if funcs := result.FunctionCalls(); len(funcs) > 0 {
-		// For now, we'll return an error indicating function calls are not supported in non-streaming mode
-		// This matches the behavior of other providers that expect streaming for tool use
-		return "", errors.New("function calls are not supported in non-streaming mode, use streaming mode instead")
-	}
-
-	// Extract text content safely
-	var textParts []string
-	for _, candidate := range result.Candidates {
-		if candidate.Content != nil {
-			for _, part := range candidate.Content.Parts {
-				if part.Text != "" {
-					textParts = append(textParts, part.Text)
-				}
-			}
-		}
-	}
-
-	if len(textParts) == 0 {
-		return "", nil
-	}
-
-	return textParts[0], nil
-}
-
 func (c *Client) ID() string {
 	return c.config.Provider + "/" + c.config.Model
 }
