@@ -252,7 +252,7 @@ func (c *Client) CreateChatCompletionStream(
 				Function: &openai.FunctionDefinition{
 					Name:        tool.Name,
 					Description: tool.Description,
-					Parameters:  tool.Parameters,
+					Parameters:  ConvertParametersToSchema(tool.Parameters),
 				},
 			}
 
@@ -302,6 +302,11 @@ func (c *Client) CreateChatCompletionStream(
 
 	slog.Debug("OpenAI chat completion stream created successfully", "model", c.config.Model)
 	return newStreamAdapter(stream, trackUsage), nil
+}
+
+// ConvertParametersToSchema converts parameters to OpenAI Schema format
+func ConvertParametersToSchema(params tools.FunctionParameters) tools.FunctionParameters {
+	return params
 }
 
 func (c *Client) CreateChatCompletion(

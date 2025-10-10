@@ -150,16 +150,10 @@ func (ts *Toolset) Tools(ctx context.Context) ([]tools.Tool, error) {
 			continue
 		}
 
-		inputProps := extractProps(t.InputSchema)
-
 		tool := tools.Tool{
-			Name:        t.Name,
-			Description: t.Description,
-			Parameters: tools.FunctionParameters{
-				Type:       inputProps.ttype,
-				Properties: inputProps.properties,
-				Required:   inputProps.required,
-			},
+			Name:         t.Name,
+			Description:  t.Description,
+			Parameters:   inputSchemaToFunctionParameters(t.InputSchema),
 			OutputSchema: t.OutputSchema,
 			Handler:      ts.callTool,
 		}
@@ -173,6 +167,15 @@ func (ts *Toolset) Tools(ctx context.Context) ([]tools.Tool, error) {
 
 	slog.Debug("Listed MCP tools", "count", len(toolsList))
 	return toolsList, nil
+}
+
+func inputSchemaToFunctionParameters(schema any) tools.FunctionParameters {
+	props := extractProps(schema)
+	return tools.FunctionParameters{
+		Type:       props.ttype,
+		Properties: props.properties,
+		Required:   props.required,
+	}
 }
 
 type schemaProps struct {

@@ -342,14 +342,7 @@ func (c *Client) CreateChatCompletionStream(ctx context.Context, messages []chat
 			fd := &openai.FunctionDefinition{
 				Name:        tool.Name,
 				Description: desc,
-			}
-			if len(tool.Parameters.Properties) == 0 {
-				fd.Parameters = map[string]any{
-					"type":       "object",
-					"properties": map[string]any{},
-				}
-			} else {
-				fd.Parameters = sanitizeToolParameters(tool.Parameters)
+				Parameters:  ConvertParametersToSchema(tool.Parameters),
 			}
 			request.Tools[i] = openai.Tool{
 				Type:     openai.ToolTypeFunction,
@@ -377,6 +370,18 @@ func (c *Client) CreateChatCompletionStream(ctx context.Context, messages []chat
 
 	slog.Debug("DMR chat completion stream created successfully", "model", c.config.Model, "base_url", c.baseURL)
 	return newStreamAdapter(stream, trackUsage), nil
+}
+
+// ConvertParametersToSchema converts parameters to DMR Schema format
+func ConvertParametersToSchema(params tools.FunctionParameters) any {
+	if len(params.Properties) == 0 {
+		return map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		}
+	}
+
+	return sanitizeToolParameters(params)
 }
 
 func (c *Client) CreateChatCompletion(ctx context.Context, messages []chat.Message) (string, error) {

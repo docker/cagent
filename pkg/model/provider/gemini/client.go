@@ -258,7 +258,7 @@ func convertToolsToGemini(requestTools []tools.Tool) []*genai.Tool {
 		funcs = append(funcs, &genai.FunctionDeclaration{
 			Name:        tool.Name,
 			Description: tool.Description,
-			Parameters:  convertParametersToSchema(tool.Parameters),
+			Parameters:  ConvertParametersToSchema(tool.Parameters),
 		})
 	}
 
@@ -267,8 +267,8 @@ func convertToolsToGemini(requestTools []tools.Tool) []*genai.Tool {
 	}}
 }
 
-// convertParametersToSchema converts parameters to Gemini Schema format
-func convertParametersToSchema(params any) *genai.Schema {
+// ConvertParametersToSchema converts parameters to Gemini Schema format
+func ConvertParametersToSchema(params any) *genai.Schema {
 	if params == nil {
 		return nil
 	}

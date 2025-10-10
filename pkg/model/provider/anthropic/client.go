@@ -436,9 +436,7 @@ func convertTools(tooles []tools.Tool) []anthropic.ToolUnionParam {
 		toolParams[i] = anthropic.ToolParam{
 			Name:        tool.Name,
 			Description: anthropic.String(tool.Description),
-			InputSchema: anthropic.ToolInputSchemaParam{
-				Properties: tool.Parameters.Properties,
-			},
+			InputSchema: ConvertParametersToSchema(tool.Parameters),
 		}
 	}
 	anthropicTools := make([]anthropic.ToolUnionParam, len(toolParams))
@@ -447,6 +445,19 @@ func convertTools(tooles []tools.Tool) []anthropic.ToolUnionParam {
 	}
 
 	return anthropicTools
+}
+
+// ConvertParametersToSchema converts parameters to Anthropic Schema format
+func ConvertParametersToSchema(params tools.FunctionParameters) anthropic.ToolInputSchemaParam {
+	properties := params.Properties
+	if properties == nil {
+		properties = map[string]any{}
+	}
+
+	return anthropic.ToolInputSchemaParam{
+		Properties: properties,
+		Required:   params.Required,
+	}
 }
 
 func (c *Client) ID() string {
