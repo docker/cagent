@@ -46,19 +46,22 @@ These are more advanced examples, most of them involve some sort of MCP server t
 
 ## **Workflow Configurations**
 
-These examples demonstrate sequential workflow execution where multiple agents are chained together. Each agent processes the output from the previous agent, creating a pipeline of transformations. Workflows don't require a root agent - they execute agents in the order defined in the workflow section.
+These examples demonstrate workflow execution where multiple agents are chained together in sequential or parallel patterns. Workflows support both sequential execution (one agent after another) and parallel execution (multiple agents running concurrently). Workflows don't require a root agent - they execute agents in the order defined in the workflow section.
 
 See [WORKFLOW_README.md](WORKFLOW_README.md) for detailed documentation.
 
-| Name                                                             | Description/Purpose                       | Steps | Models Used |
-|------------------------------------------------------------------|-------------------------------------------|-------|-------------|
-| [story_workflow.yaml](story_workflow.yaml)                       | Creative writing workflow                 | 3     | OpenAI GPT-4o |
-| [product_description_workflow.yaml](product_description_workflow.yaml) | Marketing content generation        | 3     | OpenAI GPT-4o |
-| [joke_workflow.yaml](joke_workflow.yaml)                         | Joke creation, translation, and formatting | 3     | OpenAI GPT-4o |
+| Name                                                             | Description/Purpose                       | Steps | Execution Pattern | Models Used |
+|------------------------------------------------------------------|-------------------------------------------|-------|-------------------|-------------|
+| [story_workflow.yaml](story_workflow.yaml)                       | Creative writing workflow                 | 3     | Sequential        | OpenAI GPT-4o |
+| [product_description_workflow.yaml](product_description_workflow.yaml) | Marketing content generation        | 3     | Sequential        | OpenAI GPT-4o |
+| [joke_workflow.yaml](joke_workflow.yaml)                         | Joke creation, translation, and formatting | 3     | Sequential        | OpenAI GPT-4o |
+| [parallel_translation_workflow.yaml](parallel_translation_workflow.yaml) | Multi-language translation in parallel | 3 (1+3+1) | Mixed (Sequential + Parallel) | OpenAI GPT-4o |
+| [parallel_sorting_workflow.yaml](parallel_sorting_workflow.yaml) | Compare sorting algorithms concurrently | 3 (1+4+1) | Mixed (Sequential + Parallel) | OpenAI GPT-4o |
 
 **How workflows work:**
-- Agents execute sequentially in the order defined
-- Output from each agent becomes input for the next
+- **Sequential**: Agents execute one after another in order defined
+- **Parallel**: Multiple agents run concurrently, processing the same input
+- Output from each step becomes input for the next step
 - No root agent required
 - Run with: `./bin/cagent run examples/story_workflow.yaml`
 

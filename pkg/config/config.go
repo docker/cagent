@@ -138,11 +138,22 @@ func validateConfig(cfg *latest.Config) error {
 
 	// Validate workflow steps
 	for i, step := range cfg.Workflow {
-		if step.Type != "agent" {
-			return fmt.Errorf("workflow step %d: unsupported type '%s' (only 'agent' is supported)", i, step.Type)
-		}
-		if _, exists := cfg.Agents[step.Name]; !exists {
-			return fmt.Errorf("workflow step %d: references non-existent agent '%s'", i, step.Name)
+		switch step.Type {
+		case "agent":
+			if _, exists := cfg.Agents[step.Name]; !exists {
+				return fmt.Errorf("workflow step %d: references non-existent agent '%s'", i, step.Name)
+			}
+		case "parallel":
+			if len(step.Steps) == 0 {
+				return fmt.Errorf("workflow step %d: parallel step must specify at least one agent in 'steps'", i)
+			}
+			for _, agentName := range step.Steps {
+				if _, exists := cfg.Agents[agentName]; !exists {
+					return fmt.Errorf("workflow step %d: parallel step references non-existent agent '%s'", i, agentName)
+				}
+			}
+		default:
+			return fmt.Errorf("workflow step %d: unsupported type '%s' (supported types: 'agent', 'parallel')", i, step.Type)
 		}
 	}
 

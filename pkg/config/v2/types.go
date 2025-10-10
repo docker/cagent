@@ -172,6 +172,7 @@ func (t *ThinkingBudget) UnmarshalYAML(unmarshal func(any) error) error {
 
 // WorkflowStep represents a step in a workflow
 type WorkflowStep struct {
-	Type string `json:"type"` // Currently only "agent" is supported
-	Name string `json:"name"` // Name of the agent to run
+	Type  string   `json:"type"`            // "agent" or "parallel"
+	Name  string   `json:"name,omitempty"`  // Name of the agent to run (for type "agent")
+	Steps []string `json:"steps,omitempty"` // List of agent names to run in parallel (for type "parallel")
 }

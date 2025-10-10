@@ -428,15 +428,36 @@
         "type": {
           "type": "string",
           "description": "Type of workflow step",
-          "enum": ["agent"]
+          "enum": ["agent", "parallel"]
         },
         "name": {
           "type": "string",
-          "description": "Name of the agent to run"
+          "description": "Name of the agent to run (for type 'agent')"
+        },
+        "steps": {
+          "type": "array",
+          "description": "List of agent names to run in parallel (for type 'parallel')",
+          "items": {
+            "type": "string"
+          }
         }
       },
-      "required": ["type", "name"],
-      "additionalProperties": false
+      "required": ["type"],
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "properties": {
+            "type": { "const": "agent" }
+          },
+          "required": ["name"]
+        },
+        {
+          "properties": {
+            "type": { "const": "parallel" }
+          },
+          "required": ["steps"]
+        }
+      ]
     }
   }
 }

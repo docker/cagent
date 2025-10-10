@@ -1,6 +1,6 @@
-# Sequential Workflow Execution
+# Workflow Execution
 
-This directory contains examples of sequential workflow execution in cagent. Workflows allow you to chain multiple agents together, where each agent processes the output from the previous agent.
+This directory contains examples of workflow execution in cagent. Workflows allow you to chain multiple agents together in sequential or parallel execution patterns, where agents process and transform data through a defined pipeline.
 
 ## Examples
 
@@ -39,13 +39,53 @@ The `joke_workflow.yaml` demonstrates a simple two-step comedy workflow:
 ./bin/cagent run examples/joke_workflow.yaml
 ```
 
+### Parallel Translation Workflow
+
+The `parallel_translation_workflow.yaml` demonstrates parallel execution where multiple agents process the same input concurrently:
+
+1. **source_text** - Generates a technical explanation of Docker containers
+2. **Parallel Step** - Three translation agents run simultaneously:
+   - **translate_spanish** - Translates to Spanish
+   - **translate_french** - Translates to French
+   - **translate_japanese** - Translates to Japanese
+3. **formatter** - Combines all translations into a formatted output
+
+```bash
+./bin/cagent run examples/parallel_translation_workflow.yaml
+```
+
+### Parallel Sorting Workflow
+
+The `parallel_sorting_workflow.yaml` shows parallel processing with compute-intensive tasks:
+
+1. **generate_array** - Creates a random array of 100 integers
+2. **Parallel Step** - Four sorting agents run concurrently:
+   - **bubble_sort** - Sorts using Bubble Sort
+   - **insertion_sort** - Sorts using Insertion Sort
+   - **merge_sort** - Sorts using Merge Sort
+   - **quicksort** - Sorts using QuickSort
+3. **analyzer** - Compares and analyzes all sorting results
+
+```bash
+./bin/cagent run examples/parallel_sorting_workflow.yaml
+```
+
 ## How It Works
 
 The `run` command automatically detects workflows by checking if the configuration file contains a `workflow` section. No special command is needed!
 
+### Execution Patterns
+
+Workflows support two execution patterns:
+
+1. **Sequential (`type: agent`)** - Agents run one after another, each receiving the previous agent's output
+2. **Parallel (`type: parallel`)** - Multiple agents run concurrently, all receiving the same input, with outputs combined for the next step
+
 ## Workflow Configuration
 
 ### Basic Structure
+
+#### Sequential Workflow
 
 ```yaml
 version: "2"
@@ -63,14 +103,51 @@ workflow:
     name: next_agent
 ```
 
+#### Parallel Workflow
+
+```yaml
+version: "2"
+
+agents:
+  generator:
+    model: openai/gpt-4o
+    instruction: Generate initial data
+
+  processor1:
+    model: openai/gpt-4o
+    instruction: Process data using method 1
+
+  processor2:
+    model: openai/gpt-4o
+    instruction: Process data using method 2
+
+  combiner:
+    model: openai/gpt-4o
+    instruction: Combine and analyze results
+
+workflow:
+  - type: agent
+    name: generator
+  - type: parallel
+    steps:
+      - processor1
+      - processor2
+  - type: agent
+    name: combiner
+```
+
 ### Key Features
 
 1. **Sequential Execution**: Agents run in the order defined in the workflow
-2. **Data Piping**: The output of each agent becomes the input for the next agent
-3. **Automatic Context**: The first agent receives instructions to generate initial content, subsequent agents receive the previous output as input
-4. **No Root Agent Required**: Workflows don't need a "root" agent - just define the agents used in your workflow steps
+2. **Parallel Execution**: Multiple agents process the same input concurrently
+3. **Data Piping**: The output of each step becomes the input for the next step
+4. **Automatic Context**: The first agent receives instructions to generate initial content, subsequent agents receive the previous output as input
+5. **Output Combination**: Parallel step outputs are concatenated in the order specified and passed to the next step
+6. **No Root Agent Required**: Workflows don't need a "root" agent - just define the agents used in your workflow steps
 
-### Example Flow
+### Example Flows
+
+#### Sequential Flow
 
 ```
 Step 1: story_starter
@@ -81,6 +158,21 @@ Step 2: add_dialogue (receives previous output)
 
 Step 3: add_ending (receives previous output)
 → Output: "...a bright future in the culinary world."
+```
+
+#### Parallel Flow
+
+```
+Step 1: source_text
+→ Output: "Docker containers are lightweight..."
+
+Step 2: Parallel execution (all receive same input)
+├─ translate_spanish → "Los contenedores Docker son ligeros..."
+├─ translate_french → "Les conteneurs Docker sont légers..."
+└─ translate_japanese → "Dockerコンテナは軽量です..."
+
+Step 3: formatter (receives all parallel outputs)
+→ Combined output with all three translations formatted
 ```
 
 ## Command Options
@@ -111,8 +203,10 @@ Override specific agent models:
 
 ## Notes
 
-- Each agent's output is passed as text to the next agent
+- Each agent's output is passed as text to the next step
+- For parallel steps, outputs are concatenated in the order specified in the `steps` array
 - The workflow stops immediately if any agent fails
 - Model overrides can be specified per agent using `--model agent_name=provider/model`
-- Currently only supports `type: agent` workflow steps (future: conditions, parallel execution)
-- The final output of the workflow is the output from the last agent in the sequence
+- Supports both `type: agent` (sequential) and `type: parallel` (concurrent) workflow steps
+- The final output of the workflow is the output from the last step in the sequence
+- Parallel execution provides true concurrency - agents run simultaneously, not sequentially

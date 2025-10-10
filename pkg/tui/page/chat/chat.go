@@ -268,6 +268,38 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		})
 
 		return p, tea.Batch(spinnerCmd, dialogCmd)
+	case *runtime.WorkflowStepStartedEvent:
+		cmd := p.messages.AddSystemMessage("Starting workflow step: " + msg.AgentName)
+		return p, tea.Batch(cmd, p.messages.ScrollToBottom())
+	case *runtime.WorkflowStepCompletedEvent:
+		cmd := p.messages.AddSystemMessage("Completed workflow step: " + msg.AgentName)
+		return p, tea.Batch(cmd, p.messages.ScrollToBottom())
+	case *runtime.WorkflowStepFailedEvent:
+		cmd := p.messages.AddSystemMessage("Failed workflow step: " + msg.AgentName + " - " + msg.Error)
+		return p, tea.Batch(cmd, p.messages.ScrollToBottom())
+	case *runtime.WorkflowParallelStartedEvent:
+		agentList := ""
+		for i, name := range msg.AgentNames {
+			if i > 0 {
+				agentList += ", "
+			}
+			agentList += name
+		}
+		cmd := p.messages.AddSystemMessage("Running agents in parallel: " + agentList)
+		return p, tea.Batch(cmd, p.messages.ScrollToBottom())
+	case *runtime.WorkflowParallelCompletedEvent:
+		agentList := ""
+		for i, name := range msg.AgentNames {
+			if i > 0 {
+				agentList += ", "
+			}
+			agentList += name
+		}
+		cmd := p.messages.AddSystemMessage("Completed parallel execution: " + agentList)
+		return p, tea.Batch(cmd, p.messages.ScrollToBottom())
+	case *runtime.WorkflowCompletedEvent:
+		cmd := p.messages.AddSystemMessage("Workflow completed successfully")
+		return p, tea.Batch(cmd, p.messages.ScrollToBottom())
 
 	}
 

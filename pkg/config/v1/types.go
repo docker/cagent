@@ -149,6 +149,7 @@ type Metadata struct {
 
 // WorkflowStep represents a step in a workflow
 type WorkflowStep struct {
-	Type string `json:"type" yaml:"type"` // Currently only "agent" is supported
-	Name string `json:"name" yaml:"name"` // Name of the agent to run
+	Type  string   `json:"type" yaml:"type"`                       // "agent" or "parallel"
+	Name  string   `json:"name,omitempty" yaml:"name,omitempty"`   // Name of the agent to run (for type "agent")
+	Steps []string `json:"steps,omitempty" yaml:"steps,omitempty"` // List of agent names to run in parallel (for type "parallel")
 }

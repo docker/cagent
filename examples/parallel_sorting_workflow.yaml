@@ -1,0 +1,67 @@
+version: "2"
+
+agents:
+  generate_array:
+    model: openai/gpt-4o
+    instruction: |
+      Generate a random array of 100 integers between 1 and 1000.
+      Output format: just the numbers separated by commas.
+      Example: 42, 789, 123, 456, ...
+
+  bubble_sort:
+    model: openai/gpt-4o
+    instruction: |
+      Sort the given array using Bubble Sort algorithm.
+      Explain your step-by-step process as you sort.
+      Write out intermediate states every 10 swaps.
+      Output the final sorted array and count how many comparisons you made.
+      This should take significant work - be thorough and detailed.
+
+  insertion_sort:
+    model: openai/gpt-4o
+    instruction: |
+      Sort the given array using Insertion Sort algorithm.
+      Explain your step-by-step process.
+      Show intermediate states every 10 insertions.
+      Output the final sorted array and count how many comparisons you made.
+
+  merge_sort:
+    model: openai/gpt-4o
+    instruction: |
+      Sort the given array using Merge Sort algorithm.
+      Briefly explain the divide-and-conquer process.
+      Show the merge tree structure (how you split and merged).
+      Output the final sorted array.
+
+  quicksort:
+    model: openai/gpt-4o
+    instruction: |
+      Sort the given array using QuickSort algorithm.
+      Briefly explain your pivot selection and partitioning.
+      Output the final sorted array.
+
+  analyzer:
+    model: openai/gpt-4o
+    instruction: |
+      You received the same array sorted by 4 different algorithms:
+      Bubble Sort, Insertion Sort, Merge Sort, and QuickSort.
+
+      Create a summary report:
+      1. Verify all 4 produced the same sorted result
+      2. Compare the complexity of explanations (which algorithm explained more steps)
+      3. Note which algorithms mentioned their time complexity
+      4. Provide a final "winner" based on explanation clarity
+
+      Format as a brief analysis report.
+
+workflow:
+  - type: agent
+    name: generate_array
+  - type: parallel
+    steps:
+      - bubble_sort
+      - insertion_sort
+      - merge_sort
+      - quicksort
+  - type: agent
+    name: analyzer

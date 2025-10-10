@@ -377,3 +377,39 @@ func WorkflowCompleted(finalOutput string) Event {
 		FinalOutput: finalOutput,
 	}
 }
+
+// WorkflowParallelStartedEvent is sent when a parallel workflow step starts
+type WorkflowParallelStartedEvent struct {
+	Type       string   `json:"type"`
+	StepIndex  int      `json:"step_index"`
+	AgentNames []string `json:"agent_names"`
+}
+
+func (e *WorkflowParallelStartedEvent) GetAgentName() string { return "" }
+
+func WorkflowParallelStarted(stepIndex int, agentNames []string) Event {
+	return &WorkflowParallelStartedEvent{
+		Type:       "workflow_parallel_started",
+		StepIndex:  stepIndex,
+		AgentNames: agentNames,
+	}
+}
+
+// WorkflowParallelCompletedEvent is sent when a parallel workflow step completes
+type WorkflowParallelCompletedEvent struct {
+	Type           string   `json:"type"`
+	StepIndex      int      `json:"step_index"`
+	AgentNames     []string `json:"agent_names"`
+	CombinedOutput string   `json:"combined_output"`
+}
+
+func (e *WorkflowParallelCompletedEvent) GetAgentName() string { return "" }
+
+func WorkflowParallelCompleted(stepIndex int, agentNames []string, combinedOutput string) Event {
+	return &WorkflowParallelCompletedEvent{
+		Type:           "workflow_parallel_completed",
+		StepIndex:      stepIndex,
+		AgentNames:     agentNames,
+		CombinedOutput: combinedOutput,
+	}
+}
