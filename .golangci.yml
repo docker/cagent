@@ -58,6 +58,7 @@ linters:
       disabled-checks:
         - dupImport
         - hugeParam
+        - rangeValCopy
         - unnamedResult
         - appendAssign
       enabled-tags:
