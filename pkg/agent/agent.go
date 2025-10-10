@@ -134,7 +134,7 @@ func (a *Agent) ToolDisplayName(ctx context.Context, toolName string) string {
 	}
 
 	for _, tool := range allTools {
-		if tool.Function.Name == toolName {
+		if tool.Name == toolName {
 			return tool.DisplayName()
 		}
 	}

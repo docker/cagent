@@ -59,26 +59,24 @@ Before taking any action or responding to the user after receiving tool results,
 func (t *ThinkTool) Tools(context.Context) ([]tools.Tool, error) {
 	return []tools.Tool{
 		{
-			Function: &tools.FunctionDefinition{
-				Name:        "think",
-				Description: "Use the tool to think about something. It will not obtain new information or change the database, but just append the thought to the log. Use it when complex reasoning or some cache memory is needed.",
-				Annotations: tools.ToolAnnotations{
-					ReadOnlyHint: true,
-					Title:        "Think",
-				},
-				Parameters: tools.FunctionParameters{
-					Type: "object",
-					Properties: map[string]any{
-						"thought": map[string]any{
-							"type":        "string",
-							"description": "The thought to think about",
-						},
-					},
-					Required: []string{"thought"},
-				},
-				OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
+			Name:        "think",
+			Description: "Use the tool to think about something. It will not obtain new information or change the database, but just append the thought to the log. Use it when complex reasoning or some cache memory is needed.",
+			Annotations: tools.ToolAnnotations{
+				ReadOnlyHint: true,
+				Title:        "Think",
 			},
-			Handler: t.handler.CallTool,
+			Parameters: tools.FunctionParameters{
+				Type: "object",
+				Properties: map[string]any{
+					"thought": map[string]any{
+						"type":        "string",
+						"description": "The thought to think about",
+					},
+				},
+				Required: []string{"thought"},
+			},
+			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
+			Handler:      t.handler.CallTool,
 		},
 	}, nil
 }

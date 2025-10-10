@@ -39,58 +39,52 @@ Do not talk about using the tool, just use it.
 func (t *MemoryTool) Tools(context.Context) ([]tools.Tool, error) {
 	return []tools.Tool{
 		{
-			Function: &tools.FunctionDefinition{
-				Name:        "add_memory",
-				Description: "Add a new memory to the database",
-				Annotations: tools.ToolAnnotations{
-					Title: "Add Memory",
-				},
-				Parameters: tools.FunctionParameters{
-					Type: "object",
-					Properties: map[string]any{
-						"memory": map[string]any{
-							"type":        "string",
-							"description": "The memory content to store",
-						},
-					},
-					Required: []string{"memory"},
-				},
-				OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
+			Name:        "add_memory",
+			Description: "Add a new memory to the database",
+			Annotations: tools.ToolAnnotations{
+				Title: "Add Memory",
 			},
-			Handler: t.handleAddMemory,
+			Parameters: tools.FunctionParameters{
+				Type: "object",
+				Properties: map[string]any{
+					"memory": map[string]any{
+						"type":        "string",
+						"description": "The memory content to store",
+					},
+				},
+				Required: []string{"memory"},
+			},
+			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
+			Handler:      t.handleAddMemory,
 		},
 		{
-			Function: &tools.FunctionDefinition{
-				Name:        "get_memories",
-				Description: "Retrieve all stored memories",
-				Annotations: tools.ToolAnnotations{
-					ReadOnlyHint: true,
-					Title:        "Get Memories",
-				},
-				OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[[]database.UserMemory]()),
+			Name:        "get_memories",
+			Description: "Retrieve all stored memories",
+			Annotations: tools.ToolAnnotations{
+				ReadOnlyHint: true,
+				Title:        "Get Memories",
 			},
-			Handler: t.handleGetMemories,
+			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[[]database.UserMemory]()),
+			Handler:      t.handleGetMemories,
 		},
 		{
-			Function: &tools.FunctionDefinition{
-				Name:        "delete_memory",
-				Description: "Delete a specific memory by ID",
-				Annotations: tools.ToolAnnotations{
-					Title: "Delete Memory",
-				},
-				Parameters: tools.FunctionParameters{
-					Type: "object",
-					Properties: map[string]any{
-						"id": map[string]any{
-							"type":        "string",
-							"description": "The ID of the memory to delete",
-						},
-					},
-					Required: []string{"id"},
-				},
-				OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
+			Name:        "delete_memory",
+			Description: "Delete a specific memory by ID",
+			Annotations: tools.ToolAnnotations{
+				Title: "Delete Memory",
 			},
-			Handler: t.handleDeleteMemory,
+			Parameters: tools.FunctionParameters{
+				Type: "object",
+				Properties: map[string]any{
+					"id": map[string]any{
+						"type":        "string",
+						"description": "The ID of the memory to delete",
+					},
+				},
+				Required: []string{"id"},
+			},
+			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
+			Handler:      t.handleDeleteMemory,
 		},
 	}, nil
 }

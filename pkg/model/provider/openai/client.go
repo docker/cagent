@@ -22,8 +22,9 @@ import (
 // Client represents an OpenAI client wrapper
 // It implements the provider.Provider interface
 type Client struct {
-	client *openai.Client
-	config *latest.ModelConfig
+	client       *openai.Client
+	config       *latest.ModelConfig
+	modelOptions options.ModelOptions
 	// When using the Docker AI Gateway, tokens are short-lived. We rebuild
 	// the client per request using these fields.
 	useGateway     bool
@@ -117,6 +118,7 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 		config:         cfg,
 		useGateway:     useGateway,
 		gatewayBaseURL: gatewayBaseURL,
+		modelOptions:   globalOptions,
 	}, nil
 }
 
@@ -250,14 +252,13 @@ func (c *Client) CreateChatCompletionStream(
 			request.Tools[i] = openai.Tool{
 				Type: openai.ToolTypeFunction,
 				Function: &openai.FunctionDefinition{
-					Name:        tool.Function.Name,
-					Description: tool.Function.Description,
-					Strict:      tool.Function.Strict,
-					Parameters:  tool.Function.Parameters,
+					Name:        tool.Name,
+					Description: tool.Description,
+					Parameters:  ConvertParametersToSchema(tool.Parameters),
 				},
 			}
 
-			slog.Debug("Added tool to OpenAI request", "tool_name", tool.Function.Name)
+			slog.Debug("Added tool to OpenAI request", "tool_name", tool.Name)
 		}
 		if c.config.ParallelToolCalls != nil {
 			request.ParallelToolCalls = *c.config.ParallelToolCalls
@@ -273,6 +274,20 @@ func (c *Client) CreateChatCompletionStream(
 		}
 		request.ReasoningEffort = effort
 		slog.Debug("OpenAI request using thinking_budget", "reasoning_effort", effort)
+	}
+
+	// Apply structured output configuration
+	if c.modelOptions.StructuredOutput != nil {
+		request.ResponseFormat = &openai.ChatCompletionResponseFormat{
+			Type: openai.ChatCompletionResponseFormatTypeJSONSchema,
+			JSONSchema: &openai.ChatCompletionResponseFormatJSONSchema{
+				Name:        c.modelOptions.StructuredOutput.Name,
+				Description: c.modelOptions.StructuredOutput.Description,
+				Schema:      jsonSchema(c.modelOptions.StructuredOutput.Schema),
+				Strict:      c.modelOptions.StructuredOutput.Strict,
+			},
+		}
+		slog.Debug("OpenAI request using structured output", "name", c.modelOptions.StructuredOutput.Name, "strict", c.modelOptions.StructuredOutput.Strict)
 	}
 
 	// Log the request in JSON format for debugging
@@ -305,58 +320,9 @@ func (c *Client) CreateChatCompletionStream(
 	return newStreamAdapter(stream, trackUsage), nil
 }
 
-func (c *Client) CreateChatCompletion(
-	ctx context.Context,
-	messages []chat.Message,
-) (string, error) {
-	slog.Debug("Creating OpenAI chat completion", "model", c.config.Model, "message_count", len(messages))
-
-	request := openai.ChatCompletionRequest{
-		Model:    c.config.Model,
-		Messages: convertMessages(messages),
-	}
-
-	// Set appropriate token limit depending on model family
-	if c.config.MaxTokens > 0 {
-		if isResponsesOnlyModel(c.config.Model) {
-			request.MaxCompletionTokens = c.config.MaxTokens
-		} else {
-			request.MaxTokens = c.config.MaxTokens
-		}
-	}
-
-	// Build a fresh client per request when using the gateway
-	client := c.client
-	if c.useGateway {
-		client = c.newGatewayClient(ctx)
-	}
-	// Apply thinking budget: set reasoning_effort parameter
-	if c.config.ThinkingBudget != nil {
-		effort, err := getOpenAIReasoningEffort(c.config)
-		if err != nil {
-			slog.Error("OpenAI request using thinking_budget failed", "error", err)
-			return "", err
-		}
-		request.ReasoningEffort = effort
-		slog.Debug("OpenAI request using thinking_budget", "reasoning_effort", effort)
-	}
-	response, err := client.CreateChatCompletion(ctx, request)
-	if err != nil {
-		// Fallback for future models: retry without max_tokens if server complains
-		if isMaxTokensUnsupportedError(err) {
-			slog.Debug("Retrying OpenAI request without max_tokens due to server requirement", "model", c.config.Model)
-			request.MaxTokens = 0
-			request.MaxCompletionTokens = c.config.MaxTokens
-			response, err = client.CreateChatCompletion(ctx, request)
-		}
-		if err != nil {
-			slog.Error("OpenAI chat completion failed", "error", err, "model", c.config.Model)
-			return "", err
-		}
-	}
-
-	slog.Debug("OpenAI chat completion successful", "model", c.config.Model, "response_length", len(response.Choices[0].Message.Content))
-	return response.Choices[0].Message.Content, nil
+// ConvertParametersToSchema converts parameters to OpenAI Schema format
+func ConvertParametersToSchema(params tools.FunctionParameters) tools.FunctionParameters {
+	return params
 }
 
 // isResponsesOnlyModel returns true for newer OpenAI models that use the Responses API
@@ -419,4 +385,12 @@ func getOpenAIReasoningEffort(cfg *latest.ModelConfig) (effort string, err error
 	}
 
 	return "", fmt.Errorf("OpenAI requests only support 'minimal', 'low', 'medium', 'high' as values for thinking_budget effort, got effort: '%s', tokens: '%d'", effort, cfg.ThinkingBudget.Tokens)
+}
+
+// jsonSchema is a helper type that implements json.Marshaler for map[string]any
+// This allows us to pass schema maps to the OpenAI library which expects json.Marshaler
+type jsonSchema map[string]any
+
+func (j jsonSchema) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string]any(j))
 }

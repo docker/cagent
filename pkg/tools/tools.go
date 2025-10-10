@@ -29,17 +29,12 @@ type ToolCallResult struct {
 type ToolType string
 
 type Tool struct {
-	Function *FunctionDefinition `json:"function,omitempty"`
-	Handler  ToolHandler         `json:"-"`
-}
-
-type FunctionDefinition struct {
 	Name         string             `json:"name"`
 	Description  string             `json:"description,omitempty"`
-	Strict       bool               `json:"strict,omitempty"`
 	Parameters   FunctionParameters `json:"parameters"`
 	Annotations  ToolAnnotations    `json:"annotations"`
 	OutputSchema any                `json:"outputSchema"`
+	Handler      ToolHandler        `json:"-"`
 }
 
 type ToolAnnotations mcp.ToolAnnotations

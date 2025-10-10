@@ -221,7 +221,12 @@ func getModelsForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentC
 			return nil, fmt.Errorf("model '%s' not found in configuration", name)
 		}
 
-		model, err := provider.New(ctx, &modelCfg, env, options.WithGateway(runtimeConfig.ModelsGateway))
+		opts := []options.Opt{options.WithGateway(runtimeConfig.ModelsGateway)}
+		if a.StructuredOutput != nil {
+			opts = append(opts, options.WithStructuredOutput(a.StructuredOutput))
+		}
+
+		model, err := provider.New(ctx, &modelCfg, env, opts...)
 		if err != nil {
 			return nil, err
 		}

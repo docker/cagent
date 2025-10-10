@@ -60,9 +60,9 @@ func TestMemoryTool_Tools(t *testing.T) {
 	assert.Len(t, tls, 3)
 
 	// Verify tool functions
-	assert.Equal(t, "add_memory", tls[0].Function.Name)
-	assert.Equal(t, "get_memories", tls[1].Function.Name)
-	assert.Equal(t, "delete_memory", tls[2].Function.Name)
+	assert.Equal(t, "add_memory", tls[0].Name)
+	assert.Equal(t, "get_memories", tls[1].Name)
+	assert.Equal(t, "delete_memory", tls[2].Name)
 }
 
 func TestMemoryTool_DisplayNames(t *testing.T) {
@@ -74,7 +74,7 @@ func TestMemoryTool_DisplayNames(t *testing.T) {
 
 	for _, tool := range all {
 		assert.NotEmpty(t, tool.DisplayName())
-		assert.NotEqual(t, tool.Function.Name, tool.DisplayName())
+		assert.NotEqual(t, tool.Name, tool.DisplayName())
 	}
 }
 
@@ -236,6 +236,6 @@ func TestMemoryTool_OutputSchema(t *testing.T) {
 	require.NotEmpty(t, allTools)
 
 	for _, tool := range allTools {
-		assert.NotNil(t, tool.Function.OutputSchema)
+		assert.NotNil(t, tool.OutputSchema)
 	}
 }

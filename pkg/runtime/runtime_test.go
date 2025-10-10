@@ -112,10 +112,6 @@ func (m *mockProvider) CreateChatCompletionStream(ctx context.Context, messages 
 	return m.stream, nil
 }
 
-func (m *mockProvider) CreateChatCompletion(ctx context.Context, messages []chat.Message) (string, error) {
-	return "", nil
-}
-
 type mockProviderWithError struct {
 	id string
 }
@@ -124,10 +120,6 @@ func (m *mockProviderWithError) ID() string { return m.id }
 
 func (m *mockProviderWithError) CreateChatCompletionStream(ctx context.Context, messages []chat.Message, _ []tools.Tool) (chat.MessageStream, error) {
 	return nil, fmt.Errorf("simulated error creating chat completion stream")
-}
-
-func (m *mockProviderWithError) CreateChatCompletion(ctx context.Context, messages []chat.Message) (string, error) {
-	return "", fmt.Errorf("simulated error creating chat completion")
 }
 
 type mockModelStore struct{}

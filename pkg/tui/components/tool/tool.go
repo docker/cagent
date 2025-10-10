@@ -96,7 +96,7 @@ func (mv *toolModel) View() string {
 	msg := mv.message
 
 	slog.Debug("Rendering tool message", "status", msg.ToolStatus, "content", msg.Content, "args", msg.ToolCall.Function.Arguments)
-	slog.Debug("Tool definition", "name", msg.ToolDefinition.Function.Name, "title", msg.ToolDefinition.Function.Annotations.Title)
+	slog.Debug("Tool definition", "name", msg.ToolDefinition.Name, "title", msg.ToolDefinition.Annotations.Title)
 	displayName := msg.ToolDefinition.DisplayName()
 	content := fmt.Sprintf("%s %s", icon(msg.ToolStatus), styles.HighlightStyle.Render(displayName))
 

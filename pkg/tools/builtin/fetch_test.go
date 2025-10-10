@@ -30,7 +30,7 @@ func TestFetchTool_Tools(t *testing.T) {
 	require.Len(t, toolSet, 1)
 
 	fetchTool := toolSet[0]
-	assert.Equal(t, "fetch", fetchTool.Function.Name)
+	assert.Equal(t, "fetch", fetchTool.Name)
 	assert.NotNil(t, fetchTool.Handler)
 }
 

@@ -179,19 +179,28 @@ func (g *StreamAdapter) Recv() (chat.MessageStreamResponse, error) {
 				OutputTokens:       int(res.resp.UsageMetadata.CandidatesTokenCount),
 				CachedInputTokens:  int(res.resp.UsageMetadata.CachedContentTokenCount),
 				CachedOutputTokens: 0, // Gemini doesn't provide cached output tokens
+				ReasoningTokens:    int(res.resp.UsageMetadata.ThoughtsTokenCount),
 			}
 		}
 
-		// Handle text content without using Text() to avoid warnings
+		// Handle text and thoughts separately so TUI can render them distinctly
 		var textContent string
+		var reasoningText string
 		for _, candidate := range res.resp.Candidates {
 			if candidate.Content != nil {
 				for _, part := range candidate.Content.Parts {
 					if part.Text != "" {
-						textContent += part.Text
+						if part.Thought {
+							reasoningText += part.Text
+						} else {
+							textContent += part.Text
+						}
 					}
 				}
 			}
+		}
+		if reasoningText != "" {
+			resp.Choices[0].Delta.ReasoningContent = reasoningText
 		}
 		if textContent != "" {
 			resp.Choices[0].Delta.Content = textContent

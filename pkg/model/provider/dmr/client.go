@@ -25,9 +25,10 @@ import (
 // Client represents an DMR client wrapper
 // It implements the provider.Provider interface
 type Client struct {
-	client  *openai.Client
-	config  *latest.ModelConfig
-	baseURL string
+	client       *openai.Client
+	config       *latest.ModelConfig
+	modelOptions options.ModelOptions
+	baseURL      string
 }
 
 // NewClient creates a new DMR client from the provided configuration
@@ -93,9 +94,10 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, opts ...options.Opt
 	slog.Debug("DMR client created successfully", "model", cfg.Model, "base_url", clientConfig.BaseURL)
 
 	return &Client{
-		client:  openai.NewClientWithConfig(clientConfig),
-		config:  cfg,
-		baseURL: clientConfig.BaseURL,
+		client:       openai.NewClientWithConfig(clientConfig),
+		config:       cfg,
+		baseURL:      clientConfig.BaseURL,
+		modelOptions: globalOptions,
 	}, nil
 }
 
@@ -335,28 +337,20 @@ func (c *Client) CreateChatCompletionStream(ctx context.Context, messages []chat
 		for i, tool := range requestTools {
 			// DMR requires the `description` key to be present; ensure a non-empty value
 			// NOTE(krissetto): workaround, remove when fixed upstream, this shouldn't be necceessary
-			desc := tool.Function.Description
+			desc := tool.Description
 			if desc == "" {
-				desc = "Function " + tool.Function.Name
+				desc = "Function " + tool.Name
 			}
 			fd := &openai.FunctionDefinition{
-				Name:        tool.Function.Name,
+				Name:        tool.Name,
 				Description: desc,
-				Strict:      tool.Function.Strict,
-			}
-			if len(tool.Function.Parameters.Properties) == 0 {
-				fd.Parameters = map[string]any{
-					"type":       "object",
-					"properties": map[string]any{},
-				}
-			} else {
-				fd.Parameters = sanitizeToolParameters(tool.Function.Parameters)
+				Parameters:  ConvertParametersToSchema(tool.Parameters),
 			}
 			request.Tools[i] = openai.Tool{
 				Type:     openai.ToolTypeFunction,
 				Function: fd,
 			}
-			slog.Debug("Added tool to DMR request", "tool_name", tool.Function.Name)
+			slog.Debug("Added tool to DMR request", "tool_name", tool.Name)
 		}
 		if c.config.ParallelToolCalls != nil {
 			request.ParallelToolCalls = *c.config.ParallelToolCalls
@@ -369,6 +363,18 @@ func (c *Client) CreateChatCompletionStream(ctx context.Context, messages []chat
 	} else {
 		slog.Error("Failed to marshal DMR request to JSON", "error", err)
 	}
+	if c.modelOptions.StructuredOutput != nil {
+		slog.Debug("Adding structured output to DMR request", "structured_output", c.modelOptions.StructuredOutput)
+		request.ResponseFormat = &openai.ChatCompletionResponseFormat{
+			Type: openai.ChatCompletionResponseFormatTypeJSONSchema,
+			JSONSchema: &openai.ChatCompletionResponseFormatJSONSchema{
+				Name:        c.modelOptions.StructuredOutput.Name,
+				Description: c.modelOptions.StructuredOutput.Description,
+				Schema:      jsonSchema(c.modelOptions.StructuredOutput.Schema),
+				Strict:      c.modelOptions.StructuredOutput.Strict,
+			},
+		}
+	}
 
 	stream, err := c.client.CreateChatCompletionStream(ctx, request)
 	if err != nil {
@@ -380,22 +386,16 @@ func (c *Client) CreateChatCompletionStream(ctx context.Context, messages []chat
 	return newStreamAdapter(stream, trackUsage), nil
 }
 
-func (c *Client) CreateChatCompletion(ctx context.Context, messages []chat.Message) (string, error) {
-	slog.Debug("Creating DMR chat completion", "model", c.config.Model, "message_count", len(messages), "base_url", c.baseURL)
-
-	request := openai.ChatCompletionRequest{
-		Model:    c.config.Model,
-		Messages: convertMessages(messages),
+// ConvertParametersToSchema converts parameters to DMR Schema format
+func ConvertParametersToSchema(params tools.FunctionParameters) any {
+	if len(params.Properties) == 0 {
+		return map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		}
 	}
 
-	response, err := c.client.CreateChatCompletion(ctx, request)
-	if err != nil {
-		slog.Error("DMR chat completion failed", "error", err, "model", c.config.Model)
-		return "", err
-	}
-
-	slog.Debug("DMR chat completion successful", "model", c.config.Model, "response_length", len(response.Choices[0].Message.Content))
-	return response.Choices[0].Message.Content, nil
+	return sanitizeToolParameters(params)
 }
 
 // sanitizeToolParameters ensures the tool parameter schema is safe for engines using Jinja-like templates.
@@ -573,4 +573,12 @@ func buildRuntimeFlagsFromModelConfig(engine string, cfg *latest.ModelConfig) []
 		// Unknown engine: no flags
 	}
 	return flags
+}
+
+// jsonSchema is a helper type that implements json.Marshaler for map[string]any
+// This allows us to pass schema maps to the OpenAI library which expects json.Marshaler
+type jsonSchema map[string]any
+
+func (j jsonSchema) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string]any(j))
 }

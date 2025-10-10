@@ -107,6 +107,10 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 	client := anthropic.NewClient(requestOptions...)
 	slog.Debug("Anthropic client created successfully", "model", cfg.Model)
 
+	if globalOptions.StructuredOutput != nil {
+		return &Client{}, errors.New("anthropic does not support native structured_output")
+	}
+
 	return &Client{
 		client:         client,
 		config:         cfg,
@@ -203,71 +207,6 @@ func (c *Client) CreateChatCompletionStream(
 	slog.Debug("Anthropic chat completion stream created successfully", "model", c.config.Model)
 
 	return newStreamAdapter(stream), nil
-}
-
-func (c *Client) CreateChatCompletion(
-	ctx context.Context,
-	messages []chat.Message,
-) (string, error) {
-	slog.Debug("Creating Anthropic chat completion", "model", c.config.Model, "message_count", len(messages))
-
-	maxTokens := int64(c.config.MaxTokens)
-	if maxTokens == 0 {
-		maxTokens = 8192 // min output limit for anthropic models >= 3.5
-	}
-
-	client := c.client
-
-	// Build a fresh client per request when using the gateway
-	if c.useGateway {
-		client = c.newGatewayClient(ctx)
-	}
-
-	// Use Beta API with interleaved thinking
-	if c.interleavedThinkingEnabled() {
-		return c.createBetaCompletion(ctx, client, messages, maxTokens)
-	}
-
-	params := anthropic.MessageNewParams{
-		Model:     anthropic.Model(c.config.Model),
-		MaxTokens: maxTokens,
-		Messages:  convertMessages(messages),
-	}
-
-	// Populate proper Anthropic system prompt from input messages
-	if sys := extractSystemBlocks(messages); len(sys) > 0 {
-		params.System = sys
-	}
-
-	if c.config.ThinkingBudget != nil && c.config.ThinkingBudget.Tokens > 0 {
-		thinkingTokens := int64(c.config.ThinkingBudget.Tokens)
-		switch {
-		case thinkingTokens >= 1024 && thinkingTokens < maxTokens:
-			params.Thinking = anthropic.ThinkingConfigParamOfEnabled(thinkingTokens)
-			slog.Debug("Anthropic API using thinking_budget (standard messages)", "budget_tokens", thinkingTokens)
-		case thinkingTokens >= maxTokens:
-			slog.Warn("Anthropic API thinking_budget must be less than max_tokens, ignoring", "tokens", thinkingTokens, "max_tokens", maxTokens)
-		default:
-			slog.Warn("Anthropic API thinking_budget below minimum (1024), ignoring", "tokens", thinkingTokens)
-		}
-	}
-
-	response, err := client.Messages.New(ctx, params)
-	if err != nil {
-		slog.Error("Anthropic API chat completion failed", "error", err, "model", c.config.Model)
-		return "", err
-	}
-
-	// Extract text from response content (skip thinking blocks)
-	var result strings.Builder
-	for i := range response.Content {
-		if response.Content[i].Text != "" {
-			result.WriteString(response.Content[i].Text)
-		}
-	}
-
-	slog.Debug("Anthropic API chat completion successful", "model", c.config.Model, "response_length", result.Len())
-	return result.String(), nil
 }
 
 func convertMessages(messages []chat.Message) []anthropic.MessageParam {
@@ -434,11 +373,9 @@ func convertTools(tooles []tools.Tool) []anthropic.ToolUnionParam {
 
 	for i, tool := range tooles {
 		toolParams[i] = anthropic.ToolParam{
-			Name:        tool.Function.Name,
-			Description: anthropic.String(tool.Function.Description),
-			InputSchema: anthropic.ToolInputSchemaParam{
-				Properties: tool.Function.Parameters.Properties,
-			},
+			Name:        tool.Name,
+			Description: anthropic.String(tool.Description),
+			InputSchema: ConvertParametersToSchema(tool.Parameters),
 		}
 	}
 	anthropicTools := make([]anthropic.ToolUnionParam, len(toolParams))
@@ -447,6 +384,19 @@ func convertTools(tooles []tools.Tool) []anthropic.ToolUnionParam {
 	}
 
 	return anthropicTools
+}
+
+// ConvertParametersToSchema converts parameters to Anthropic Schema format
+func ConvertParametersToSchema(params tools.FunctionParameters) anthropic.ToolInputSchemaParam {
+	properties := params.Properties
+	if properties == nil {
+		properties = map[string]any{}
+	}
+
+	return anthropic.ToolInputSchemaParam{
+		Properties: properties,
+		Required:   params.Required,
+	}
 }
 
 func (c *Client) ID() string {

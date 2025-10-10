@@ -119,6 +119,7 @@ type Usage struct {
 	OutputTokens       int `json:"output_tokens"`
 	CachedInputTokens  int `json:"cached_input_tokens"`
 	CachedOutputTokens int `json:"cached_output_tokens"`
+	ReasoningTokens    int `json:"reasoning_tokens,omitempty"`
 }
 
 // MessageStream interface represents a stream of chat completions

@@ -49,9 +49,13 @@ func (a *StreamAdapter) Recv() (chat.MessageStreamResponse, error) {
 			OutputTokens:       openaiResponse.Usage.CompletionTokens,
 			CachedInputTokens:  0,
 			CachedOutputTokens: 0,
+			ReasoningTokens:    0,
 		}
 		if openaiResponse.Usage.PromptTokensDetails != nil {
 			response.Usage.CachedInputTokens = openaiResponse.Usage.PromptTokensDetails.CachedTokens
+		}
+		if openaiResponse.Usage.CompletionTokensDetails != nil {
+			response.Usage.ReasoningTokens = openaiResponse.Usage.CompletionTokensDetails.ReasoningTokens
 		}
 		// Use the tracked finish reason instead of hardcoding stop
 		finishReason := a.lastFinishReason

@@ -11,15 +11,15 @@ import (
 func toolToJsDoc(tool tools.Tool) string {
 	var doc strings.Builder
 
-	doc.WriteString("===== " + tool.Function.Name + " =====\n\n")
-	doc.WriteString(strings.TrimSpace(tool.Function.Description))
+	doc.WriteString("===== " + tool.Name + " =====\n\n")
+	doc.WriteString(strings.TrimSpace(tool.Description))
 	doc.WriteString("\n\n")
-	if len(tool.Function.Parameters.Properties) == 0 {
-		doc.WriteString(fmt.Sprintf("%s(): string\n", tool.Function.Name))
+	if len(tool.Parameters.Properties) == 0 {
+		doc.WriteString(fmt.Sprintf("%s(): string\n", tool.Name))
 	} else {
-		doc.WriteString(fmt.Sprintf("%s(args: ArgsObject): string\n", tool.Function.Name))
+		doc.WriteString(fmt.Sprintf("%s(args: ArgsObject): string\n", tool.Name))
 		doc.WriteString("\nwhere type ArgsObject = {\n")
-		for paramName, param := range tool.Function.Parameters.Properties {
+		for paramName, param := range tool.Parameters.Properties {
 			pType := "Object"
 
 			var (
@@ -47,7 +47,7 @@ func toolToJsDoc(tool tools.Tool) string {
 				}
 			}
 
-			if !slices.Contains(tool.Function.Parameters.Required, paramName) {
+			if !slices.Contains(tool.Parameters.Required, paramName) {
 				paramName += "?"
 			}
 

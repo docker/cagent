@@ -481,19 +481,19 @@ func (r *runtime) handleStream(ctx context.Context, stream chat.MessageStream, a
 		if response.Usage != nil {
 			if m != nil {
 				sess.Cost += (float64(response.Usage.InputTokens)*m.Cost.Input +
-					float64(response.Usage.OutputTokens)*m.Cost.Output +
+					float64(response.Usage.OutputTokens+response.Usage.ReasoningTokens)*m.Cost.Output +
 					float64(response.Usage.CachedInputTokens)*m.Cost.CacheRead +
 					float64(response.Usage.CachedOutputTokens)*m.Cost.CacheWrite) / 1e6
 			}
 
 			sess.InputTokens = response.Usage.InputTokens + response.Usage.CachedInputTokens
-			sess.OutputTokens = response.Usage.OutputTokens + response.Usage.CachedOutputTokens
+			sess.OutputTokens = response.Usage.OutputTokens + response.Usage.CachedOutputTokens + response.Usage.ReasoningTokens
 
 			modelName := "unknown"
 			if m != nil {
 				modelName = m.Name
 			}
-			telemetry.RecordTokenUsage(ctx, modelName, int64(response.Usage.InputTokens), int64(response.Usage.OutputTokens), sess.Cost)
+			telemetry.RecordTokenUsage(ctx, modelName, int64(response.Usage.InputTokens), int64(response.Usage.OutputTokens+response.Usage.ReasoningTokens), sess.Cost)
 		}
 
 		if len(response.Choices) == 0 {
@@ -559,7 +559,7 @@ func (r *runtime) handleStream(ctx context.Context, stream chat.MessageStream, a
 					// TODO: clean this up, it's gross
 					tool := tools.Tool{}
 					for _, t := range agentTools {
-						if t.Function.Name == toolCalls[idx].Function.Name {
+						if t.Name == toolCalls[idx].Function.Name {
 							tool = t
 							break
 						}
@@ -623,11 +623,9 @@ func (r *runtime) processToolCalls(ctx context.Context, sess *session.Session, c
 			} else {
 				slog.Debug("Tools not approved, waiting for resume", "tool", toolCall.Function.Name, "session_id", sess.ID)
 				events <- ToolCallConfirmation(toolCall, tools.Tool{
-					Function: &tools.FunctionDefinition{
-						Annotations: tools.ToolAnnotations{
-							// TODO: We need to handle the transfer task tool better
-							Title: "Transfer Task",
-						},
+					Annotations: tools.ToolAnnotations{
+						// TODO: We need to handle the transfer task tool better
+						Title: "Transfer Task",
 					},
 				}, a.Name())
 
@@ -660,15 +658,15 @@ func (r *runtime) processToolCalls(ctx context.Context, sess *session.Session, c
 
 	toolLoop:
 		for _, tool := range agentTools {
-			if _, ok := r.toolMap[tool.Function.Name]; ok {
+			if _, ok := r.toolMap[tool.Name]; ok {
 				continue
 			}
-			if tool.Function.Name != toolCall.Function.Name {
+			if tool.Name != toolCall.Function.Name {
 				continue
 			}
 			slog.Debug("Using agent tool handler", "tool", toolCall.Function.Name)
 
-			if sess.ToolsApproved || tool.Function.Annotations.ReadOnlyHint {
+			if sess.ToolsApproved || tool.Annotations.ReadOnlyHint {
 				slog.Debug("Tools approved, running tool", "tool", toolCall.Function.Name, "session_id", sess.ID)
 				r.runTool(callCtx, tool, toolCall, events, sess, a)
 			} else {
@@ -779,11 +777,9 @@ func (r *runtime) runAgentTool(ctx context.Context, handler ToolHandler, sess *s
 	defer span.End()
 
 	events <- ToolCall(toolCall, tools.Tool{
-		Function: &tools.FunctionDefinition{
-			Annotations: tools.ToolAnnotations{
-				// TODO: We need to handle the transfer task tool better
-				Title: "Transfer Task",
-			},
+		Annotations: tools.ToolAnnotations{
+			// TODO: We need to handle the transfer task tool better
+			Title: "Transfer Task",
 		},
 	}, a.Name())
 	start := time.Now()

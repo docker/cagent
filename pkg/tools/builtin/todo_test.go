@@ -36,22 +36,22 @@ func TestTodoTool_Tools(t *testing.T) {
 	assert.Len(t, allTools, 4)
 
 	// Verify tool functions
-	assert.Equal(t, "create_todo", allTools[0].Function.Name)
-	assert.Equal(t, "create_todos", allTools[1].Function.Name)
-	assert.Equal(t, "update_todo", allTools[2].Function.Name)
-	assert.Equal(t, "list_todos", allTools[3].Function.Name)
+	assert.Equal(t, "create_todo", allTools[0].Name)
+	assert.Equal(t, "create_todos", allTools[1].Name)
+	assert.Equal(t, "update_todo", allTools[2].Name)
+	assert.Equal(t, "list_todos", allTools[3].Name)
 
 	// Check create_todo parameters
-	createProps := allTools[0].Function.Parameters.Properties
+	createProps := allTools[0].Parameters.Properties
 	assert.Contains(t, createProps, "description")
-	assert.Contains(t, allTools[0].Function.Parameters.Required, "description")
+	assert.Contains(t, allTools[0].Parameters.Required, "description")
 
 	// Check update_todo parameters
-	updateProps := allTools[2].Function.Parameters.Properties
+	updateProps := allTools[2].Parameters.Properties
 	assert.Contains(t, updateProps, "id")
 	assert.Contains(t, updateProps, "status")
-	assert.Contains(t, allTools[2].Function.Parameters.Required, "id")
-	assert.Contains(t, allTools[2].Function.Parameters.Required, "status")
+	assert.Contains(t, allTools[2].Parameters.Required, "id")
+	assert.Contains(t, allTools[2].Parameters.Required, "status")
 
 	// Verify handlers are provided
 	assert.NotNil(t, allTools[0].Handler)
@@ -68,7 +68,7 @@ func TestTodoTool_DisplayNames(t *testing.T) {
 
 	for _, tool := range all {
 		assert.NotEmpty(t, tool.DisplayName())
-		assert.NotEqual(t, tool.Function.Name, tool.DisplayName())
+		assert.NotEqual(t, tool.Name, tool.DisplayName())
 	}
 }
 
@@ -385,6 +385,6 @@ func TestTodoToolOutputSchema(t *testing.T) {
 	require.NotEmpty(t, allTools)
 
 	for _, tool := range allTools {
-		assert.NotNil(t, tool.Function.OutputSchema)
+		assert.NotNil(t, tool.OutputSchema)
 	}
 }

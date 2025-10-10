@@ -35,15 +35,15 @@ func TestThinkTool_Tools(t *testing.T) {
 	assert.Len(t, tls, 1)
 
 	// Verify think function
-	assert.Equal(t, "think", tls[0].Function.Name)
-	assert.Contains(t, tls[0].Function.Description, "Use the tool to think about something")
+	assert.Equal(t, "think", tls[0].Name)
+	assert.Contains(t, tls[0].Description, "Use the tool to think about something")
 
 	// Check parameters
-	props := tls[0].Function.Parameters.Properties
+	props := tls[0].Parameters.Properties
 	assert.Contains(t, props, "thought")
 
 	// Check required fields
-	assert.Contains(t, tls[0].Function.Parameters.Required, "thought")
+	assert.Contains(t, tls[0].Parameters.Required, "thought")
 
 	// Verify handler is provided
 	assert.NotNil(t, tls[0].Handler)
@@ -57,7 +57,7 @@ func TestThinkTool_DisplayNames(t *testing.T) {
 
 	for _, tool := range all {
 		assert.NotEmpty(t, tool.DisplayName())
-		assert.NotEqual(t, tool.Function.Name, tool.DisplayName())
+		assert.NotEqual(t, tool.Name, tool.DisplayName())
 	}
 }
 
@@ -150,6 +150,6 @@ func TestThinkTool_OutputSchema(t *testing.T) {
 	require.NotEmpty(t, allTools)
 
 	for _, tool := range allTools {
-		assert.NotNil(t, tool.Function.OutputSchema)
+		assert.NotNil(t, tool.OutputSchema)
 	}
 }

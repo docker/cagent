@@ -22,8 +22,9 @@ import (
 // Client represents a Gemini client wrapper
 // It implements the provider.Provider interface
 type Client struct {
-	client *genai.Client
-	config *latest.ModelConfig
+	client       *genai.Client
+	config       *latest.ModelConfig
+	modelOptions options.ModelOptions
 	// When using the Docker AI Gateway, tokens are short-lived. We rebuild
 	// the client per request when in gateway mode.
 	useGateway     bool
@@ -81,6 +82,7 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 		config:         cfg,
 		useGateway:     useGateway,
 		gatewayBaseURL: gatewayBaseURL,
+		modelOptions:   modelOptions,
 	}, nil
 }
 
@@ -220,6 +222,36 @@ func (c *Client) buildConfig() *genai.GenerateContentConfig {
 	if c.config.MaxTokens > 0 {
 		config.MaxOutputTokens = int32(c.config.MaxTokens)
 	}
+
+	// Apply thinking budget for Gemini models using token-based configuration.
+	// Per official docs: https://ai.google.dev/gemini-api/docs/thinking
+	// - Set thinkingBudget to 0 to disable thinking
+	// - Set thinkingBudget to -1 for dynamic thinking (model decides)
+	// - Set to a specific value for a fixed token budget,
+	//   maximum is 24576 for all models except Gemini 2.5 Pro (max 32768)
+	if c.config.ThinkingBudget != nil {
+		if config.ThinkingConfig == nil {
+			config.ThinkingConfig = &genai.ThinkingConfig{}
+		}
+		config.ThinkingConfig.IncludeThoughts = true
+		tokens := c.config.ThinkingBudget.Tokens
+		config.ThinkingConfig.ThinkingBudget = genai.Ptr(int32(tokens))
+
+		switch tokens {
+		case 0:
+			slog.Debug("Gemini request with thinking disabled", "budget_tokens", tokens)
+		case -1:
+			slog.Debug("Gemini request with dynamic thinking", "budget_tokens", tokens)
+		default:
+			slog.Debug("Gemini request using thinking_budget", "budget_tokens", tokens)
+		}
+	}
+
+	if c.modelOptions.StructuredOutput != nil {
+		config.ResponseMIMEType = "application/json"
+		config.ResponseJsonSchema = c.modelOptions.StructuredOutput.Schema
+	}
+
 	return config
 }
 
@@ -232,9 +264,9 @@ func convertToolsToGemini(requestTools []tools.Tool) []*genai.Tool {
 	funcs := make([]*genai.FunctionDeclaration, 0, len(requestTools))
 	for _, tool := range requestTools {
 		funcs = append(funcs, &genai.FunctionDeclaration{
-			Name:        tool.Function.Name,
-			Description: tool.Function.Description,
-			Parameters:  convertParametersToSchema(tool.Function.Parameters),
+			Name:        tool.Name,
+			Description: tool.Description,
+			Parameters:  ConvertParametersToSchema(tool.Parameters),
 		})
 	}
 
@@ -243,8 +275,8 @@ func convertToolsToGemini(requestTools []tools.Tool) []*genai.Tool {
 	}}
 }
 
-// convertParametersToSchema converts parameters to Gemini Schema format
-func convertParametersToSchema(params any) *genai.Schema {
+// ConvertParametersToSchema converts parameters to Gemini Schema format
+func ConvertParametersToSchema(params any) *genai.Schema {
 	if params == nil {
 		return nil
 	}
@@ -377,53 +409,6 @@ func (c *Client) CreateChatCompletionStream(
 		iter = c.client.Models.GenerateContentStream(ctx, c.config.Model, contents, config)
 	}
 	return NewStreamAdapter(iter, c.config.Model), nil
-}
-
-// CreateChatCompletion creates a non-streaming chat completion
-func (c *Client) CreateChatCompletion(
-	ctx context.Context,
-	messages []chat.Message,
-) (string, error) {
-	// Build a fresh client per request when using the gateway
-	var client *genai.Client
-	if c.useGateway {
-		if gwClient, err := c.newGatewayClient(ctx); err == nil {
-			client = gwClient
-		} else {
-			client = c.client
-		}
-	} else {
-		client = c.client
-	}
-	result, err := client.Models.GenerateContent(ctx, c.config.Model, convertMessagesToGemini(messages), c.buildConfig())
-	if err != nil {
-		return "", err
-	}
-
-	// Check if there are function calls in the response
-	if funcs := result.FunctionCalls(); len(funcs) > 0 {
-		// For now, we'll return an error indicating function calls are not supported in non-streaming mode
-		// This matches the behavior of other providers that expect streaming for tool use
-		return "", errors.New("function calls are not supported in non-streaming mode, use streaming mode instead")
-	}
-
-	// Extract text content safely
-	var textParts []string
-	for _, candidate := range result.Candidates {
-		if candidate.Content != nil {
-			for _, part := range candidate.Content.Parts {
-				if part.Text != "" {
-					textParts = append(textParts, part.Text)
-				}
-			}
-		}
-	}
-
-	if len(textParts) == 0 {
-		return "", nil
-	}
-
-	return textParts[0], nil
 }
 
 func (c *Client) ID() string {

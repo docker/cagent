@@ -50,22 +50,20 @@ func main() {
 	}
 
 	toolAddNumbers := tools.Tool{
-		Handler: addNumbers,
-		Function: &tools.FunctionDefinition{
-			Name:        "add",
-			Description: "Add two numbers",
-			Parameters: tools.FunctionParameters{
-				Type: "object",
-				Properties: map[string]any{
-					"a": map[string]any{
-						"type": "number",
-					},
-					"b": map[string]any{
-						"type": "number",
-					},
+		Name:        "add",
+		Description: "Add two numbers",
+		Parameters: tools.FunctionParameters{
+			Type: "object",
+			Properties: map[string]any{
+				"a": map[string]any{
+					"type": "number",
+				},
+				"b": map[string]any{
+					"type": "number",
 				},
 			},
 		},
+		Handler: addNumbers,
 	}
 
 	calculator := agent.New(
