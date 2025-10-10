@@ -364,6 +364,7 @@ func (c *Client) CreateChatCompletionStream(ctx context.Context, messages []chat
 		slog.Error("Failed to marshal DMR request to JSON", "error", err)
 	}
 	if c.modelOptions.StructuredOutput != nil {
+		slog.Debug("Adding structured output to DMR request", "structured_output", c.modelOptions.StructuredOutput)
 		request.ResponseFormat = &openai.ChatCompletionResponseFormat{
 			Type: openai.ChatCompletionResponseFormatTypeJSONSchema,
 			JSONSchema: &openai.ChatCompletionResponseFormatJSONSchema{
