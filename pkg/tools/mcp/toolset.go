@@ -153,7 +153,6 @@ func (ts *Toolset) Tools(ctx context.Context) ([]tools.Tool, error) {
 		inputProps := extractProps(t.InputSchema)
 
 		tool := tools.Tool{
-			Handler: ts.callTool,
 			Function: tools.FunctionDefinition{
 				Name:        t.Name,
 				Description: t.Description,
@@ -164,6 +163,7 @@ func (ts *Toolset) Tools(ctx context.Context) ([]tools.Tool, error) {
 				},
 				OutputSchema: t.OutputSchema,
 			},
+			Handler: ts.callTool,
 		}
 		if t.Annotations != nil {
 			tool.Function.Annotations = tools.ToolAnnotations(*t.Annotations)

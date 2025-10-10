@@ -50,7 +50,6 @@ func main() {
 	}
 
 	toolAddNumbers := tools.Tool{
-		Handler: addNumbers,
 		Function: tools.FunctionDefinition{
 			Name:        "add",
 			Description: "Add two numbers",
@@ -66,6 +65,7 @@ func main() {
 				},
 			},
 		},
+		Handler: addNumbers,
 	}
 
 	calculator := agent.New(
