@@ -653,8 +653,6 @@ func runUserCommand(userInput string, sess *session.Session, rt runtime.Runtime,
 	return false, nil
 }
 
-
-
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	exists := err == nil
@@ -692,10 +690,6 @@ func fromStore(reference string) (string, error) {
 
 	return buf.String(), nil
 }
-
-
-
-
 
 // getCommandsForAgent returns the commands map for the selected agent,
 // loading from the in-memory team for local runs or from the YAML file for remote runs.
