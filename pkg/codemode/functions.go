@@ -1,8 +1,8 @@
 package codemode
 
 import (
+	"encoding/json"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/docker/cagent/pkg/tools"
@@ -11,54 +11,32 @@ import (
 func toolToJsDoc(tool tools.Tool) string {
 	var doc strings.Builder
 
-	doc.WriteString("===== " + tool.Name + " =====\n\n")
-	doc.WriteString(strings.TrimSpace(tool.Description))
-	doc.WriteString("\n\n")
-	if len(tool.Parameters.Properties) == 0 {
-		doc.WriteString(fmt.Sprintf("%s(): string\n", tool.Name))
-	} else {
-		doc.WriteString(fmt.Sprintf("%s(args: ArgsObject): string\n", tool.Name))
-		doc.WriteString("\nwhere type ArgsObject = {\n")
-		for paramName, param := range tool.Parameters.Properties {
-			pType := "Object"
-
-			var (
-				pDesc string
-				pEnum string
-			)
-			if paramMap, ok := param.(map[string]any); ok {
-				if t, ok := paramMap["type"].(string); ok {
-					pType = t
-				}
-				if d, ok := paramMap["description"].(string); ok {
-					pDesc = d
-				}
-				if values, ok := paramMap["enum"].([]any); ok {
-					for _, v := range values {
-						if pEnum != "" {
-							pEnum += " | "
-						}
-						if pType == "string" {
-							pEnum += fmt.Sprintf("'%v'", v)
-						} else {
-							pEnum += fmt.Sprintf("%v", v)
-						}
-					}
-				}
-			}
-
-			if !slices.Contains(tool.Parameters.Required, paramName) {
-				paramName += "?"
-			}
-
-			if pEnum != "" {
-				doc.WriteString(fmt.Sprintf("  %s: %s // %s\n", paramName, pEnum, strings.TrimSpace(pDesc)))
-			} else {
-				doc.WriteString(fmt.Sprintf("  %s: %s // %s\n", paramName, pType, strings.TrimSpace(pDesc)))
-			}
-		}
-		doc.WriteString("};\n")
-	}
+	doc.WriteString(toComment(&tool))
+	doc.WriteString(fmt.Sprintf("function %s(args: Input): Output { ... }\n", tool.Name))
 
 	return doc.String()
+}
+
+func toComment(tool *tools.Tool) string {
+	var comment strings.Builder
+
+	inputSchema, _ := json.MarshalIndent(tool.Parameters, " * ", "  ")
+	outputSchema, _ := json.MarshalIndent(tool.OutputSchema, " * ", "  ")
+
+	comment.WriteString("\n/**\n")
+	for line := range strings.SplitSeq(tool.Description, "\n") {
+		comment.WriteString(" * " + strings.TrimSpace(line) + "\n")
+	}
+	comment.WriteString(" * \n")
+	comment.WriteString(" * @param args - Input object containing the parameters.\n")
+	comment.WriteString(" * @returns Output - The result of the function execution.\n")
+	comment.WriteString(" *\n")
+	comment.WriteString(" * Where Input follows the following JSON schema:\n")
+	comment.WriteString(" * " + string(inputSchema) + "\n")
+	comment.WriteString(" *\n")
+	comment.WriteString(" * And Output follows the following JSON schema:\n")
+	comment.WriteString(" * " + string(outputSchema) + "\n")
+	comment.WriteString(" */\n")
+
+	return comment.String()
 }

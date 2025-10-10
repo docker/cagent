@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"slices"
 
 	"github.com/dop251/goja"
 
@@ -52,9 +51,9 @@ func callTool(ctx context.Context, tool tools.Tool) func(args map[string]any) (s
 	return func(args map[string]any) (string, error) {
 		nonNilArgs := make(map[string]any)
 		for k, v := range args {
-			if slices.Contains(tool.Parameters.Required, k) || v != nil {
-				nonNilArgs[k] = v
-			}
+			// if slices.Contains(tool.Parameters.Required, k) || v != nil {
+			nonNilArgs[k] = v
+			// }
 		}
 
 		arguments, err := json.Marshal(nonNilArgs)

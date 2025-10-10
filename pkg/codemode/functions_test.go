@@ -12,7 +12,7 @@ import (
 func TestToolToJsDoc(t *testing.T) {
 	tool := tools.Tool{
 		Name:        "create_todo",
-		Description: "Create new todo",
+		Description: "Create new todo\n each of them with a description",
 		Parameters: tools.FunctionParameters{
 			Type: "object",
 			Properties: map[string]any{
@@ -28,14 +28,33 @@ func TestToolToJsDoc(t *testing.T) {
 
 	jsDoc := toolToJsDoc(tool)
 
-	assert.Equal(t, `===== create_todo =====
-
-Create new todo
-
-create_todo(args: ArgsObject): string
-
-where type ArgsObject = {
-  description: string // Description of the todo item
-};
+	assert.Equal(t, `
+/**
+ * Create new todo
+ * each of them with a description
+ * 
+ * @param args - Input object containing the parameters.
+ * @returns Output - The result of the function execution.
+ *
+ * Where Input follows the following JSON schema:
+ * {
+ *   "type": "object",
+ *   "properties": {
+ *     "description": {
+ *       "description": "Description of the todo item",
+ *       "type": "string"
+ *     }
+ *   },
+ *   "required": [
+ *     "description"
+ *   ]
+ * }
+ *
+ * And Output follows the following JSON schema:
+ * {
+ *   "type": "string"
+ * }
+ */
+function create_todo(args: Input): Output { ... }
 `, jsDoc)
 }
