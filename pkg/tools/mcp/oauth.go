@@ -271,6 +271,7 @@ func registerClient(ctx context.Context, authMetadata *authorizationServerMetada
 
 	reqBody := map[string]any{
 		"redirect_uris": []string{redirectURI},
+		"client_name":   "cagent",
 		"grant_types":   []string{"authorization_code"},
 		"response_types": []string{
 			"code",
