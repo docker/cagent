@@ -154,7 +154,7 @@ func (ts *Toolset) Tools(ctx context.Context) ([]tools.Tool, error) {
 
 		tool := tools.Tool{
 			Handler: ts.callTool,
-			Function: &tools.FunctionDefinition{
+			Function: tools.FunctionDefinition{
 				Name:        t.Name,
 				Description: t.Description,
 				Parameters: tools.FunctionParameters{

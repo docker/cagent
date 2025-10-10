@@ -55,7 +55,7 @@ func (c *tool) Tools(ctx context.Context) ([]tools.Tool, error) {
 	description := prompt + strings.Join(functionsDoc, "\n")
 
 	jstool := tools.Tool{
-		Function: &tools.FunctionDefinition{
+		Function: tools.FunctionDefinition{
 			Name:        "run_tools_with_javascript",
 			Description: description,
 			Annotations: tools.ToolAnnotations{

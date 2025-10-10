@@ -51,7 +51,7 @@ func main() {
 
 	toolAddNumbers := tools.Tool{
 		Handler: addNumbers,
-		Function: &tools.FunctionDefinition{
+		Function: tools.FunctionDefinition{
 			Name:        "add",
 			Description: "Add two numbers",
 			Parameters: tools.FunctionParameters{

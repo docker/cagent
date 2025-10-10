@@ -11,7 +11,7 @@ import (
 
 func TestToolToJsDoc(t *testing.T) {
 	tool := tools.Tool{
-		Function: &tools.FunctionDefinition{
+		Function: tools.FunctionDefinition{
 			Name:        "create_todo",
 			Description: "Create new todo",
 			Parameters: tools.FunctionParameters{

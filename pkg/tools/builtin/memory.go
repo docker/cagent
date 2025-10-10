@@ -39,7 +39,7 @@ Do not talk about using the tool, just use it.
 func (t *MemoryTool) Tools(context.Context) ([]tools.Tool, error) {
 	return []tools.Tool{
 		{
-			Function: &tools.FunctionDefinition{
+			Function: tools.FunctionDefinition{
 				Name:        "add_memory",
 				Description: "Add a new memory to the database",
 				Annotations: tools.ToolAnnotations{
@@ -60,7 +60,7 @@ func (t *MemoryTool) Tools(context.Context) ([]tools.Tool, error) {
 			Handler: t.handleAddMemory,
 		},
 		{
-			Function: &tools.FunctionDefinition{
+			Function: tools.FunctionDefinition{
 				Name:        "get_memories",
 				Description: "Retrieve all stored memories",
 				Annotations: tools.ToolAnnotations{
@@ -72,7 +72,7 @@ func (t *MemoryTool) Tools(context.Context) ([]tools.Tool, error) {
 			Handler: t.handleGetMemories,
 		},
 		{
-			Function: &tools.FunctionDefinition{
+			Function: tools.FunctionDefinition{
 				Name:        "delete_memory",
 				Description: "Delete a specific memory by ID",
 				Annotations: tools.ToolAnnotations{

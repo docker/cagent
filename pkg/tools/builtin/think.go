@@ -59,7 +59,7 @@ Before taking any action or responding to the user after receiving tool results,
 func (t *ThinkTool) Tools(context.Context) ([]tools.Tool, error) {
 	return []tools.Tool{
 		{
-			Function: &tools.FunctionDefinition{
+			Function: tools.FunctionDefinition{
 				Name:        "think",
 				Description: "Use the tool to think about something. It will not obtain new information or change the database, but just append the thought to the log. Use it when complex reasoning or some cache memory is needed.",
 				Annotations: tools.ToolAnnotations{

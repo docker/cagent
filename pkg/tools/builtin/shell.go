@@ -163,7 +163,7 @@ Commands that exit with non-zero status codes will return error information alon
 func (t *ShellTool) Tools(context.Context) ([]tools.Tool, error) {
 	return []tools.Tool{
 		{
-			Function: &tools.FunctionDefinition{
+			Function: tools.FunctionDefinition{
 				Name:        "shell",
 				Description: `Executes the given shell command in the user's default shell.`,
 				Annotations: tools.ToolAnnotations{

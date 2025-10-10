@@ -80,7 +80,7 @@ func (t *ScriptShellTool) Tools(context.Context) ([]tools.Tool, error) {
 		}
 
 		toolsList = append(toolsList, tools.Tool{
-			Function: &tools.FunctionDefinition{
+			Function: tools.FunctionDefinition{
 				Name:        toolName,
 				Description: description,
 				Parameters: tools.FunctionParameters{

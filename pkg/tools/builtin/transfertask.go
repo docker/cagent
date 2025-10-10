@@ -24,7 +24,7 @@ func (t *TransferTaskTool) Instructions() string {
 func (t *TransferTaskTool) Tools(context.Context) ([]tools.Tool, error) {
 	return []tools.Tool{
 		{
-			Function: &tools.FunctionDefinition{
+			Function: tools.FunctionDefinition{
 				Name: "transfer_task",
 				Description: `Use this function to transfer a task to the selected team member.
             You must provide a clear and concise description of the task the member should achieve AND the expected output.`,

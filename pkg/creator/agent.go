@@ -59,7 +59,7 @@ func (f *fsToolset) Tools(ctx context.Context) ([]tools.Tool, error) {
 	}
 
 	for i, tool := range innerTools {
-		if tool.Function != nil && tool.Function.Name == "write_file" {
+		if tool.Function.Name == "write_file" {
 			f.originalWriteFileHandler = tool.Handler
 			innerTools[i].Handler = f.customWriteFileHandler
 		}

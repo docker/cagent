@@ -623,7 +623,7 @@ func (r *runtime) processToolCalls(ctx context.Context, sess *session.Session, c
 			} else {
 				slog.Debug("Tools not approved, waiting for resume", "tool", toolCall.Function.Name, "session_id", sess.ID)
 				events <- ToolCallConfirmation(toolCall, tools.Tool{
-					Function: &tools.FunctionDefinition{
+					Function: tools.FunctionDefinition{
 						Annotations: tools.ToolAnnotations{
 							// TODO: We need to handle the transfer task tool better
 							Title: "Transfer Task",
@@ -779,7 +779,7 @@ func (r *runtime) runAgentTool(ctx context.Context, handler ToolHandler, sess *s
 	defer span.End()
 
 	events <- ToolCall(toolCall, tools.Tool{
-		Function: &tools.FunctionDefinition{
+		Function: tools.FunctionDefinition{
 			Annotations: tools.ToolAnnotations{
 				// TODO: We need to handle the transfer task tool better
 				Title: "Transfer Task",
