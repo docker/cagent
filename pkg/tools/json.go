@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 )
 
-func JsonRoundtrip(params, v any) error {
+func JSONRoundtrip(params, v any) error {
 	buf, err := json.Marshal(params)
 	if err != nil {
 		return err
