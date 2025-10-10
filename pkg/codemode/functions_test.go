@@ -11,21 +11,19 @@ import (
 
 func TestToolToJsDoc(t *testing.T) {
 	tool := tools.Tool{
-		Function: tools.FunctionDefinition{
-			Name:        "create_todo",
-			Description: "Create new todo",
-			Parameters: tools.FunctionParameters{
-				Type: "object",
-				Properties: map[string]any{
-					"description": map[string]any{
-						"type":        "string",
-						"description": "Description of the todo item",
-					},
+		Name:        "create_todo",
+		Description: "Create new todo",
+		Parameters: tools.FunctionParameters{
+			Type: "object",
+			Properties: map[string]any{
+				"description": map[string]any{
+					"type":        "string",
+					"description": "Description of the todo item",
 				},
-				Required: []string{"description"},
 			},
-			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
+			Required: []string{"description"},
 		},
+		OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
 	}
 
 	jsDoc := toolToJsDoc(tool)

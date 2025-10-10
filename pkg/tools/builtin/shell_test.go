@@ -42,17 +42,17 @@ func TestShellTool_Tools(t *testing.T) {
 	assert.Len(t, allTools, 1)
 
 	// Verify bash function
-	assert.Equal(t, "shell", allTools[0].Function.Name)
-	assert.Contains(t, allTools[0].Function.Description, "Executes the given shell command")
+	assert.Equal(t, "shell", allTools[0].Name)
+	assert.Contains(t, allTools[0].Description, "Executes the given shell command")
 
 	// Check parameters
-	props := allTools[0].Function.Parameters.Properties
+	props := allTools[0].Parameters.Properties
 	assert.Contains(t, props, "cmd")
 	assert.Contains(t, props, "cwd")
 
 	// Check required fields
-	assert.Contains(t, allTools[0].Function.Parameters.Required, "cmd")
-	assert.Contains(t, allTools[0].Function.Parameters.Required, "cwd")
+	assert.Contains(t, allTools[0].Parameters.Required, "cmd")
+	assert.Contains(t, allTools[0].Parameters.Required, "cwd")
 
 	// Verify handler is provided
 	assert.NotNil(t, allTools[0].Handler)
@@ -66,7 +66,7 @@ func TestShellTool_DisplayNames(t *testing.T) {
 
 	for _, tool := range all {
 		assert.NotEmpty(t, tool.DisplayName())
-		assert.NotEqual(t, tool.Function.Name, tool.DisplayName())
+		assert.NotEqual(t, tool.Name, tool.DisplayName())
 	}
 }
 
@@ -225,6 +225,6 @@ func TestShellTool_OutputSchema(t *testing.T) {
 	require.NotEmpty(t, allTools)
 
 	for _, tool := range allTools {
-		assert.NotNil(t, tool.Function.OutputSchema)
+		assert.NotNil(t, tool.OutputSchema)
 	}
 }

@@ -27,17 +27,17 @@ func TestTaskTool_Tools(t *testing.T) {
 	assert.Len(t, allTools, 1)
 
 	// Verify transfer_task function
-	assert.Equal(t, "transfer_task", allTools[0].Function.Name)
-	assert.Contains(t, allTools[0].Function.Description, "transfer a task to the selected team member")
+	assert.Equal(t, "transfer_task", allTools[0].Name)
+	assert.Contains(t, allTools[0].Description, "transfer a task to the selected team member")
 
 	// Check parameters
-	props := allTools[0].Function.Parameters.Properties
+	props := allTools[0].Parameters.Properties
 	assert.Contains(t, props, "agent")
 	assert.Contains(t, props, "task")
 
 	// Check required fields
-	assert.Contains(t, allTools[0].Function.Parameters.Required, "agent")
-	assert.Contains(t, allTools[0].Function.Parameters.Required, "task")
+	assert.Contains(t, allTools[0].Parameters.Required, "agent")
+	assert.Contains(t, allTools[0].Parameters.Required, "task")
 
 	// Verify no handler is provided (it's handled externally)
 	assert.Nil(t, allTools[0].Handler)
@@ -51,7 +51,7 @@ func TestTaskTool_DisplayNames(t *testing.T) {
 
 	for _, tool := range all {
 		assert.NotEmpty(t, tool.DisplayName())
-		assert.NotEqual(t, tool.Function.Name, tool.DisplayName())
+		assert.NotEqual(t, tool.Name, tool.DisplayName())
 	}
 }
 

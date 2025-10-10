@@ -163,29 +163,27 @@ Commands that exit with non-zero status codes will return error information alon
 func (t *ShellTool) Tools(context.Context) ([]tools.Tool, error) {
 	return []tools.Tool{
 		{
-			Function: tools.FunctionDefinition{
-				Name:        "shell",
-				Description: `Executes the given shell command in the user's default shell.`,
-				Annotations: tools.ToolAnnotations{
-					Title: "Run Shell Command",
-				},
-				Parameters: tools.FunctionParameters{
-					Type: "object",
-					Properties: map[string]any{
-						"cmd": map[string]any{
-							"type":        "string",
-							"description": "The shell command to execute",
-						},
-						"cwd": map[string]any{
-							"type":        "string",
-							"description": "The working directory to execute the command in",
-						},
-					},
-					Required: []string{"cmd", "cwd"},
-				},
-				OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
+			Name:        "shell",
+			Description: `Executes the given shell command in the user's default shell.`,
+			Annotations: tools.ToolAnnotations{
+				Title: "Run Shell Command",
 			},
-			Handler: t.handler.CallTool,
+			Parameters: tools.FunctionParameters{
+				Type: "object",
+				Properties: map[string]any{
+					"cmd": map[string]any{
+						"type":        "string",
+						"description": "The shell command to execute",
+					},
+					"cwd": map[string]any{
+						"type":        "string",
+						"description": "The working directory to execute the command in",
+					},
+				},
+				Required: []string{"cmd", "cwd"},
+			},
+			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
+			Handler:      t.handler.CallTool,
 		},
 	}, nil
 }

@@ -153,20 +153,18 @@ func (ts *Toolset) Tools(ctx context.Context) ([]tools.Tool, error) {
 		inputProps := extractProps(t.InputSchema)
 
 		tool := tools.Tool{
-			Function: tools.FunctionDefinition{
-				Name:        t.Name,
-				Description: t.Description,
-				Parameters: tools.FunctionParameters{
-					Type:       inputProps.ttype,
-					Properties: inputProps.properties,
-					Required:   inputProps.required,
-				},
-				OutputSchema: t.OutputSchema,
+			Name:        t.Name,
+			Description: t.Description,
+			Parameters: tools.FunctionParameters{
+				Type:       inputProps.ttype,
+				Properties: inputProps.properties,
+				Required:   inputProps.required,
 			},
-			Handler: ts.callTool,
+			OutputSchema: t.OutputSchema,
+			Handler:      ts.callTool,
 		}
 		if t.Annotations != nil {
-			tool.Function.Annotations = tools.ToolAnnotations(*t.Annotations)
+			tool.Annotations = tools.ToolAnnotations(*t.Annotations)
 		}
 		toolsList = append(toolsList, tool)
 

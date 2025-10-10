@@ -147,98 +147,90 @@ func (h *todoHandler) listTodos(context.Context, tools.ToolCall) (*tools.ToolCal
 func (t *TodoTool) Tools(context.Context) ([]tools.Tool, error) {
 	return []tools.Tool{
 		{
-			Function: tools.FunctionDefinition{
-				Name:        "create_todo",
-				Description: "Create a new todo item with a description",
-				Annotations: tools.ToolAnnotations{
-					// This is technically not read-only but has practically no destructive side effects.
-					ReadOnlyHint: true,
-					Title:        "Create TODO",
-				},
-				Parameters: tools.FunctionParameters{
-					Type: "object",
-					Properties: map[string]any{
-						"description": map[string]any{
-							"type":        "string",
-							"description": "Description of the todo item",
-						},
-					},
-					Required: []string{"description"},
-				},
-				OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
+			Name:        "create_todo",
+			Description: "Create a new todo item with a description",
+			Annotations: tools.ToolAnnotations{
+				// This is technically not read-only but has practically no destructive side effects.
+				ReadOnlyHint: true,
+				Title:        "Create TODO",
 			},
-			Handler: t.handler.createTodo,
+			Parameters: tools.FunctionParameters{
+				Type: "object",
+				Properties: map[string]any{
+					"description": map[string]any{
+						"type":        "string",
+						"description": "Description of the todo item",
+					},
+				},
+				Required: []string{"description"},
+			},
+			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
+			Handler:      t.handler.createTodo,
 		},
 		{
-			Function: tools.FunctionDefinition{
-				Name:        "create_todos",
-				Description: "Create a list of new todo items with descriptions",
-				Annotations: tools.ToolAnnotations{
-					// This is technically not read-only but has practically no destructive side effects.
-					ReadOnlyHint: true,
-					Title:        "Create TODOs",
-				},
-				Parameters: tools.FunctionParameters{
-					Type: "object",
-					Properties: map[string]any{
-						"todos": map[string]any{
-							"type":        "array",
-							"description": "List of todo items",
-							"items": map[string]any{
-								"type": "object",
-								"properties": map[string]any{
-									"description": map[string]any{
-										"type":        "string",
-										"description": "Description of the todo item",
-									},
+			Name:        "create_todos",
+			Description: "Create a list of new todo items with descriptions",
+			Annotations: tools.ToolAnnotations{
+				// This is technically not read-only but has practically no destructive side effects.
+				ReadOnlyHint: true,
+				Title:        "Create TODOs",
+			},
+			Parameters: tools.FunctionParameters{
+				Type: "object",
+				Properties: map[string]any{
+					"todos": map[string]any{
+						"type":        "array",
+						"description": "List of todo items",
+						"items": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"description": map[string]any{
+									"type":        "string",
+									"description": "Description of the todo item",
 								},
 							},
 						},
 					},
-					Required: []string{"todos"},
 				},
-				OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
+				Required: []string{"todos"},
 			},
-			Handler: t.handler.createTodos,
+			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
+			Handler:      t.handler.createTodos,
 		},
 		{
-			Function: tools.FunctionDefinition{
-				Name:        "update_todo",
-				Description: "Update the status of a todo item",
-				Annotations: tools.ToolAnnotations{
-					// This is technically not read-only but has practically no destructive side effects.
-					ReadOnlyHint: true,
-					Title:        "Update TODO",
-				},
-				Parameters: tools.FunctionParameters{
-					Type: "object",
-					Properties: map[string]any{
-						"id": map[string]any{
-							"type":        "string",
-							"description": "ID of the todo item",
-						},
-						"status": map[string]any{
-							"type":        "string",
-							"description": "New status (pending, in-progress,completed)",
-						},
+			Name:        "update_todo",
+			Description: "Update the status of a todo item",
+			Annotations: tools.ToolAnnotations{
+				// This is technically not read-only but has practically no destructive side effects.
+				ReadOnlyHint: true,
+				Title:        "Update TODO",
+			},
+			Parameters: tools.FunctionParameters{
+				Type: "object",
+				Properties: map[string]any{
+					"id": map[string]any{
+						"type":        "string",
+						"description": "ID of the todo item",
 					},
-					Required: []string{"id", "status"},
+					"status": map[string]any{
+						"type":        "string",
+						"description": "New status (pending, in-progress,completed)",
+					},
 				},
-				OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
+				Required: []string{"id", "status"},
 			},
-			Handler: t.handler.updateTodo,
+			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
+			Handler:      t.handler.updateTodo,
 		},
 		{
-			Function: tools.FunctionDefinition{
-				Name:        "list_todos",
-				Description: "List all current todos with their status",
-				Annotations: tools.ToolAnnotations{
-					ReadOnlyHint: true,
-					Title:        "List TODOs",
-				},
-				OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
+			Name:        "list_todos",
+			Description: "List all current todos with their status",
+			Annotations: tools.ToolAnnotations{
+				ReadOnlyHint: true,
+				Title:        "List TODOs",
 			},
-			Handler: t.handler.listTodos,
+			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
+			Handler:      t.handler.listTodos,
 		},
 	}, nil
 }

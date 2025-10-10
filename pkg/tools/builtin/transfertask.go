@@ -24,32 +24,30 @@ func (t *TransferTaskTool) Instructions() string {
 func (t *TransferTaskTool) Tools(context.Context) ([]tools.Tool, error) {
 	return []tools.Tool{
 		{
-			Function: tools.FunctionDefinition{
-				Name: "transfer_task",
-				Description: `Use this function to transfer a task to the selected team member.
+			Name: "transfer_task",
+			Description: `Use this function to transfer a task to the selected team member.
             You must provide a clear and concise description of the task the member should achieve AND the expected output.`,
-				Annotations: tools.ToolAnnotations{
-					ReadOnlyHint: true,
-					Title:        "Transfer Task",
-				},
-				Parameters: tools.FunctionParameters{
-					Type: "object",
-					Properties: map[string]any{
-						"agent": map[string]any{
-							"type":        "string",
-							"description": "The name of the agent to transfer the task to.",
-						},
-						"task": map[string]any{
-							"type":        "string",
-							"description": "A clear and concise description of the task the member should achieve.",
-						},
-						"expected_output": map[string]any{
-							"type":        "string",
-							"description": "The expected output from the member (optional).",
-						},
+			Annotations: tools.ToolAnnotations{
+				ReadOnlyHint: true,
+				Title:        "Transfer Task",
+			},
+			Parameters: tools.FunctionParameters{
+				Type: "object",
+				Properties: map[string]any{
+					"agent": map[string]any{
+						"type":        "string",
+						"description": "The name of the agent to transfer the task to.",
 					},
-					Required: []string{"agent", "task", "expected_output"},
+					"task": map[string]any{
+						"type":        "string",
+						"description": "A clear and concise description of the task the member should achieve.",
+					},
+					"expected_output": map[string]any{
+						"type":        "string",
+						"description": "The expected output from the member (optional).",
+					},
 				},
+				Required: []string{"agent", "task", "expected_output"},
 			},
 		},
 	}, nil

@@ -250,13 +250,13 @@ func (c *Client) CreateChatCompletionStream(
 			request.Tools[i] = openai.Tool{
 				Type: openai.ToolTypeFunction,
 				Function: &openai.FunctionDefinition{
-					Name:        tool.Function.Name,
-					Description: tool.Function.Description,
-					Parameters:  tool.Function.Parameters,
+					Name:        tool.Name,
+					Description: tool.Description,
+					Parameters:  tool.Parameters,
 				},
 			}
 
-			slog.Debug("Added tool to OpenAI request", "tool_name", tool.Function.Name)
+			slog.Debug("Added tool to OpenAI request", "tool_name", tool.Name)
 		}
 		if c.config.ParallelToolCalls != nil {
 			request.ParallelToolCalls = *c.config.ParallelToolCalls

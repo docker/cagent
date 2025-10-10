@@ -53,20 +53,18 @@ func (c *tool) Tools(ctx context.Context) ([]tools.Tool, error) {
 	}
 
 	return []tools.Tool{{
-		Function: tools.FunctionDefinition{
-			Name:        "run_tools_with_javascript",
-			Description: prompt + strings.Join(functionsDoc, "\n"),
-			Annotations: tools.ToolAnnotations{
-				Title: "Run tools with Javascript",
-			},
-			Parameters: tools.FunctionParameters{
-				Type:     "object",
-				Required: []string{"script"},
-				Properties: map[string]any{
-					"script": map[string]any{
-						"type":        "string",
-						"description": "script to execute",
-					},
+		Name:        "run_tools_with_javascript",
+		Description: prompt + strings.Join(functionsDoc, "\n"),
+		Annotations: tools.ToolAnnotations{
+			Title: "Run tools with Javascript",
+		},
+		Parameters: tools.FunctionParameters{
+			Type:     "object",
+			Required: []string{"script"},
+			Properties: map[string]any{
+				"script": map[string]any{
+					"type":        "string",
+					"description": "script to execute",
 				},
 			},
 		},

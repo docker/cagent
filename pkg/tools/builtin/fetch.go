@@ -309,41 +309,39 @@ USAGE TIPS
 func (t *FetchTool) Tools(context.Context) ([]tools.Tool, error) {
 	return []tools.Tool{
 		{
-			Function: tools.FunctionDefinition{
-				Name:        "fetch",
-				Description: "Fetch content from one or more HTTP/HTTPS URLs. Returns the response body and metadata.",
-				Annotations: tools.ToolAnnotations{
-					ReadOnlyHint: true,
-					Title:        "Fetch URLs",
-				},
-				Parameters: tools.FunctionParameters{
-					Type: "object",
-					Properties: map[string]any{
-						"urls": map[string]any{
-							"type": "array",
-							"items": map[string]any{
-								"type": "string",
-							},
-							"description": "Array of URLs to fetch",
-							"minItems":    1,
-						},
-						"format": map[string]any{
-							"type":        "string",
-							"description": "The format to return the content in (text, markdown, or html)",
-							"enum":        []string{"text", "markdown", "html"},
-						},
-						"timeout": map[string]any{
-							"type":        "integer",
-							"description": "Request timeout in seconds (default: 30)",
-							"minimum":     1,
-							"maximum":     300,
-						},
-					},
-					Required: []string{"urls", "format"},
-				},
-				OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
+			Name:        "fetch",
+			Description: "Fetch content from one or more HTTP/HTTPS URLs. Returns the response body and metadata.",
+			Annotations: tools.ToolAnnotations{
+				ReadOnlyHint: true,
+				Title:        "Fetch URLs",
 			},
-			Handler: t.handler.CallTool,
+			Parameters: tools.FunctionParameters{
+				Type: "object",
+				Properties: map[string]any{
+					"urls": map[string]any{
+						"type": "array",
+						"items": map[string]any{
+							"type": "string",
+						},
+						"description": "Array of URLs to fetch",
+						"minItems":    1,
+					},
+					"format": map[string]any{
+						"type":        "string",
+						"description": "The format to return the content in (text, markdown, or html)",
+						"enum":        []string{"text", "markdown", "html"},
+					},
+					"timeout": map[string]any{
+						"type":        "integer",
+						"description": "Request timeout in seconds (default: 30)",
+						"minimum":     1,
+						"maximum":     300,
+					},
+				},
+				Required: []string{"urls", "format"},
+			},
+			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
+			Handler:      t.handler.CallTool,
 		},
 	}, nil
 }

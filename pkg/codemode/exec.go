@@ -25,7 +25,7 @@ func (c *tool) runJavascript(ctx context.Context, script string) (string, error)
 		}
 
 		for _, tool := range allTools {
-			_ = vm.Set(tool.Function.Name, callTool(ctx, tool))
+			_ = vm.Set(tool.Name, callTool(ctx, tool))
 		}
 	}
 
@@ -52,7 +52,7 @@ func callTool(ctx context.Context, tool tools.Tool) func(args map[string]any) (s
 	return func(args map[string]any) (string, error) {
 		nonNilArgs := make(map[string]any)
 		for k, v := range args {
-			if slices.Contains(tool.Function.Parameters.Required, k) || v != nil {
+			if slices.Contains(tool.Parameters.Required, k) || v != nil {
 				nonNilArgs[k] = v
 			}
 		}
@@ -64,7 +64,7 @@ func callTool(ctx context.Context, tool tools.Tool) func(args map[string]any) (s
 
 		result, err := tool.Handler(ctx, tools.ToolCall{
 			Function: tools.FunctionCall{
-				Name:      tool.Function.Name,
+				Name:      tool.Name,
 				Arguments: string(arguments),
 			},
 		})

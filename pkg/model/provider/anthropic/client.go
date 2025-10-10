@@ -434,10 +434,10 @@ func convertTools(tooles []tools.Tool) []anthropic.ToolUnionParam {
 
 	for i, tool := range tooles {
 		toolParams[i] = anthropic.ToolParam{
-			Name:        tool.Function.Name,
-			Description: anthropic.String(tool.Function.Description),
+			Name:        tool.Name,
+			Description: anthropic.String(tool.Description),
 			InputSchema: anthropic.ToolInputSchemaParam{
-				Properties: tool.Function.Parameters.Properties,
+				Properties: tool.Parameters.Properties,
 			},
 		}
 	}

@@ -1,10 +1,10 @@
 package tools
 
 func (t *Tool) DisplayName() string {
-	title := t.Function.Annotations.Title
+	title := t.Annotations.Title
 	if title != "" {
 		return title
 	}
 
-	return t.Function.Name
+	return t.Name
 }

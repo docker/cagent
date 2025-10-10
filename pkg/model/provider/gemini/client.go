@@ -256,9 +256,9 @@ func convertToolsToGemini(requestTools []tools.Tool) []*genai.Tool {
 	funcs := make([]*genai.FunctionDeclaration, 0, len(requestTools))
 	for _, tool := range requestTools {
 		funcs = append(funcs, &genai.FunctionDeclaration{
-			Name:        tool.Function.Name,
-			Description: tool.Function.Description,
-			Parameters:  convertParametersToSchema(tool.Function.Parameters),
+			Name:        tool.Name,
+			Description: tool.Description,
+			Parameters:  convertParametersToSchema(tool.Parameters),
 		})
 	}
 

@@ -45,7 +45,7 @@ func debugToolsetsCommand(cmd *cobra.Command, args []string) error {
 		}
 
 		for _, tool := range tools {
-			slog.Info("Tool found", "name", tool.Function.Name)
+			slog.Info("Tool found", "name", tool.Name)
 		}
 	}
 

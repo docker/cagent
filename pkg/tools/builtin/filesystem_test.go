@@ -56,7 +56,7 @@ func TestFilesystemTool_Tools(t *testing.T) {
 
 	var toolNames []string
 	for _, tool := range allTools {
-		toolNames = append(toolNames, tool.Function.Name)
+		toolNames = append(toolNames, tool.Name)
 		assert.NotNil(t, tool.Handler)
 	}
 
@@ -73,7 +73,7 @@ func TestFilesystemTool_DisplayNames(t *testing.T) {
 
 	for _, tool := range all {
 		assert.NotEmpty(t, tool.DisplayName())
-		assert.NotEqual(t, tool.Function.Name, tool.DisplayName())
+		assert.NotEqual(t, tool.Name, tool.DisplayName())
 	}
 }
 
@@ -687,7 +687,7 @@ func getToolHandler(t *testing.T, tool *FilesystemTool, toolName string) tools.T
 	require.NoError(t, err)
 
 	for _, tl := range tls {
-		if tl.Function.Name == toolName {
+		if tl.Name == toolName {
 			return tl.Handler
 		}
 	}
@@ -840,7 +840,7 @@ func TestFilesystemTool_FilterTools(t *testing.T) {
 	allTools, err := tool.Tools(t.Context())
 	require.NoError(t, err)
 	require.Len(t, allTools, 1)
-	require.Equal(t, "list_allowed_directories", allTools[0].Function.Name)
+	require.Equal(t, "list_allowed_directories", allTools[0].Name)
 	require.NotNil(t, allTools[0].Handler)
 }
 
@@ -933,6 +933,6 @@ func TestFilesystemTool_OutputSchema(t *testing.T) {
 	require.NotEmpty(t, allTools)
 
 	for _, tool := range allTools {
-		assert.NotNil(t, tool.Function.OutputSchema)
+		assert.NotNil(t, tool.OutputSchema)
 	}
 }

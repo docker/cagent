@@ -50,18 +50,16 @@ func main() {
 	}
 
 	toolAddNumbers := tools.Tool{
-		Function: tools.FunctionDefinition{
-			Name:        "add",
-			Description: "Add two numbers",
-			Parameters: tools.FunctionParameters{
-				Type: "object",
-				Properties: map[string]any{
-					"a": map[string]any{
-						"type": "number",
-					},
-					"b": map[string]any{
-						"type": "number",
-					},
+		Name:        "add",
+		Description: "Add two numbers",
+		Parameters: tools.FunctionParameters{
+			Type: "object",
+			Properties: map[string]any{
+				"a": map[string]any{
+					"type": "number",
+				},
+				"b": map[string]any{
+					"type": "number",
 				},
 			},
 		},
