@@ -52,12 +52,10 @@ func (c *tool) Tools(ctx context.Context) ([]tools.Tool, error) {
 		}
 	}
 
-	description := prompt + strings.Join(functionsDoc, "\n")
-
-	jstool := tools.Tool{
+	return []tools.Tool{{
 		Function: tools.FunctionDefinition{
 			Name:        "run_tools_with_javascript",
-			Description: description,
+			Description: prompt + strings.Join(functionsDoc, "\n"),
 			Annotations: tools.ToolAnnotations{
 				Title: "Run tools with Javascript",
 			},
@@ -87,9 +85,7 @@ func (c *tool) Tools(ctx context.Context) ([]tools.Tool, error) {
 				Output: output,
 			}, nil
 		},
-	}
-
-	return []tools.Tool{jstool}, nil
+	}}, nil
 }
 
 func (c *tool) Start(ctx context.Context) error {
