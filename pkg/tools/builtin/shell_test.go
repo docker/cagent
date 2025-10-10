@@ -60,6 +60,7 @@ func TestShellTool_Tools(t *testing.T) {
 			"type": "string"
 		}
 	},
+	"additionalProperties": false,
 	"required": [
 		"cmd",
 		"cwd"
@@ -91,14 +92,12 @@ func TestShellTool_HandlerEcho(t *testing.T) {
 	handler := tls[0].Handler
 
 	// Create tool call for a simple echo command
-	args := struct {
-		Cmd string `json:"cmd"`
-		Cwd string `json:"cwd"`
-	}{
+	args := RunShellArgs{
 		Cmd: "echo 'hello world'",
 		Cwd: "",
 	}
-	argsBytes, _ := json.Marshal(args)
+	argsBytes, err := json.Marshal(args)
+	require.NoError(t, err)
 
 	toolCall := tools.ToolCall{
 		Function: tools.FunctionCall{
@@ -129,14 +128,12 @@ func TestShellTool_HandlerWithCwd(t *testing.T) {
 	// Create tool call for pwd command with specific cwd
 	tmpDir := t.TempDir() // Create a temporary directory for testing
 
-	args := struct {
-		Cmd string `json:"cmd"`
-		Cwd string `json:"cwd"`
-	}{
+	args := RunShellArgs{
 		Cmd: "pwd",
 		Cwd: tmpDir,
 	}
-	argsBytes, _ := json.Marshal(args)
+	argsBytes, err := json.Marshal(args)
+	require.NoError(t, err)
 
 	toolCall := tools.ToolCall{
 		Function: tools.FunctionCall{
@@ -167,14 +164,12 @@ func TestShellTool_HandlerError(t *testing.T) {
 	handler := tls[0].Handler
 
 	// Create tool call for a command that should fail
-	args := struct {
-		Cmd string `json:"cmd"`
-		Cwd string `json:"cwd"`
-	}{
+	args := RunShellArgs{
 		Cmd: "command_that_does_not_exist",
 		Cwd: "",
 	}
-	argsBytes, _ := json.Marshal(args)
+	argsBytes, err := json.Marshal(args)
+	require.NoError(t, err)
 
 	toolCall := tools.ToolCall{
 		Function: tools.FunctionCall{
@@ -234,6 +229,7 @@ func TestShellTool_OutputSchema(t *testing.T) {
 	require.NotEmpty(t, allTools)
 
 	for _, tool := range allTools {
+		assert.NotNil(t, tool.Parameters)
 		assert.NotNil(t, tool.OutputSchema)
 	}
 }

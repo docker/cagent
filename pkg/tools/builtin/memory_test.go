@@ -63,6 +63,43 @@ func TestMemoryTool_Tools(t *testing.T) {
 	assert.Equal(t, "add_memory", tls[0].Name)
 	assert.Equal(t, "get_memories", tls[1].Name)
 	assert.Equal(t, "delete_memory", tls[2].Name)
+
+	// Check add_memory parameters
+	schema, err := json.Marshal(tls[0].Parameters)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{
+	"type": "object",
+	"properties": {
+		"memory": {
+			"description": "The memory content to store",
+			"type": "string"
+		}
+	},
+	"additionalProperties": false,
+	"required": [
+		"memory"
+	]
+}`, string(schema))
+
+	// Check get_memories parameters
+	assert.Nil(t, tls[1].Parameters)
+
+	// Check delete_memory parameters
+	schema, err = json.Marshal(tls[2].Parameters)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{
+	"type": "object",
+	"properties": {
+		"id": {
+			"description": "The ID of the memory to delete",
+			"type": "string"
+		}
+	},
+	"additionalProperties": false,
+	"required": [
+		"id"
+	]
+}`, string(schema))
 }
 
 func TestMemoryTool_DisplayNames(t *testing.T) {
@@ -88,12 +125,11 @@ func TestMemoryTool_HandleAddMemory(t *testing.T) {
 	})).Return(nil)
 
 	// Create tool call
-	args := struct {
-		Memory string `json:"memory"`
-	}{
+	args := AddMemoryArgs{
 		Memory: "test memory",
 	}
-	argsBytes, _ := json.Marshal(args)
+	argsBytes, err := json.Marshal(args)
+	require.NoError(t, err)
 
 	toolCall := tools.ToolCall{
 		Function: tools.FunctionCall{
@@ -163,12 +199,11 @@ func TestMemoryTool_HandleDeleteMemory(t *testing.T) {
 	})).Return(nil)
 
 	// Create tool call
-	args := struct {
-		ID string `json:"id"`
-	}{
+	args := DeleteMemoryArgs{
 		ID: "1",
 	}
-	argsBytes, _ := json.Marshal(args)
+	argsBytes, err := json.Marshal(args)
+	require.NoError(t, err)
 
 	toolCall := tools.ToolCall{
 		Function: tools.FunctionCall{

@@ -32,6 +32,41 @@ func TestFetchTool_Tools(t *testing.T) {
 	fetchTool := toolSet[0]
 	assert.Equal(t, "fetch", fetchTool.Name)
 	assert.NotNil(t, fetchTool.Handler)
+
+	schema, err := json.Marshal(fetchTool.Parameters)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{
+	"type": "object",
+	"properties": {
+		"format": {
+			"description": "The format to return the content in (text, markdown, or html)",
+			"enum": [
+				"text",
+				"markdown",
+				"html"
+			],
+			"type": "string"
+		},
+		"timeout": {
+			"description": "Request timeout in seconds (default: 30)",
+			"maximum": 300,
+			"minimum": 1,
+			"type": "integer"
+		},
+		"urls": {
+			"description": "Array of URLs to fetch",
+			"items": {
+				"type": "string"
+			},
+			"minItems": 1,
+			"type": "array"
+		}
+	},
+	"required": [
+		"urls",
+		"format"
+	]
+}`, string(schema))
 }
 
 func TestFetchTool_Instructions(t *testing.T) {

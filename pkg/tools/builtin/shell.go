@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"reflect"
 	"runtime"
 
 	"github.com/docker/cagent/pkg/tools"
@@ -26,12 +25,13 @@ type shellHandler struct {
 	env             []string
 }
 
-func (h *shellHandler) CallTool(ctx context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
-	var params struct {
-		Cmd string `json:"cmd"`
-		Cwd string `json:"cwd"`
-	}
+type RunShellArgs struct {
+	Cmd string `json:"cmd" jsonschema:"The shell command to execute"`
+	Cwd string `json:"cwd" jsonschema:"The working directory to execute the command in"`
+}
 
+func (h *shellHandler) RunShell(ctx context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
+	var params RunShellArgs
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &params); err != nil {
 		return nil, fmt.Errorf("invalid arguments: %w", err)
 	}
@@ -163,27 +163,14 @@ Commands that exit with non-zero status codes will return error information alon
 func (t *ShellTool) Tools(context.Context) ([]tools.Tool, error) {
 	return []tools.Tool{
 		{
-			Name:        "shell",
-			Description: `Executes the given shell command in the user's default shell.`,
+			Name:         "shell",
+			Description:  `Executes the given shell command in the user's default shell.`,
+			Parameters:   tools.MustSchemaFor[RunShellArgs](),
+			OutputSchema: tools.MustSchemaFor[string](),
+			Handler:      t.handler.RunShell,
 			Annotations: tools.ToolAnnotations{
 				Title: "Run Shell Command",
 			},
-			Parameters: tools.FunctionParameters{
-				Type: "object",
-				Properties: map[string]any{
-					"cmd": map[string]any{
-						"type":        "string",
-						"description": "The shell command to execute",
-					},
-					"cwd": map[string]any{
-						"type":        "string",
-						"description": "The working directory to execute the command in",
-					},
-				},
-				Required: []string{"cmd", "cwd"},
-			},
-			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
-			Handler:      t.handler.CallTool,
 		},
 	}, nil
 }

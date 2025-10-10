@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"reflect"
 	"strings"
 	"time"
 
@@ -311,13 +310,9 @@ func (t *FetchTool) Tools(context.Context) ([]tools.Tool, error) {
 		{
 			Name:        "fetch",
 			Description: "Fetch content from one or more HTTP/HTTPS URLs. Returns the response body and metadata.",
-			Annotations: tools.ToolAnnotations{
-				ReadOnlyHint: true,
-				Title:        "Fetch URLs",
-			},
-			Parameters: tools.FunctionParameters{
-				Type: "object",
-				Properties: map[string]any{
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
 					"urls": map[string]any{
 						"type": "array",
 						"items": map[string]any{
@@ -338,10 +333,14 @@ func (t *FetchTool) Tools(context.Context) ([]tools.Tool, error) {
 						"maximum":     300,
 					},
 				},
-				Required: []string{"urls", "format"},
+				"required": []string{"urls", "format"},
 			},
-			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
+			OutputSchema: tools.MustSchemaFor[string](),
 			Handler:      t.handler.CallTool,
+			Annotations: tools.ToolAnnotations{
+				ReadOnlyHint: true,
+				Title:        "Fetch URLs",
+			},
 		},
 	}, nil
 }

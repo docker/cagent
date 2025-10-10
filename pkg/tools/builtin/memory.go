@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"time"
 
 	"github.com/docker/cagent/pkg/memory/database"
@@ -26,6 +25,14 @@ func NewMemoryTool(manager memorymanager.Manager) *MemoryTool {
 	}
 }
 
+type AddMemoryArgs struct {
+	Memory string `json:"memory" jsonschema:"The memory content to store"`
+}
+
+type DeleteMemoryArgs struct {
+	ID string `json:"id" jsonschema:"The ID of the memory to delete"`
+}
+
 func (t *MemoryTool) Instructions() string {
 	return `## Using the memory tool
 
@@ -39,60 +46,40 @@ Do not talk about using the tool, just use it.
 func (t *MemoryTool) Tools(context.Context) ([]tools.Tool, error) {
 	return []tools.Tool{
 		{
-			Name:        "add_memory",
-			Description: "Add a new memory to the database",
+			Name:         "add_memory",
+			Description:  "Add a new memory to the database",
+			Parameters:   tools.MustSchemaFor[AddMemoryArgs](),
+			OutputSchema: tools.MustSchemaFor[string](),
+			Handler:      t.handleAddMemory,
 			Annotations: tools.ToolAnnotations{
 				Title: "Add Memory",
 			},
-			Parameters: tools.FunctionParameters{
-				Type: "object",
-				Properties: map[string]any{
-					"memory": map[string]any{
-						"type":        "string",
-						"description": "The memory content to store",
-					},
-				},
-				Required: []string{"memory"},
-			},
-			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
-			Handler:      t.handleAddMemory,
 		},
 		{
-			Name:        "get_memories",
-			Description: "Retrieve all stored memories",
+			Name:         "get_memories",
+			Description:  "Retrieve all stored memories",
+			OutputSchema: tools.MustSchemaFor[[]database.UserMemory](),
+			Handler:      t.handleGetMemories,
 			Annotations: tools.ToolAnnotations{
 				ReadOnlyHint: true,
 				Title:        "Get Memories",
 			},
-			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[[]database.UserMemory]()),
-			Handler:      t.handleGetMemories,
 		},
 		{
-			Name:        "delete_memory",
-			Description: "Delete a specific memory by ID",
+			Name:         "delete_memory",
+			Description:  "Delete a specific memory by ID",
+			Parameters:   tools.MustSchemaFor[DeleteMemoryArgs](),
+			OutputSchema: tools.MustSchemaFor[string](),
+			Handler:      t.handleDeleteMemory,
 			Annotations: tools.ToolAnnotations{
 				Title: "Delete Memory",
 			},
-			Parameters: tools.FunctionParameters{
-				Type: "object",
-				Properties: map[string]any{
-					"id": map[string]any{
-						"type":        "string",
-						"description": "The ID of the memory to delete",
-					},
-				},
-				Required: []string{"id"},
-			},
-			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
-			Handler:      t.handleDeleteMemory,
 		},
 	}, nil
 }
 
 func (t *MemoryTool) handleAddMemory(ctx context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
-	var args struct {
-		Memory string `json:"memory"`
-	}
+	var args AddMemoryArgs
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
 		return nil, fmt.Errorf("failed to parse arguments: %w", err)
 	}
@@ -129,9 +116,7 @@ func (t *MemoryTool) handleGetMemories(ctx context.Context, _ tools.ToolCall) (*
 }
 
 func (t *MemoryTool) handleDeleteMemory(ctx context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
-	var args struct {
-		ID string `json:"id"`
-	}
+	var args DeleteMemoryArgs
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
 		return nil, fmt.Errorf("failed to parse arguments: %w", err)
 	}

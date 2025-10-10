@@ -10,7 +10,7 @@ import (
 	"github.com/docker/cagent/pkg/tools"
 )
 
-func (c *tool) runJavascript(ctx context.Context, script string) (string, error) {
+func (c *codeModeTool) runJavascript(ctx context.Context, script string) (string, error) {
 	vm := goja.New()
 
 	// Inject console object to the help the LLM debug its own code.

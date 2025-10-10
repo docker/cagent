@@ -50,6 +50,7 @@ func TestThinkTool_Tools(t *testing.T) {
 			"type": "string"
 		}
 	},
+	"additionalProperties": false,
 	"required": [
 		"thought"
 	]
@@ -79,12 +80,11 @@ func TestThinkTool_Handler(t *testing.T) {
 	handler := tls[0].Handler
 
 	// Create tool call with thought
-	args := struct {
-		Thought string `json:"thought"`
-	}{
+	args := ThinkArgs{
 		Thought: "This is a test thought",
 	}
-	argsBytes, _ := json.Marshal(args)
+	argsBytes, err := json.Marshal(args)
+	require.NoError(t, err)
 
 	toolCall := tools.ToolCall{
 		Function: tools.FunctionCall{
@@ -102,7 +102,8 @@ func TestThinkTool_Handler(t *testing.T) {
 
 	// Add another thought
 	args.Thought = "Another thought"
-	argsBytes, _ = json.Marshal(args)
+	argsBytes, err = json.Marshal(args)
+	require.NoError(t, err)
 
 	toolCall.Function.Arguments = string(argsBytes)
 
@@ -157,6 +158,7 @@ func TestThinkTool_OutputSchema(t *testing.T) {
 	require.NotEmpty(t, allTools)
 
 	for _, tool := range allTools {
+		assert.NotNil(t, tool.Parameters)
 		assert.NotNil(t, tool.OutputSchema)
 	}
 }

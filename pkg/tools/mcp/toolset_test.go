@@ -11,7 +11,6 @@ import (
 	"github.com/docker/cagent/pkg/model/provider/dmr"
 	"github.com/docker/cagent/pkg/model/provider/gemini"
 	"github.com/docker/cagent/pkg/model/provider/openai"
-	"github.com/docker/cagent/pkg/tools"
 )
 
 const schemaJSON = `
@@ -47,20 +46,38 @@ const schemaJSON = `
     "required": ["repo"]
 }`
 
-func parseFunctionParameters(t *testing.T, schemaJSON string) tools.FunctionParameters {
+func parseFunctionParameters(t *testing.T, schemaJSON string) any {
 	t.Helper()
 
-	var parameters tools.FunctionParameters
+	var parameters map[string]any
 	err := json.Unmarshal([]byte(schemaJSON), &parameters)
 	require.NoError(t, err)
 
 	return parameters
 }
 
+func TestEmptyMapSchemaForGemini(t *testing.T) {
+	schema, err := gemini.ConvertParametersToSchema(map[string]any{})
+	require.NoError(t, err)
+
+	schemaJSON, err := json.Marshal(schema)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"type": "object"}`, string(schemaJSON))
+}
+
 func TestEmptySchemaForGemini(t *testing.T) {
 	parameters := parseFunctionParameters(t, "{}")
 
 	schema, err := gemini.ConvertParametersToSchema(parameters)
+	require.NoError(t, err)
+
+	schemaJSON, err := json.Marshal(schema)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"type": "object"}`, string(schemaJSON))
+}
+
+func TestNilSchemaForGemini(t *testing.T) {
+	schema, err := gemini.ConvertParametersToSchema(nil)
 	require.NoError(t, err)
 
 	schemaJSON, err := json.Marshal(schema)
@@ -110,9 +127,17 @@ func TestSchemaForGemini(t *testing.T) {
 }`, string(schemaJSON))
 }
 
-func TestEmptySchemaForAnthropic(t *testing.T) {
-	parameters := parseFunctionParameters(t, "{}")
-	shema, err := anthropic.ConvertParametersToSchema(parameters)
+func TestEmptyMapSchemaForAnthropic(t *testing.T) {
+	shema, err := anthropic.ConvertParametersToSchema(map[string]any{})
+	require.NoError(t, err)
+
+	schemaJSON, err := json.Marshal(shema)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"type": "object", "properties": {}}`, string(schemaJSON))
+}
+
+func TestNilSchemaForAnthropic(t *testing.T) {
+	shema, err := anthropic.ConvertParametersToSchema(nil)
 	require.NoError(t, err)
 
 	schemaJSON, err := json.Marshal(shema)
@@ -158,10 +183,20 @@ func TestSchemaForAnthropic(t *testing.T) {
 }`, string(schemaJSON))
 }
 
-func TestEmptySchemaForOpenai(t *testing.T) {
-	parameters := parseFunctionParameters(t, "{}")
+// TestEmptyMapSchemaForOpenai makes sure we format empty properties in a way that
+// OpenAI and LM Studio accept.
+// See https://github.com/docker/cagent/issues/278
+func TestEmptyMapSchemaForOpenai(t *testing.T) {
+	schema, err := openai.ConvertParametersToSchema(map[string]any{})
+	require.NoError(t, err)
 
-	schema, err := openai.ConvertParametersToSchema(parameters)
+	schemaJSON, err := json.Marshal(schema)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"type": "object", "properties": {}}`, string(schemaJSON))
+}
+
+func TestNilSchemaForOpenai(t *testing.T) {
+	schema, err := openai.ConvertParametersToSchema(nil)
 	require.NoError(t, err)
 
 	schemaJSON, err := json.Marshal(schema)
@@ -208,10 +243,17 @@ func TestSchemaForOpenai(t *testing.T) {
 }`, string(schemaJSON))
 }
 
-func TestEmptySchemaForDMR(t *testing.T) {
-	parameters := parseFunctionParameters(t, "{}")
+func TestEmptyMapSchemaForDMR(t *testing.T) {
+	schema, err := dmr.ConvertParametersToSchema(map[string]any{})
+	require.NoError(t, err)
 
-	schema, err := dmr.ConvertParametersToSchema(parameters)
+	schemaJSON, err := json.Marshal(schema)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"type": "object", "properties": {}}`, string(schemaJSON))
+}
+
+func TestNilSchemaForDMR(t *testing.T) {
+	schema, err := dmr.ConvertParametersToSchema(nil)
 	require.NoError(t, err)
 
 	schemaJSON, err := json.Marshal(schema)

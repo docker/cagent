@@ -13,6 +13,12 @@ type TransferTaskTool struct {
 // Make sure Transfer Tool implements the ToolSet Interface
 var _ tools.ToolSet = (*TransferTaskTool)(nil)
 
+type TransferTaskArgs struct {
+	Agent          string `json:"agent" jsonschema:"The name of the agent to transfer the task to."`
+	Task           string `json:"task" jsonschema:"A clear and concise description of the task the member should achieve."`
+	ExpectedOutput string `json:"expected_output" jsonschema:"The expected output from the member (optional)."`
+}
+
 func NewTransferTaskTool() *TransferTaskTool {
 	return &TransferTaskTool{}
 }
@@ -27,27 +33,10 @@ func (t *TransferTaskTool) Tools(context.Context) ([]tools.Tool, error) {
 			Name: "transfer_task",
 			Description: `Use this function to transfer a task to the selected team member.
             You must provide a clear and concise description of the task the member should achieve AND the expected output.`,
+			Parameters: tools.MustSchemaFor[TransferTaskArgs](),
 			Annotations: tools.ToolAnnotations{
 				ReadOnlyHint: true,
 				Title:        "Transfer Task",
-			},
-			Parameters: tools.FunctionParameters{
-				Type: "object",
-				Properties: map[string]any{
-					"agent": map[string]any{
-						"type":        "string",
-						"description": "The name of the agent to transfer the task to.",
-					},
-					"task": map[string]any{
-						"type":        "string",
-						"description": "A clear and concise description of the task the member should achieve.",
-					},
-					"expected_output": map[string]any{
-						"type":        "string",
-						"description": "The expected output from the member (optional).",
-					},
-				},
-				Required: []string{"agent", "task", "expected_output"},
 			},
 		},
 	}, nil

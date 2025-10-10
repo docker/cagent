@@ -177,7 +177,7 @@ func convertBetaTools(t []tools.Tool) ([]anthropic.BetaToolUnionParam, error) {
 	betaTools := make([]anthropic.BetaToolUnionParam, len(regularTools))
 
 	for i, tool := range regularTools {
-		if err := tools.JSONRoundtrip(tool, &betaTools[i]); err != nil {
+		if err := tools.ConvertSchema(tool, &betaTools[i]); err != nil {
 			return nil, err
 		}
 	}

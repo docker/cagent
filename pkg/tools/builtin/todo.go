@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strings"
 
 	"github.com/docker/cagent/pkg/tools"
@@ -19,9 +18,22 @@ type TodoTool struct {
 var _ tools.ToolSet = (*TodoTool)(nil)
 
 type Todo struct {
-	ID          string `json:"id"`
-	Description string `json:"description"`
-	Status      string `json:"status"` // "pending", "completed"
+	ID          string `json:"id" jsonschema:"ID of the todo item"`
+	Description string `json:"description" jsonschema:"Description of the todo item"`
+	Status      string `json:"status" jsonschema:"New status (pending, in-progress,completed)"`
+}
+
+type CreateTodoArgs struct {
+	Description string `json:"description" jsonschema:"Description of the todo item"`
+}
+
+type CreateTodosArgs struct {
+	Todos []Todo `json:"todos" jsonschema:"List of todo items"`
+}
+
+type UpdateTodoArgs struct {
+	ID     string `json:"id" jsonschema:"ID of the todo item"`
+	Status string `json:"status" jsonschema:"New status (pending, in-progress,completed)"`
 }
 
 type todoHandler struct {
@@ -58,21 +70,17 @@ This toolset is REQUIRED for maintaining task state and ensuring all steps are c
 }
 
 func (h *todoHandler) createTodo(_ context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
-	var params struct {
-		Description string `json:"description"`
-	}
-
+	var params CreateTodoArgs
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &params); err != nil {
 		return nil, fmt.Errorf("invalid arguments: %w", err)
 	}
 
 	id := fmt.Sprintf("todo_%d", len(h.todos)+1)
-	todo := Todo{
+	h.todos[id] = Todo{
 		ID:          id,
 		Description: params.Description,
 		Status:      "pending",
 	}
-	h.todos[id] = todo
 
 	return &tools.ToolCallResult{
 		Output: fmt.Sprintf("Created todo %s: %s", id, params.Description),
@@ -80,10 +88,7 @@ func (h *todoHandler) createTodo(_ context.Context, toolCall tools.ToolCall) (*t
 }
 
 func (h *todoHandler) createTodos(_ context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
-	var params struct {
-		Todos []Todo `json:"todos"`
-	}
-
+	var params CreateTodosArgs
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &params); err != nil {
 		return nil, fmt.Errorf("invalid arguments: %w", err)
 	}
@@ -92,13 +97,11 @@ func (h *todoHandler) createTodos(_ context.Context, toolCall tools.ToolCall) (*
 	start := len(h.todos)
 	for i, todo := range params.Todos {
 		id := fmt.Sprintf("todo_%d", start+i+1)
-		todo := Todo{
+		h.todos[id] = Todo{
 			ID:          id,
 			Description: todo.Description,
 			Status:      "pending",
 		}
-
-		h.todos[id] = todo
 		ids[i] = id
 	}
 
@@ -108,11 +111,7 @@ func (h *todoHandler) createTodos(_ context.Context, toolCall tools.ToolCall) (*
 }
 
 func (h *todoHandler) updateTodo(_ context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
-	var params struct {
-		ID     string `json:"id"`
-		Status string `json:"status"`
-	}
-
+	var params UpdateTodoArgs
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &params); err != nil {
 		return nil, fmt.Errorf("invalid arguments: %w", err)
 	}
@@ -147,90 +146,47 @@ func (h *todoHandler) listTodos(context.Context, tools.ToolCall) (*tools.ToolCal
 func (t *TodoTool) Tools(context.Context) ([]tools.Tool, error) {
 	return []tools.Tool{
 		{
-			Name:        "create_todo",
-			Description: "Create a new todo item with a description",
-			Annotations: tools.ToolAnnotations{
-				// This is technically not read-only but has practically no destructive side effects.
-				ReadOnlyHint: true,
-				Title:        "Create TODO",
-			},
-			Parameters: tools.FunctionParameters{
-				Type: "object",
-				Properties: map[string]any{
-					"description": map[string]any{
-						"type":        "string",
-						"description": "Description of the todo item",
-					},
-				},
-				Required: []string{"description"},
-			},
-			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
+			Name:         "create_todo",
+			Description:  "Create a new todo item with a description",
+			Parameters:   tools.MustSchemaFor[CreateTodoArgs](),
+			OutputSchema: tools.MustSchemaFor[string](),
 			Handler:      t.handler.createTodo,
+			Annotations: tools.ToolAnnotations{
+				Title:        "Create TODO",
+				ReadOnlyHint: true, // Technically not read-only but has practically no destructive side effects.
+			},
 		},
 		{
-			Name:        "create_todos",
-			Description: "Create a list of new todo items with descriptions",
-			Annotations: tools.ToolAnnotations{
-				// This is technically not read-only but has practically no destructive side effects.
-				ReadOnlyHint: true,
-				Title:        "Create TODOs",
-			},
-			Parameters: tools.FunctionParameters{
-				Type: "object",
-				Properties: map[string]any{
-					"todos": map[string]any{
-						"type":        "array",
-						"description": "List of todo items",
-						"items": map[string]any{
-							"type": "object",
-							"properties": map[string]any{
-								"description": map[string]any{
-									"type":        "string",
-									"description": "Description of the todo item",
-								},
-							},
-						},
-					},
-				},
-				Required: []string{"todos"},
-			},
-			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
+			Name:         "create_todos",
+			Description:  "Create a list of new todo items with descriptions",
+			Parameters:   tools.MustSchemaFor[CreateTodosArgs](),
+			OutputSchema: tools.MustSchemaFor[string](),
 			Handler:      t.handler.createTodos,
+			Annotations: tools.ToolAnnotations{
+				Title:        "Create TODOs",
+				ReadOnlyHint: true, // Technically not read-only but has practically no destructive side effects.
+			},
 		},
 		{
-			Name:        "update_todo",
-			Description: "Update the status of a todo item",
-			Annotations: tools.ToolAnnotations{
-				// This is technically not read-only but has practically no destructive side effects.
-				ReadOnlyHint: true,
-				Title:        "Update TODO",
-			},
-			Parameters: tools.FunctionParameters{
-				Type: "object",
-				Properties: map[string]any{
-					"id": map[string]any{
-						"type":        "string",
-						"description": "ID of the todo item",
-					},
-					"status": map[string]any{
-						"type":        "string",
-						"description": "New status (pending, in-progress,completed)",
-					},
-				},
-				Required: []string{"id", "status"},
-			},
-			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
+			Name:         "update_todo",
+			Description:  "Update the status of a todo item",
+			Parameters:   tools.MustSchemaFor[UpdateTodoArgs](),
+			OutputSchema: tools.MustSchemaFor[string](),
 			Handler:      t.handler.updateTodo,
+			Annotations: tools.ToolAnnotations{
+				Title:        "Update TODO",
+				ReadOnlyHint: true, // Technically not read-only but has practically no destructive side effects.
+			},
 		},
 		{
-			Name:        "list_todos",
-			Description: "List all current todos with their status",
-			Annotations: tools.ToolAnnotations{
-				ReadOnlyHint: true,
-				Title:        "List TODOs",
-			},
-			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
+			Name:         "list_todos",
+			Description:  "List all current todos with their status",
+			OutputSchema: tools.MustSchemaFor[string](),
 			Handler:      t.handler.listTodos,
+			Annotations: tools.ToolAnnotations{
+				Title:        "List TODOs",
+				ReadOnlyHint: true,
+			},
 		},
 	}, nil
 }

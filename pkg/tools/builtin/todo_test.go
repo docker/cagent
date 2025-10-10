@@ -56,9 +56,50 @@ func TestTodoTool_Tools(t *testing.T) {
 			"type": "string"
 		}
 	},
+	"additionalProperties": false,
 	"required": [
 		"description"
 	]
+}`, string(schema))
+
+	// Check create_todos parameters
+	schema, err = json.Marshal(allTools[1].Parameters)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{
+	"type": "object",
+	"required": [
+		"todos"
+	],
+	"properties": {
+		"todos": {
+			"type": "array",
+			"description": "List of todo items",
+			"items": {
+				"type": "object",
+				"required": [
+					"id",
+					"description",
+					"status"
+				],
+				"properties": {
+					"description": {
+						"type": "string",
+						"description": "Description of the todo item"
+					},
+					"id": {
+						"type": "string",
+						"description": "ID of the todo item"
+					},
+					"status": {
+						"type": "string",
+						"description": "New status (pending, in-progress,completed)"
+					}
+				},
+				"additionalProperties": false
+			}
+		}
+	},
+	"additionalProperties": false
 }`, string(schema))
 
 	// Check update_todo parameters
@@ -76,11 +117,15 @@ func TestTodoTool_Tools(t *testing.T) {
 			"type": "string"
 		}
 	},
+	"additionalProperties": false,
 	"required": [
 		"id",
 		"status"
 	]
 }`, string(schema))
+
+	// Check list_todos parameters
+	assert.Nil(t, allTools[3].Parameters)
 }
 
 func TestTodoTool_DisplayNames(t *testing.T) {
@@ -106,10 +151,11 @@ func TestTodoTool_CreateTodo(t *testing.T) {
 	createHandler := tls[0].Handler
 
 	// Create tool call
-	args := Todo{
+	args := CreateTodoArgs{
 		Description: "Test todo item",
 	}
-	argsBytes, _ := json.Marshal(args)
+	argsBytes, err := json.Marshal(args)
+	require.NoError(t, err)
 
 	toolCall := tools.ToolCall{
 		Function: tools.FunctionCall{
@@ -144,22 +190,15 @@ func TestTodoTool_CreateTodos(t *testing.T) {
 	createTodosHandler := tls[1].Handler
 
 	// Create multiple todos
-	args := struct {
-		Todos []Todo `json:"todos"`
-	}{
+	args := CreateTodosArgs{
 		Todos: []Todo{
-			{
-				Description: "First todo item",
-			},
-			{
-				Description: "Second todo item",
-			},
-			{
-				Description: "Third todo item",
-			},
+			{Description: "First todo item"},
+			{Description: "Second todo item"},
+			{Description: "Third todo item"},
 		},
 	}
-	argsBytes, _ := json.Marshal(args)
+	argsBytes, err := json.Marshal(args)
+	require.NoError(t, err)
 
 	toolCall := tools.ToolCall{
 		Function: tools.FunctionCall{
@@ -182,16 +221,13 @@ func TestTodoTool_CreateTodos(t *testing.T) {
 	assert.Len(t, tool.handler.todos, 3)
 
 	// Create multiple todos
-	args = struct {
-		Todos []Todo `json:"todos"`
-	}{
+	args = CreateTodosArgs{
 		Todos: []Todo{
-			{
-				Description: "Last todo item",
-			},
+			{Description: "Last todo item"},
 		},
 	}
-	argsBytes, _ = json.Marshal(args)
+	argsBytes, err = json.Marshal(args)
+	require.NoError(t, err)
 
 	toolCall = tools.ToolCall{
 		Function: tools.FunctionCall{
@@ -221,10 +257,11 @@ func TestTodoTool_UpdateTodo(t *testing.T) {
 	updateHandler := tls[2].Handler
 
 	// First create a todo
-	createArgs := Todo{
+	createArgs := CreateTodoArgs{
 		Description: "Test todo item",
 	}
-	createArgsBytes, _ := json.Marshal(createArgs)
+	createArgsBytes, err := json.Marshal(createArgs)
+	require.NoError(t, err)
 
 	createToolCall := tools.ToolCall{
 		Function: tools.FunctionCall{
@@ -237,14 +274,12 @@ func TestTodoTool_UpdateTodo(t *testing.T) {
 	require.NoError(t, err)
 
 	// Now update it
-	updateArgs := struct {
-		ID     string `json:"id"`
-		Status string `json:"status"`
-	}{
+	updateArgs := UpdateTodoArgs{
 		ID:     "todo_1",
 		Status: "completed",
 	}
-	updateArgsBytes, _ := json.Marshal(updateArgs)
+	updateArgsBytes, err := json.Marshal(updateArgs)
+	require.NoError(t, err)
 
 	updateToolCall := tools.ToolCall{
 		Function: tools.FunctionCall{
@@ -285,10 +320,12 @@ func TestTodoTool_ListTodos(t *testing.T) {
 	}
 
 	for _, todoDesc := range todos {
-		createArgs := Todo{
+		createArgs := CreateTodoArgs{
 			Description: todoDesc,
 		}
-		createArgsBytes, _ := json.Marshal(createArgs)
+		createArgsBytes, err := json.Marshal(createArgs)
+		require.NoError(t, err)
+
 		createToolCall := tools.ToolCall{
 			Function: tools.FunctionCall{
 				Name:      "create_todo",
@@ -331,14 +368,12 @@ func TestTodoTool_UpdateNonexistentTodo(t *testing.T) {
 	updateHandler := tls[2].Handler
 
 	// Try to update a non-existent todo
-	updateArgs := struct {
-		ID     string `json:"id"`
-		Status string `json:"status"`
-	}{
+	updateArgs := UpdateTodoArgs{
 		ID:     "nonexistent_todo",
 		Status: "completed",
 	}
-	updateArgsBytes, _ := json.Marshal(updateArgs)
+	updateArgsBytes, err := json.Marshal(updateArgs)
+	require.NoError(t, err)
 
 	updateToolCall := tools.ToolCall{
 		Function: tools.FunctionCall{

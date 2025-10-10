@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strings"
 
 	"github.com/docker/cagent/pkg/tools"
@@ -22,11 +21,12 @@ type thinkHandler struct {
 	thoughts []string
 }
 
-func (h *thinkHandler) CallTool(_ context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
-	var params struct {
-		Thought string `json:"thought"`
-	}
+type ThinkArgs struct {
+	Thought string `json:"thought" jsonschema:"The thought to think about"`
+}
 
+func (h *thinkHandler) CallTool(_ context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
+	var params ThinkArgs
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &params); err != nil {
 		return nil, fmt.Errorf("invalid arguments: %w", err)
 	}
@@ -59,24 +59,15 @@ Before taking any action or responding to the user after receiving tool results,
 func (t *ThinkTool) Tools(context.Context) ([]tools.Tool, error) {
 	return []tools.Tool{
 		{
-			Name:        "think",
-			Description: "Use the tool to think about something. It will not obtain new information or change the database, but just append the thought to the log. Use it when complex reasoning or some cache memory is needed.",
+			Name:         "think",
+			Description:  "Use the tool to think about something. It will not obtain new information or change the database, but just append the thought to the log. Use it when complex reasoning or some cache memory is needed.",
+			Parameters:   tools.MustSchemaFor[ThinkArgs](),
+			OutputSchema: tools.MustSchemaFor[string](),
+			Handler:      t.handler.CallTool,
 			Annotations: tools.ToolAnnotations{
 				ReadOnlyHint: true,
 				Title:        "Think",
 			},
-			Parameters: tools.FunctionParameters{
-				Type: "object",
-				Properties: map[string]any{
-					"thought": map[string]any{
-						"type":        "string",
-						"description": "The thought to think about",
-					},
-				},
-				Required: []string{"thought"},
-			},
-			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
-			Handler:      t.handler.CallTool,
 		},
 	}, nil
 }

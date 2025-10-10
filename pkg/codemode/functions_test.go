@@ -1,7 +1,6 @@
 package codemode
 
 import (
-	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,20 +9,15 @@ import (
 )
 
 func TestToolToJsDoc(t *testing.T) {
+	type CreateTodoArgs struct {
+		Description string `json:"description" jsonschema:"Description of the todo item"`
+	}
+
 	tool := tools.Tool{
-		Name:        "create_todo",
-		Description: "Create new todo\n each of them with a description",
-		Parameters: tools.FunctionParameters{
-			Type: "object",
-			Properties: map[string]any{
-				"description": map[string]any{
-					"type":        "string",
-					"description": "Description of the todo item",
-				},
-			},
-			Required: []string{"description"},
-		},
-		OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
+		Name:         "create_todo",
+		Description:  "Create new todo\n each of them with a description",
+		Parameters:   tools.MustSchemaFor[CreateTodoArgs](),
+		OutputSchema: tools.MustSchemaFor[string](),
 	}
 
 	jsDoc := toolToJsDoc(tool)
@@ -39,15 +33,16 @@ func TestToolToJsDoc(t *testing.T) {
  * Where Input follows the following JSON schema:
  * {
  *   "type": "object",
- *   "properties": {
- *     "description": {
- *       "description": "Description of the todo item",
- *       "type": "string"
- *     }
- *   },
  *   "required": [
  *     "description"
- *   ]
+ *   ],
+ *   "properties": {
+ *     "description": {
+ *       "type": "string",
+ *       "description": "Description of the todo item"
+ *     }
+ *   },
+ *   "additionalProperties": false
  * }
  *
  * And Output follows the following JSON schema:

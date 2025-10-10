@@ -82,10 +82,10 @@ func (t *ScriptShellTool) Tools(context.Context) ([]tools.Tool, error) {
 		toolsList = append(toolsList, tools.Tool{
 			Name:        toolName,
 			Description: description,
-			Parameters: tools.FunctionParameters{
-				Type:       "object",
-				Properties: cfg.Args,
-				Required:   cfg.Required,
+			Parameters: map[string]any{
+				"type":       "object",
+				"properties": cfg.Args,
+				"required":   cfg.Required,
 			},
 			Handler: func(ctx context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
 				return t.execute(ctx, &cfg, toolCall)

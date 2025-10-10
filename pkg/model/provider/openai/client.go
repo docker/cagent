@@ -327,10 +327,10 @@ func (c *Client) CreateChatCompletionStream(
 }
 
 // ConvertParametersToSchema converts parameters to OpenAI Schema format
-func ConvertParametersToSchema(params any) (tools.FunctionParameters, error) {
-	var schema tools.FunctionParameters
-	if err := tools.JSONRoundtrip(params, &schema); err != nil {
-		return tools.FunctionParameters{}, err
+func ConvertParametersToSchema(params any) (any, error) {
+	var schema map[string]any
+	if err := tools.ConvertSchema(params, &schema); err != nil {
+		return nil, err
 	}
 
 	return schema, nil

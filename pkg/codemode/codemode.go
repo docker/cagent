@@ -26,19 +26,25 @@ Available tools/functions:
 
 `
 
-type RunToolsWithJavascriptArgs struct {
-	Script string `json:"script"`
+func Wrap(toolsets []tools.ToolSet) tools.ToolSet {
+	return &codeModeTool{
+		toolsets: toolsets,
+	}
 }
 
-type tool struct {
+type codeModeTool struct {
 	toolsets []tools.ToolSet
 }
 
-func (c *tool) Instructions() string {
+type RunToolsWithJavascriptArgs struct {
+	Script string `json:"script" jsonschema:"Script to execute"`
+}
+
+func (c *codeModeTool) Instructions() string {
 	return ""
 }
 
-func (c *tool) Tools(ctx context.Context) ([]tools.Tool, error) {
+func (c *codeModeTool) Tools(ctx context.Context) ([]tools.Tool, error) {
 	var functionsDoc []string
 
 	for _, toolset := range c.toolsets {
@@ -55,19 +61,7 @@ func (c *tool) Tools(ctx context.Context) ([]tools.Tool, error) {
 	return []tools.Tool{{
 		Name:        "run_tools_with_javascript",
 		Description: prompt + strings.Join(functionsDoc, "\n"),
-		Annotations: tools.ToolAnnotations{
-			Title: "Run tools with Javascript",
-		},
-		Parameters: tools.FunctionParameters{
-			Type:     "object",
-			Required: []string{"script"},
-			Properties: map[string]any{
-				"script": map[string]any{
-					"type":        "string",
-					"description": "script to execute",
-				},
-			},
-		},
+		Parameters:  tools.MustSchemaFor[RunToolsWithJavascriptArgs](),
 		Handler: func(ctx context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
 			var args RunToolsWithJavascriptArgs
 			if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
@@ -83,10 +77,13 @@ func (c *tool) Tools(ctx context.Context) ([]tools.Tool, error) {
 				Output: output,
 			}, nil
 		},
+		Annotations: tools.ToolAnnotations{
+			Title: "Run tools with Javascript",
+		},
 	}}, nil
 }
 
-func (c *tool) Start(ctx context.Context) error {
+func (c *codeModeTool) Start(ctx context.Context) error {
 	for _, t := range c.toolsets {
 		if err := t.Start(ctx); err != nil {
 			return err
@@ -96,7 +93,7 @@ func (c *tool) Start(ctx context.Context) error {
 	return nil
 }
 
-func (c *tool) Stop() error {
+func (c *codeModeTool) Stop() error {
 	var errs []error
 
 	for _, t := range c.toolsets {
@@ -108,16 +105,10 @@ func (c *tool) Stop() error {
 	return errors.Join(errs...)
 }
 
-func (c *tool) SetElicitationHandler(handler tools.ElicitationHandler) {
+func (c *codeModeTool) SetElicitationHandler(handler tools.ElicitationHandler) {
 	// No-op, this tool does not use elicitation
 }
 
-func (c *tool) SetOAuthSuccessHandler(handler func()) {
+func (c *codeModeTool) SetOAuthSuccessHandler(handler func()) {
 	// No-op, this tool does not use OAuth
-}
-
-func Wrap(toolsets []tools.ToolSet) tools.ToolSet {
-	return &tool{
-		toolsets: toolsets,
-	}
 }

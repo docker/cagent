@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -85,346 +84,223 @@ This toolset provides comprehensive filesystem operations with built-in security
 - Use appropriate exclude patterns in search operations`
 }
 
+type CreateDirectoryArgs struct {
+	Path string `json:"path" jsonschema:"The directory path to create"`
+}
+
+type DirectoryTreeArgs struct {
+	Path     string `json:"path" jsonschema:"The directory path to traverse"`
+	MaxDepth int    `json:"max_depth,omitempty" jsonschema:"Maximum depth to traverse (optional)"`
+}
+
+type GetFileInfoArgs struct {
+	Path string `json:"path" jsonschema:"The file or directory path to inspect"`
+}
+
+type AddAllowedDirectoryArgs struct {
+	Path      string `json:"path" jsonschema:"The directory path to add to allowed directories"`
+	Reason    string `json:"reason" jsonschema:"Explanation of why this directory needs to be added"`
+	Confirmed bool   `json:"confirmed,omitempty" jsonschema:"Set to true to confirm that you consent to adding this directory"`
+}
+
+type WriteFileArgs struct {
+	Path    string `json:"path" jsonschema:"The file path to write"`
+	Content string `json:"content" jsonschema:"The content to write to the file"`
+}
+
+type ReadMultipleFilesArgs struct {
+	Paths []string `json:"paths" jsonschema:"Array of file paths to read"`
+	JSON  bool     `json:"json,omitempty" jsonschema:"Whether to return the result as JSON"`
+}
+
+type SearchFilesArgs struct {
+	Path            string   `json:"path" jsonschema:"The starting directory path"`
+	Pattern         string   `json:"pattern" jsonschema:"The search pattern"`
+	ExcludePatterns []string `json:"excludePatterns,omitempty" jsonschema:"Patterns to exclude from search"`
+}
+
+type SearchFilesContentArgs struct {
+	Path            string   `json:"path" jsonschema:"The starting directory path"`
+	Query           string   `json:"query" jsonschema:"The text or regex pattern to search for"`
+	IsRegex         bool     `json:"is_regex,omitempty" jsonschema:"If true, treat query as regex; otherwise literal text"`
+	ExcludePatterns []string `json:"excludePatterns,omitempty" jsonschema:"Patterns to exclude from search"`
+}
+
+type MoveFileArgs struct {
+	Source      string `json:"source" jsonschema:"The source path"`
+	Destination string `json:"destination" jsonschema:"The destination path"`
+}
+
+type ListDirectoryArgs struct {
+	Path string `json:"path" jsonschema:"The directory path to list"`
+}
+
+type ReadFileArgs struct {
+	Path string `json:"path" jsonschema:"The file path to read"`
+}
+
+type Edit struct {
+	OldText string `json:"oldText" jsonschema:"The exact text to replace"`
+	NewText string `json:"newText" jsonschema:"The replacement text"`
+}
+
+type EditFileArgs struct {
+	Path  string `json:"path" jsonschema:"The file path to edit"`
+	Edits []Edit `json:"edits" jsonschema:"Array of edit operations"`
+}
+
 func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 	tls := []tools.Tool{
 		{
-			Name:        "create_directory",
-			Description: "Create a new directory or ensure a directory exists. Can create multiple nested directories in one operation.",
+			Name:         "create_directory",
+			Description:  "Create a new directory or ensure a directory exists. Can create multiple nested directories in one operation.",
+			Parameters:   tools.MustSchemaFor[CreateDirectoryArgs](),
+			OutputSchema: tools.MustSchemaFor[string](),
+			Handler:      t.handleCreateDirectory,
 			Annotations: tools.ToolAnnotations{
 				Title: "Create Directory",
 			},
-			Parameters: tools.FunctionParameters{
-				Type: "object",
-				Properties: map[string]any{
-					"path": map[string]any{
-						"type":        "string",
-						"description": "The directory path to create",
-					},
-				},
-				Required: []string{"path"},
-			},
-			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
-			Handler:      t.handleCreateDirectory,
 		},
 		{
 			Name:        "directory_tree",
 			Description: "Get a recursive tree view of files and directories as a JSON structure.",
+			Parameters:  tools.MustSchemaFor[DirectoryTreeArgs](),
+			// We don't support recursive types yet
+			// OutputSchema: tools.MustSchemaFor(reflect.TypeFor[*TreeNode]()),
+			OutputSchema: tools.MustSchemaFor[any](),
+			Handler:      t.handleDirectoryTree,
 			Annotations: tools.ToolAnnotations{
 				ReadOnlyHint: true,
 				Title:        "Directory Tree",
 			},
-			Parameters: tools.FunctionParameters{
-				Type: "object",
-				Properties: map[string]any{
-					"path": map[string]any{
-						"type":        "string",
-						"description": "The directory path to traverse",
-					},
-					"max_depth": map[string]any{
-						"type":        "number",
-						"description": "Maximum depth to traverse (optional)",
-					},
-				},
-				Required: []string{"path"},
-			},
-			// We don't support recursive types yet
-			// OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[*TreeNode]()),
-			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[any]()),
-			Handler:      t.handleDirectoryTree,
 		},
 		{
-			Name:        "edit_file",
-			Description: "Make line-based edits to a text file. Each edit replaces exact line sequences with new content.",
+			Name:         "edit_file",
+			Description:  "Make line-based edits to a text file. Each edit replaces exact line sequences with new content.",
+			Parameters:   tools.MustSchemaFor[EditFileArgs](),
+			OutputSchema: tools.MustSchemaFor[string](),
+			Handler:      t.handleEditFile,
 			Annotations: tools.ToolAnnotations{
 				Title: "Edit File",
 			},
-			Parameters: tools.FunctionParameters{
-				Type: "object",
-				Properties: map[string]any{
-					"path": map[string]any{
-						"type":        "string",
-						"description": "The file path to edit",
-					},
-					"edits": map[string]any{
-						"type": "array",
-						"items": map[string]any{
-							"type": "object",
-							"properties": map[string]any{
-								"oldText": map[string]any{
-									"type":        "string",
-									"description": "The exact text to replace",
-								},
-								"newText": map[string]any{
-									"type":        "string",
-									"description": "The replacement text",
-								},
-							},
-							"required": []string{"oldText", "newText"},
-						},
-						"description": "Array of edit operations",
-					},
-				},
-				Required: []string{"path", "edits"},
-			},
-			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
-			Handler:      t.handleEditFile,
 		},
 		{
-			Name:        "get_file_info",
-			Description: "Retrieve detailed metadata about a file or directory.",
+			Name:         "get_file_info",
+			Description:  "Retrieve detailed metadata about a file or directory.",
+			Parameters:   tools.MustSchemaFor[GetFileInfoArgs](),
+			OutputSchema: tools.MustSchemaFor[FileInfo](),
+			Handler:      t.handleGetFileInfo,
 			Annotations: tools.ToolAnnotations{
 				ReadOnlyHint: true,
 				Title:        "Get File Info",
 			},
-			Parameters: tools.FunctionParameters{
-				Type: "object",
-				Properties: map[string]any{
-					"path": map[string]any{
-						"type":        "string",
-						"description": "The file or directory path to inspect",
-					},
-				},
-				Required: []string{"path"},
-			},
-			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[FileInfo]()),
-			Handler:      t.handleGetFileInfo,
 		},
 		{
-			Name:        "list_allowed_directories",
-			Description: "Returns a list of directories that the server has permission to access. Don't call if you access only the current working directory. It's always allowed.",
+			Name:         "list_allowed_directories",
+			Description:  "Returns a list of directories that the server has permission to access. Don't call if you access only the current working directory. It's always allowed.",
+			OutputSchema: tools.MustSchemaFor[string](),
+			Handler:      t.handleListAllowedDirectories,
 			Annotations: tools.ToolAnnotations{
 				ReadOnlyHint: true,
 				Title:        "List Allowed Directories",
 			},
-			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[[]string]()),
-			Handler:      t.handleListAllowedDirectories,
 		},
 		{
-			Name:        "add_allowed_directory",
-			Description: "Request to add a new directory to the allowed directories list. This requires explicit user consent for security reasons.",
+			Name:         "add_allowed_directory",
+			Description:  "Request to add a new directory to the allowed directories list. This requires explicit user consent for security reasons.",
+			Parameters:   tools.MustSchemaFor[AddAllowedDirectoryArgs](),
+			OutputSchema: tools.MustSchemaFor[string](),
+			Handler:      t.handleAddAllowedDirectory,
 			Annotations: tools.ToolAnnotations{
 				Title: "Add Allowed Directory",
 			},
-			Parameters: tools.FunctionParameters{
-				Type: "object",
-				Properties: map[string]any{
-					"path": map[string]any{
-						"type":        "string",
-						"description": "The directory path to add to allowed directories",
-					},
-					"reason": map[string]any{
-						"type":        "string",
-						"description": "Explanation of why this directory needs to be added",
-					},
-					"confirmed": map[string]any{
-						"type":        "boolean",
-						"description": "Set to true to confirm that you consent to adding this directory",
-					},
-				},
-				Required: []string{"path", "reason"},
-			},
-			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
-			Handler:      t.handleAddAllowedDirectory,
 		},
 		{
-			Name:        "list_directory",
-			Description: "Get a detailed listing of all files and directories in a specified path.",
+			Name:         "list_directory",
+			Description:  "Get a detailed listing of all files and directories in a specified path.",
+			Parameters:   tools.MustSchemaFor[ListDirectoryArgs](),
+			OutputSchema: tools.MustSchemaFor[string](),
+			Handler:      t.handleListDirectory,
 			Annotations: tools.ToolAnnotations{
 				ReadOnlyHint: true,
 				Title:        "List Directory",
 			},
-			Parameters: tools.FunctionParameters{
-				Type: "object",
-				Properties: map[string]any{
-					"path": map[string]any{
-						"type":        "string",
-						"description": "The directory path to list",
-					},
-				},
-				Required: []string{"path"},
-			},
-			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
-			Handler:      t.handleListDirectory,
 		},
 		{
-			Name:        "list_directory_with_sizes",
-			Description: "Get a detailed listing of all files and directories in a specified path, including sizes.",
+			Name:         "list_directory_with_sizes",
+			Description:  "Get a detailed listing of all files and directories in a specified path, including sizes.",
+			Parameters:   tools.MustSchemaFor[ListDirectoryArgs](),
+			OutputSchema: tools.MustSchemaFor[string](),
+			Handler:      t.handleListDirectoryWithSizes,
 			Annotations: tools.ToolAnnotations{
 				ReadOnlyHint: true,
 				Title:        "List Directory With Sizes",
 			},
-			Parameters: tools.FunctionParameters{
-				Type: "object",
-				Properties: map[string]any{
-					"path": map[string]any{
-						"type":        "string",
-						"description": "The directory path to list",
-					},
-				},
-				Required: []string{"path"},
-			},
-			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
-			Handler:      t.handleListDirectoryWithSizes,
 		},
 		{
-			Name:        "move_file",
-			Description: "Move or rename files and directories.",
+			Name:         "move_file",
+			Description:  "Move or rename files and directories.",
+			Parameters:   tools.MustSchemaFor[MoveFileArgs](),
+			OutputSchema: tools.MustSchemaFor[string](),
+			Handler:      t.handleMoveFile,
 			Annotations: tools.ToolAnnotations{
 				Title: "Move File",
 			},
-			Parameters: tools.FunctionParameters{
-				Type: "object",
-				Properties: map[string]any{
-					"source": map[string]any{
-						"type":        "string",
-						"description": "The source path",
-					},
-					"destination": map[string]any{
-						"type":        "string",
-						"description": "The destination path",
-					},
-				},
-				Required: []string{"source", "destination"},
-			},
-			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
-			Handler:      t.handleMoveFile,
 		},
 		{
-			Name:        "read_file",
-			Description: "Read the complete contents of a file from the file system.",
+			Name:         "read_file",
+			Description:  "Read the complete contents of a file from the file system.",
+			Parameters:   tools.MustSchemaFor[ReadFileArgs](),
+			OutputSchema: tools.MustSchemaFor[string](),
+			Handler:      t.handleReadFile,
 			Annotations: tools.ToolAnnotations{
 				ReadOnlyHint: true,
 				Title:        "Read File",
 			},
-			Parameters: tools.FunctionParameters{
-				Type: "object",
-				Properties: map[string]any{
-					"path": map[string]any{
-						"type":        "string",
-						"description": "The file path to read",
-					},
-				},
-				Required: []string{"path"},
-			},
-			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
-			Handler:      t.handleReadFile,
 		},
 		{
 			Name:        "read_multiple_files",
 			Description: "Read the contents of multiple files simultaneously.",
+			Parameters:  tools.MustSchemaFor[ReadMultipleFilesArgs](),
+			// TODO(dga): depends on the json param
+			OutputSchema: tools.MustSchemaFor[string](),
+			Handler:      t.handleReadMultipleFiles,
 			Annotations: tools.ToolAnnotations{
 				ReadOnlyHint: true,
 				Title:        "Read Multiple Files",
 			},
-			Parameters: tools.FunctionParameters{
-				Type: "object",
-				Properties: map[string]any{
-					"paths": map[string]any{
-						"type": "array",
-						"items": map[string]any{
-							"type": "string",
-						},
-						"description": "Array of file paths to read",
-					},
-					"json": map[string]any{
-						"type":        "boolean",
-						"description": "Whether to return the result as JSON",
-					},
-				},
-				Required: []string{"paths"},
-			},
-			// TODO(dga): depends on the json param
-			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
-			Handler:      t.handleReadMultipleFiles,
 		},
 		{
-			Name:        "search_files",
-			Description: "Recursively search for files and directories matching a pattern. Prints the full paths of matching files and the total number of files found.",
+			Name:         "search_files",
+			Description:  "Recursively search for files and directories matching a pattern. Prints the full paths of matching files and the total number of files found.",
+			Parameters:   tools.MustSchemaFor[SearchFilesArgs](),
+			OutputSchema: tools.MustSchemaFor[string](),
+			Handler:      t.handleSearchFiles,
 			Annotations: tools.ToolAnnotations{
 				ReadOnlyHint: true,
 				Title:        "Search Files",
 			},
-			Parameters: tools.FunctionParameters{
-				Type: "object",
-				Properties: map[string]any{
-					"path": map[string]any{
-						"type":        "string",
-						"description": "The starting directory path",
-					},
-					"pattern": map[string]any{
-						"type":        "string",
-						"description": "The search pattern",
-					},
-					"excludePatterns": map[string]any{
-						"type":        "array",
-						"description": "Patterns to exclude from search",
-						"items": map[string]any{
-							"type": "string",
-						},
-					},
-				},
-				Required: []string{"path", "pattern"},
-			},
-			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
-			Handler:      t.handleSearchFiles,
 		},
 		{
-			Name:        "search_files_content",
-			Description: "Searches for text or regex patterns in the content of files matching a GLOB pattern.",
+			Name:         "search_files_content",
+			Description:  "Searches for text or regex patterns in the content of files matching a GLOB pattern.",
+			Parameters:   tools.MustSchemaFor[SearchFilesContentArgs](),
+			OutputSchema: tools.MustSchemaFor[string](),
+			Handler:      t.handleSearchFilesContent,
 			Annotations: tools.ToolAnnotations{
 				ReadOnlyHint: true,
 				Title:        "Search Files Content",
 			},
-			Parameters: tools.FunctionParameters{
-				Type: "object",
-				Properties: map[string]any{
-					"path": map[string]any{
-						"type":        "string",
-						"description": "The starting directory path",
-					},
-					"query": map[string]any{
-						"type":        "string",
-						"description": "The text or regex pattern to search for",
-					},
-					"is_regex": map[string]any{
-						"type":        "boolean",
-						"description": "If true, treat query as regex; otherwise literal text",
-					},
-					"excludePatterns": map[string]any{
-						"type": "array",
-						"items": map[string]any{
-							"type": "string",
-						},
-						"description": "Patterns to exclude from search",
-					},
-				},
-				Required: []string{"path", "query"},
-			},
-			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
-			Handler:      t.handleSearchFilesContent,
 		},
 		{
-			Name:        "write_file",
-			Description: "Create a new file or completely overwrite an existing file with new content.",
+			Name:         "write_file",
+			Description:  "Create a new file or completely overwrite an existing file with new content.",
+			Parameters:   tools.MustSchemaFor[WriteFileArgs](),
+			OutputSchema: tools.MustSchemaFor[string](),
+			Handler:      t.handleWriteFile,
 			Annotations: tools.ToolAnnotations{
 				Title: "Write File",
 			},
-			Parameters: tools.FunctionParameters{
-				Type: "object",
-				Properties: map[string]any{
-					"path": map[string]any{
-						"type":        "string",
-						"description": "The file path to write",
-					},
-					"content": map[string]any{
-						"type":        "string",
-						"description": "The content to write to the file",
-					},
-				},
-				Required: []string{"path", "content"},
-			},
-			OutputSchema: tools.ToOutputSchemaSchemaMust(reflect.TypeFor[string]()),
-			Handler:      t.handleWriteFile,
 		},
 	}
 
@@ -498,9 +374,7 @@ func (t *FilesystemTool) isPathAllowed(path string) error {
 // Handler implementations
 
 func (t *FilesystemTool) handleCreateDirectory(_ context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
-	var args struct {
-		Path string `json:"path"`
-	}
+	var args CreateDirectoryArgs
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
 		return nil, fmt.Errorf("failed to parse arguments: %w", err)
 	}
@@ -517,10 +391,7 @@ func (t *FilesystemTool) handleCreateDirectory(_ context.Context, toolCall tools
 }
 
 func (t *FilesystemTool) handleDirectoryTree(_ context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
-	var args struct {
-		Path     string `json:"path"`
-		MaxDepth *int   `json:"max_depth"`
-	}
+	var args DirectoryTreeArgs
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
 		return nil, fmt.Errorf("failed to parse arguments: %w", err)
 	}
@@ -548,8 +419,8 @@ type TreeNode struct {
 	Children []*TreeNode `json:"children,omitempty"`
 }
 
-func (t *FilesystemTool) buildDirectoryTree(path string, maxDepth *int, currentDepth int) (*TreeNode, error) {
-	if maxDepth != nil && currentDepth >= *maxDepth {
+func (t *FilesystemTool) buildDirectoryTree(path string, maxDepth, currentDepth int) (*TreeNode, error) {
+	if maxDepth > 0 && currentDepth >= maxDepth {
 		return nil, nil
 	}
 
@@ -590,13 +461,7 @@ func (t *FilesystemTool) buildDirectoryTree(path string, maxDepth *int, currentD
 }
 
 func (t *FilesystemTool) handleEditFile(ctx context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
-	var args struct {
-		Path  string `json:"path"`
-		Edits []struct {
-			OldText string `json:"oldText"`
-			NewText string `json:"newText"`
-		} `json:"edits"`
-	}
+	var args EditFileArgs
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
 		return nil, fmt.Errorf("failed to parse arguments: %w", err)
 	}
@@ -685,11 +550,7 @@ func (t *FilesystemTool) handleListAllowedDirectories(context.Context, tools.Too
 }
 
 func (t *FilesystemTool) handleAddAllowedDirectory(_ context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
-	var args struct {
-		Path      string `json:"path"`
-		Reason    string `json:"reason"`
-		Confirmed bool   `json:"confirmed"`
-	}
+	var args AddAllowedDirectoryArgs
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
 		return nil, fmt.Errorf("failed to parse arguments: %w", err)
 	}
@@ -771,9 +632,7 @@ Updated allowed directories:
 }
 
 func (t *FilesystemTool) handleListDirectory(_ context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
-	var args struct {
-		Path string `json:"path"`
-	}
+	var args ListDirectoryArgs
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
 		return nil, fmt.Errorf("failed to parse arguments: %w", err)
 	}
@@ -800,9 +659,7 @@ func (t *FilesystemTool) handleListDirectory(_ context.Context, toolCall tools.T
 }
 
 func (t *FilesystemTool) handleListDirectoryWithSizes(_ context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
-	var args struct {
-		Path string `json:"path"`
-	}
+	var args ListDirectoryArgs
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
 		return nil, fmt.Errorf("failed to parse arguments: %w", err)
 	}
@@ -834,10 +691,7 @@ func (t *FilesystemTool) handleListDirectoryWithSizes(_ context.Context, toolCal
 }
 
 func (t *FilesystemTool) handleMoveFile(_ context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
-	var args struct {
-		Source      string `json:"source"`
-		Destination string `json:"destination"`
-	}
+	var args MoveFileArgs
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
 		return nil, fmt.Errorf("failed to parse arguments: %w", err)
 	}
@@ -861,9 +715,7 @@ func (t *FilesystemTool) handleMoveFile(_ context.Context, toolCall tools.ToolCa
 }
 
 func (t *FilesystemTool) handleReadFile(_ context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
-	var args struct {
-		Path string `json:"path"`
-	}
+	var args ReadFileArgs
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
 		return nil, fmt.Errorf("failed to parse arguments: %w", err)
 	}
@@ -881,10 +733,7 @@ func (t *FilesystemTool) handleReadFile(_ context.Context, toolCall tools.ToolCa
 }
 
 func (t *FilesystemTool) handleReadMultipleFiles(ctx context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
-	var args struct {
-		Paths []string `json:"paths"`
-		JSON  bool     `json:"json"`
-	}
+	var args ReadMultipleFilesArgs
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
 		return nil, fmt.Errorf("failed to parse arguments: %w", err)
 	}
@@ -945,12 +794,6 @@ func (t *FilesystemTool) handleReadMultipleFiles(ctx context.Context, toolCall t
 	}, nil
 }
 
-type SearchFilesArgs struct {
-	Path            string   `json:"path"`
-	Pattern         string   `json:"pattern"`
-	ExcludePatterns []string `json:"excludePatterns"`
-}
-
 func (t *FilesystemTool) handleSearchFiles(_ context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
 	var args SearchFilesArgs
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
@@ -1007,12 +850,7 @@ func (t *FilesystemTool) handleSearchFiles(_ context.Context, toolCall tools.Too
 }
 
 func (t *FilesystemTool) handleSearchFilesContent(_ context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
-	var args struct {
-		Path            string   `json:"path"`
-		Query           string   `json:"query"`
-		IsRegex         bool     `json:"is_regex"`
-		ExcludePatterns []string `json:"excludePatterns"`
-	}
+	var args SearchFilesContentArgs
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
 		return nil, fmt.Errorf("failed to parse arguments: %w", err)
 	}
@@ -1111,10 +949,7 @@ func (t *FilesystemTool) handleSearchFilesContent(_ context.Context, toolCall to
 }
 
 func (t *FilesystemTool) handleWriteFile(ctx context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
-	var args struct {
-		Path    string `json:"path"`
-		Content string `json:"content"`
-	}
+	var args WriteFileArgs
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
 		return nil, fmt.Errorf("failed to parse arguments: %w", err)
 	}

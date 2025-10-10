@@ -53,6 +53,7 @@ func TestTaskTool_Tools(t *testing.T) {
 			"type": "string"
 		}
 	},
+	"additionalProperties": false,
 	"required": [
 		"agent",
 		"task",
