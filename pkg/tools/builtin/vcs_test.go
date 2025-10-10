@@ -303,3 +303,110 @@ func TestFilesystemTool_SearchFilesContentWithVCSIgnore(t *testing.T) {
 	assert.Contains(t, result.Output, "src/util.go")
 	assert.NotContains(t, result.Output, ".git/config")
 }
+
+func TestFilesystemTool_ListDirectoryWithVCSIgnore(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create test structure with VCS directories and gitignore files
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, ".git", "hooks"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "src"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "build"), 0o755))
+
+	// Create files
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "README.md"), []byte("readme"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "src", "main.go"), []byte("package main"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, ".git", "config"), []byte("git config"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "build", "app"), []byte("binary"), 0o644))
+
+	// Create .gitignore
+	gitignoreContent := `build/
+*.log`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, ".gitignore"), []byte(gitignoreContent), 0o644))
+
+	// Test with VCS ignore enabled
+	toolWithVCS := NewFilesystemTool([]string{tmpDir}, WithIgnoreVCS(true))
+	handler := getToolHandler(t, toolWithVCS, "list_directory")
+
+	args := map[string]any{
+		"path": tmpDir,
+	}
+	result := callHandler(t, handler, args)
+
+	// Should list non-VCS files/directories but not VCS ones
+	assert.Contains(t, result.Output, "README.md")
+	assert.Contains(t, result.Output, "src")
+	assert.NotContains(t, result.Output, "DIR  .git") // More specific - looking for the directory listing
+	assert.NotContains(t, result.Output, "DIR  build")
+
+	// Test with VCS ignore disabled
+	toolWithoutVCS := NewFilesystemTool([]string{tmpDir})
+	handlerNoVCS := getToolHandler(t, toolWithoutVCS, "list_directory")
+
+	resultNoVCS := callHandler(t, handlerNoVCS, args)
+
+	// Should list all files/directories when VCS ignore is disabled
+	assert.Contains(t, resultNoVCS.Output, "README.md")
+	assert.Contains(t, resultNoVCS.Output, "src")
+	assert.Contains(t, resultNoVCS.Output, "DIR  .git") // More specific - looking for the directory listing
+	assert.Contains(t, resultNoVCS.Output, "DIR  build")
+}
+
+func TestFilesystemTool_ListDirectoryWithSizesVCSIgnore(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create test structure
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, ".git"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "src"), 0o755))
+
+	// Create files
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "main.go"), []byte("package main"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, ".git", "config"), []byte("git config"), 0o644))
+
+	// Test with VCS ignore enabled
+	tool := NewFilesystemTool([]string{tmpDir}, WithIgnoreVCS(true))
+	handler := getToolHandler(t, tool, "list_directory_with_sizes")
+
+	args := map[string]any{
+		"path": tmpDir,
+	}
+	result := callHandler(t, handler, args)
+
+	// Should list non-VCS files but not VCS ones
+	assert.Contains(t, result.Output, "main.go")
+	assert.Contains(t, result.Output, "src")
+	assert.NotContains(t, result.Output, "DIR  .git") // More specific - looking for the directory listing
+}
+
+func TestFilesystemTool_DirectoryTreeWithVCSIgnore(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create test structure
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, ".git", "hooks"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "src", "utils"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "build"), 0o755))
+
+	// Create files
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "main.go"), []byte("package main"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "src", "app.go"), []byte("package app"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, ".git", "config"), []byte("git config"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "build", "app"), []byte("binary"), 0o644))
+
+	// Create .gitignore
+	gitignoreContent := `build/`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, ".gitignore"), []byte(gitignoreContent), 0o644))
+
+	// Test with VCS ignore enabled
+	tool := NewFilesystemTool([]string{tmpDir}, WithIgnoreVCS(true))
+	handler := getToolHandler(t, tool, "directory_tree")
+
+	args := map[string]any{
+		"path": tmpDir,
+	}
+	result := callHandler(t, handler, args)
+
+	// Should include non-VCS files/directories but not VCS ones
+	assert.Contains(t, result.Output, "main.go")
+	assert.Contains(t, result.Output, "src")
+	assert.NotContains(t, result.Output, "\".git\"") // Check for .git in JSON structure
+	assert.NotContains(t, result.Output, "\"build\"")
+}

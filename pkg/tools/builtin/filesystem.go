@@ -632,6 +632,11 @@ func (t *FilesystemTool) buildDirectoryTree(path string, maxDepth *int, currentD
 				continue // Skip disallowed paths
 			}
 
+			// Check if this item should be ignored due to VCS patterns
+			if t.shouldIgnoreVCSPath(path, childPath) {
+				continue
+			}
+
 			childNode, err := t.buildDirectoryTree(childPath, maxDepth, currentDepth+1)
 			if err != nil || childNode == nil {
 				continue
@@ -843,6 +848,13 @@ func (t *FilesystemTool) handleListDirectory(_ context.Context, toolCall tools.T
 
 	var result strings.Builder
 	for _, entry := range entries {
+		itemPath := filepath.Join(args.Path, entry.Name())
+
+		// Check if this item should be ignored due to VCS patterns
+		if t.shouldIgnoreVCSPath(args.Path, itemPath) {
+			continue
+		}
+
 		if entry.IsDir() {
 			result.WriteString(fmt.Sprintf("DIR  %s\n", entry.Name()))
 		} else {
@@ -872,6 +884,13 @@ func (t *FilesystemTool) handleListDirectoryWithSizes(_ context.Context, toolCal
 
 	var result strings.Builder
 	for _, entry := range entries {
+		itemPath := filepath.Join(args.Path, entry.Name())
+
+		// Check if this item should be ignored due to VCS patterns
+		if t.shouldIgnoreVCSPath(args.Path, itemPath) {
+			continue
+		}
+
 		info, err := entry.Info()
 		if err != nil {
 			continue
@@ -1219,6 +1238,26 @@ func (t *FilesystemTool) Start(context.Context) error {
 
 func (t *FilesystemTool) Stop() error {
 	return nil
+}
+
+// shouldIgnoreVCSPath checks if a path should be ignored based on VCS patterns
+func (t *FilesystemTool) shouldIgnoreVCSPath(basePath, itemPath string) bool {
+	if !t.ignoreVCS {
+		return false
+	}
+
+	relPath, err := filepath.Rel(basePath, itemPath)
+	if err != nil {
+		// If we can't get relative path, check against the basename
+		relPath = filepath.Base(itemPath)
+	}
+
+	for _, vcsPattern := range t.vcsPatterns {
+		if matchExcludePattern(vcsPattern, relPath) {
+			return true
+		}
+	}
+	return false
 }
 
 // matchExcludePattern checks if a path should be excluded based on the exclude pattern
