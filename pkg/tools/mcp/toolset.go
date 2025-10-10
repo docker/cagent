@@ -153,7 +153,7 @@ func (ts *Toolset) Tools(ctx context.Context) ([]tools.Tool, error) {
 		tool := tools.Tool{
 			Name:         t.Name,
 			Description:  t.Description,
-			Parameters:   inputSchemaToFunctionParameters(t.InputSchema),
+			Parameters:   t.InputSchema,
 			OutputSchema: t.OutputSchema,
 			Handler:      ts.callTool,
 		}
@@ -167,44 +167,6 @@ func (ts *Toolset) Tools(ctx context.Context) ([]tools.Tool, error) {
 
 	slog.Debug("Listed MCP tools", "count", len(toolsList))
 	return toolsList, nil
-}
-
-func inputSchemaToFunctionParameters(schema any) tools.FunctionParameters {
-	props := extractProps(schema)
-	return tools.FunctionParameters{
-		Type:       props.ttype,
-		Properties: props.properties,
-		Required:   props.required,
-	}
-}
-
-type schemaProps struct {
-	ttype      string
-	properties map[string]any
-	required   []string
-}
-
-func extractProps(schema any) schemaProps {
-	var res schemaProps
-
-	if schemaMap, ok := schema.(map[string]any); ok {
-		if typeVal, ok := schemaMap["type"].(string); ok {
-			res.ttype = typeVal
-		}
-		if propsVal, ok := schemaMap["properties"].(map[string]any); ok {
-			res.properties = propsVal
-		}
-		if reqVal, ok := schemaMap["required"].([]any); ok {
-			res.required = make([]string, len(reqVal))
-			for i, r := range reqVal {
-				if s, ok := r.(string); ok {
-					res.required[i] = s
-				}
-			}
-		}
-	}
-
-	return res
 }
 
 func (ts *Toolset) callTool(ctx context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {

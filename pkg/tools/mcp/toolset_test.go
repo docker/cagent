@@ -50,11 +50,11 @@ const schemaJSON = `
 func parseFunctionParameters(t *testing.T, schemaJSON string) tools.FunctionParameters {
 	t.Helper()
 
-	var schema map[string]any
-	err := json.Unmarshal([]byte(schemaJSON), &schema)
+	var parameters tools.FunctionParameters
+	err := json.Unmarshal([]byte(schemaJSON), &parameters)
 	require.NoError(t, err)
 
-	return inputSchemaToFunctionParameters(schema)
+	return parameters
 }
 
 func TestEmptySchemaForGemini(t *testing.T) {
