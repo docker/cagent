@@ -282,13 +282,8 @@ func convertToolsToGemini(requestTools []tools.Tool) ([]*genai.Tool, error) {
 
 // ConvertParametersToSchema converts parameters to Gemini Schema format
 func ConvertParametersToSchema(params any) (*genai.Schema, error) {
-	buf, err := json.Marshal(params)
-	if err != nil {
-		return nil, err
-	}
-
 	var schema *genai.Schema
-	if err := json.Unmarshal(buf, &schema); err != nil {
+	if err := tools.JsonRoundtrip(params, &schema); err != nil {
 		return nil, err
 	}
 

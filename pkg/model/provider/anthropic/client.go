@@ -401,13 +401,8 @@ func convertTools(tooles []tools.Tool) ([]anthropic.ToolUnionParam, error) {
 
 // ConvertParametersToSchema converts parameters to Anthropic Schema format
 func ConvertParametersToSchema(params any) (anthropic.ToolInputSchemaParam, error) {
-	buf, err := json.Marshal(params)
-	if err != nil {
-		return anthropic.ToolInputSchemaParam{}, err
-	}
-
 	var schema anthropic.ToolInputSchemaParam
-	if err := json.Unmarshal(buf, &schema); err != nil {
+	if err := tools.JsonRoundtrip(params, &schema); err != nil {
 		return anthropic.ToolInputSchemaParam{}, err
 	}
 
