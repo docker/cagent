@@ -10,6 +10,7 @@ type Config struct {
 	Agents   map[string]AgentConfig `json:"agents,omitempty"`
 	Models   map[string]ModelConfig `json:"models,omitempty"`
 	Metadata Metadata               `json:"metadata,omitempty"`
+	Workflow []WorkflowStep         `json:"workflow,omitempty"`
 }
 
 // AgentConfig represents a single agent configuration
@@ -180,4 +181,11 @@ type StructuredOutput struct {
 	Schema map[string]any `json:"schema"`
 	// Strict enables strict schema adherence (OpenAI only)
 	Strict bool `json:"strict,omitempty"`
+}
+
+// WorkflowStep represents a step in a workflow
+type WorkflowStep struct {
+	Type  string   `json:"type"`            // "agent" or "parallel"
+	Name  string   `json:"name,omitempty"`  // Name of the agent to run (for type "agent")
+	Steps []string `json:"steps,omitempty"` // List of agent names to run in parallel (for type "parallel")
 }

@@ -50,6 +50,12 @@ func (a *App) Title() string {
 	return a.title
 }
 
+// SendEvent sends an event to the app's event channel
+// This is used by workflows to forward events to the TUI
+func (a *App) SendEvent(event tea.Msg) {
+	a.events <- event
+}
+
 // Run one agent loop
 func (a *App) Run(ctx context.Context, cancel context.CancelFunc, message string) {
 	a.cancel = cancel

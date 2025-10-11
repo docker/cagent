@@ -1,0 +1,45 @@
+version: "2"
+
+agents:
+  source_text:
+    model: openai/gpt-4o
+    instruction: |
+      Write a 2-paragraph technical explanation of how Docker containers work.
+      Use simple language but be technically accurate. About 80-100 words total.
+
+  translate_spanish:
+    model: openai/gpt-4o
+    instruction: |
+      Translate the text to Spanish.
+      Maintain technical accuracy and natural flow.
+
+  translate_french:
+    model: openai/gpt-4o
+    instruction: |
+      Translate the text to French.
+      Maintain technical accuracy and natural flow.
+
+  translate_japanese:
+    model: openai/gpt-4o
+    instruction: |
+      Translate the text to Japanese.
+      Maintain technical accuracy and natural flow.
+      Use appropriate technical terminology in Japanese.
+
+  formatter:
+    model: openai/gpt-4o
+    instruction: |
+      You received the same text translated into Spanish, French, and Japanese.
+      Create a formatted output showing all three translations with language labels.
+      Format: "🇪🇸 Spanish:\n[text]\n\n🇫🇷 French:\n[text]\n\n🇯🇵 Japanese:\n[text]"
+
+workflow:
+  - type: agent
+    name: source_text
+  - type: parallel
+    steps:
+      - translate_spanish
+      - translate_french
+      - translate_japanese
+  - type: agent
+    name: formatter

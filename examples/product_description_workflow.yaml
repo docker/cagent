@@ -1,0 +1,28 @@
+version: "2"
+
+agents:
+  draft_writer:
+    model: openai/gpt-4o
+    instruction: |
+      Write a product description for a smart water bottle that tracks hydration.
+      Keep it to 3-4 sentences. Be informative but casual.
+
+  make_exciting:
+    model: openai/gpt-4o
+    instruction: |
+      Rewrite the product description to be more exciting and engaging.
+      Add enthusiastic language and emphasize benefits. Keep the same length.
+
+  add_cta:
+    model: openai/gpt-4o
+    instruction: |
+      Add a compelling call-to-action (1-2 sentences) at the end.
+      Make it action-oriented and create urgency.
+
+workflow:
+  - type: agent
+    name: draft_writer
+  - type: agent
+    name: make_exciting
+  - type: agent
+    name: add_cta
