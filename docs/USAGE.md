@@ -60,7 +60,7 @@ $ cagent api config.yaml --listen :8080
 # Other commands
 $ cagent new                          # Initialize new project
 $ cagent new --model openai/gpt-5-mini --max-tokens 32000  # Override max tokens during generation
-$ cagent eval config.yaml             # Run evaluations
+$ cagent eval <agent-config> <eval-dir>  # Run agent evaluations
 $ cagent pull docker.io/user/agent    # Pull agent from registry
 $ cagent push docker.io/user/agent    # Push agent to registry
 ```
@@ -77,6 +77,104 @@ During CLI sessions, you can use special commands:
 | `/reset`   | Clear conversation history                  |
 | `/eval`    | Save current conversation for evaluation    |
 | `/compact` | Compact conversation to lower context usage |
+
+## Agent Evaluation
+
+The `cagent eval` command allows you to evaluate agent performance by comparing current agent responses with previously saved conversation sessions. This is useful for regression testing, A/B testing different configurations, and ensuring consistent agent behavior over time.
+
+### Basic Usage
+
+```bash
+# Run evaluations on all session files in a directory
+$ cagent eval <agent-config> <eval-directory>
+
+# Example
+$ cagent eval examples/agent.yaml ./evals
+```
+
+### Creating Evaluation Data
+
+#### Method 1: Interactive Session Saving
+
+During any interactive cagent session, use the `/eval` command to save the current conversation:
+
+```bash
+$ cagent run config.yaml
+User: What is 15 + 23?
+Agent: I'll solve this step by step:
+
+15 + 23
+
+To add these numbers:
+15 + 23 = 38
+
+The answer is 38.
+
+/eval    # Saves this conversation to ./evals/ directory
+```
+
+This automatically creates a JSON file in the `evals/` directory containing the complete session data.
+
+#### Method 2: Manual Session Files
+
+You can also manually create evaluation session files in JSON format. See `examples/eval/` for sample session structures.
+
+### Understanding Evaluation Metrics
+
+The evaluation system computes two key metrics:
+
+#### Tool Trajectory Score
+- **Range**: 0.0 to 1.0
+- **Meaning**: Measures how consistently the agent uses tools in the same sequence
+- **1.0**: Perfect match - agent used exactly the same tools in the same order
+- **< 1.0**: Differences in tool usage patterns
+
+#### ROUGE-1 Score  
+- **Range**: 0.0 to 1.0
+- **Meaning**: Measures word-level overlap between original and new responses
+- **1.0**: Perfect textual match
+- **0.8+**: High similarity (80%+ word overlap)
+- **0.5-0.8**: Moderate similarity
+- **< 0.5**: Low similarity
+
+### Example Output
+
+```console
+$ cagent eval examples/eval/agent.yaml examples/eval/evals
+Eval file: sample-calculation-eval
+Tool trajectory score: 1.000000
+Rouge-1 score: 0.785430
+
+Eval file: sample-question-eval
+Tool trajectory score: 1.000000
+Rouge-1 score: 0.923567
+```
+
+### Evaluation Workflow
+
+1. **Develop and test** your agent interactively
+2. **Save evaluation sessions** using `/eval` during testing
+3. **Run evaluations** periodically using `cagent eval`
+4. **Monitor scores** to detect regressions or improvements
+5. **Update baselines** when you intentionally change agent behavior
+
+### Use Cases
+
+- **Regression Testing**: Detect when agent behavior changes unexpectedly
+- **A/B Testing**: Compare different agent configurations quantitatively  
+- **Performance Monitoring**: Track agent consistency over time
+- **Quality Assurance**: Validate outputs against known good responses
+- **Model Comparison**: Evaluate the same agent with different underlying models
+
+### Best Practices
+
+- Create diverse evaluation cases covering different types of interactions
+- Include both simple and complex scenarios in your evaluation set
+- Regularly update evaluation data as your agent's capabilities evolve
+- Use version control to track evaluation data alongside agent configurations
+- Set up automated evaluation runs in CI/CD pipelines for production agents
+
+For a complete example with sample agent configuration and evaluation data, see [`examples/eval/`](../examples/eval/).
 
 ## 🔧 Configuration Reference
 
