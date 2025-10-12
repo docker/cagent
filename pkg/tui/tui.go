@@ -211,6 +211,7 @@ func (a *appModel) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 
 	switch {
 	case key.Matches(msg, a.keyMap.Quit):
+		a.chatPage.Cleanup()
 		return tea.Quit
 	case key.Matches(msg, a.keyMap.CommandPalette):
 		// Open command palette

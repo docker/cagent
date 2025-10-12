@@ -2,6 +2,8 @@ package chat
 
 import (
 	"context"
+	"fmt"
+	"os"
 
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/v2/help"
@@ -36,6 +38,7 @@ type Page interface {
 	layout.Help
 	CompactSession() tea.Cmd
 	CopySessionToClipboard() tea.Cmd
+	Cleanup()
 }
 
 // chatPage implements Page
@@ -153,6 +156,8 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				p.msgCancel()
 				p.msgCancel = nil
 			}
+			// Stop progress bar if active
+			p.stopProgressBar()
 			return p, nil
 		}
 
@@ -193,6 +198,7 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case *runtime.StreamStartedEvent:
 		spinnerCmd := p.setWorking(true)
 		cmd := p.messages.AddAssistantMessage()
+		p.startProgressBar()
 		return p, tea.Batch(cmd, p.messages.ScrollToBottom(), spinnerCmd)
 	case *runtime.AgentChoiceEvent:
 		cmd := p.messages.AppendToLastMessage(msg.AgentName, types.MessageTypeAssistant, msg.Content)
@@ -216,6 +222,7 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if p.msgCancel != nil {
 			p.msgCancel = nil
 		}
+		p.stopProgressBar()
 		return p, tea.Batch(cmd, p.messages.ScrollToBottom(), spinnerCmd)
 	case *runtime.PartialToolCallEvent:
 		// When we first receive a tool call, show it immediately in pending state
@@ -454,4 +461,17 @@ func (p *chatPage) CompactSession() tea.Cmd {
 	p.app.CompactSession()
 
 	return p.messages.ScrollToBottom()
+}
+
+func (p *chatPage) Cleanup() {
+	p.stopProgressBar()
+}
+
+// See: https://conemu.github.io/en/AnsiEscapeCodes.html#ConEmu_specific_OSC
+func (p *chatPage) startProgressBar() {
+	fmt.Fprint(os.Stderr, "\x1b]9;4;3;0\x1b\\")
+}
+
+func (p *chatPage) stopProgressBar() {
+	fmt.Fprint(os.Stderr, "\x1b]9;4;0;0\x1b\\")
 }
