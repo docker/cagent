@@ -5,18 +5,18 @@ import (
 
 	"github.com/docker/cagent/pkg/memory/database"
 	"github.com/docker/cagent/pkg/memorymanager"
-	"github.com/docker/cagent/pkg/model/provider"
 )
 
 type Manager struct {
-	db  database.Database
-	llm provider.Provider
+	db database.Database
 }
 
 var _ memorymanager.Manager = (*Manager)(nil)
 
-func NewManager(db database.Database, llm provider.Provider) *Manager {
-	return &Manager{db: db, llm: llm}
+func NewManager(db database.Database) *Manager {
+	return &Manager{
+		db: db,
+	}
 }
 
 func (m *Manager) AddMemory(ctx context.Context, memory database.UserMemory) error {

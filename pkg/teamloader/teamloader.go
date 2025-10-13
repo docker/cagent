@@ -168,7 +168,7 @@ func LoadWithOverrides(ctx context.Context, path string, runtimeConfig config.Ru
 			return nil, fmt.Errorf("agent '%s' not found in configuration", name)
 		}
 
-		agentTools, err := getToolsForAgent(ctx, &a, parentDir, models[0], env, runtimeConfig)
+		agentTools, err := getToolsForAgent(ctx, &a, parentDir, env, runtimeConfig)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get tools: %w", err)
 		}
@@ -234,7 +234,7 @@ func getModelsForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentC
 }
 
 // getToolsForAgent returns the tool definitions for an agent based on its configuration
-func getToolsForAgent(ctx context.Context, a *latest.AgentConfig, parentDir string, model provider.Provider, envProvider environment.Provider, runtimeConfig config.RuntimeConfig) ([]tools.ToolSet, error) {
+func getToolsForAgent(ctx context.Context, a *latest.AgentConfig, parentDir string, envProvider environment.Provider, runtimeConfig config.RuntimeConfig) ([]tools.ToolSet, error) {
 	var t []tools.ToolSet
 
 	if len(a.SubAgents) > 0 {
@@ -244,7 +244,7 @@ func getToolsForAgent(ctx context.Context, a *latest.AgentConfig, parentDir stri
 	for i := range a.Toolsets {
 		toolset := a.Toolsets[i]
 
-		tool, err := createTool(ctx, toolset, a, parentDir, model, envProvider, runtimeConfig)
+		tool, err := createTool(ctx, toolset, a, parentDir, envProvider, runtimeConfig)
 		if err != nil {
 			return nil, err
 		}
@@ -255,7 +255,7 @@ func getToolsForAgent(ctx context.Context, a *latest.AgentConfig, parentDir stri
 	return t, nil
 }
 
-func createTool(ctx context.Context, toolset latest.Toolset, a *latest.AgentConfig, parentDir string, model provider.Provider, envProvider environment.Provider, runtimeConfig config.RuntimeConfig) (tools.ToolSet, error) {
+func createTool(ctx context.Context, toolset latest.Toolset, a *latest.AgentConfig, parentDir string, envProvider environment.Provider, runtimeConfig config.RuntimeConfig) (tools.ToolSet, error) {
 	env, err := environment.ExpandAll(ctx, environment.ToValues(toolset.Env), envProvider)
 	if err != nil {
 		return nil, fmt.Errorf("failed to expand the tool's environment variables: %w", err)
@@ -292,7 +292,7 @@ func createTool(ctx context.Context, toolset latest.Toolset, a *latest.AgentConf
 			return nil, fmt.Errorf("failed to create memory database: %w", err)
 		}
 
-		return builtin.NewMemoryTool(memory.NewManager(db, model)), nil
+		return builtin.NewMemoryTool(memory.NewManager(db)), nil
 
 	case toolset.Type == "think":
 		return builtin.NewThinkTool(), nil
