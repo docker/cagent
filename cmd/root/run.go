@@ -80,18 +80,6 @@ func NewRunCmd() *cobra.Command {
 	return cmd
 }
 
-func NewTuiCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:    "tui",
-		Short:  "Deprecated. Use `cagent run` instead.",
-		Hidden: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprintln(os.Stderr, "'cagent tui' is deprecated. Please use 'cagent run' instead.")
-			return nil
-		},
-	}
-}
-
 func runCommand(cmd *cobra.Command, args []string) error {
 	telemetry.TrackCommand("run", args)
 	return doRunCommand(cmd.Context(), args, false)
