@@ -1,7 +1,6 @@
 package root
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"strings"
@@ -78,15 +77,13 @@ func NewNewCmd() *cobra.Command {
 			if len(args) > 0 {
 				prompt = strings.Join(args, " ")
 			} else {
-				reader := bufio.NewReader(os.Stdin)
-
 				fmt.Printf("%s\n", blue("------- Welcome to %s! -------", bold(AppName)))
 				fmt.Printf("%s\n\n", white("         (Ctrl+C to exit)"))
 				fmt.Printf("%s\n\n", blue("What should your agent/agent team do? (describe its purpose)"))
 				fmt.Print(blue("> "))
 
 				var err error
-				prompt, err = reader.ReadString('\n')
+				prompt, err = readLine(ctx)
 				if err != nil {
 					return fmt.Errorf("failed to read purpose: %w", err)
 				}
@@ -133,7 +130,7 @@ func NewNewCmd() *cobra.Command {
 						llmIsTyping = false
 					}
 
-					result := promptMaxIterationsContinue(e.MaxIterations)
+					result := promptMaxIterationsContinue(ctx, e.MaxIterations)
 					switch result {
 					case ConfirmationApprove:
 						rt.Resume(ctx, string(runtime.ResumeTypeApprove))

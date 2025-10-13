@@ -1,9 +1,13 @@
 package main
 
 import (
+	"os"
+
 	"github.com/docker/cagent/cmd/root"
 )
 
 func main() {
-	root.Run()
+	if err := root.Execute(); err != nil {
+		os.Exit(1)
+	}
 }

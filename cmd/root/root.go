@@ -1,13 +1,16 @@
 package root
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -124,11 +127,10 @@ func NewRootCmd() *cobra.Command {
 	return cmd
 }
 
-func Run() {
-	Execute()
-}
+func Execute() error {
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
 
-func Execute() {
 	// Set the version for automatic telemetry initialization
 	telemetry.SetGlobalTelemetryVersion(version.Version)
 
@@ -147,11 +149,13 @@ We collect anonymous usage data to help improve cagent. To disable:
 	}
 
 	rootCmd := NewRootCmd()
-	if err := rootCmd.Execute(); err != nil {
+	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		envErr := &environment.RequiredEnvError{}
 		runtimeErr := RuntimeError{}
 
 		switch {
+		case ctx.Err() != nil:
+			return ctx.Err()
 		case errors.As(err, &envErr):
 			fmt.Fprintln(os.Stderr, "The following environment variables must be set:")
 			for _, v := range envErr.Missing {
@@ -170,8 +174,10 @@ We collect anonymous usage data to help improve cagent. To disable:
 			}
 		}
 
-		os.Exit(1)
+		return err
 	}
+
+	return nil
 }
 
 // setupLogging configures slog logging behavior.

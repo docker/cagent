@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand"
-	"sync"
 
 	"github.com/docker/cagent/pkg/memorymanager"
 	"github.com/docker/cagent/pkg/model/provider"
@@ -17,9 +16,7 @@ type Agent struct {
 	name               string
 	description        string
 	instruction        string
-	toolsets           []tools.ToolSet
-	startedToolsets    map[tools.ToolSet]bool
-	toolsetsMutex      sync.RWMutex
+	toolsets           []*StartableToolSet
 	models             []provider.Provider
 	subAgents          []*Agent
 	parents            []*Agent
@@ -36,9 +33,8 @@ type Agent struct {
 // New creates a new agent
 func New(name, prompt string, opts ...Opt) *Agent {
 	agent := &Agent{
-		name:            name,
-		instruction:     prompt,
-		startedToolsets: make(map[tools.ToolSet]bool),
+		name:        name,
+		instruction: prompt,
 	}
 
 	for _, opt := range opts {
@@ -143,7 +139,13 @@ func (a *Agent) ToolDisplayName(ctx context.Context, toolName string) string {
 }
 
 func (a *Agent) ToolSets() []tools.ToolSet {
-	return a.toolsets
+	var toolSets []tools.ToolSet
+
+	for _, ts := range a.toolsets {
+		toolSets = append(toolSets, ts)
+	}
+
+	return toolSets
 }
 
 // Commands returns the named commands configured for this agent.
@@ -152,12 +154,9 @@ func (a *Agent) Commands() map[string]string {
 }
 
 func (a *Agent) ensureToolSetsAreStarted() error {
-	a.toolsetsMutex.Lock()
-	defer a.toolsetsMutex.Unlock()
-
 	for _, toolSet := range a.toolsets {
 		// Skip if toolset is already started
-		if a.startedToolsets[toolSet] {
+		if toolSet.started.Load() {
 			continue
 		}
 
@@ -172,19 +171,16 @@ func (a *Agent) ensureToolSetsAreStarted() error {
 		}
 
 		// Mark toolset as started
-		a.startedToolsets[toolSet] = true
+		toolSet.started.Store(true)
 	}
 
 	return nil
 }
 
 func (a *Agent) StopToolSets() error {
-	a.toolsetsMutex.Lock()
-	defer a.toolsetsMutex.Unlock()
-
 	for _, toolSet := range a.toolsets {
 		// Only stop toolsets that are marked as started
-		if !a.startedToolsets[toolSet] {
+		if !toolSet.started.Load() {
 			continue
 		}
 
@@ -193,7 +189,7 @@ func (a *Agent) StopToolSets() error {
 		}
 
 		// Mark toolset as stopped
-		a.startedToolsets[toolSet] = false
+		toolSet.started.Store(false)
 	}
 
 	return nil

@@ -2,6 +2,7 @@ package root
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -117,13 +118,12 @@ func printToolCallResponse(toolCall tools.ToolCall, response string) {
 	fmt.Printf("\n%s\n", white("%s response%s", bold(toolCall.Function.Name), formatToolCallResponse(response)))
 }
 
-func promptMaxIterationsContinue(maxIterations int) ConfirmationResult {
+func promptMaxIterationsContinue(ctx context.Context, maxIterations int) ConfirmationResult {
 	fmt.Printf("\n%s\n", yellow("⚠️  Maximum iterations (%d) reached. The agent may be stuck in a loop.", maxIterations))
 	fmt.Printf("%s\n", white("This can happen with smaller or less capable models."))
 	fmt.Printf("\n%s (y/n): ", blue("Do you want to continue for 10 more iterations?"))
 
-	reader := bufio.NewReader(os.Stdin)
-	response, err := reader.ReadString('\n')
+	response, err := readLine(ctx)
 	if err != nil {
 		fmt.Printf("\n%s\n", red("Failed to read input, exiting..."))
 		return ConfirmationAbort
@@ -139,15 +139,14 @@ func promptMaxIterationsContinue(maxIterations int) ConfirmationResult {
 	}
 }
 
-func promptOAuthAuthorization(serverURL string) ConfirmationResult {
+func promptOAuthAuthorization(ctx context.Context, serverURL string) ConfirmationResult {
 	fmt.Printf("\n%s\n", yellow("🔐 OAuth Authorization Required"))
 	fmt.Printf("%s %s (remote)\n", white("Server:"), blue(serverURL))
 	fmt.Printf("%s\n", white("This server requires OAuth authentication to access its tools."))
 	fmt.Printf("%s\n", white("Your browser will open automatically to complete the authorization."))
 	fmt.Printf("\n%s (y/n): ", blue("Do you want to authorize access?"))
 
-	reader := bufio.NewReader(os.Stdin)
-	response, err := reader.ReadString('\n')
+	response, err := readLine(ctx)
 	if err != nil {
 		fmt.Printf("\n%s\n", red("Failed to read input, aborting authorization..."))
 		return ConfirmationAbort
@@ -288,5 +287,32 @@ func formatJSONValue(key string, value any) string {
 	default:
 		jsonBytes, _ := json.Marshal(v)
 		return fmt.Sprintf("%s: %s", bold(key), string(jsonBytes))
+	}
+}
+
+func readLine(ctx context.Context) (string, error) {
+	lines := make(chan string)
+	errs := make(chan error)
+
+	go func() {
+		defer close(lines)
+		defer close(errs)
+
+		reader := bufio.NewReader(os.Stdin)
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			errs <- err
+		} else {
+			lines <- line
+		}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case err := <-errs:
+		return "", err
+	case line := <-lines:
+		return line, nil
 	}
 }

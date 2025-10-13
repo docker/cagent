@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"sync/atomic"
+
 	"github.com/docker/cagent/pkg/memorymanager"
 	"github.com/docker/cagent/pkg/model/provider"
 	"github.com/docker/cagent/pkg/tools"
@@ -15,8 +17,15 @@ func WithInstruction(prompt string) Opt {
 }
 
 func WithToolSets(toolSet ...tools.ToolSet) Opt {
+	var startableToolSet []*StartableToolSet
+	for _, ts := range toolSet {
+		startableToolSet = append(startableToolSet, &StartableToolSet{
+			ToolSet: ts,
+		})
+	}
+
 	return func(a *Agent) {
-		a.toolsets = toolSet
+		a.toolsets = startableToolSet
 	}
 }
 
@@ -95,4 +104,9 @@ func WithCommands(commands map[string]string) Opt {
 	return func(a *Agent) {
 		a.commands = commands
 	}
+}
+
+type StartableToolSet struct {
+	tools.ToolSet
+	started atomic.Bool
 }

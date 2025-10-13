@@ -506,7 +506,7 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt runtime.Runtime
 					llmIsTyping = false
 				}
 
-				result := promptMaxIterationsContinue(e.MaxIterations)
+				result := promptMaxIterationsContinue(ctx, e.MaxIterations)
 				switch result {
 				case ConfirmationApprove:
 					rt.Resume(ctx, string(runtime.ResumeTypeApprove))
@@ -524,11 +524,13 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt runtime.Runtime
 				}
 
 				serverURL := e.Meta["cagent/server_url"].(string)
-				result := promptOAuthAuthorization(serverURL)
-				switch result {
-				case ConfirmationApprove:
+				result := promptOAuthAuthorization(ctx, serverURL)
+				switch {
+				case ctx.Err() != nil:
+					return ctx.Err()
+				case result == ConfirmationApprove:
 					_ = rt.ResumeElicitation(ctx, "accept", nil)
-				case ConfirmationReject:
+				case result == ConfirmationReject:
 					_ = rt.ResumeElicitation(ctx, "decline", nil)
 					return fmt.Errorf("OAuth authorization rejected by user")
 				}
