@@ -84,6 +84,14 @@ func (c *remoteMCPClient) Initialize(ctx context.Context, request *mcp.Initializ
 	// Create HTTP client with OAuth support
 	httpClient := c.createHTTPClient()
 
+	// Pre-flight request to trigger OAuth flow if needed, before establishing MCP session
+	// This prevents OAuth from interrupting the MCP session initialization
+	slog.Debug("Performing pre-flight authentication check", "url", c.url)
+	if err := c.preflightAuthCheck(ctx, httpClient); err != nil {
+		return nil, fmt.Errorf("pre-flight authentication check failed: %w", err)
+	}
+	slog.Debug("Pre-flight authentication check completed successfully")
+
 	var transport mcp.Transport
 
 	switch c.transportType {
@@ -113,7 +121,7 @@ func (c *remoteMCPClient) Initialize(ctx context.Context, request *mcp.Initializ
 
 	client := mcp.NewClient(impl, opts)
 
-	// Connect to the MCP server
+	// Connect to the MCP server (OAuth should already be handled by pre-flight)
 	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to MCP server: %w", err)
@@ -125,6 +133,39 @@ func (c *remoteMCPClient) Initialize(ctx context.Context, request *mcp.Initializ
 
 	slog.Debug("Remote MCP client connected successfully")
 	return session.InitializeResult(), nil
+}
+
+// preflightAuthCheck performs a lightweight HTTP request to trigger OAuth flow before MCP session creation
+// This prevents OAuth from interrupting the MCP protocol handshake
+// Without this, the MCP session initialization may fail if the server responds with 401 Unauthorized.
+// Example of remote server that behaves this way: https://mcp.prisma.io/mcp
+func (c *remoteMCPClient) preflightAuthCheck(ctx context.Context, httpClient *http.Client) error {
+	// Make a HEAD request to the MCP endpoint to trigger OAuth if needed
+	// The oauthTransport will intercept any 401 response and complete the OAuth flow
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, c.url, http.NoBody)
+	if err != nil {
+		return fmt.Errorf("failed to create pre-flight request: %w", err)
+	}
+
+	// Add any configured headers
+	for key, value := range c.headers {
+		req.Header.Set(key, value)
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("pre-flight request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Accept both 2xx and 4xx responses (except 401 which should have triggered OAuth)
+	// We just want to ensure OAuth is complete, not validate the endpoint yet
+	if resp.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("authentication failed: still unauthorized after OAuth attempt")
+	}
+
+	slog.Debug("Pre-flight check completed", "status", resp.StatusCode)
+	return nil
 }
 
 // createHTTPClient creates an HTTP client with OAuth support
