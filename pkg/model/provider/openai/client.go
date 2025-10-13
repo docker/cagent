@@ -328,12 +328,7 @@ func (c *Client) CreateChatCompletionStream(
 
 // ConvertParametersToSchema converts parameters to OpenAI Schema format
 func ConvertParametersToSchema(params any) (any, error) {
-	var schema map[string]any
-	if err := tools.ConvertSchema(params, &schema); err != nil {
-		return nil, err
-	}
-
-	return schema, nil
+	return tools.SchemaToMap(params)
 }
 
 // isResponsesOnlyModel returns true for newer OpenAI models that use the Responses API

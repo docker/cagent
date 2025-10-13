@@ -395,12 +395,7 @@ func (c *Client) CreateChatCompletionStream(ctx context.Context, messages []chat
 
 // ConvertParametersToSchema converts parameters to DMR Schema format
 func ConvertParametersToSchema(params any) (any, error) {
-	var schema map[string]any
-	if err := tools.ConvertSchema(params, &schema); err != nil {
-		return nil, err
-	}
-
-	return schema, nil
+	return tools.SchemaToMap(params)
 }
 
 func (c *Client) ID() string {
