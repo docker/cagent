@@ -346,6 +346,16 @@ func createTool(ctx context.Context, toolset latest.Toolset, a *latest.AgentConf
 
 	case toolset.Type == "mcp" && toolset.Ref != "":
 		mcpServerName := gateway.ParseServerRef(toolset.Ref)
+		serverSpec, err := gateway.ServerSpec(ctx, mcpServerName)
+		if err != nil {
+			return nil, fmt.Errorf("fetching MCP server spec for %q: %w", mcpServerName, err)
+		}
+
+		// TODO(dga): until the MCP Gateway supports oauth with cagent, we fetch the remote url and directly connect to it.
+		if serverSpec.Type == "remote" {
+			return mcp.NewRemoteToolset(serverSpec.Remote.URL, serverSpec.Remote.TransportType, nil, toolset.Tools, runtimeConfig.RedirectURI)
+		}
+
 		return mcp.NewGatewayToolset(mcpServerName, toolset.Config, toolset.Tools, envProvider), nil
 
 	case toolset.Type == "mcp" && toolset.Command != "":

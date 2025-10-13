@@ -13,17 +13,33 @@ import (
 const DockerCatalogURL = "https://desktop.docker.com/mcp/catalog/v3/catalog.yaml"
 
 func RequiredEnvVars(ctx context.Context, serverName string) ([]Secret, error) {
+	server, err := ServerSpec(ctx, serverName)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO(dga): until the MCP Gateway supports oauth with cagent,
+	// we ignore every secret listed on `remote` servers and assume
+	// we can use oauth by connecting directly to the server's url.
+	if server.Type == "remote" {
+		return nil, nil
+	}
+
+	return server.Secrets, nil
+}
+
+func ServerSpec(ctx context.Context, serverName string) (Server, error) {
 	catalog, err := readCatalogOnce()
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch MCP catalog: %w", err)
+		return Server{}, fmt.Errorf("failed to fetch MCP catalog: %w", err)
 	}
 
 	server, ok := catalog[serverName]
 	if !ok {
-		return nil, fmt.Errorf("MCP server %q not found in MCP catalog", serverName)
+		return Server{}, fmt.Errorf("MCP server %q not found in MCP catalog", serverName)
 	}
 
-	return server.Secrets, nil
+	return server, nil
 }
 
 // Read the MCP Catalog only once and cache the result.

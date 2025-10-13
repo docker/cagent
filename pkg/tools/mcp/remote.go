@@ -92,7 +92,7 @@ func (c *remoteMCPClient) Initialize(ctx context.Context, request *mcp.Initializ
 			Endpoint:   c.url,
 			HTTPClient: httpClient,
 		}
-	case "streamable":
+	case "streamable", "streamable-http":
 		transport = &mcp.StreamableClientTransport{
 			Endpoint:   c.url,
 			HTTPClient: httpClient,

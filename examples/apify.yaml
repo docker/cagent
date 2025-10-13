@@ -1,0 +1,14 @@
+#!/usr/bin/env cagent run
+version: "2"
+
+agents:
+  root:
+    model: openai/gpt-4o
+    description: Agent knowledgeable in Apify.
+    instruction: |
+      You are an AI assistant with a deep understanding of Apify.
+      Your responses should be clear, concise, and focused on providing accurate information about
+      Apify concepts, best practices, and usage.
+    toolsets:
+      - type: mcp
+        ref: docker:apify

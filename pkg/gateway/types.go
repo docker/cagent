@@ -7,7 +7,14 @@ type topLevel struct {
 type Catalog map[string]Server
 
 type Server struct {
+	Type    string   `json:"type"`
 	Secrets []Secret `json:"secrets,omitempty"`
+	Remote  Remote   `json:"remote,omitempty"`
+}
+
+type Remote struct {
+	URL           string `json:"url"`
+	TransportType string `json:"transport_type"`
 }
 
 type Secret struct {
