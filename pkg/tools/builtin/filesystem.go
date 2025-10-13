@@ -165,10 +165,31 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			Name:        "directory_tree",
 			Description: "Get a recursive tree view of files and directories as a JSON structure.",
 			Parameters:  tools.MustSchemaFor[DirectoryTreeArgs](),
-			// We don't support recursive types yet
-			// OutputSchema: tools.MustSchemaFor(reflect.TypeFor[*TreeNode]()),
-			OutputSchema: tools.MustSchemaFor[any](),
-			Handler:      t.handleDirectoryTree,
+			// Manually define the schema here because
+			// tools.MustSchemaFor(reflect.TypeFor[*TreeNode]()) doesn't support recursive types.
+			OutputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"name": map[string]any{
+						"type":        "string",
+						"description": "The name of the node",
+					},
+					"type": map[string]any{
+						"type":        "string",
+						"description": "The type of the node (file or directory)",
+					},
+					"children": map[string]any{
+						"type":        "array",
+						"description": "Optional list of child nodes",
+						"items": map[string]any{
+							"$ref": "#",
+						},
+					},
+				},
+				"required":             []string{"name", "type"},
+				"additionalProperties": false,
+			},
+			Handler: t.handleDirectoryTree,
 			Annotations: tools.ToolAnnotations{
 				ReadOnlyHint: true,
 				Title:        "Directory Tree",
