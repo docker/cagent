@@ -31,9 +31,7 @@ func WithToolSets(toolSet ...tools.ToolSet) Opt {
 
 func WithTools(allTools ...tools.Tool) Opt {
 	return func(a *Agent) {
-		a.toolWrapper = toolWrapper{
-			allTools: allTools,
-		}
+		a.tools = allTools
 	}
 }
 

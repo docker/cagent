@@ -25,7 +25,7 @@ type Agent struct {
 	maxIterations      int
 	numHistoryItems    int
 	addPromptFiles     []string
-	toolWrapper        toolWrapper
+	tools              []tools.Tool
 	memoryManager      memorymanager.Manager
 	commands           map[string]string
 }
@@ -117,7 +117,7 @@ func (a *Agent) Tools(ctx context.Context) ([]tools.Tool, error) {
 		agentTools = append(agentTools, ta...)
 	}
 
-	agentTools = append(agentTools, a.toolWrapper.allTools...)
+	agentTools = append(agentTools, a.tools...)
 
 	return agentTools, nil
 }
