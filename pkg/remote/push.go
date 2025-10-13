@@ -10,7 +10,7 @@ import (
 )
 
 // Push pushes an artifact from the content store to an OCI registry
-func Push(reference string, _ ...crane.Option) error {
+func Push(reference string) error {
 	store, err := content.NewStore()
 	if err != nil {
 		return fmt.Errorf("creating content store: %w", err)

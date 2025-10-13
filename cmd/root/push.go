@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/google/go-containerregistry/pkg/crane"
 	"github.com/spf13/cobra"
 
 	"github.com/docker/cagent/pkg/content"
@@ -44,9 +43,7 @@ func runPushCommand(filePath, tag string) error {
 
 	fmt.Printf("Pushing agent %s to %s\n", filePath, tag)
 
-	var opts []crane.Option
-
-	err = remote.Push(tag, opts...)
+	err = remote.Push(tag)
 	if err != nil {
 		return fmt.Errorf("failed to push artifact: %w", err)
 	}

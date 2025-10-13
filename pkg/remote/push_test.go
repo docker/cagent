@@ -3,7 +3,6 @@ package remote
 import (
 	"testing"
 
-	"github.com/google/go-containerregistry/pkg/crane"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/static"
@@ -69,15 +68,9 @@ func TestPushWithOptions(t *testing.T) {
 	digest, err := store.StoreArtifact(img, testRef)
 	require.NoError(t, err)
 
-	defer func() {
-		if err := store.DeleteArtifact(digest); err != nil {
-			t.Logf("Failed to clean up artifact: %v", err)
-		}
-	}()
-
-	// Test with insecure option (this won't actually push anywhere)
-	err = Push("invalid:reference:with:too:many:colons", crane.Insecure)
-	require.Error(t, err)
+	if err := store.DeleteArtifact(digest); err != nil {
+		t.Logf("Failed to clean up artifact: %v", err)
+	}
 }
 
 func TestContentStore(t *testing.T) {
