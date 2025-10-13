@@ -6,7 +6,7 @@ import (
 	"iter"
 	"log/slog"
 	"net/http"
-	"sync"
+	"sync/atomic"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -14,7 +14,7 @@ import (
 )
 
 type remoteMCPClient struct {
-	session             *mcp.ClientSession
+	session             atomic.Pointer[mcp.ClientSession]
 	url                 string
 	transportType       string
 	headers             map[string]string
@@ -22,7 +22,6 @@ type remoteMCPClient struct {
 	tokenStore          OAuthTokenStore
 	elicitationHandler  tools.ElicitationHandler
 	oauthSuccessHandler func()
-	mu                  sync.RWMutex
 }
 
 func newRemoteClient(url, transportType string, headers map[string]string, redirectURI string, tokenStore OAuthTokenStore) *remoteMCPClient {
@@ -119,9 +118,7 @@ func (c *remoteMCPClient) Initialize(ctx context.Context, request *mcp.Initializ
 		return nil, fmt.Errorf("failed to connect to MCP server: %w", err)
 	}
 
-	c.mu.Lock()
-	c.session = session
-	c.mu.Unlock()
+	c.session.Store(session)
 
 	slog.Debug("Remote MCP client connected successfully")
 	return session.InitializeResult(), nil
@@ -140,10 +137,7 @@ func (c *remoteMCPClient) createHTTPClient() *http.Client {
 }
 
 func (c *remoteMCPClient) Close() error {
-	c.mu.RLock()
-	session := c.session
-	c.mu.RUnlock()
-
+	session := c.session.Load()
 	if session != nil {
 		return session.Close()
 	}
@@ -151,10 +145,7 @@ func (c *remoteMCPClient) Close() error {
 }
 
 func (c *remoteMCPClient) ListTools(ctx context.Context, params *mcp.ListToolsParams) iter.Seq2[*mcp.Tool, error] {
-	c.mu.RLock()
-	session := c.session
-	c.mu.RUnlock()
-
+	session := c.session.Load()
 	if session == nil {
 		return func(yield func(*mcp.Tool, error) bool) {
 			yield(nil, fmt.Errorf("session not initialized"))
@@ -165,10 +156,7 @@ func (c *remoteMCPClient) ListTools(ctx context.Context, params *mcp.ListToolsPa
 }
 
 func (c *remoteMCPClient) CallTool(ctx context.Context, params *mcp.CallToolParams) (*mcp.CallToolResult, error) {
-	c.mu.RLock()
-	session := c.session
-	c.mu.RUnlock()
-
+	session := c.session.Load()
 	if session == nil {
 		return nil, fmt.Errorf("session not initialized")
 	}
