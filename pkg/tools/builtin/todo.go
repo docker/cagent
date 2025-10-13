@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/docker/cagent/pkg/tools"
 )
@@ -39,6 +40,8 @@ type UpdateTodoArgs struct {
 type todoHandler struct {
 	todos map[string]Todo
 }
+
+var NewSharedTodoTool = sync.OnceValue(NewTodoTool)
 
 func NewTodoTool() *TodoTool {
 	return &TodoTool{
