@@ -93,10 +93,6 @@ func (a *Agent) HasSubAgents() bool {
 	return len(a.subAgents) > 0
 }
 
-func (a *Agent) HasParents() bool {
-	return len(a.parents) > 0
-}
-
 // Model returns a random model from the available models
 func (a *Agent) Model() provider.Provider {
 	return a.models[rand.Intn(len(a.models))]
