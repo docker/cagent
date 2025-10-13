@@ -222,9 +222,8 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 		r.setElicitationEventsChannel(events)
 		defer r.clearElicitationEventsChannel()
 
-		toolsets := a.ToolSets()
 		// Set elicitation handler on all MCP toolsets before getting tools
-		for _, toolset := range toolsets {
+		for _, toolset := range a.ToolSets() {
 			toolset.SetElicitationHandler(r.elicitationHandler)
 			toolset.SetOAuthSuccessHandler(func() {
 				events <- Authorization("confirmed", r.currentAgent)
