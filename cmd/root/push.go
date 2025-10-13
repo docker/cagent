@@ -14,7 +14,7 @@ import (
 )
 
 func NewPushCmd() *cobra.Command {
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "push <agent file> <reference>",
 		Short: "Push an agent to an OCI registry",
 		Long: `Push an agent to an OCI registry.
@@ -27,8 +27,6 @@ from the build command.`,
 			return runPushCommand(args[0], args[1])
 		},
 	}
-
-	return cmd
 }
 
 func runPushCommand(filePath, tag string) error {

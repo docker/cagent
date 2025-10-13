@@ -15,7 +15,7 @@ import (
 )
 
 func NewPullCmd() *cobra.Command {
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "pull <registry-ref>",
 		Short: "Pull an artifact from Docker Hub",
 		Long:  `Pull an artifact from Docker Hub`,
@@ -25,8 +25,6 @@ func NewPullCmd() *cobra.Command {
 			return runPullCommand(args[0])
 		},
 	}
-
-	return cmd
 }
 
 func runPullCommand(registryRef string) error {

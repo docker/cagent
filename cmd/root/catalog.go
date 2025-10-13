@@ -20,9 +20,6 @@ func NewCatalogCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "catalog",
 		Short: "Manage the agent catalog",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return cmd.Help()
-		},
 	}
 
 	cmd.AddCommand(newCatalogListCmd())
@@ -31,7 +28,7 @@ func NewCatalogCmd() *cobra.Command {
 }
 
 func newCatalogListCmd() *cobra.Command {
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "list [org]",
 		Short: "List catalog entries",
 		Args:  cobra.MaximumNArgs(1),
@@ -49,8 +46,6 @@ func newCatalogListCmd() *cobra.Command {
 			return listCatalog(cmd.Context(), org)
 		},
 	}
-
-	return cmd
 }
 
 type hubRepoList struct {
