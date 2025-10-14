@@ -24,12 +24,16 @@ type Todo struct {
 	Status      string `json:"status" jsonschema:"New status (pending, in-progress,completed)"`
 }
 
+type CreateTodoItem struct {
+	Description string `json:"description" jsonschema:"Description of the todo item"`
+}
+
 type CreateTodoArgs struct {
 	Description string `json:"description" jsonschema:"Description of the todo item"`
 }
 
 type CreateTodosArgs struct {
-	Todos []Todo `json:"todos" jsonschema:"List of todo items"`
+	Todos []CreateTodoItem `json:"todos" jsonschema:"List of todo items"`
 }
 
 type UpdateTodoArgs struct {

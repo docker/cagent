@@ -77,22 +77,12 @@ func TestTodoTool_Tools(t *testing.T) {
 			"items": {
 				"type": "object",
 				"required": [
-					"id",
-					"description",
-					"status"
+					"description"
 				],
 				"properties": {
 					"description": {
 						"type": "string",
 						"description": "Description of the todo item"
-					},
-					"id": {
-						"type": "string",
-						"description": "ID of the todo item"
-					},
-					"status": {
-						"type": "string",
-						"description": "New status (pending, in-progress,completed)"
 					}
 				},
 				"additionalProperties": false
@@ -191,7 +181,7 @@ func TestTodoTool_CreateTodos(t *testing.T) {
 
 	// Create multiple todos
 	args := CreateTodosArgs{
-		Todos: []Todo{
+		Todos: []CreateTodoItem{
 			{Description: "First todo item"},
 			{Description: "Second todo item"},
 			{Description: "Third todo item"},
@@ -222,7 +212,7 @@ func TestTodoTool_CreateTodos(t *testing.T) {
 
 	// Create multiple todos
 	args = CreateTodosArgs{
-		Todos: []Todo{
+		Todos: []CreateTodoItem{
 			{Description: "Last todo item"},
 		},
 	}

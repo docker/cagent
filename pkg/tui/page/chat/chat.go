@@ -242,20 +242,23 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case *runtime.ToolCallEvent:
 		spinnerCmd := p.setWorking(true)
 		cmd := p.messages.AddOrUpdateToolCall(msg.AgentName, msg.ToolCall, msg.ToolDefinition, types.ToolStatusRunning)
-
-		// Check if this is a todo-related tool call and update sidebar
-		toolName := msg.ToolCall.Function.Name
-		if toolName == "create_todo" || toolName == "create_todos" ||
-			toolName == "update_todo" || toolName == "list_todos" {
-			// Log error but don't fail the tool call
-			// Could add logging here if needed
-			_ = p.sidebar.SetTodos(msg.ToolCall)
-		}
-
 		return p, tea.Batch(cmd, p.messages.ScrollToBottom(), spinnerCmd)
 	case *runtime.ToolCallResponseEvent:
 		spinnerCmd := p.setWorking(true)
 		cmd := p.messages.AddToolResult(msg, types.ToolStatusCompleted)
+
+		// Check if this is a todo-related tool call and update sidebar
+		// Only update after successful execution (in response, not during call)
+		toolName := msg.ToolCall.Function.Name
+		if toolName == "create_todo" || toolName == "create_todos" ||
+			toolName == "update_todo" || toolName == "list_todos" {
+			// Only update if the response doesn't contain an error
+			// Response starting with "Error calling tool:" indicates failure
+			if len(msg.Response) < 19 || msg.Response[:19] != "Error calling tool:" {
+				_ = p.sidebar.SetTodos(msg.ToolCall)
+			}
+		}
+
 		return p, tea.Batch(cmd, p.messages.ScrollToBottom(), spinnerCmd)
 	case *runtime.MaxIterationsReachedEvent:
 		spinnerCmd := p.setWorking(false)
