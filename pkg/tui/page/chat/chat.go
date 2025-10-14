@@ -88,7 +88,7 @@ func defaultKeyMap() KeyMap {
 }
 
 // New creates a new chat page
-func New(a *app.App, firstMessage *string) Page {
+func New(a *app.App) Page {
 	return &chatPage{
 		title:        a.Title(),
 		sidebar:      sidebar.New(),

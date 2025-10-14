@@ -118,7 +118,7 @@ func LoadWithOverrides(ctx context.Context, path string, runtimeConfig config.Ru
 
 	env := environment.NewMultiProvider(
 		envFilesProviders,
-		environment.NewDefaultProvider(ctx),
+		environment.NewDefaultProvider(),
 	)
 
 	// Load the agent's configuration

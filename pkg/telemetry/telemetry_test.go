@@ -800,13 +800,6 @@ type SlowMockHTTPClient struct {
 	delay time.Duration
 }
 
-func NewSlowMockHTTPClient(delay time.Duration) *SlowMockHTTPClient {
-	return &SlowMockHTTPClient{
-		MockHTTPClient: NewMockHTTPClient(),
-		delay:          delay,
-	}
-}
-
 func (s *SlowMockHTTPClient) RoundTrip(req *http.Request) (*http.Response, error) {
 	time.Sleep(s.delay) // Add artificial delay
 	return s.MockHTTPClient.RoundTrip(req)

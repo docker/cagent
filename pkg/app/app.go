@@ -113,7 +113,7 @@ func (a *App) CompactSession() {
 }
 
 // ResumeStartOAuth resumes the runtime with OAuth authorization confirmation
-func (a *App) ResumeStartOAuth(confirmation bool) {
+func (a *App) ResumeStartOAuth(bool) {
 	if a.runtime != nil {
 		// TODO(rumpl): handle the error
 		_ = a.runtime.ResumeElicitation(context.Background(), "accept", nil)

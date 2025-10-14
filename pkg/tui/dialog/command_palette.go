@@ -212,7 +212,7 @@ func (d *commandPaletteDialog) View() string {
 		Render(strings.Repeat("─", contentWidth))
 
 	var commandList []string
-	maxItems := (maxHeight - 8)
+	maxItems := maxHeight - 8
 
 	categoryMap := make(map[string][]Command)
 	categoryOrder := make([]string, 0)

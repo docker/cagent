@@ -721,7 +721,7 @@ func (r *runtime) runTool(ctx context.Context, tool tools.Tool, toolCall tools.T
 	))
 	defer span.End()
 
-	events <- ToolCall(toolCall, tool, a.Name())
+	events <- ToolCall(toolCall, a.Name())
 
 	var res *tools.ToolCallResult
 	var err error
@@ -777,12 +777,7 @@ func (r *runtime) runAgentTool(ctx context.Context, handler ToolHandler, sess *s
 	))
 	defer span.End()
 
-	events <- ToolCall(toolCall, tools.Tool{
-		Annotations: tools.ToolAnnotations{
-			// TODO: We need to handle the transfer task tool better
-			Title: "Transfer Task",
-		},
-	}, a.Name())
+	events <- ToolCall(toolCall, a.Name())
 	start := time.Now()
 	res, err := handler(ctx, sess, toolCall, events)
 	duration := time.Since(start)

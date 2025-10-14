@@ -105,10 +105,10 @@ func (c *codeModeTool) Stop() error {
 	return errors.Join(errs...)
 }
 
-func (c *codeModeTool) SetElicitationHandler(handler tools.ElicitationHandler) {
+func (c *codeModeTool) SetElicitationHandler(tools.ElicitationHandler) {
 	// No-op, this tool does not use elicitation
 }
 
-func (c *codeModeTool) SetOAuthSuccessHandler(handler func()) {
+func (c *codeModeTool) SetOAuthSuccessHandler(func()) {
 	// No-op, this tool does not use OAuth
 }

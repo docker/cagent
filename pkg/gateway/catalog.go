@@ -28,7 +28,7 @@ func RequiredEnvVars(ctx context.Context, serverName string) ([]Secret, error) {
 	return server.Secrets, nil
 }
 
-func ServerSpec(ctx context.Context, serverName string) (Server, error) {
+func ServerSpec(_ context.Context, serverName string) (Server, error) {
 	catalog, err := readCatalogOnce()
 	if err != nil {
 		return Server{}, fmt.Errorf("failed to fetch MCP catalog: %w", err)

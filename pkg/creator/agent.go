@@ -44,11 +44,11 @@ func (f *fsToolset) Stop() error {
 	return f.inner.Stop()
 }
 
-func (f *fsToolset) SetElicitationHandler(handler tools.ElicitationHandler) {
+func (f *fsToolset) SetElicitationHandler(tools.ElicitationHandler) {
 	// No-op, this tool does not use elicitation
 }
 
-func (f *fsToolset) SetOAuthSuccessHandler(handler func()) {
+func (f *fsToolset) SetOAuthSuccessHandler(func()) {
 	// No-op, this tool does not use OAuth
 }
 
@@ -90,7 +90,7 @@ func CreateAgent(ctx context.Context, baseDir, prompt string, runConfig config.R
 			Model:     "claude-sonnet-4-0",
 			MaxTokens: 64000,
 		},
-		environment.NewDefaultProvider(ctx),
+		environment.NewDefaultProvider(),
 		options.WithGateway(runConfig.ModelsGateway),
 	)
 	if err != nil {
@@ -195,7 +195,7 @@ func StreamCreateAgent(ctx context.Context, baseDir, prompt string, runConfig co
 			Model:     modelName,
 			MaxTokens: maxTokens,
 		},
-		environment.NewDefaultProvider(ctx),
+		environment.NewDefaultProvider(),
 		options.WithGateway(runConfig.ModelsGateway),
 	)
 	if err != nil {

@@ -1,8 +1,6 @@
 package environment
 
-import "context"
-
-func NewDefaultProvider(ctx context.Context) Provider {
+func NewDefaultProvider() Provider {
 	var providers []Provider
 
 	providers = append(providers, NewOsEnvProvider(), NewRunSecretsProvider())

@@ -72,10 +72,8 @@ func DefaultKeyMap() KeyMap {
 
 // New creates and initializes a new TUI application model
 func New(a *app.App) tea.Model {
-	chatPageInstance := chatpage.New(a, a.FirstMessage())
-
 	t := &appModel{
-		chatPage:    chatPageInstance,
+		chatPage:    chatpage.New(a),
 		keyMap:      DefaultKeyMap(),
 		dialog:      dialog.New(),
 		application: a,
@@ -304,7 +302,7 @@ func (a *appModel) buildCommandCategories() []dialog.CommandCategory {
 					Category:    "Session",
 					Execute: func() tea.Cmd {
 						a.application.NewSession()
-						a.chatPage = chatpage.New(a.application, new(string))
+						a.chatPage = chatpage.New(a.application)
 						a.dialog = dialog.New()
 						a.statusBar = statusbar.New(a.chatPage)
 

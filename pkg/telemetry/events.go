@@ -7,7 +7,7 @@ import (
 
 // Track records a structured telemetry event with type-safe properties (synchronous)
 // This is the only method for telemetry tracking, all event-specific methods are wrappers around this one
-func (tc *Client) Track(ctx context.Context, structuredEvent StructuredEvent) {
+func (tc *Client) Track(_ context.Context, structuredEvent StructuredEvent) {
 	eventType := structuredEvent.GetEventType()
 	structuredProps := structuredEvent.ToStructuredProperties()
 
@@ -67,7 +67,7 @@ func (tc *Client) RecordSessionStart(ctx context.Context, agentName, sessionID s
 }
 
 // RecordError records a general session error
-func (tc *Client) RecordError(ctx context.Context, errorMsg string) {
+func (tc *Client) RecordError(_ context.Context, errorMsg string) {
 	tc.mu.Lock()
 
 	if tc.session.SessionEnded || tc.session.AgentName == "" || tc.session.ID == "" {

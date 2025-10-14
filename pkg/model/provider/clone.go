@@ -26,7 +26,7 @@ func CloneWithOptions(ctx context.Context, base Provider, env environment.Provid
 
 	cfg := &latest.ModelConfig{Provider: parts[0], Model: parts[1]}
 	if env == nil {
-		env = environment.NewDefaultProvider(ctx)
+		env = environment.NewDefaultProvider()
 	}
 
 	// Preserve existing options, then apply overrides. Later opts take precedence.

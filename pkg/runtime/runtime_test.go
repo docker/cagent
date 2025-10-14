@@ -109,7 +109,7 @@ type mockProvider struct {
 
 func (m *mockProvider) ID() string { return m.id }
 
-func (m *mockProvider) CreateChatCompletionStream(ctx context.Context, messages []chat.Message, _ []tools.Tool) (chat.MessageStream, error) {
+func (m *mockProvider) CreateChatCompletionStream(context.Context, []chat.Message, []tools.Tool) (chat.MessageStream, error) {
 	return m.stream, nil
 }
 
@@ -121,7 +121,7 @@ type mockProviderWithError struct {
 
 func (m *mockProviderWithError) ID() string { return m.id }
 
-func (m *mockProviderWithError) CreateChatCompletionStream(ctx context.Context, messages []chat.Message, _ []tools.Tool) (chat.MessageStream, error) {
+func (m *mockProviderWithError) CreateChatCompletionStream(context.Context, []chat.Message, []tools.Tool) (chat.MessageStream, error) {
 	return nil, fmt.Errorf("simulated error creating chat completion stream")
 }
 
@@ -129,7 +129,7 @@ func (m *mockProviderWithError) Options() options.ModelOptions { return options.
 
 type mockModelStore struct{}
 
-func (m mockModelStore) GetModel(ctx context.Context, id string) (*modelsdev.Model, error) {
+func (m mockModelStore) GetModel(context.Context, string) (*modelsdev.Model, error) {
 	return nil, nil
 }
 

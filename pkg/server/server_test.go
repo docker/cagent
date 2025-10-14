@@ -324,6 +324,6 @@ type mockStore struct {
 	session.Store
 }
 
-func (s mockStore) GetSessions(ctx context.Context) ([]*session.Session, error) {
+func (s mockStore) GetSessions(context.Context) ([]*session.Session, error) {
 	return nil, nil
 }

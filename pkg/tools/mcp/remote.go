@@ -76,11 +76,11 @@ func (c *remoteMCPClient) handleElicitationRequest(ctx context.Context, req *mcp
 	}, nil
 }
 
-func (c *remoteMCPClient) Start(ctx context.Context) error {
+func (c *remoteMCPClient) Start(context.Context) error {
 	return nil
 }
 
-func (c *remoteMCPClient) Initialize(ctx context.Context, request *mcp.InitializeRequest) (*mcp.InitializeResult, error) {
+func (c *remoteMCPClient) Initialize(ctx context.Context, _ *mcp.InitializeRequest) (*mcp.InitializeResult, error) {
 	// Create HTTP client with OAuth support
 	httpClient := c.createHTTPClient()
 
