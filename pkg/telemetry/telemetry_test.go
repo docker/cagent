@@ -236,32 +236,22 @@ func TestStructuredEvent(t *testing.T) {
 }
 
 func TestGetTelemetryEnabled(t *testing.T) {
-	// Save original env var
-	originalEnabled := os.Getenv("TELEMETRY_ENABLED")
-	defer func() {
-		if originalEnabled != "" {
-			os.Setenv("TELEMETRY_ENABLED", originalEnabled)
-		} else {
-			os.Unsetenv("TELEMETRY_ENABLED")
-		}
-	}()
-
 	// Test default (enabled)
-	os.Unsetenv("TELEMETRY_ENABLED")
+	t.Setenv("TELEMETRY_ENABLED", "")
 	assert.True(t, GetTelemetryEnabled())
 
 	// Test explicitly disabled
-	os.Setenv("TELEMETRY_ENABLED", "false")
+	t.Setenv("TELEMETRY_ENABLED", "false")
 	assert.False(t, GetTelemetryEnabled())
 
 	// Test explicitly enabled
-	os.Setenv("TELEMETRY_ENABLED", "true")
+	t.Setenv("TELEMETRY_ENABLED", "true")
 	assert.True(t, GetTelemetryEnabled())
 
 	// Test other values default to enabled (only "false" disables)
 	testCases := []string{"1", "yes", "on", "enabled", "anything", ""}
 	for _, value := range testCases {
-		os.Setenv("TELEMETRY_ENABLED", value)
+		t.Setenv("TELEMETRY_ENABLED", value)
 		assert.True(t, GetTelemetryEnabled(), "Expected telemetry to be enabled when TELEMETRY_ENABLED=%s", value)
 	}
 }

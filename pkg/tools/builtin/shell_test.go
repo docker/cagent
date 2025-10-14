@@ -2,7 +2,6 @@ package builtin
 
 import (
 	"encoding/json"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,12 +11,8 @@ import (
 )
 
 func TestNewShellTool(t *testing.T) {
-	// Save original env
-	originalShell := os.Getenv("SHELL")
-	defer os.Setenv("SHELL", originalShell)
-
 	// Test with SHELL env var set
-	os.Setenv("SHELL", "/bin/bash")
+	t.Setenv("SHELL", "/bin/bash")
 	tool := NewShellTool(nil)
 
 	assert.NotNil(t, tool)
@@ -25,7 +20,7 @@ func TestNewShellTool(t *testing.T) {
 	assert.Equal(t, "/bin/bash", tool.handler.shell)
 
 	// Test with no SHELL env var
-	os.Setenv("SHELL", "")
+	t.Setenv("SHELL", "")
 	tool = NewShellTool(nil)
 
 	assert.NotNil(t, tool)
