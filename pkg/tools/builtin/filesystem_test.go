@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,7 +42,7 @@ func TestFilesystemTool_Tools(t *testing.T) {
 		"add_allowed_directory",
 		"create_directory",
 		"directory_tree",
-		"edit_file",
+		"edit_files",
 		"get_file_info",
 		"list_allowed_directories",
 		"list_directory",
@@ -102,44 +103,45 @@ func TestFilesystemTool_Tools(t *testing.T) {
 	]
 }`, string(schema))
 
-	// Check edit_file parameters
+	// Check edit_files parameters
 	schema, err = json.Marshal(allTools[2].Parameters)
+	fmt.Println(string(schema))
 	require.NoError(t, err)
 	assert.JSONEq(t, `{
 	"type": "object",
+	"required": [
+		"edits"
+	],
 	"properties": {
 		"edits": {
-			"description": "Array of edit operations",
+			"type": "array",
+			"description": "The list of edits to make",
 			"items": {
-				"properties": {
-					"newText": {
-						"description": "The replacement text",
-						"type": "string"
-					},
-					"oldText": {
-						"description": "The exact text to replace",
-						"type": "string"
-					}
-				},
-				"additionalProperties": false,
+				"type": "object",
 				"required": [
+					"path",
 					"oldText",
 					"newText"
 				],
-				"type": "object"
-			},
-			"type": "array"
-		},
-		"path": {
-			"description": "The file path to edit",
-			"type": "string"
+				"properties": {
+					"newText": {
+						"type": "string",
+						"description": "The replacement text"
+					},
+					"oldText": {
+						"type": "string",
+						"description": "The exact text to replace"
+					},
+					"path": {
+						"type": "string",
+						"description": "The file path to edit"
+					}
+				},
+				"additionalProperties": false
+			}
 		}
 	},
-	"additionalProperties": false,
-	"required": [
-		"path",
-		"edits"
-	]
+	"additionalProperties": false
 }`, string(schema))
 
 	// Check get_file_info parameters
@@ -643,7 +645,7 @@ func TestFilesystemTool_MoveFile(t *testing.T) {
 	assert.Contains(t, result.Output, "destination already exists")
 }
 
-func TestFilesystemTool_EditFile(t *testing.T) {
+func TestFilesystemTool_EditFiles(t *testing.T) {
 	tmpDir := t.TempDir()
 	tool := NewFilesystemTool([]string{tmpDir})
 
@@ -652,19 +654,20 @@ func TestFilesystemTool_EditFile(t *testing.T) {
 	originalContent := "Hello World\nThis is a test\nGoodbye World"
 	require.NoError(t, os.WriteFile(testFile, []byte(originalContent), 0o644))
 
-	handler := getToolHandler(t, tool, "edit_file")
+	handler := getToolHandler(t, tool, "edit_files")
 
 	// Test successful file edit
-	args := map[string]any{
-		"path": testFile,
-		"edits": []map[string]any{
+	args := EditFilesArgs{
+		Edits: []Edit{
 			{
-				"oldText": "Hello World",
-				"newText": "Hi Universe",
+				Path:    testFile,
+				OldText: "Hello World",
+				NewText: "Hi Universe",
 			},
 			{
-				"oldText": "Goodbye World",
-				"newText": "See you later",
+				Path:    testFile,
+				OldText: "Goodbye World",
+				NewText: "See you later",
 			},
 		},
 	}
@@ -679,12 +682,12 @@ func TestFilesystemTool_EditFile(t *testing.T) {
 	assert.Equal(t, expected, string(editedContent))
 
 	// Test edit with non-existent text
-	args = map[string]any{
-		"path": testFile,
-		"edits": []map[string]any{
+	args = EditFilesArgs{
+		Edits: []Edit{
 			{
-				"oldText": "Non-existent text",
-				"newText": "Replacement",
+				Path:    testFile,
+				OldText: "Non-existent text",
+				NewText: "Replacement",
 			},
 		},
 	}
@@ -953,12 +956,12 @@ func main() {
 		require.NoError(t, os.Remove(formattedFile))
 	})
 
-	t.Run("edit_file", func(t *testing.T) {
-		editHandler := getToolHandler(t, tool, "edit_file")
+	t.Run("edit_files", func(t *testing.T) {
+		editHandler := getToolHandler(t, tool, "edit_files")
 
-		editArgs := EditFileArgs{
-			Path: testFile,
+		editArgs := EditFilesArgs{
 			Edits: []Edit{{
+				Path:    testFile,
 				OldText: "fmt.Println",
 				NewText: "fmt.Printf",
 			}},
@@ -1237,5 +1240,24 @@ func TestFilesystemTool_OutputSchema(t *testing.T) {
 
 	for _, tool := range allTools {
 		assert.NotNil(t, tool.OutputSchema)
+	}
+}
+
+func TestFilesystemTool_ParametersAreObjects(t *testing.T) {
+	tool := NewFilesystemTool(nil)
+
+	allTools, err := tool.Tools(t.Context())
+	require.NoError(t, err)
+	require.NotEmpty(t, allTools)
+
+	for _, tool := range allTools {
+		if tool.Parameters == nil {
+			continue
+		}
+
+		m, err := tools.SchemaToMap(tool.Parameters)
+		require.NoError(t, err)
+
+		assert.Equal(t, "object", m["type"])
 	}
 }
