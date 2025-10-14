@@ -19,7 +19,6 @@ and manipulate the results before returning them.
 Instructions:
  - The script has access to all the tools as plain javascript functions.
  - "await"/"async" are never needed. All the tool calls are synchronous.
- - Every tool function returns a string result.
  - The script must return a string result.
 
 Available tools/functions:
