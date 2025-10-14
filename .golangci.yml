@@ -33,6 +33,8 @@ linters:
           msg: "do not use context.Background() in tests, use t.Context()"
         - pattern: context\.TODO()
           msg: "do not use context.TODO() in tests, use t.Context()"
+        - pattern: os\.MkdirTemp()
+          msg: "do not use os.MkdirTemp() in tests, use t.TempDir()"
     depguard:
       rules:
         internal:
