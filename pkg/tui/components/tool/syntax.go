@@ -29,7 +29,7 @@ func syntaxHighlight(code, filePath string) []chromaToken {
 		return []chromaToken{{Text: code, Style: lipgloss.NewStyle()}}
 	}
 
-	tokens := []chromaToken{}
+	var tokens []chromaToken
 	for _, token := range iterator.Tokens() {
 		if token.Value == "" {
 			continue

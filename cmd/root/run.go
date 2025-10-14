@@ -857,7 +857,7 @@ func getCommandsForAgent(agentFilename string, isRemote bool, agents *team.Team,
 		return nil, fmt.Errorf("failed to load agent config: %w", err)
 	}
 
-	return map[string]string(cfg.Agents[agentName].Commands), nil
+	return cfg.Agents[agentName].Commands, nil
 }
 
 // printAvailableCommands pretty-prints the agent's commands sorted by name.

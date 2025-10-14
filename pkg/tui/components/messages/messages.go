@@ -473,10 +473,10 @@ func (m *model) addMessage(msg *types.Message) tea.Cmd {
 	}
 
 	if wasAtBottom {
-		cmds = append(cmds, tea.Cmd(func() tea.Msg {
+		cmds = append(cmds, func() tea.Msg {
 			m.scrollToBottom()
 			return nil
-		}))
+		})
 	}
 
 	return tea.Batch(cmds...)
