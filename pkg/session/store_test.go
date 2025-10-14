@@ -1,7 +1,7 @@
 package session
 
 import (
-	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -13,9 +13,7 @@ import (
 )
 
 func TestStoreAgentName(t *testing.T) {
-	// Create a temporary database file
-	tempDB := "test_store.db"
-	defer os.Remove(tempDB)
+	tempDB := filepath.Join(t.TempDir(), "test_store.db")
 
 	// Create the store
 	store, err := NewSQLiteSessionStore(tempDB)
@@ -75,8 +73,7 @@ func TestStoreAgentName(t *testing.T) {
 
 func TestStoreMultipleAgents(t *testing.T) {
 	// Create a temporary database file
-	tempDB := "test_store_multi.db"
-	defer os.Remove(tempDB)
+	tempDB := filepath.Join(t.TempDir(), "test_store_multi.db")
 
 	// Create the store
 	store, err := NewSQLiteSessionStore(tempDB)
@@ -133,8 +130,7 @@ func TestStoreMultipleAgents(t *testing.T) {
 
 func TestGetSessions(t *testing.T) {
 	// Create a temporary database file
-	tempDB := "test_get_sessions.db"
-	defer os.Remove(tempDB)
+	tempDB := filepath.Join(t.TempDir(), "test_get_sessions.db")
 
 	// Create the store
 	store, err := NewSQLiteSessionStore(tempDB)
@@ -187,8 +183,7 @@ func TestGetSessions(t *testing.T) {
 
 func TestStoreAgentNameJSON(t *testing.T) {
 	// Create a temporary database file
-	tempDB := "test_store_json.db"
-	defer os.Remove(tempDB)
+	tempDB := filepath.Join(t.TempDir(), "test_store_json.db")
 
 	// Create the store
 	store, err := NewSQLiteSessionStore(tempDB)
