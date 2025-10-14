@@ -18,7 +18,7 @@ var (
 	maxIterationsParam int
 )
 
-// Cmd creates a new command to create a new agent configuration
+// NewNewCmd creates a new command to create a new agent configuration
 func NewNewCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "new",
