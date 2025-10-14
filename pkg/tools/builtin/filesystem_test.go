@@ -1251,13 +1251,9 @@ func TestFilesystemTool_ParametersAreObjects(t *testing.T) {
 	require.NotEmpty(t, allTools)
 
 	for _, tool := range allTools {
-		if tool.Parameters == nil {
-			continue
-		}
-
 		m, err := tools.SchemaToMap(tool.Parameters)
-		require.NoError(t, err)
 
+		require.NoError(t, err)
 		assert.Equal(t, "object", m["type"])
 	}
 }

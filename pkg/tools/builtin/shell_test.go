@@ -224,7 +224,21 @@ func TestShellTool_OutputSchema(t *testing.T) {
 	require.NotEmpty(t, allTools)
 
 	for _, tool := range allTools {
-		assert.NotNil(t, tool.Parameters)
 		assert.NotNil(t, tool.OutputSchema)
+	}
+}
+
+func TestShellTool_ParametersAreObjects(t *testing.T) {
+	tool := NewShellTool(nil)
+
+	allTools, err := tool.Tools(t.Context())
+	require.NoError(t, err)
+	require.NotEmpty(t, allTools)
+
+	for _, tool := range allTools {
+		m, err := tools.SchemaToMap(tool.Parameters)
+
+		require.NoError(t, err)
+		assert.Equal(t, "object", m["type"])
 	}
 }

@@ -316,3 +316,30 @@ func TestFetch_RobotsMissing(t *testing.T) {
 	assert.Contains(t, result.Output, "Successfully fetched")
 	assert.Contains(t, result.Output, "Content without robots.txt")
 }
+
+func TestFetchTool_OutputSchema(t *testing.T) {
+	tool := NewFetchTool()
+
+	allTools, err := tool.Tools(t.Context())
+	require.NoError(t, err)
+	require.NotEmpty(t, allTools)
+
+	for _, tool := range allTools {
+		assert.NotNil(t, tool.OutputSchema)
+	}
+}
+
+func TestFetchTool_ParametersAreObjects(t *testing.T) {
+	tool := NewFetchTool()
+
+	allTools, err := tool.Tools(t.Context())
+	require.NoError(t, err)
+	require.NotEmpty(t, allTools)
+
+	for _, tool := range allTools {
+		m, err := tools.SchemaToMap(tool.Parameters)
+
+		require.NoError(t, err)
+		assert.Equal(t, "object", m["type"])
+	}
+}

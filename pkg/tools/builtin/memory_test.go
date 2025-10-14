@@ -274,3 +274,18 @@ func TestMemoryTool_OutputSchema(t *testing.T) {
 		assert.NotNil(t, tool.OutputSchema)
 	}
 }
+
+func TestMemoryTool_ParametersAreObjects(t *testing.T) {
+	tool := NewMemoryTool(nil)
+
+	allTools, err := tool.Tools(t.Context())
+	require.NoError(t, err)
+	require.NotEmpty(t, allTools)
+
+	for _, tool := range allTools {
+		m, err := tools.SchemaToMap(tool.Parameters)
+
+		require.NoError(t, err)
+		assert.Equal(t, "object", m["type"])
+	}
+}

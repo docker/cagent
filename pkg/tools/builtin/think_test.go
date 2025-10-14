@@ -158,7 +158,21 @@ func TestThinkTool_OutputSchema(t *testing.T) {
 	require.NotEmpty(t, allTools)
 
 	for _, tool := range allTools {
-		assert.NotNil(t, tool.Parameters)
 		assert.NotNil(t, tool.OutputSchema)
+	}
+}
+
+func TestThinkTool_ParametersAreObjects(t *testing.T) {
+	tool := NewThinkTool()
+
+	allTools, err := tool.Tools(t.Context())
+	require.NoError(t, err)
+	require.NotEmpty(t, allTools)
+
+	for _, tool := range allTools {
+		m, err := tools.SchemaToMap(tool.Parameters)
+
+		require.NoError(t, err)
+		assert.Equal(t, "object", m["type"])
 	}
 }

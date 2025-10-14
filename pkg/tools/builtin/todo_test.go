@@ -435,7 +435,7 @@ func TestTodoTool_StartStop(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestTodoToolOutputSchema(t *testing.T) {
+func TestTodoTool_OutputSchema(t *testing.T) {
 	tool := NewTodoTool()
 
 	allTools, err := tool.Tools(t.Context())
@@ -444,5 +444,20 @@ func TestTodoToolOutputSchema(t *testing.T) {
 
 	for _, tool := range allTools {
 		assert.NotNil(t, tool.OutputSchema)
+	}
+}
+
+func TestTodoTool_ParametersAreObjects(t *testing.T) {
+	tool := NewTodoTool()
+
+	allTools, err := tool.Tools(t.Context())
+	require.NoError(t, err)
+	require.NotEmpty(t, allTools)
+
+	for _, tool := range allTools {
+		m, err := tools.SchemaToMap(tool.Parameters)
+
+		require.NoError(t, err)
+		assert.Equal(t, "object", m["type"])
 	}
 }
