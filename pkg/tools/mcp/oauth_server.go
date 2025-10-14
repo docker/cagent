@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -54,7 +55,7 @@ func NewCallbackServer() (*CallbackServer, error) {
 
 func (cs *CallbackServer) Start() error {
 	go func() {
-		if err := cs.server.Serve(cs.listener); err != nil && err != http.ErrServerClosed {
+		if err := cs.server.Serve(cs.listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("Callback server error", "error", err)
 		}
 	}()

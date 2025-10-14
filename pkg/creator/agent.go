@@ -157,13 +157,13 @@ func StreamCreateAgent(ctx context.Context, baseDir, prompt string, runConfig co
 		fmt.Printf("Using default model: %s\n", modelName)
 	}
 
-	// if the user provided a model override, lets use that by default for DMR
+	// if the user provided a model override, let's use that by default for DMR
 	// in the generated agentfile
 	if providerName == "dmr" && modelName == "" {
 		defaultModels["dmr"] = modelName
 	}
 
-	// If not using a models gateway, avoid selecting a provider the user can't run
+	// If not using a model gateway, avoid selecting a provider the user can't run
 	var usableProviders []string
 	if runConfig.ModelsGateway == "" {
 		if os.Getenv("OPENAI_API_KEY") != "" {
