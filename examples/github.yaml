@@ -11,6 +11,7 @@ agents:
       - type: mcp
         ref: docker:github-official
         instruction: |
+          {ORIGINAL_INSTRUCTIONS}
           Use these tools to help users with their GitHub-related tasks effectively.
 
 models:

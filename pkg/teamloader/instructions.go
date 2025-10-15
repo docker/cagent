@@ -1,6 +1,8 @@
 package teamloader
 
 import (
+	"strings"
+
 	"github.com/docker/cagent/pkg/tools"
 )
 
@@ -9,21 +11,17 @@ func WithInstructions(inner tools.ToolSet, instruction string) tools.ToolSet {
 		return inner
 	}
 
-	return &addInstruction{
+	return &replaceInstruction{
 		ToolSet:     inner,
 		instruction: instruction,
 	}
 }
 
-type addInstruction struct {
+type replaceInstruction struct {
 	tools.ToolSet
 	instruction string
 }
 
-func (a addInstruction) Instructions() string {
-	innerInstructions := a.ToolSet.Instructions()
-	if innerInstructions != "" {
-		return innerInstructions + "\n\n" + a.instruction
-	}
-	return a.instruction
+func (a replaceInstruction) Instructions() string {
+	return strings.Replace(a.instruction, "{ORIGINAL_INSTRUCTIONS}", a.ToolSet.Instructions(), 1)
 }

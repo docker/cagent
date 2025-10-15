@@ -17,38 +17,30 @@ func (t toolSet) Instructions() string {
 	return t.instruction
 }
 
-func TestWithInstructions(t *testing.T) {
-	inner := &toolSet{}
-
-	wrapped := WithInstructions(inner, "Manual instructions")
-
-	assert.Equal(t, "Manual instructions", wrapped.Instructions())
-}
-
 func TestWithEmptyInstructions(t *testing.T) {
 	inner := &toolSet{}
 
 	wrapped := WithInstructions(inner, "")
 
-	assert.Empty(t, wrapped.Instructions())
+	assert.Same(t, wrapped, inner)
 }
 
-func TestWithAddInstructions(t *testing.T) {
+func TestWithInstructions_replace(t *testing.T) {
 	inner := &toolSet{
 		instruction: "Existing instructions",
 	}
 
-	wrapped := WithInstructions(inner, "Manual instructions")
+	wrapped := WithInstructions(inner, "New instructions")
 
-	assert.Equal(t, "Existing instructions\n\nManual instructions", wrapped.Instructions())
+	assert.Equal(t, "New instructions", wrapped.Instructions())
 }
 
-func TestWithAddEmptyInstructions(t *testing.T) {
+func TestWithInstructions_add(t *testing.T) {
 	inner := &toolSet{
 		instruction: "Existing instructions",
 	}
 
-	wrapped := WithInstructions(inner, "")
+	wrapped := WithInstructions(inner, "{ORIGINAL_INSTRUCTIONS}\nMore instructions")
 
-	assert.Equal(t, "Existing instructions", wrapped.Instructions())
+	assert.Equal(t, "Existing instructions\nMore instructions", wrapped.Instructions())
 }
