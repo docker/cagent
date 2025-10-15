@@ -115,8 +115,13 @@ func (mv *toolModel) View() string {
 		case "shell":
 			content += "\n" + renderShell(msg.ToolCall, mv.renderer)
 		default:
-			lines := wrapLines(msg.ToolCall.Function.Arguments, min(120, mv.width-2))
-			content += "\n" + strings.Join(lines, "\n")
+			md, err := mv.renderer.Render("```json\n" + msg.ToolCall.Function.Arguments + "\n```")
+			if err != nil {
+				lines := wrapLines(msg.ToolCall.Function.Arguments, min(120, mv.width-2))
+				content += "\n" + strings.Join(lines, "\n")
+			} else {
+				content += "\n" + md
+			}
 		}
 	}
 
