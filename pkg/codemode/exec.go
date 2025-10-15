@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/dop251/goja"
 
@@ -14,7 +15,7 @@ func (c *codeModeTool) runJavascript(ctx context.Context, script string) (string
 	vm := goja.New()
 
 	// Inject console object to the help the LLM debug its own code.
-	_ = vm.Set("console", console())
+	_ = vm.Set("console", console(os.Stdout, os.Stdout))
 
 	// Inject every tool as a javascript function.
 	for _, toolset := range c.toolsets {
