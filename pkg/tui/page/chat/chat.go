@@ -189,6 +189,12 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case *runtime.ErrorEvent:
 		cmd := p.messages.AddErrorMessage(msg.Error)
 		return p, tea.Batch(cmd, p.messages.ScrollToBottom())
+	case *runtime.MCPInitStartedEvent:
+		spinnerCmd := p.sidebar.SetMCPInitializing(true)
+		return p, spinnerCmd
+	case *runtime.MCPInitFinishedEvent:
+		spinnerCmd := p.sidebar.SetMCPInitializing(false)
+		return p, spinnerCmd
 	case *runtime.ShellOutputEvent:
 		cmd := p.messages.AddShellOutputMessage(msg.Output)
 		return p, tea.Batch(cmd, p.messages.ScrollToBottom())

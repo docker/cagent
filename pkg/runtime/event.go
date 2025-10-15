@@ -307,3 +307,28 @@ func MaxIterationsReached(maxIterations int) Event {
 func (e *MaxIterationsReachedEvent) GetAgentName() string {
 	return e.AgentName
 }
+
+// MCP initialization lifecycle events
+type MCPInitStartedEvent struct {
+	Type string `json:"type"`
+	AgentContext
+}
+
+func MCPInitStarted(agentName string) Event {
+	return &MCPInitStartedEvent{
+		Type:         "mcp_init_started",
+		AgentContext: AgentContext{AgentName: agentName},
+	}
+}
+
+type MCPInitFinishedEvent struct {
+	Type string `json:"type"`
+	AgentContext
+}
+
+func MCPInitFinished(agentName string) Event {
+	return &MCPInitFinishedEvent{
+		Type:         "mcp_init_finished",
+		AgentContext: AgentContext{AgentName: agentName},
+	}
+}

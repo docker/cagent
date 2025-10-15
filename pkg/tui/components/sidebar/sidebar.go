@@ -24,6 +24,7 @@ type Model interface {
 	SetTokenUsage(usage *runtime.Usage)
 	SetTodos(toolCall tools.ToolCall) error
 	SetWorking(working bool) tea.Cmd
+	SetMCPInitializing(initializing bool) tea.Cmd
 }
 
 // model implements Model
@@ -33,6 +34,7 @@ type model struct {
 	usage    *runtime.Usage
 	todoComp *todo.Component
 	working  bool
+	mcpInit  bool
 	spinner  spinner.Model
 }
 
@@ -70,6 +72,15 @@ func (m *model) SetWorking(working bool) tea.Cmd {
 	return nil
 }
 
+// SetMCPInitializing toggles the MCP initialization spinner state
+func (m *model) SetMCPInitializing(initializing bool) tea.Cmd {
+	m.mcpInit = initializing
+	if initializing {
+		return m.spinner.Tick
+	}
+	return nil
+}
+
 // formatTokenCount formats a token count with K/M suffixes for readability
 func formatTokenCount(count int) string {
 	if count >= 1000000 {
@@ -102,8 +113,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.SetSize(msg.Width, msg.Height)
 		return m, cmd
 	default:
-		// Update spinner when working
-		if m.working {
+		// Update spinner when working or initializing MCP
+		if m.working || m.mcpInit {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
 			return m, cmd
@@ -138,10 +149,14 @@ func (m *model) View() string {
 	costText := styles.MutedStyle.Render(fmt.Sprintf("$%.2f", m.usage.Cost))
 
 	topContent += fmt.Sprintf("%s %s %s", percentageText, totalTokensText, costText)
-	// Add working indicator if active
-	if m.working {
-		workingIndicator := styles.ActiveStyle.Render(m.spinner.View() + " Working...")
-		topContent += "\n" + workingIndicator
+	// Add working/initializing indicator if active
+	if m.mcpInit || m.working {
+		label := "Working..."
+		if m.mcpInit {
+			label = "Initializing MCP servers..."
+		}
+		indicator := styles.ActiveStyle.Render(m.spinner.View() + " " + label)
+		topContent += "\n" + indicator
 	}
 
 	// Get todo content (if any)

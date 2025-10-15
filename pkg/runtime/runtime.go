@@ -230,7 +230,7 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 			})
 		}
 
-		agentTools, err := r.getTools(ctx, a, sessionSpan)
+		agentTools, err := r.getTools(ctx, a, sessionSpan, events)
 		if err != nil {
 			events <- Error(fmt.Sprintf("failed to get tools: %v", err))
 			return
@@ -389,9 +389,19 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 	return events
 }
 
-func (r *runtime) getTools(ctx context.Context, a *agent.Agent, sessionSpan trace.Span) ([]tools.Tool, error) {
+func (r *runtime) getTools(ctx context.Context, a *agent.Agent, sessionSpan trace.Span, events chan Event) ([]tools.Tool, error) {
 	// Execute tool retrieval with automatic OAuth handling
 	var agentTools []tools.Tool
+	shouldEmitMCPInit := events != nil && len(a.ToolSets()) > 0
+	if shouldEmitMCPInit {
+		events <- MCPInitStarted(a.Name())
+	}
+	defer func() {
+		if shouldEmitMCPInit {
+			events <- MCPInitFinished(a.Name())
+		}
+	}()
+
 	tls, err := a.Tools(ctx)
 	if err != nil {
 		slog.Error("Failed to get agent tools", "agent", a.Name(), "error", err)
