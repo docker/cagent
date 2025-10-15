@@ -140,13 +140,13 @@ type ReadFileArgs struct {
 }
 
 type Edit struct {
-	Path    string `json:"path" jsonschema:"The file path to edit"`
 	OldText string `json:"oldText" jsonschema:"The exact text to replace"`
 	NewText string `json:"newText" jsonschema:"The replacement text"`
 }
 
-type EditFilesArgs struct {
-	Edits []Edit `json:"edits" jsonschema:"The list of edits to make"`
+type EditFileArgs struct {
+	Path  string `json:"path" jsonschema:"The file path to edit"`
+	Edits []Edit `json:"edits" jsonschema:"Array of edit operations"`
 }
 
 func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
@@ -196,13 +196,13 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			},
 		},
 		{
-			Name:         "edit_files",
-			Description:  "Make line-based edits to text files. Each edit replaces exact line sequences with new content. When in need for editing multiple files, try to group all edits in a single call because it's usually much faster",
-			Parameters:   tools.MustSchemaFor[EditFilesArgs](),
+			Name:         "edit_file",
+			Description:  "Make line-based edits to a text file. Each edit replaces exact line sequences with new content.",
+			Parameters:   tools.MustSchemaFor[EditFileArgs](),
 			OutputSchema: tools.MustSchemaFor[string](),
-			Handler:      t.handleEditFiles,
+			Handler:      t.handleEditFile,
 			Annotations: tools.ToolAnnotations{
-				Title: "Edit Files",
+				Title: "Edit File",
 			},
 		},
 		{
@@ -481,39 +481,40 @@ func (t *FilesystemTool) buildDirectoryTree(path string, maxDepth, currentDepth 
 	return node, nil
 }
 
-func (t *FilesystemTool) handleEditFiles(ctx context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
-	var args EditFilesArgs
+func (t *FilesystemTool) handleEditFile(ctx context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
+	var args EditFileArgs
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
 		return nil, fmt.Errorf("failed to parse arguments: %w", err)
 	}
 
+	if err := t.isPathAllowed(args.Path); err != nil {
+		return &tools.ToolCallResult{Output: fmt.Sprintf("Error: %s", err)}, nil
+	}
+
+	content, err := os.ReadFile(args.Path)
+	if err != nil {
+		return &tools.ToolCallResult{Output: fmt.Sprintf("Error reading file: %s", err)}, nil
+	}
+
+	originalContent := string(content)
+	modifiedContent := originalContent
+
 	var changes []string
 	for i, edit := range args.Edits {
-		if err := t.isPathAllowed(edit.Path); err != nil {
-			return &tools.ToolCallResult{Output: fmt.Sprintf("Error: %s", err)}, nil
-		}
-
-		content, err := os.ReadFile(edit.Path)
-		if err != nil {
-			return &tools.ToolCallResult{Output: fmt.Sprintf("Error reading file: %s", err)}, nil
-		}
-
-		originalContent := string(content)
-		if !strings.Contains(originalContent, edit.OldText) {
+		if !strings.Contains(modifiedContent, edit.OldText) {
 			return &tools.ToolCallResult{Output: fmt.Sprintf("Edit %d failed: old text not found", i+1)}, nil
 		}
-
-		modifiedContent := strings.Replace(originalContent, edit.OldText, edit.NewText, 1)
+		modifiedContent = strings.Replace(modifiedContent, edit.OldText, edit.NewText, 1)
 		changes = append(changes, fmt.Sprintf("Edit %d: Replaced %d characters", i+1, len(edit.OldText)))
+	}
 
-		if err := os.WriteFile(edit.Path, []byte(modifiedContent), 0o644); err != nil {
-			return &tools.ToolCallResult{Output: fmt.Sprintf("Error writing file: %s", err)}, nil
-		}
+	if err := os.WriteFile(args.Path, []byte(modifiedContent), 0o644); err != nil {
+		return &tools.ToolCallResult{Output: fmt.Sprintf("Error writing file: %s", err)}, nil
+	}
 
-		// Execute post-edit commands
-		if err := t.executePostEditCommands(ctx, edit.Path); err != nil {
-			return &tools.ToolCallResult{Output: fmt.Sprintf("File edited successfully but post-edit command failed: %s", err)}, nil
-		}
+	// Execute post-edit commands
+	if err := t.executePostEditCommands(ctx, args.Path); err != nil {
+		return &tools.ToolCallResult{Output: fmt.Sprintf("File edited successfully but post-edit command failed: %s", err)}, nil
 	}
 
 	return &tools.ToolCallResult{Output: fmt.Sprintf("File edited successfully. Changes:\n%s", strings.Join(changes, "\n"))}, nil

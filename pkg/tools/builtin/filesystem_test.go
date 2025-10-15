@@ -2,7 +2,6 @@ package builtin
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,7 +41,7 @@ func TestFilesystemTool_Tools(t *testing.T) {
 		"add_allowed_directory",
 		"create_directory",
 		"directory_tree",
-		"edit_files",
+		"edit_file",
 		"get_file_info",
 		"list_allowed_directories",
 		"list_directory",
@@ -103,45 +102,44 @@ func TestFilesystemTool_Tools(t *testing.T) {
 	]
 }`, string(schema))
 
-	// Check edit_files parameters
+	// Check edit_file parameters
 	schema, err = json.Marshal(allTools[2].Parameters)
-	fmt.Println(string(schema))
 	require.NoError(t, err)
 	assert.JSONEq(t, `{
 	"type": "object",
-	"required": [
-		"edits"
-	],
 	"properties": {
 		"edits": {
-			"type": "array",
-			"description": "The list of edits to make",
+			"description": "Array of edit operations",
 			"items": {
-				"type": "object",
+				"properties": {
+					"newText": {
+						"description": "The replacement text",
+						"type": "string"
+					},
+					"oldText": {
+						"description": "The exact text to replace",
+						"type": "string"
+					}
+				},
+				"additionalProperties": false,
 				"required": [
-					"path",
 					"oldText",
 					"newText"
 				],
-				"properties": {
-					"newText": {
-						"type": "string",
-						"description": "The replacement text"
-					},
-					"oldText": {
-						"type": "string",
-						"description": "The exact text to replace"
-					},
-					"path": {
-						"type": "string",
-						"description": "The file path to edit"
-					}
-				},
-				"additionalProperties": false
-			}
+				"type": "object"
+			},
+			"type": "array"
+		},
+		"path": {
+			"description": "The file path to edit",
+			"type": "string"
 		}
 	},
-	"additionalProperties": false
+	"additionalProperties": false,
+	"required": [
+		"path",
+		"edits"
+	]
 }`, string(schema))
 
 	// Check get_file_info parameters
@@ -645,7 +643,7 @@ func TestFilesystemTool_MoveFile(t *testing.T) {
 	assert.Contains(t, result.Output, "destination already exists")
 }
 
-func TestFilesystemTool_EditFiles(t *testing.T) {
+func TestFilesystemTool_EditFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	tool := NewFilesystemTool([]string{tmpDir})
 
@@ -654,20 +652,19 @@ func TestFilesystemTool_EditFiles(t *testing.T) {
 	originalContent := "Hello World\nThis is a test\nGoodbye World"
 	require.NoError(t, os.WriteFile(testFile, []byte(originalContent), 0o644))
 
-	handler := getToolHandler(t, tool, "edit_files")
+	handler := getToolHandler(t, tool, "edit_file")
 
 	// Test successful file edit
-	args := EditFilesArgs{
-		Edits: []Edit{
+	args := map[string]any{
+		"path": testFile,
+		"edits": []map[string]any{
 			{
-				Path:    testFile,
-				OldText: "Hello World",
-				NewText: "Hi Universe",
+				"oldText": "Hello World",
+				"newText": "Hi Universe",
 			},
 			{
-				Path:    testFile,
-				OldText: "Goodbye World",
-				NewText: "See you later",
+				"oldText": "Goodbye World",
+				"newText": "See you later",
 			},
 		},
 	}
@@ -682,12 +679,12 @@ func TestFilesystemTool_EditFiles(t *testing.T) {
 	assert.Equal(t, expected, string(editedContent))
 
 	// Test edit with non-existent text
-	args = EditFilesArgs{
-		Edits: []Edit{
+	args = map[string]any{
+		"path": testFile,
+		"edits": []map[string]any{
 			{
-				Path:    testFile,
-				OldText: "Non-existent text",
-				NewText: "Replacement",
+				"oldText": "Non-existent text",
+				"newText": "Replacement",
 			},
 		},
 	}
@@ -956,12 +953,12 @@ func main() {
 		require.NoError(t, os.Remove(formattedFile))
 	})
 
-	t.Run("edit_files", func(t *testing.T) {
-		editHandler := getToolHandler(t, tool, "edit_files")
+	t.Run("edit_file", func(t *testing.T) {
+		editHandler := getToolHandler(t, tool, "edit_file")
 
-		editArgs := EditFilesArgs{
+		editArgs := EditFileArgs{
+			Path: testFile,
 			Edits: []Edit{{
-				Path:    testFile,
 				OldText: "fmt.Println",
 				NewText: "fmt.Printf",
 			}},
