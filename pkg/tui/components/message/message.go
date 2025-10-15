@@ -7,8 +7,9 @@ import (
 
 	"github.com/charmbracelet/bubbles/v2/spinner"
 	tea "github.com/charmbracelet/bubbletea/v2"
-	"github.com/charmbracelet/glamour/v2"
+	"github.com/charmbracelet/lipgloss/v2"
 
+	"github.com/docker/cagent/pkg/tui/components/markdown"
 	"github.com/docker/cagent/pkg/tui/core/layout"
 	"github.com/docker/cagent/pkg/tui/styles"
 	"github.com/docker/cagent/pkg/tui/types"
@@ -23,23 +24,21 @@ type Model interface {
 
 // messageModel implements Model
 type messageModel struct {
-	message  *types.Message
-	renderer *glamour.TermRenderer
-	width    int
-	height   int
-	focused  bool
-	spinner  spinner.Model
+	message *types.Message
+	width   int
+	height  int
+	focused bool
+	spinner spinner.Model
 }
 
 // New creates a new message view
-func New(msg *types.Message, renderer *glamour.TermRenderer) Model {
+func New(msg *types.Message) *messageModel {
 	return &messageModel{
-		message:  msg,
-		width:    80, // Default width
-		height:   1,  // Will be calculated
-		focused:  false,
-		spinner:  spinner.New(spinner.WithSpinner(spinner.Points)),
-		renderer: renderer,
+		message: msg,
+		width:   80, // Default width
+		height:  1,  // Will be calculated
+		focused: false,
+		spinner: spinner.New(spinner.WithSpinner(spinner.Points)),
 	}
 }
 
@@ -73,18 +72,18 @@ func (mv *messageModel) View() string {
 	return mv.Render(mv.width)
 }
 
-// MessageView specific methods
-
 // Render renders the message view content
-func (mv *messageModel) Render(int) string {
+func (mv *messageModel) Render(width int) string {
 	msg := mv.message
 	switch msg.Type {
 	case types.MessageTypeSpinner:
 		return mv.spinner.View()
 	case types.MessageTypeUser:
-		if rendered, err := mv.renderer.Render("> " + msg.Content); err == nil {
-			return strings.TrimRight(rendered, "\n\r\t ")
+		s := lipgloss.NewStyle().PaddingLeft(1).BorderLeft(true).BorderStyle(lipgloss.ThickBorder())
+		if rendered, err := markdown.NewRenderer(width - len(s.Render(""))).Render(msg.Content); err == nil {
+			return s.Render(strings.TrimRight(rendered, "\n\r\t "))
 		}
+
 		return msg.Content
 	case types.MessageTypeAssistant:
 		if msg.Content == "" {
@@ -92,7 +91,7 @@ func (mv *messageModel) Render(int) string {
 		}
 
 		text := senderPrefix(msg.Sender) + msg.Content
-		rendered, err := mv.renderer.Render(text)
+		rendered, err := markdown.NewRenderer(width).Render(text)
 		if err != nil {
 			return text
 		}
@@ -104,7 +103,7 @@ func (mv *messageModel) Render(int) string {
 		}
 		text := "Thinking: " + senderPrefix(msg.Sender) + msg.Content
 		// Render through the markdown renderer to ensure proper wrapping to width
-		rendered, err := mv.renderer.Render(text)
+		rendered, err := markdown.NewRenderer(width).Render(text)
 		if err != nil {
 			return styles.MutedStyle.Italic(true).Render(text)
 		}
@@ -112,7 +111,7 @@ func (mv *messageModel) Render(int) string {
 		clean := stripANSI(strings.TrimRight(rendered, "\n\r\t "))
 		return styles.MutedStyle.Italic(true).Render(clean)
 	case types.MessageTypeShellOutput:
-		if rendered, err := mv.renderer.Render(fmt.Sprintf("```console\n%s\n```", msg.Content)); err == nil {
+		if rendered, err := markdown.NewRenderer(width).Render(fmt.Sprintf("```console\n%s\n```", msg.Content)); err == nil {
 			return strings.TrimRight(rendered, "\n\r\t ")
 		}
 		return msg.Content

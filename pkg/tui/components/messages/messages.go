@@ -7,13 +7,12 @@ import (
 	"github.com/charmbracelet/bubbles/v2/help"
 	"github.com/charmbracelet/bubbles/v2/key"
 	tea "github.com/charmbracelet/bubbletea/v2"
-	"github.com/charmbracelet/glamour/v2"
-	"github.com/charmbracelet/glamour/v2/styles"
 	"github.com/charmbracelet/lipgloss/v2"
 
 	"github.com/docker/cagent/pkg/app"
 	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/tools"
+	"github.com/docker/cagent/pkg/tui/components/markdown"
 	"github.com/docker/cagent/pkg/tui/components/message"
 	"github.com/docker/cagent/pkg/tui/components/tool"
 	"github.com/docker/cagent/pkg/tui/core"
@@ -53,7 +52,6 @@ type renderedItem struct {
 
 // model implements Model
 type model struct {
-	renderer *glamour.TermRenderer
 	messages []types.Message
 	views    []layout.Model
 	width    int
@@ -205,18 +203,6 @@ func (m *model) SetSize(width, height int) tea.Cmd {
 	// Ensure minimum width
 	if width < 10 {
 		width = 10
-	}
-
-	// Build a custom style
-	customDarkStyle := *styles.DefaultStyles["dark"]
-	customDarkStyle.Document.Margin = uintPtr(0)
-
-	// Initialize or update renderer
-	if r, err := glamour.NewTermRenderer(
-		glamour.WithWordWrap(min(width, 120)),
-		glamour.WithStyles(customDarkStyle),
-	); err == nil {
-		m.renderer = r
 	}
 
 	// Update all views with new size
@@ -626,13 +612,13 @@ func (m *model) PlainTextTranscript() string {
 }
 
 func (m *model) createToolCallView(msg *types.Message) layout.Model {
-	view := tool.New(msg, m.app, m.renderer)
+	view := tool.New(msg, m.app, markdown.NewRenderer(m.width))
 	view.SetSize(m.width, 0)
 	return view
 }
 
 func (m *model) createMessageView(msg *types.Message) layout.Model {
-	view := message.New(msg, m.renderer)
+	view := message.New(msg)
 	view.SetSize(m.width, 0)
 	return view
 }
@@ -703,5 +689,3 @@ func toolResultLabel(msg types.Message) string {
 	}
 	return fmt.Sprintf("Tool Result (%s)", name)
 }
-
-func uintPtr(u uint) *uint { return &u }
