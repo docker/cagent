@@ -123,6 +123,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.AddCommand(NewCatalogCmd())
 	cmd.AddCommand(NewBuildCmd())
 	cmd.AddCommand(NewPrintCmd())
+	cmd.AddCommand(NewAliasCmd())
 
 	return cmd
 }
