@@ -2,6 +2,7 @@ package codemode
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -19,7 +20,7 @@ func TestCodeModeTool_Tools(t *testing.T) {
 	assert.Equal(t, "run_tools_with_javascript", fetchTool.Name)
 	assert.NotNil(t, fetchTool.Handler)
 
-	schema, err := json.Marshal(fetchTool.Parameters)
+	inputSchema, err := json.Marshal(fetchTool.Parameters)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{
 	"type": "object",
@@ -33,7 +34,34 @@ func TestCodeModeTool_Tools(t *testing.T) {
 		}
 	},
 	"additionalProperties": false
-}`, string(schema))
+}`, string(inputSchema))
+
+	outputSchema, err := json.Marshal(fetchTool.OutputSchema)
+	fmt.Println(string(outputSchema))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{
+	"type": "object",
+	"required": [
+		"value",
+		"stdout",
+		"stderr"
+	],
+	"properties": {
+		"stderr": {
+			"type": "string",
+			"description": "The standard error of the console"
+		},
+		"stdout": {
+			"type": "string",
+			"description": "The standard output of the console"
+		},
+		"value": {
+			"type": "string",
+			"description": "The value returned by the script"
+		}
+	},
+	"additionalProperties": false
+}`, string(outputSchema))
 }
 
 func TestCodeModeTool_Instructions(t *testing.T) {

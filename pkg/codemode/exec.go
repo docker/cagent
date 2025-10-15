@@ -1,27 +1,37 @@
 package codemode
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 
 	"github.com/dop251/goja"
 
 	"github.com/docker/cagent/pkg/tools"
 )
 
-func (c *codeModeTool) runJavascript(ctx context.Context, script string) (string, error) {
+type ScriptResult struct {
+	Value  string `json:"value" jsonschema:"The value returned by the script"`
+	StdOut string `json:"stdout" jsonschema:"The standard output of the console"`
+	StdErr string `json:"stderr" jsonschema:"The standard error of the console"`
+}
+
+func (c *codeModeTool) runJavascript(ctx context.Context, script string) (ScriptResult, error) {
 	vm := goja.New()
 
 	// Inject console object to the help the LLM debug its own code.
-	_ = vm.Set("console", console(os.Stdout, os.Stdout))
+	var (
+		stdOut bytes.Buffer
+		stdErr bytes.Buffer
+	)
+	_ = vm.Set("console", console(&stdOut, &stdErr))
 
 	// Inject every tool as a javascript function.
 	for _, toolset := range c.toolsets {
 		allTools, err := toolset.Tools(ctx)
 		if err != nil {
-			return "", err
+			return ScriptResult{}, err
 		}
 
 		for _, tool := range allTools {
@@ -35,17 +45,23 @@ func (c *codeModeTool) runJavascript(ctx context.Context, script string) (string
 	// Run the script.
 	v, err := vm.RunString(script)
 	if err != nil {
-		return fmt.Sprintf("Error running script: %s", err), nil
+		return ScriptResult{
+			StdOut: stdOut.String(),
+			StdErr: stdErr.String(),
+			Value:  fmt.Sprintf("Error running script: %s", err),
+		}, nil
 	}
 
-	// Some script are fire and forget and don't return anything.
-	// In that case we return "done." to please the LLM which can't deal with empty responses.
-	result := v.Export()
-	if result == nil {
-		return "<no output>", nil
+	value := ""
+	if result := v.Export(); result != nil {
+		value = fmt.Sprintf("%v", result)
 	}
 
-	return fmt.Sprintf("%v", result), nil
+	return ScriptResult{
+		StdOut: stdOut.String(),
+		StdErr: stdErr.String(),
+		Value:  value,
+	}, nil
 }
 
 func callTool(ctx context.Context, tool tools.Tool) func(args map[string]any) (string, error) {

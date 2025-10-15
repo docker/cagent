@@ -67,15 +67,21 @@ func (c *codeModeTool) Tools(ctx context.Context) ([]tools.Tool, error) {
 				return nil, fmt.Errorf("parsing arguments: %w", err)
 			}
 
-			output, err := c.runJavascript(ctx, args.Script)
+			result, err := c.runJavascript(ctx, args.Script)
 			if err != nil {
 				return nil, err
 			}
 
+			buf, err := json.Marshal(result)
+			if err != nil {
+				return nil, fmt.Errorf("marshaling script's result: %w", err)
+			}
+
 			return &tools.ToolCallResult{
-				Output: output,
+				Output: string(buf),
 			}, nil
 		},
+		OutputSchema: tools.MustSchemaFor[ScriptResult](),
 		Annotations: tools.ToolAnnotations{
 			Title: "Run tools with Javascript",
 		},
