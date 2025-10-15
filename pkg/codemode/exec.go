@@ -48,7 +48,7 @@ func (c *codeModeTool) runJavascript(ctx context.Context, script string) (Script
 		return ScriptResult{
 			StdOut: stdOut.String(),
 			StdErr: stdErr.String(),
-			Value:  fmt.Sprintf("Error running script: %s", err),
+			Value:  err.Error(),
 		}, nil
 	}
 
