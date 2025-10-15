@@ -69,3 +69,21 @@ func renderEditFile(toolCall tools.ToolCall, width int) (string, string) {
 
 	return output.String(), args.Path
 }
+
+func renderShell(toolCall tools.ToolCall, renderer *glamour.TermRenderer) string {
+	var args builtin.RunShellArgs
+	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
+		return ""
+	}
+
+	md, err := renderer.Render("```sh\n" + args.Cmd + "\n```")
+	if err != nil {
+		md = args.Cmd
+	}
+
+	if args.Cwd != "." {
+		md += "\n  In directory: " + args.Cwd + "\n"
+	}
+
+	return md
+}

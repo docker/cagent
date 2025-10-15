@@ -105,13 +105,15 @@ func (mv *toolModel) View() string {
 		case "search_files":
 			content += " " + renderSearchFiles(msg.ToolCall)
 		case "run_tools_with_javascript":
-			content += " " + renderRunToolsWithJavascript(msg.ToolCall, mv.renderer)
+			content += "\n" + renderRunToolsWithJavascript(msg.ToolCall, mv.renderer)
 		case "edit_file":
 			diff, path := renderEditFile(msg.ToolCall, mv.width)
 			if diff != "" {
 				pathHeader := styles.HighlightStyle.Bold(true).Render(path)
 				content += "\n" + pathHeader + "\n\n" + diff
 			}
+		case "shell":
+			content += "\n" + renderShell(msg.ToolCall, mv.renderer)
 		default:
 			lines := wrapLines(msg.ToolCall.Function.Arguments, min(120, mv.width-2))
 			content += "\n" + strings.Join(lines, "\n")
