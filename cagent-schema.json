@@ -38,6 +38,13 @@
     "metadata": {
       "$ref": "#/definitions/Metadata",
       "description": "Configuration metadata"
+    },
+    "workflow": {
+      "type": "array",
+      "description": "Sequential workflow steps",
+      "items": {
+        "$ref": "#/definitions/WorkflowStep"
+      }
     }
   },
   "additionalProperties": false,
@@ -526,6 +533,44 @@
         "cmd"
       ],
       "additionalProperties": false
+    },
+    "WorkflowStep": {
+      "type": "object",
+      "description": "A single step in a workflow",
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Type of workflow step",
+          "enum": ["agent", "parallel"]
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the agent to run (for type 'agent')"
+        },
+        "steps": {
+          "type": "array",
+          "description": "List of agent names to run in parallel (for type 'parallel')",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": ["type"],
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "properties": {
+            "type": { "const": "agent" }
+          },
+          "required": ["name"]
+        },
+        {
+          "properties": {
+            "type": { "const": "parallel" }
+          },
+          "required": ["steps"]
+        }
+      ]
     }
   }
 }

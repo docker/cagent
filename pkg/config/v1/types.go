@@ -138,10 +138,18 @@ type Config struct {
 	Models   map[string]ModelConfig `json:"models,omitempty" yaml:"models,omitempty"`
 	Env      map[string]string      `json:"env,omitempty" yaml:"env,omitempty"`
 	Metadata Metadata               `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+	Workflow []WorkflowStep         `json:"workflow,omitempty" yaml:"workflow,omitempty"`
 }
 
 type Metadata struct {
 	Author  string `json:"author,omitempty" yaml:"author,omitempty"`
 	License string `json:"license,omitempty" yaml:"license,omitempty"`
 	Readme  string `json:"readme,omitempty" yaml:"readme,omitempty"`
+}
+
+// WorkflowStep represents a step in a workflow
+type WorkflowStep struct {
+	Type  string   `json:"type" yaml:"type"`                       // "agent" or "parallel"
+	Name  string   `json:"name,omitempty" yaml:"name,omitempty"`   // Name of the agent to run (for type "agent")
+	Steps []string `json:"steps,omitempty" yaml:"steps,omitempty"` // List of agent names to run in parallel (for type "parallel")
 }

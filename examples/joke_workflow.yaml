@@ -1,0 +1,31 @@
+#!/usr/bin/env cagent run
+version: "2"
+
+agents:
+  root:
+    model: openai/gpt-4o
+    description: Joke workflow coordinator (not used in workflow execution)
+    instruction: This agent is not used. The workflow executes agents in sequence.
+
+  joke_writer:
+    model: openai/gpt-4o
+    description: Writes short dad jokes
+    instruction: Write a short dad joke (2-3 sentences max)
+
+  translator:
+    model: openai/gpt-4o
+    description: Translates jokes to French
+    instruction: Translate the joke to French, preserving the humor
+
+  formatter:
+    model: openai/gpt-4o
+    description: Formats content as tweets
+    instruction: Format as a tweet with emojis (max 280 chars)
+
+workflow:
+  - type: agent
+    name: joke_writer
+  - type: agent
+    name: translator
+  - type: agent
+    name: formatter

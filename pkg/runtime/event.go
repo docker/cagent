@@ -307,3 +307,109 @@ func MaxIterationsReached(maxIterations int) Event {
 func (e *MaxIterationsReachedEvent) GetAgentName() string {
 	return e.AgentName
 }
+
+// WorkflowStepStartedEvent is sent when a workflow step starts
+type WorkflowStepStartedEvent struct {
+	Type      string `json:"type"`
+	StepIndex int    `json:"step_index"`
+	AgentName string `json:"agent_name"`
+}
+
+func (e *WorkflowStepStartedEvent) GetAgentName() string { return e.AgentName }
+
+func WorkflowStepStarted(stepIndex int, agentName string) Event {
+	return &WorkflowStepStartedEvent{
+		Type:      "workflow_step_started",
+		StepIndex: stepIndex,
+		AgentName: agentName,
+	}
+}
+
+// WorkflowStepCompletedEvent is sent when a workflow step completes successfully
+type WorkflowStepCompletedEvent struct {
+	Type      string `json:"type"`
+	StepIndex int    `json:"step_index"`
+	AgentName string `json:"agent_name"`
+	Output    string `json:"output"`
+}
+
+func (e *WorkflowStepCompletedEvent) GetAgentName() string { return e.AgentName }
+
+func WorkflowStepCompleted(stepIndex int, agentName, output string) Event {
+	return &WorkflowStepCompletedEvent{
+		Type:      "workflow_step_completed",
+		StepIndex: stepIndex,
+		AgentName: agentName,
+		Output:    output,
+	}
+}
+
+// WorkflowStepFailedEvent is sent when a workflow step fails
+type WorkflowStepFailedEvent struct {
+	Type      string `json:"type"`
+	StepIndex int    `json:"step_index"`
+	AgentName string `json:"agent_name"`
+	Error     string `json:"error"`
+}
+
+func (e *WorkflowStepFailedEvent) GetAgentName() string { return e.AgentName }
+
+func WorkflowStepFailed(stepIndex int, agentName, errorMsg string) Event {
+	return &WorkflowStepFailedEvent{
+		Type:      "workflow_step_failed",
+		StepIndex: stepIndex,
+		AgentName: agentName,
+		Error:     errorMsg,
+	}
+}
+
+// WorkflowCompletedEvent is sent when the entire workflow completes successfully
+type WorkflowCompletedEvent struct {
+	Type        string `json:"type"`
+	FinalOutput string `json:"final_output"`
+}
+
+func (e *WorkflowCompletedEvent) GetAgentName() string { return "" }
+
+func WorkflowCompleted(finalOutput string) Event {
+	return &WorkflowCompletedEvent{
+		Type:        "workflow_completed",
+		FinalOutput: finalOutput,
+	}
+}
+
+// WorkflowParallelStartedEvent is sent when a parallel workflow step starts
+type WorkflowParallelStartedEvent struct {
+	Type       string   `json:"type"`
+	StepIndex  int      `json:"step_index"`
+	AgentNames []string `json:"agent_names"`
+}
+
+func (e *WorkflowParallelStartedEvent) GetAgentName() string { return "" }
+
+func WorkflowParallelStarted(stepIndex int, agentNames []string) Event {
+	return &WorkflowParallelStartedEvent{
+		Type:       "workflow_parallel_started",
+		StepIndex:  stepIndex,
+		AgentNames: agentNames,
+	}
+}
+
+// WorkflowParallelCompletedEvent is sent when a parallel workflow step completes
+type WorkflowParallelCompletedEvent struct {
+	Type           string   `json:"type"`
+	StepIndex      int      `json:"step_index"`
+	AgentNames     []string `json:"agent_names"`
+	CombinedOutput string   `json:"combined_output"`
+}
+
+func (e *WorkflowParallelCompletedEvent) GetAgentName() string { return "" }
+
+func WorkflowParallelCompleted(stepIndex int, agentNames []string, combinedOutput string) Event {
+	return &WorkflowParallelCompletedEvent{
+		Type:           "workflow_parallel_completed",
+		StepIndex:      stepIndex,
+		AgentNames:     agentNames,
+		CombinedOutput: combinedOutput,
+	}
+}
