@@ -103,7 +103,7 @@ func (h *shellHandler) RunShell(ctx context.Context, toolCall tools.ToolCall) (*
 		}, nil
 	}
 
-	if len(output) == 0 {
+	if output == "" {
 		return &tools.ToolCallResult{
 			Output: "<no output>",
 		}, nil

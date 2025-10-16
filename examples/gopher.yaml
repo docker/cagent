@@ -73,3 +73,5 @@ agents:
         ref: docker:ast-grep
         config:
           path: .
+    commands:
+      fix-lint: "fix the lint issues"
