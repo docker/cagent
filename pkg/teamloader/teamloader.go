@@ -173,13 +173,12 @@ func LoadWithOverrides(ctx context.Context, path string, runtimeConfig config.Ru
 			return nil, fmt.Errorf("failed to get tools: %w", err)
 		}
 
+		if len(a.SubAgents) > 0 {
+			agentTools = append(agentTools, builtin.NewTransferTaskTool())
+		}
+
 		if len(agentTools) > 0 {
-			if agentConfig.CodeModeTools || runtimeConfig.GlobalCodeMode {
-				codemodeTool := codemode.Wrap(agentTools)
-				opts = append(opts, agent.WithToolSets(codemodeTool))
-			} else {
-				opts = append(opts, agent.WithToolSets(agentTools...))
-			}
+			opts = append(opts, agent.WithToolSets(agentTools...))
 		}
 
 		ag := agent.New(name, agentConfig.Instruction, opts...)
@@ -237,10 +236,6 @@ func getModelsForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentC
 func getToolsForAgent(ctx context.Context, a *latest.AgentConfig, parentDir string, envProvider environment.Provider, runtimeConfig config.RuntimeConfig) ([]tools.ToolSet, error) {
 	var t []tools.ToolSet
 
-	if len(a.SubAgents) > 0 {
-		t = append(t, builtin.NewTransferTaskTool())
-	}
-
 	for i := range a.Toolsets {
 		toolset := a.Toolsets[i]
 
@@ -252,7 +247,16 @@ func getToolsForAgent(ctx context.Context, a *latest.AgentConfig, parentDir stri
 		t = append(t, WithInstructions(tool, a.Instruction))
 	}
 
-	return t, nil
+	if !a.CodeModeTools && !runtimeConfig.GlobalCodeMode {
+		return t, nil
+	}
+
+	// Wrap all tools in a single Code Mode toolset.
+	// This allows the agent to call multiple tools in a single response.
+	// It also allows to combine the results of multiple tools in a single response.
+	return []tools.ToolSet{
+		codemode.Wrap(t),
+	}, nil
 }
 
 func createTool(ctx context.Context, toolset latest.Toolset, a *latest.AgentConfig, parentDir string, envProvider environment.Provider, runtimeConfig config.RuntimeConfig) (tools.ToolSet, error) {
