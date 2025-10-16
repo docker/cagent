@@ -154,6 +154,7 @@ func (t *TodoTool) Tools(context.Context) ([]tools.Tool, error) {
 	return []tools.Tool{
 		{
 			Name:         "create_todo",
+			Category:     "todo",
 			Description:  "Create a new todo item with a description",
 			Parameters:   tools.MustSchemaFor[CreateTodoArgs](),
 			OutputSchema: tools.MustSchemaFor[string](),
@@ -165,6 +166,7 @@ func (t *TodoTool) Tools(context.Context) ([]tools.Tool, error) {
 		},
 		{
 			Name:         "create_todos",
+			Category:     "todo",
 			Description:  "Create a list of new todo items with descriptions",
 			Parameters:   tools.MustSchemaFor[CreateTodosArgs](),
 			OutputSchema: tools.MustSchemaFor[string](),
@@ -176,6 +178,7 @@ func (t *TodoTool) Tools(context.Context) ([]tools.Tool, error) {
 		},
 		{
 			Name:         "update_todo",
+			Category:     "todo",
 			Description:  "Update the status of a todo item",
 			Parameters:   tools.MustSchemaFor[UpdateTodoArgs](),
 			OutputSchema: tools.MustSchemaFor[string](),
@@ -187,6 +190,7 @@ func (t *TodoTool) Tools(context.Context) ([]tools.Tool, error) {
 		},
 		{
 			Name:         "list_todos",
+			Category:     "todo",
 			Description:  "List all current todos with their status",
 			OutputSchema: tools.MustSchemaFor[string](),
 			Handler:      t.handler.listTodos,

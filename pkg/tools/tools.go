@@ -29,6 +29,7 @@ type ToolType string
 
 type Tool struct {
 	Name         string          `json:"name"`
+	Category     string          `json:"category"`
 	Description  string          `json:"description,omitempty"`
 	Parameters   any             `json:"parameters"`
 	Annotations  ToolAnnotations `json:"annotations"`

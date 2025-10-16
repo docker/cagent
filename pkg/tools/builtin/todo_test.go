@@ -34,16 +34,16 @@ func TestTodoTool_Tools(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Len(t, allTools, 4)
+	for _, tool := range allTools {
+		assert.NotNil(t, tool.Handler)
+		assert.Equal(t, "todo", tool.Category)
+	}
 
 	// Verify tool functions
 	assert.Equal(t, "create_todo", allTools[0].Name)
 	assert.Equal(t, "create_todos", allTools[1].Name)
 	assert.Equal(t, "update_todo", allTools[2].Name)
 	assert.Equal(t, "list_todos", allTools[3].Name)
-	assert.NotNil(t, allTools[0].Handler)
-	assert.NotNil(t, allTools[1].Handler)
-	assert.NotNil(t, allTools[2].Handler)
-	assert.NotNil(t, allTools[3].Handler)
 
 	// Check create_todo parameters
 	schema, err := json.Marshal(allTools[0].Parameters)

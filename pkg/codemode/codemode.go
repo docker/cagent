@@ -47,9 +47,7 @@ func (c *codeModeTool) Instructions() string {
 }
 
 func isExcludedTool(tool tools.Tool) bool {
-	// TODO(dga): make this more robust. It really a temporary hack to exclude the todo tools.
-	// See #514
-	return strings.Contains(tool.Name, "_todo")
+	return tool.Category == "todo"
 }
 
 func (c *codeModeTool) Tools(ctx context.Context) ([]tools.Tool, error) {
