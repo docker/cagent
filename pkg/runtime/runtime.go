@@ -370,6 +370,23 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 
 			if m != nil && r.sessionCompaction {
 				if sess.InputTokens+sess.OutputTokens > int(float64(contextLimit)*0.9) {
+					// Avoid inserting a summary between assistant tool_use and tool_result messages.
+					// Defer compaction until after tool calls are processed in this iteration.
+					if len(res.Calls) == 0 {
+						events <- SessionCompaction(sess.ID, "start", r.currentAgent)
+						r.Summarize(ctx, sess, events)
+						events <- TokenUsage(sess.InputTokens, sess.OutputTokens, sess.InputTokens+sess.OutputTokens, contextLimit, sess.Cost)
+						events <- SessionCompaction(sess.ID, "completed", r.currentAgent)
+					}
+				}
+			}
+
+			r.processToolCalls(ctx, sess, res.Calls, agentTools, events)
+
+			// If tool_use occurred, perform compaction after tool results are appended
+			// to avoid splitting assistant tool_use and user tool_result adjacency.
+			if m != nil && r.sessionCompaction && len(res.Calls) > 0 {
+				if sess.InputTokens+sess.OutputTokens > int(float64(contextLimit)*0.9) {
 					events <- SessionCompaction(sess.ID, "start", r.currentAgent)
 					r.Summarize(ctx, sess, events)
 					events <- TokenUsage(sess.InputTokens, sess.OutputTokens, sess.InputTokens+sess.OutputTokens, contextLimit, sess.Cost)
@@ -381,8 +398,6 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 				slog.Debug("Conversation stopped", "agent", a.Name())
 				break
 			}
-
-			r.processToolCalls(ctx, sess, res.Calls, agentTools, events)
 		}
 	}()
 

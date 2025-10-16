@@ -402,6 +402,101 @@ func TestToolCallVariations(t *testing.T) {
 	}
 }
 
+// queueProvider returns a different stream on each CreateChatCompletionStream call.
+type queueProvider struct {
+	id      string
+	streams []chat.MessageStream
+}
+
+func (p *queueProvider) ID() string { return p.id }
+
+func (p *queueProvider) CreateChatCompletionStream(context.Context, []chat.Message, []tools.Tool) (chat.MessageStream, error) {
+	if len(p.streams) == 0 {
+		return &mockStream{}, nil
+	}
+	s := p.streams[0]
+	p.streams = p.streams[1:]
+	return s, nil
+}
+
+func (p *queueProvider) Options() options.ModelOptions { return options.ModelOptions{} }
+
+type mockModelStoreWithLimit struct{ limit int }
+
+func (m mockModelStoreWithLimit) GetModel(context.Context, string) (*modelsdev.Model, error) {
+	return &modelsdev.Model{Limit: modelsdev.Limit{Context: m.limit}, Cost: &modelsdev.Cost{}}, nil
+}
+
+func TestCompactionOccursAfterToolResultsWhenToolUsePresent(t *testing.T) {
+	// First stream: assistant issues a tool call and usage exceeds 90% threshold
+	mainStream := newStreamBuilder().
+		AddToolCallName("call_1", "test_tool").
+		AddToolCallArguments("call_1", "{}").
+		AddStopWithUsage(95, 0). // Context limit will be 100
+		Build()
+
+	// Second stream: summary generation (simple content)
+	summaryStream := newStreamBuilder().
+		AddContent("summary").
+		AddStopWithUsage(1, 1).
+		Build()
+
+	prov := &queueProvider{id: "test/mock-model", streams: []chat.MessageStream{mainStream, summaryStream}}
+
+	// Provide an agent tool that will satisfy the tool call without requiring approvals
+	testTool := tools.Tool{
+		Name:        "test_tool",
+		Description: "test",
+		Parameters:  map[string]any{},
+		Annotations: tools.ToolAnnotations{ReadOnlyHint: true},
+		Handler: func(ctx context.Context, call tools.ToolCall) (*tools.ToolCallResult, error) {
+			return &tools.ToolCallResult{Output: "ok"}, nil
+		},
+	}
+
+	root := agent.New("root", "You are a test agent",
+		agent.WithModel(prov),
+		agent.WithTools(testTool),
+	)
+	tm := team.New(team.WithAgents(root))
+
+	// Enable compaction and provide a model store with context limit = 100
+	rt, err := New(tm, WithSessionCompaction(true), WithModelStore(mockModelStoreWithLimit{limit: 100}))
+	require.NoError(t, err)
+
+	sess := session.New(session.WithUserMessage("", "Start"))
+	events := rt.RunStream(t.Context(), sess)
+
+	// Collect events
+	var seen []Event
+	for ev := range events {
+		seen = append(seen, ev)
+	}
+
+	// Find indices of ToolCallResponse and compaction start (from RunStream)
+	toolRespIdx := -1
+	compactionStartIdx := -1
+	for i, ev := range seen {
+		switch e := ev.(type) {
+		case *ToolCallResponseEvent:
+			if toolRespIdx == -1 {
+				toolRespIdx = i
+			}
+		case *SessionCompactionEvent:
+			// We only want the RunStream-level "start" status (not Summarize's "started")
+			if e.Status == "start" && compactionStartIdx == -1 {
+				compactionStartIdx = i
+			}
+		}
+	}
+
+	require.NotEqual(t, -1, toolRespIdx, "expected a ToolCallResponseEvent")
+	require.NotEqual(t, -1, compactionStartIdx, "expected a SessionCompaction start event")
+
+	// Assert compaction is triggered only after tool results have been appended
+	require.Greater(t, compactionStartIdx, toolRespIdx, "compaction should occur after tool results when tool_use is present")
+}
+
 func TestSessionWithoutUserMessage(t *testing.T) {
 	stream := newStreamBuilder().AddContent("OK").AddStopWithUsage(1, 1).Build()
 
@@ -433,4 +528,45 @@ func TestNewRuntime_InvalidCurrentAgentError(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "agent \"other\" not found")
 	require.Contains(t, err.Error(), "root") // available agents listed in error
+}
+
+func TestProcessToolCalls_UnknownTool_NoToolResultMessage(t *testing.T) {
+	// Build a runtime with a simple agent but no tools registered matching the call
+	root := agent.New("root", "You are a test agent")
+	tm := team.New(team.WithAgents(root))
+
+	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	require.NoError(t, err)
+
+	// Register default tools (contains only transfer_task) to ensure unknown tool isn't matched
+	rt.(*runtime).registerDefaultTools()
+
+	sess := session.New(session.WithUserMessage("", "Start"))
+
+	// Simulate a model-issued tool call to a non-existent tool
+	calls := []tools.ToolCall{{
+		ID:       "tool-unknown-1",
+		Type:     "function",
+		Function: tools.FunctionCall{Name: "non_existent_tool", Arguments: "{}"},
+	}}
+
+	events := make(chan Event, 10)
+
+	// No agentTools provided and runtime toolMap doesn't have this tool name
+	rt.(*runtime).processToolCalls(t.Context(), sess, calls, nil, events)
+
+	// Drain events channel
+	close(events)
+	for range events {
+	}
+
+	// Verify no tool result message was added for the unknown tool
+	var sawToolMsg bool
+	for _, it := range sess.Messages {
+		if it.IsMessage() && it.Message.Message.Role == chat.MessageRoleTool && it.Message.Message.ToolCallID == "tool-unknown-1" {
+			sawToolMsg = true
+			break
+		}
+	}
+	require.False(t, sawToolMsg, "no tool result should be added for unknown tool; this reproduces invalid sequencing state")
 }
