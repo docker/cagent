@@ -105,7 +105,9 @@ Execute shell commands in the user's environment with full control over working 
 
 ## Core Concepts
 
-**Execution Context**: Commands run in the user's default shell with access to all environment variables and the current workspace. On Windows, PowerShell (pwsh/powershell) is used when available; otherwise, cmd.exe is used. On Unix-like systems, ${SHELL} is used or /bin/sh as fallback.
+**Execution Context**: Commands run in the user's default shell with access to all environment variables and the current workspace.
+On Windows, PowerShell (pwsh/powershell) is used when available; otherwise, cmd.exe is used.
+On Unix-like systems, ${SHELL} is used or /bin/sh as fallback.
 
 **Working Directory Management**:
 - Default execution location: workspace root
@@ -124,15 +126,12 @@ Execute shell commands in the user's environment with full control over working 
 ## Best Practices
 
 ### ✅ DO
-- Use separate tool calls for independent operations
 - Leverage the "cwd" parameter for directory-specific commands
 - Quote arguments containing spaces or special characters
-- Use pipes and redirections within a single command
-
-### ❌ AVOID
-- Chaining unrelated commands with ";" or "&&"
-- Relying on state from previous commands
-- Complex multi-line scripts (break into separate calls)
+- Use pipes and redirections
+- Write advanced scripts with heredocs, that replace a lot of simple commands or tool calls
+- This tool is great at reading and writing multiple files at once
+- Avoid writing shell scripts to the disk. Instead, use heredocs to pipe the script to the SHELL
 
 ## Usage Examples
 
@@ -154,6 +153,11 @@ Execute shell commands in the user's environment with full control over working 
 
 **Complex pipelines:**
 { "cmd": "cat package.json | jq '.dependencies'", "cwd": "frontend" }
+
+**Bash scripts:**
+{ "cmd": "cat << 'EOF' | ${SHELL}
+echo Hello
+EOF" }
 
 ## Error Handling
 
