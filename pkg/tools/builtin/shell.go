@@ -103,8 +103,14 @@ func (h *shellHandler) RunShell(ctx context.Context, toolCall tools.ToolCall) (*
 		}, nil
 	}
 
+	if len(output) == 0 {
+		return &tools.ToolCallResult{
+			Output: "<no output>",
+		}, nil
+	}
+
 	return &tools.ToolCallResult{
-		Output: fmt.Sprintf("Output: %s", output),
+		Output: output,
 	}, nil
 }
 
