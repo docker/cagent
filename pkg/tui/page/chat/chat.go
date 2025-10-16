@@ -255,12 +255,10 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := p.messages.AddToolResult(msg, types.ToolStatusCompleted)
 
 		// Check if this is a todo-related tool call and update sidebar
-		// Only update after successful execution (in response, not during call)
-		toolName := msg.ToolCall.Function.Name
-		if toolName == "create_todo" || toolName == "create_todos" ||
-			toolName == "update_todo" || toolName == "list_todos" {
+		if msg.ToolDefinition.Category == "todo" {
 			// Only update if the response doesn't contain an error
 			// Response starting with "Error calling tool:" indicates failure
+			// TODO: We should maybe use the mcp types, they have an "IsError" field.
 			if len(msg.Response) < 19 || msg.Response[:19] != "Error calling tool:" {
 				_ = p.sidebar.SetTodos(msg.ToolCall)
 			}
