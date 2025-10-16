@@ -18,11 +18,8 @@ const (
 )
 
 // ModelAliases maps alias model IDs to their actual model IDs
-var ModelAliases = map[string]string{
-	"anthropic/claude-sonnet-4-0": "anthropic/claude-sonnet-4-20250514",
-	"anthropic/claude-sonnet-4-5": "anthropic/claude-sonnet-4-5-20250929",
-	"anthropic/claude-haiku-4-5":  "anthropic/claude-haiku-4-5-20251001",
-}
+// TODO(krissetto): Add aliases here if needed, removed if unused
+var ModelAliases = map[string]string{}
 
 // Store manages the models.dev data with local caching
 type Store struct {
