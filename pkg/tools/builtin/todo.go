@@ -33,7 +33,7 @@ type CreateTodoArgs struct {
 }
 
 type CreateTodosArgs struct {
-	Todos []CreateTodoItem `json:"todos" jsonschema:"List of todo items"`
+	Descriptions []string `json:"descriptions" jsonschema:"Descriptions of the todo items"`
 }
 
 type UpdateTodoArgs struct {
@@ -90,7 +90,7 @@ func (h *todoHandler) createTodo(_ context.Context, toolCall tools.ToolCall) (*t
 	}
 
 	return &tools.ToolCallResult{
-		Output: fmt.Sprintf("Created todo %s: %s", id, params.Description),
+		Output: fmt.Sprintf("Created todo [%s]: %s", id, params.Description),
 	}, nil
 }
 
@@ -100,20 +100,28 @@ func (h *todoHandler) createTodos(_ context.Context, toolCall tools.ToolCall) (*
 		return nil, fmt.Errorf("invalid arguments: %w", err)
 	}
 
-	ids := make([]string, len(params.Todos))
+	ids := make([]string, len(params.Descriptions))
 	start := len(h.todos)
-	for i, todo := range params.Todos {
+	for i, desc := range params.Descriptions {
 		id := fmt.Sprintf("todo_%d", start+i+1)
 		h.todos[id] = Todo{
 			ID:          id,
-			Description: todo.Description,
+			Description: desc,
 			Status:      "pending",
 		}
 		ids[i] = id
 	}
 
+	output := fmt.Sprintf("Created %d todos: ", len(params.Descriptions))
+	for i, id := range ids {
+		if i > 0 {
+			output += ", "
+		}
+		output += fmt.Sprintf("[%s]", id)
+	}
+
 	return &tools.ToolCallResult{
-		Output: fmt.Sprintf("Created %d todos:\n%s", len(params.Todos), strings.Join(ids, "\n")),
+		Output: output,
 	}, nil
 }
 
@@ -125,14 +133,14 @@ func (h *todoHandler) updateTodo(_ context.Context, toolCall tools.ToolCall) (*t
 
 	todo, exists := h.todos[params.ID]
 	if !exists {
-		return nil, fmt.Errorf("todo %s not found", params.ID)
+		return nil, fmt.Errorf("todo [%s] not found", params.ID)
 	}
 
 	todo.Status = params.Status
 	h.todos[params.ID] = todo
 
 	return &tools.ToolCallResult{
-		Output: fmt.Sprintf("Updated todo %s status to: %s", params.ID, params.Status),
+		Output: fmt.Sprintf("Updated todo [%s] to status: [%s]", params.ID, params.Status),
 	}, nil
 }
 

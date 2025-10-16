@@ -531,6 +531,10 @@ func (t *FilesystemTool) handleEditFile(ctx context.Context, toolCall tools.Tool
 		return &tools.ToolCallResult{Output: fmt.Sprintf("File edited successfully but post-edit command failed: %s", err)}, nil
 	}
 
+	if len(changes) == 1 {
+		return &tools.ToolCallResult{Output: fmt.Sprintf("File edited successfully. %s", strings.TrimPrefix(changes[0], "Edit 1: "))}, nil
+	}
+
 	return &tools.ToolCallResult{Output: fmt.Sprintf("File edited successfully. Changes:\n%s", strings.Join(changes, "\n"))}, nil
 }
 

@@ -45,27 +45,19 @@ func darken(c color.Color, percent float64) color.Color {
 	}
 }
 
-func lighten(c color.Color, percent float64) color.Color {
-	r, g, b, a := c.RGBA()
-	factor := percent / 100.0
-	return color.RGBA{
-		R: uint8(min(255, float64(r>>8)+255*factor)),
-		G: uint8(min(255, float64(g>>8)+255*factor)),
-		B: uint8(min(255, float64(b>>8)+255*factor)),
-		A: uint8(a >> 8),
-	}
-}
-
 var (
 	BaseStyle = lipgloss.NewStyle().Foreground(primary)
 	AppStyle  = BaseStyle.Padding(0, 1, 0, 1)
 
 	// Text styles
-	HighlightStyle      = BaseStyle.Foreground(highlight)
-	MutedStyle          = BaseStyle.Foreground(muted)
-	ToolCallResultStyle = BaseStyle.Foreground(muted).Margin(1, 0, 0, 0).Background(lighten(Background, 5)).Padding(1, 1)
-	SubtleStyle         = BaseStyle.Foreground(subtle)
-	SecondaryStyle      = BaseStyle.Foreground(secondary)
+	HighlightStyle    = BaseStyle.Foreground(highlight)
+	MutedStyle        = BaseStyle.Foreground(muted)
+	ToolCallArgs      = BaseStyle.PaddingLeft(1).BorderLeft(true).BorderStyle(lipgloss.RoundedBorder())
+	ToolCallArgKey    = BaseStyle.Bold(true)
+	ToolCallResultKey = BaseStyle.Bold(true)
+	ToolCallResult    = BaseStyle.PaddingLeft(1).BorderLeft(true).BorderStyle(lipgloss.RoundedBorder())
+	SubtleStyle       = BaseStyle.Foreground(subtle)
+	SecondaryStyle    = BaseStyle.Foreground(secondary)
 
 	// Status styles
 	SuccessStyle    = BaseStyle.Foreground(success)

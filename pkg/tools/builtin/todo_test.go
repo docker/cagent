@@ -68,24 +68,14 @@ func TestTodoTool_Tools(t *testing.T) {
 	assert.JSONEq(t, `{
 	"type": "object",
 	"required": [
-		"todos"
+		"descriptions"
 	],
 	"properties": {
-		"todos": {
+		"descriptions": {
 			"type": "array",
-			"description": "List of todo items",
+			"description": "Descriptions of the todo items",
 			"items": {
-				"type": "object",
-				"required": [
-					"description"
-				],
-				"properties": {
-					"description": {
-						"type": "string",
-						"description": "Description of the todo item"
-					}
-				},
-				"additionalProperties": false
+				"type": "string"
 			}
 		}
 	},
@@ -159,7 +149,7 @@ func TestTodoTool_CreateTodo(t *testing.T) {
 
 	// Verify
 	require.NoError(t, err)
-	assert.Contains(t, result.Output, "Created todo todo_1: Test todo item")
+	assert.Contains(t, result.Output, "Created todo [todo_1]: Test todo item")
 
 	// Verify todo was added to the handler's todos map
 	assert.Len(t, tool.handler.todos, 1)
@@ -181,10 +171,10 @@ func TestTodoTool_CreateTodos(t *testing.T) {
 
 	// Create multiple todos
 	args := CreateTodosArgs{
-		Todos: []CreateTodoItem{
-			{Description: "First todo item"},
-			{Description: "Second todo item"},
-			{Description: "Third todo item"},
+		Descriptions: []string{
+			"First todo item",
+			"Second todo item",
+			"Third todo item",
 		},
 	}
 	argsBytes, err := json.Marshal(args)
@@ -212,8 +202,8 @@ func TestTodoTool_CreateTodos(t *testing.T) {
 
 	// Create multiple todos
 	args = CreateTodosArgs{
-		Todos: []CreateTodoItem{
-			{Description: "Last todo item"},
+		Descriptions: []string{
+			"Last todo item",
 		},
 	}
 	argsBytes, err = json.Marshal(args)
@@ -283,7 +273,7 @@ func TestTodoTool_UpdateTodo(t *testing.T) {
 
 	// Verify
 	require.NoError(t, err)
-	assert.Contains(t, result.Output, "Updated todo todo_1 status to: completed")
+	assert.Contains(t, result.Output, "Updated todo [todo_1] to status: [completed]")
 
 	// Verify todo status was updated
 	todo, exists := tool.handler.todos["todo_1"]

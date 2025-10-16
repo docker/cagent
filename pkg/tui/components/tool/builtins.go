@@ -2,50 +2,13 @@ package tool
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/glamour/v2"
-
-	"github.com/docker/cagent/pkg/codemode"
 	"github.com/docker/cagent/pkg/tools"
 	"github.com/docker/cagent/pkg/tools/builtin"
+	"github.com/docker/cagent/pkg/tui/styles"
 )
-
-func renderSearchFiles(toolCall tools.ToolCall) string {
-	var args builtin.SearchFilesArgs
-	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
-		return ""
-	}
-
-	// Search pattern
-	output := args.Pattern
-
-	// Optional search path
-	if path := args.Path; path != "" && path != "." {
-		output += " in " + path
-	}
-
-	// Optional exclude patterns
-	if exclude := args.ExcludePatterns; len(exclude) > 0 {
-		output += " excluding [" + strings.Join(exclude, ", ") + "]"
-	}
-
-	return output
-}
-
-func renderRunToolsWithJavascript(toolCall tools.ToolCall, renderer *glamour.TermRenderer) string {
-	var args codemode.RunToolsWithJavascriptArgs
-	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
-		return ""
-	}
-
-	md, err := renderer.Render("```javascript\n" + args.Script + "\n```")
-	if err != nil {
-		return args.Script
-	}
-
-	return md
-}
 
 func renderEditFile(toolCall tools.ToolCall, width int) (string, string) {
 	var args builtin.EditFileArgs
@@ -70,20 +33,67 @@ func renderEditFile(toolCall tools.ToolCall, width int) (string, string) {
 	return output.String(), args.Path
 }
 
-func renderShell(toolCall tools.ToolCall, renderer *glamour.TermRenderer) string {
-	var args builtin.RunShellArgs
-	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
+func renderToolArgs(toolCall tools.ToolCall, width int) string {
+	decoder := json.NewDecoder(strings.NewReader(toolCall.Function.Arguments))
+
+	tok, err := decoder.Token()
+	if err != nil {
+		return ""
+	}
+	if delim, ok := tok.(json.Delim); !ok || delim != '{' {
 		return ""
 	}
 
-	md, err := renderer.Render("```sh\n" + args.Cmd + "\n```")
-	if err != nil {
-		md = args.Cmd
+	type kv struct {
+		Key   string
+		Value any
+	}
+	var kvs []kv
+
+	for decoder.More() {
+		tok, err := decoder.Token()
+		if err != nil {
+			return ""
+		}
+		key, ok := tok.(string)
+		if !ok {
+			return ""
+		}
+
+		var val any
+		if err := decoder.Decode(&val); err != nil {
+			return ""
+		}
+
+		kvs = append(kvs, kv{Key: key, Value: val})
+	}
+	_, _ = decoder.Token()
+
+	style := styles.ToolCallArgs.Width(width)
+
+	var md strings.Builder
+	for i, kv := range kvs {
+		if i > 0 {
+			md.WriteString("\n")
+		}
+
+		var content string
+		if v, ok := kv.Value.(string); ok {
+			content = v
+		} else {
+			buf, err := json.MarshalIndent(kv.Value, "", "  ")
+			if err != nil {
+				content = fmt.Sprintf("%v", kv.Value)
+			} else {
+				content = string(buf)
+			}
+		}
+
+		fmt.Fprintf(&md, "%s:\n%s", styles.ToolCallArgKey.Render(kv.Key), content)
+		if !strings.HasSuffix(content, "\n") {
+			md.WriteString("\n")
+		}
 	}
 
-	if args.Cwd != "." {
-		md += "\n  In directory: " + args.Cwd + "\n"
-	}
-
-	return md
+	return "\n" + style.Render(strings.TrimSuffix(md.String(), "\n"))
 }
