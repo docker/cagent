@@ -649,38 +649,40 @@ func (r *runtime) processToolCalls(ctx context.Context, sess *session.Session, c
 		slog.Debug("Processing tool call", "agent", a.Name(), "tool", toolCall.Function.Name, "session_id", sess.ID)
 		handler, exists := r.toolMap[toolCall.Function.Name]
 		if exists {
+			tool := tools.Tool{
+				Annotations: tools.ToolAnnotations{
+					// TODO: We need to handle the transfer task tool better
+					Title: "Transfer Task",
+				},
+			}
 			slog.Debug("Using runtime tool handler", "tool", toolCall.Function.Name, "session_id", sess.ID)
 			if sess.ToolsApproved || toolCall.Function.Name == "transfer_task" {
-				r.runAgentTool(callCtx, handler, sess, toolCall, events, a)
+				r.runAgentTool(callCtx, handler, sess, toolCall, tool, events, a)
 			} else {
 				slog.Debug("Tools not approved, waiting for resume", "tool", toolCall.Function.Name, "session_id", sess.ID)
-				events <- ToolCallConfirmation(toolCall, tools.Tool{
-					Annotations: tools.ToolAnnotations{
-						// TODO: We need to handle the transfer task tool better
-						Title: "Transfer Task",
-					},
-				}, a.Name())
+
+				events <- ToolCallConfirmation(toolCall, tool, a.Name())
 
 				select {
 				case cType := <-r.resumeChan:
 					switch cType {
 					case ResumeTypeApprove:
 						slog.Debug("Resume signal received, approving tool handler", "tool", toolCall.Function.Name, "session_id", sess.ID)
-						r.runAgentTool(callCtx, handler, sess, toolCall, events, a)
+						r.runAgentTool(callCtx, handler, sess, toolCall, tool, events, a)
 					case ResumeTypeApproveSession:
 						slog.Debug("Resume signal received, approving session", "tool", toolCall.Function.Name, "session_id", sess.ID)
 						sess.ToolsApproved = true
-						r.runAgentTool(callCtx, handler, sess, toolCall, events, a)
+						r.runAgentTool(callCtx, handler, sess, toolCall, tool, events, a)
 					case ResumeTypeReject:
 						slog.Debug("Resume signal received, rejecting tool handler", "tool", toolCall.Function.Name, "session_id", sess.ID)
-						r.addToolRejectedResponse(sess, toolCall, events)
+						r.addToolRejectedResponse(sess, toolCall, tool, events)
 					}
 				case <-callCtx.Done():
 					slog.Debug("Context cancelled while waiting for resume", "tool", toolCall.Function.Name, "session_id", sess.ID)
 					// Synthesize cancellation responses for the current and any remaining tool calls
-					r.addToolCancelledResponse(sess, toolCall, events)
+					r.addToolCancelledResponse(sess, toolCall, tool, events)
 					for j := i + 1; j < len(calls); j++ {
-						r.addToolCancelledResponse(sess, calls[j], events)
+						r.addToolCancelledResponse(sess, calls[j], tool, events)
 					}
 					callSpan.SetStatus(codes.Ok, "tool call canceled by user")
 					return
@@ -716,7 +718,7 @@ func (r *runtime) processToolCalls(ctx context.Context, sess *session.Session, c
 						r.runTool(callCtx, tool, toolCall, events, sess, a)
 					case ResumeTypeReject:
 						slog.Debug("Resume signal received, rejecting tool handler", "tool", toolCall.Function.Name, "session_id", sess.ID)
-						r.addToolRejectedResponse(sess, toolCall, events)
+						r.addToolRejectedResponse(sess, toolCall, tool, events)
 					}
 
 					slog.Debug("Added tool response to session", "tool", toolCall.Function.Name, "session_id", sess.ID, "total_messages", len(sess.GetAllMessages()))
@@ -724,9 +726,9 @@ func (r *runtime) processToolCalls(ctx context.Context, sess *session.Session, c
 				case <-callCtx.Done():
 					slog.Debug("Context cancelled while waiting for resume", "tool", toolCall.Function.Name, "session_id", sess.ID)
 					// Synthesize cancellation responses for the current and any remaining tool calls
-					r.addToolCancelledResponse(sess, toolCall, events)
+					r.addToolCancelledResponse(sess, toolCall, tool, events)
 					for j := i + 1; j < len(calls); j++ {
-						r.addToolCancelledResponse(sess, calls[j], events)
+						r.addToolCancelledResponse(sess, calls[j], tool, events)
 					}
 					callSpan.SetStatus(codes.Ok, "tool call canceled by user")
 					return
@@ -752,7 +754,7 @@ func (r *runtime) runTool(ctx context.Context, tool tools.Tool, toolCall tools.T
 	))
 	defer span.End()
 
-	events <- ToolCall(toolCall, a.Name())
+	events <- ToolCall(toolCall, tool, a.Name())
 
 	var res *tools.ToolCallResult
 	var err error
@@ -781,7 +783,7 @@ func (r *runtime) runTool(ctx context.Context, tool tools.Tool, toolCall tools.T
 		slog.Debug("Agent tool call completed", "tool", toolCall.Function.Name, "output_length", len(res.Output))
 	}
 
-	events <- ToolCallResponse(toolCall, res.Output, a.Name())
+	events <- ToolCallResponse(toolCall, tool, res.Output, a.Name())
 
 	// Ensure tool response content is not empty for API compatibility
 	content := res.Output
@@ -798,7 +800,7 @@ func (r *runtime) runTool(ctx context.Context, tool tools.Tool, toolCall tools.T
 	sess.AddMessage(session.NewAgentMessage(a, &toolResponseMsg))
 }
 
-func (r *runtime) runAgentTool(ctx context.Context, handler ToolHandler, sess *session.Session, toolCall tools.ToolCall, events chan Event, a *agent.Agent) {
+func (r *runtime) runAgentTool(ctx context.Context, handler ToolHandler, sess *session.Session, toolCall tools.ToolCall, tool tools.Tool, events chan Event, a *agent.Agent) {
 	// Start a child span for runtime-provided tool handler execution
 	ctx, span := r.startSpan(ctx, "runtime.tool.handler.runtime", trace.WithAttributes(
 		attribute.String("tool.name", toolCall.Function.Name),
@@ -808,7 +810,7 @@ func (r *runtime) runAgentTool(ctx context.Context, handler ToolHandler, sess *s
 	))
 	defer span.End()
 
-	events <- ToolCall(toolCall, a.Name())
+	events <- ToolCall(toolCall, tool, a.Name())
 	start := time.Now()
 	res, err := handler(ctx, sess, toolCall, events)
 	duration := time.Since(start)
@@ -834,7 +836,7 @@ func (r *runtime) runAgentTool(ctx context.Context, handler ToolHandler, sess *s
 		slog.Debug("Tool executed successfully", "tool", toolCall.Function.Name)
 	}
 
-	events <- ToolCallResponse(toolCall, output, a.Name())
+	events <- ToolCallResponse(toolCall, tool, output, a.Name())
 
 	// Ensure tool response content is not empty for API compatibility
 	content := output
@@ -851,12 +853,12 @@ func (r *runtime) runAgentTool(ctx context.Context, handler ToolHandler, sess *s
 	sess.AddMessage(session.NewAgentMessage(a, &toolResponseMsg))
 }
 
-func (r *runtime) addToolRejectedResponse(sess *session.Session, toolCall tools.ToolCall, events chan Event) {
+func (r *runtime) addToolRejectedResponse(sess *session.Session, toolCall tools.ToolCall, tool tools.Tool, events chan Event) {
 	a := r.CurrentAgent()
 
 	result := "The user rejected the tool call."
 
-	events <- ToolCallResponse(toolCall, result, a.Name())
+	events <- ToolCallResponse(toolCall, tool, result, a.Name())
 
 	toolResponseMsg := chat.Message{
 		Role:       chat.MessageRoleTool,
@@ -867,12 +869,12 @@ func (r *runtime) addToolRejectedResponse(sess *session.Session, toolCall tools.
 	sess.AddMessage(session.NewAgentMessage(a, &toolResponseMsg))
 }
 
-func (r *runtime) addToolCancelledResponse(sess *session.Session, toolCall tools.ToolCall, events chan Event) {
+func (r *runtime) addToolCancelledResponse(sess *session.Session, toolCall tools.ToolCall, tool tools.Tool, events chan Event) {
 	a := r.CurrentAgent()
 
 	result := "The tool call was canceled by the user."
 
-	events <- ToolCallResponse(toolCall, result, a.Name())
+	events <- ToolCallResponse(toolCall, tool, result, a.Name())
 
 	toolResponseMsg := chat.Message{
 		Role:       chat.MessageRoleTool,

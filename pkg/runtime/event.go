@@ -56,11 +56,12 @@ type ToolCallEvent struct {
 	AgentContext
 }
 
-func ToolCall(toolCall tools.ToolCall, agentName string) Event {
+func ToolCall(toolCall tools.ToolCall, toolDefinition tools.Tool, agentName string) Event {
 	return &ToolCallEvent{
-		Type:         "tool_call",
-		ToolCall:     toolCall,
-		AgentContext: AgentContext{AgentName: agentName},
+		Type:           "tool_call",
+		ToolCall:       toolCall,
+		ToolDefinition: toolDefinition,
+		AgentContext:   AgentContext{AgentName: agentName},
 	}
 }
 
@@ -81,18 +82,20 @@ func ToolCallConfirmation(toolCall tools.ToolCall, toolDefinition tools.Tool, ag
 }
 
 type ToolCallResponseEvent struct {
-	Type     string         `json:"type"`
-	ToolCall tools.ToolCall `json:"tool_call"`
-	Response string         `json:"response"`
+	Type           string         `json:"type"`
+	ToolCall       tools.ToolCall `json:"tool_call"`
+	ToolDefinition tools.Tool     `json:"tool_definition"`
+	Response       string         `json:"response"`
 	AgentContext
 }
 
-func ToolCallResponse(toolCall tools.ToolCall, response, agentName string) Event {
+func ToolCallResponse(toolCall tools.ToolCall, toolDefinition tools.Tool, response, agentName string) Event {
 	return &ToolCallResponseEvent{
-		Type:         "tool_call_response",
-		ToolCall:     toolCall,
-		Response:     response,
-		AgentContext: AgentContext{AgentName: agentName},
+		Type:           "tool_call_response",
+		ToolCall:       toolCall,
+		Response:       response,
+		ToolDefinition: toolDefinition,
+		AgentContext:   AgentContext{AgentName: agentName},
 	}
 }
 
