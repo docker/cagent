@@ -168,6 +168,7 @@ func (t *ShellTool) Tools(context.Context) ([]tools.Tool, error) {
 	return []tools.Tool{
 		{
 			Name:         "shell",
+			Category:     "shell",
 			Description:  `Executes the given shell command in the user's default shell.`,
 			Parameters:   tools.MustSchemaFor[RunShellArgs](),
 			OutputSchema: tools.MustSchemaFor[string](),

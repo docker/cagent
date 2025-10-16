@@ -47,6 +47,7 @@ func (t *MemoryTool) Tools(context.Context) ([]tools.Tool, error) {
 	return []tools.Tool{
 		{
 			Name:         "add_memory",
+			Category:     "memory",
 			Description:  "Add a new memory to the database",
 			Parameters:   tools.MustSchemaFor[AddMemoryArgs](),
 			OutputSchema: tools.MustSchemaFor[string](),
@@ -57,6 +58,7 @@ func (t *MemoryTool) Tools(context.Context) ([]tools.Tool, error) {
 		},
 		{
 			Name:         "get_memories",
+			Category:     "memory",
 			Description:  "Retrieve all stored memories",
 			OutputSchema: tools.MustSchemaFor[[]database.UserMemory](),
 			Handler:      t.handleGetMemories,
@@ -67,6 +69,7 @@ func (t *MemoryTool) Tools(context.Context) ([]tools.Tool, error) {
 		},
 		{
 			Name:         "delete_memory",
+			Category:     "memory",
 			Description:  "Delete a specific memory by ID",
 			Parameters:   tools.MustSchemaFor[DeleteMemoryArgs](),
 			OutputSchema: tools.MustSchemaFor[string](),

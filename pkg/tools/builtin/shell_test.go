@@ -35,11 +35,13 @@ func TestShellTool_Tools(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Len(t, allTools, 1)
-
+	for _, tool := range allTools {
+		assert.NotNil(t, tool.Handler)
+		assert.Equal(t, "shell", tool.Category)
+	}
 	// Verify bash function
 	assert.Equal(t, "shell", allTools[0].Name)
 	assert.Contains(t, allTools[0].Description, "Executes the given shell command")
-	assert.NotNil(t, allTools[0].Handler)
 
 	schema, err := json.Marshal(allTools[0].Parameters)
 	require.NoError(t, err)

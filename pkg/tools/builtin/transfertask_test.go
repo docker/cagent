@@ -29,6 +29,7 @@ func TestTaskTool_Tools(t *testing.T) {
 
 	// Verify transfer_task function
 	assert.Equal(t, "transfer_task", allTools[0].Name)
+	assert.Equal(t, "transfer", allTools[0].Category)
 	assert.Contains(t, allTools[0].Description, "transfer a task to the selected team member")
 
 	// Verify no handler is provided (it's handled externally)
@@ -71,6 +72,7 @@ func TestTaskTool_DisplayNames(t *testing.T) {
 	for _, tool := range all {
 		assert.NotEmpty(t, tool.DisplayName())
 		assert.NotEqual(t, tool.Name, tool.DisplayName())
+		assert.Equal(t, "transfer", tool.Category)
 	}
 }
 

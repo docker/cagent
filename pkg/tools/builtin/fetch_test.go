@@ -25,13 +25,16 @@ func TestFetchToolWithOptions(t *testing.T) {
 func TestFetchTool_Tools(t *testing.T) {
 	tool := NewFetchTool()
 
-	toolSet, err := tool.Tools(t.Context())
+	allTools, err := tool.Tools(t.Context())
 	require.NoError(t, err)
-	require.Len(t, toolSet, 1)
+	require.Len(t, allTools, 1)
+	for _, tool := range allTools {
+		assert.NotNil(t, tool.Handler)
+		assert.Equal(t, "fetch", tool.Category)
+	}
 
-	fetchTool := toolSet[0]
+	fetchTool := allTools[0]
 	assert.Equal(t, "fetch", fetchTool.Name)
-	assert.NotNil(t, fetchTool.Handler)
 
 	schema, err := json.Marshal(fetchTool.Parameters)
 	require.NoError(t, err)

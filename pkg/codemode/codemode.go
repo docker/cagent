@@ -73,6 +73,7 @@ func (c *codeModeTool) Tools(ctx context.Context) ([]tools.Tool, error) {
 
 	allTools := []tools.Tool{{
 		Name:        "run_tools_with_javascript",
+		Category:    "code mode",
 		Description: prompt + strings.Join(functionsDoc, "\n"),
 		Parameters:  tools.MustSchemaFor[RunToolsWithJavascriptArgs](),
 		Handler: func(ctx context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {

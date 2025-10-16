@@ -54,18 +54,21 @@ func TestMemoryTool_Tools(t *testing.T) {
 	manager := new(MockMemoryManager)
 	tool := NewMemoryTool(manager)
 
-	tls, err := tool.Tools(t.Context())
-
+	allTools, err := tool.Tools(t.Context())
 	require.NoError(t, err)
-	assert.Len(t, tls, 3)
+	require.Len(t, allTools, 3)
+	for _, tool := range allTools {
+		assert.NotNil(t, tool.Handler)
+		assert.Equal(t, "memory", tool.Category)
+	}
 
 	// Verify tool functions
-	assert.Equal(t, "add_memory", tls[0].Name)
-	assert.Equal(t, "get_memories", tls[1].Name)
-	assert.Equal(t, "delete_memory", tls[2].Name)
+	assert.Equal(t, "add_memory", allTools[0].Name)
+	assert.Equal(t, "get_memories", allTools[1].Name)
+	assert.Equal(t, "delete_memory", allTools[2].Name)
 
 	// Check add_memory parameters
-	schema, err := json.Marshal(tls[0].Parameters)
+	schema, err := json.Marshal(allTools[0].Parameters)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{
 	"type": "object",
@@ -82,10 +85,10 @@ func TestMemoryTool_Tools(t *testing.T) {
 }`, string(schema))
 
 	// Check get_memories parameters
-	assert.Nil(t, tls[1].Parameters)
+	assert.Nil(t, allTools[1].Parameters)
 
 	// Check delete_memory parameters
-	schema, err = json.Marshal(tls[2].Parameters)
+	schema, err = json.Marshal(allTools[2].Parameters)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{
 	"type": "object",

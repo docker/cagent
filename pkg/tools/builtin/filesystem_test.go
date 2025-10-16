@@ -58,6 +58,7 @@ func TestFilesystemTool_Tools(t *testing.T) {
 	for _, tool := range allTools {
 		toolNames = append(toolNames, tool.Name)
 		assert.NotNil(t, tool.Handler)
+		assert.Equal(t, "filesystem", tool.Category)
 	}
 
 	for _, expected := range expectedTools {

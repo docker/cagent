@@ -18,6 +18,7 @@ func TestCodeModeTool_Tools(t *testing.T) {
 
 	fetchTool := toolSet[0]
 	assert.Equal(t, "run_tools_with_javascript", fetchTool.Name)
+	assert.Equal(t, "code mode", fetchTool.Category)
 	assert.NotNil(t, fetchTool.Handler)
 
 	inputSchema, err := json.Marshal(fetchTool.Parameters)

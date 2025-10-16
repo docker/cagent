@@ -33,11 +33,14 @@ func TestThinkTool_Tools(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Len(t, allTools, 1)
+	for _, tool := range allTools {
+		assert.NotNil(t, tool.Handler)
+		assert.Equal(t, "think", tool.Category)
+	}
 
 	// Verify think function
 	assert.Equal(t, "think", allTools[0].Name)
 	assert.Contains(t, allTools[0].Description, "Use the tool to think about something")
-	assert.NotNil(t, allTools[0].Handler)
 
 	// Check parameters
 	schema, err := json.Marshal(allTools[0].Parameters)

@@ -153,6 +153,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 	tls := []tools.Tool{
 		{
 			Name:         "create_directory",
+			Category:     "filesystem",
 			Description:  "Create a new directory or ensure a directory exists. Can create multiple nested directories in one operation.",
 			Parameters:   tools.MustSchemaFor[CreateDirectoryArgs](),
 			OutputSchema: tools.MustSchemaFor[string](),
@@ -163,6 +164,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 		},
 		{
 			Name:        "directory_tree",
+			Category:    "filesystem",
 			Description: "Get a recursive tree view of files and directories as a JSON structure.",
 			Parameters:  tools.MustSchemaFor[DirectoryTreeArgs](),
 			// Manually define the schema here because
@@ -197,6 +199,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 		},
 		{
 			Name:         "edit_file",
+			Category:     "filesystem",
 			Description:  "Make line-based edits to a text file. Each edit replaces exact line sequences with new content.",
 			Parameters:   tools.MustSchemaFor[EditFileArgs](),
 			OutputSchema: tools.MustSchemaFor[string](),
@@ -207,6 +210,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 		},
 		{
 			Name:         "get_file_info",
+			Category:     "filesystem",
 			Description:  "Retrieve detailed metadata about a file or directory.",
 			Parameters:   tools.MustSchemaFor[GetFileInfoArgs](),
 			OutputSchema: tools.MustSchemaFor[FileInfo](),
@@ -218,6 +222,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 		},
 		{
 			Name:         "list_allowed_directories",
+			Category:     "filesystem",
 			Description:  "Returns a list of directories that the server has permission to access. Don't call if you access only the current working directory. It's always allowed.",
 			OutputSchema: tools.MustSchemaFor[string](),
 			Handler:      t.handleListAllowedDirectories,
@@ -228,6 +233,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 		},
 		{
 			Name:         "add_allowed_directory",
+			Category:     "filesystem",
 			Description:  "Request to add a new directory to the allowed directories list. This requires explicit user consent for security reasons.",
 			Parameters:   tools.MustSchemaFor[AddAllowedDirectoryArgs](),
 			OutputSchema: tools.MustSchemaFor[string](),
@@ -238,6 +244,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 		},
 		{
 			Name:         "list_directory",
+			Category:     "filesystem",
 			Description:  "Get a detailed listing of all files and directories in a specified path.",
 			Parameters:   tools.MustSchemaFor[ListDirectoryArgs](),
 			OutputSchema: tools.MustSchemaFor[string](),
@@ -249,6 +256,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 		},
 		{
 			Name:         "list_directory_with_sizes",
+			Category:     "filesystem",
 			Description:  "Get a detailed listing of all files and directories in a specified path, including sizes.",
 			Parameters:   tools.MustSchemaFor[ListDirectoryArgs](),
 			OutputSchema: tools.MustSchemaFor[string](),
@@ -260,6 +268,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 		},
 		{
 			Name:         "move_file",
+			Category:     "filesystem",
 			Description:  "Move or rename files and directories.",
 			Parameters:   tools.MustSchemaFor[MoveFileArgs](),
 			OutputSchema: tools.MustSchemaFor[string](),
@@ -270,6 +279,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 		},
 		{
 			Name:         "read_file",
+			Category:     "filesystem",
 			Description:  "Read the complete contents of a file from the file system.",
 			Parameters:   tools.MustSchemaFor[ReadFileArgs](),
 			OutputSchema: tools.MustSchemaFor[string](),
@@ -281,6 +291,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 		},
 		{
 			Name:        "read_multiple_files",
+			Category:    "filesystem",
 			Description: "Read the contents of multiple files simultaneously.",
 			Parameters:  tools.MustSchemaFor[ReadMultipleFilesArgs](),
 			// TODO(dga): depends on the json param
@@ -293,6 +304,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 		},
 		{
 			Name:         "search_files",
+			Category:     "filesystem",
 			Description:  "Recursively search for files and directories matching a pattern. Prints the full paths of matching files and the total number of files found.",
 			Parameters:   tools.MustSchemaFor[SearchFilesArgs](),
 			OutputSchema: tools.MustSchemaFor[string](),
@@ -304,6 +316,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 		},
 		{
 			Name:         "search_files_content",
+			Category:     "filesystem",
 			Description:  "Searches for text or regex patterns in the content of files matching a GLOB pattern.",
 			Parameters:   tools.MustSchemaFor[SearchFilesContentArgs](),
 			OutputSchema: tools.MustSchemaFor[string](),
@@ -315,6 +328,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 		},
 		{
 			Name:         "write_file",
+			Category:     "filesystem",
 			Description:  "Create a new file or completely overwrite an existing file with new content.",
 			Parameters:   tools.MustSchemaFor[WriteFileArgs](),
 			OutputSchema: tools.MustSchemaFor[string](),

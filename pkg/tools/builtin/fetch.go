@@ -309,6 +309,7 @@ func (t *FetchTool) Tools(context.Context) ([]tools.Tool, error) {
 	return []tools.Tool{
 		{
 			Name:        "fetch",
+			Category:    "fetch",
 			Description: "Fetch content from one or more HTTP/HTTPS URLs. Returns the response body and metadata.",
 			Parameters: map[string]any{
 				"type": "object",

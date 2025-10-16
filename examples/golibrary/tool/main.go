@@ -59,6 +59,7 @@ func run(ctx context.Context) error {
 
 	toolAddNumbers := tools.Tool{
 		Name:        "add",
+		Category:    "compute",
 		Description: "Add two numbers",
 		Parameters:  tools.MustSchemaFor[AddNumbersArgs](),
 		Handler:     addNumbers,
