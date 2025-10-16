@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"os/exec"
-	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea/v2"
@@ -54,14 +53,6 @@ func (a *App) Title() string {
 func (a *App) Run(ctx context.Context, cancel context.CancelFunc, message string) {
 	a.cancel = cancel
 	go func() {
-		// Special shell command
-		if strings.HasPrefix(message, "!") {
-			out, _ := exec.CommandContext(ctx, "/bin/sh", "-c", message[1:]).CombinedOutput()
-			a.events <- runtime.ShellOutput("$ " + message[1:] + "\n" + string(out))
-			return
-		}
-
-		// User message
 		a.session.AddMessage(session.UserMessage(a.agentFilename, message))
 		for event := range a.runtime.RunStream(ctx, a.session) {
 			if ctx.Err() != nil {
@@ -70,6 +61,11 @@ func (a *App) Run(ctx context.Context, cancel context.CancelFunc, message string
 			a.events <- event
 		}
 	}()
+}
+
+func (a *App) RunBangCommand(ctx context.Context, command string) {
+	out, _ := exec.CommandContext(ctx, "/bin/sh", "-c", command).CombinedOutput()
+	a.events <- runtime.ShellOutput("$ " + command + "\n" + string(out))
 }
 
 func (a *App) Subscribe(ctx context.Context, program *tea.Program) {

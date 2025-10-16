@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/v2/help"
@@ -439,7 +440,11 @@ func (p *chatPage) processMessage(content string) tea.Cmd {
 	var ctx context.Context
 	ctx, p.msgCancel = context.WithCancel(context.Background())
 
-	p.app.Run(ctx, p.msgCancel, content)
+	if strings.HasPrefix(content, "!") {
+		p.app.RunBangCommand(ctx, content[1:])
+	} else {
+		p.app.Run(ctx, p.msgCancel, content)
+	}
 
 	return p.messages.ScrollToBottom()
 }
