@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -125,24 +126,35 @@ func (mv *toolModel) View() string {
 	// Add tool result content if available (for completed tools with content)
 	var resultContent string
 	if (msg.ToolStatus == types.ToolStatusCompleted || msg.ToolStatus == types.ToolStatusError) && msg.Content != "" {
+		var content string
+		var m map[string]any
+		if err := json.Unmarshal([]byte(msg.Content), &m); err != nil {
+			content = msg.Content
+		} else if buf, err := json.MarshalIndent(m, "", "  "); err != nil {
+			content = msg.Content
+		} else {
+			content = string(buf)
+		}
+
 		// Calculate available width for content (accounting for padding)
 		padding := styles.ToolCallResult.Padding().GetHorizontalPadding()
 		availableWidth := max(mv.width-2-padding, 10) // Minimum readable width
 
 		// Wrap long lines to fit the component width
-		lines := wrapLines(msg.Content, availableWidth)
+		lines := wrapLines(content, availableWidth)
 
 		// Take only first 10 lines after wrapping
+		header := "output"
 		if len(lines) > 10 {
 			lines = lines[:10]
-			// Add indicator that content was truncated
-			lines = append(lines, wrapLines("... (output truncated)", availableWidth)...)
+			header = "output (truncated)"
+			lines = append(lines, wrapLines("...", availableWidth)...)
 		}
 
-		// Join the lines back and apply muted style
+		// Join the lines back
 		trimmedContent := strings.Join(lines, "\n")
 		if trimmedContent != "" {
-			resultContent = "\n" + styles.ToolCallResult.Render(styles.ToolCallResultKey.Render("\n-> output:")+"\n"+trimmedContent)
+			resultContent = "\n" + styles.ToolCallResult.Render(styles.ToolCallResultKey.Render("\n-> "+header+":")+"\n"+trimmedContent)
 		}
 	}
 
