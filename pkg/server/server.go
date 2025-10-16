@@ -125,6 +125,8 @@ func New(sessionStore session.Store, runConfig config.RuntimeConfig, teams map[s
 	group.POST("/sessions/:id/resume", s.resumeSession)
 	// Create a new session and run an agent loop
 	group.POST("/sessions", s.createSession)
+	// Stop a running session
+	group.POST("/sessions/:id/stop", s.stopSession)
 	// Delete a session
 	group.DELETE("/sessions/:id", s.deleteSession)
 
@@ -946,6 +948,36 @@ func (s *Server) resumeSession(c echo.Context) error {
 	rt.Resume(c.Request().Context(), req.Confirmation)
 
 	return c.JSON(http.StatusOK, map[string]string{"message": "session resumed"})
+}
+
+func (s *Server) stopSession(c echo.Context) error {
+	sessionID := c.Param("id")
+
+	// Get the runtime for this session to access its team
+	rt, rtExists := s.runtimes[sessionID]
+
+	// Cancel the runtime context if it's still running
+	s.cancelsMu.Lock()
+	if cancel, exists := s.runtimeCancels[sessionID]; exists {
+		slog.Info("Stopping session execution", "session_id", sessionID)
+		cancel()
+		delete(s.runtimeCancels, sessionID)
+		s.cancelsMu.Unlock()
+
+		// Stop all pending tool operations (including killing shell-spawned processes)
+		if rtExists {
+			if err := rt.StopPendingProcesses(); err != nil {
+				slog.Error("Failed to stop pending tools for session", "session_id", sessionID, "error", err)
+				// Don't return error here, as we still want to report success for stopping the session
+			}
+		}
+
+		return c.JSON(http.StatusOK, map[string]string{"message": "session stopped successfully"})
+	}
+	s.cancelsMu.Unlock()
+
+	slog.Debug("No active runtime found for session", "session_id", sessionID)
+	return c.JSON(http.StatusNotFound, map[string]string{"error": "no active session found"})
 }
 
 func (s *Server) deleteSession(c echo.Context) error {

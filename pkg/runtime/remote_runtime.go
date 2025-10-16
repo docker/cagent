@@ -65,6 +65,13 @@ func (r *RemoteRuntime) CurrentAgent() *agent.Agent {
 	return agent.New(r.currentAgent, fmt.Sprintf("Remote agent: %s", r.currentAgent))
 }
 
+// StopPendingProcesses stops all pending tool operations for the remote runtime
+func (r *RemoteRuntime) StopPendingProcesses() error {
+	// For remote runtime, stop the team's toolsets
+	// This will kill any spawned processes from shell tools
+	return r.team.StopToolSets()
+}
+
 // RunStream starts the agent's interaction loop and returns a channel of events
 func (r *RemoteRuntime) RunStream(ctx context.Context, sess *session.Session) <-chan Event {
 	slog.Debug("Starting remote runtime stream", "agent", r.currentAgent, "session_id", r.sessionID)

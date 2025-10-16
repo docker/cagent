@@ -1,12 +1,15 @@
 package builtin
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
+	"sync"
+	"syscall"
 
 	"github.com/docker/cagent/pkg/tools"
 )
@@ -23,6 +26,8 @@ type shellHandler struct {
 	shell           string
 	shellArgsPrefix []string
 	env             []string
+	mu              sync.Mutex
+	processes       []*os.Process
 }
 
 type RunShellArgs struct {
@@ -47,15 +52,59 @@ func (h *shellHandler) RunShell(ctx context.Context, toolCall tools.ToolCall) (*
 		}
 	}
 
-	output, err := cmd.CombinedOutput()
+	// Set up process group for proper cleanup
+	// On Unix: create new process group so we can kill the entire tree
+	if runtime.GOOS != "windows" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			Setpgid: true,
+		}
+	}
+	// Note: On Windows, we would set CreationFlags, but that requires
+	// platform-specific code in a _windows.go file
+
+	// Capture output using buffers
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+
+	// Start the command so we can track it
+	if err := cmd.Start(); err != nil {
+		return &tools.ToolCallResult{
+			Output: fmt.Sprintf("Error starting command: %s", err),
+		}, nil
+	}
+
+	// Track the process for cleanup
+	h.mu.Lock()
+	h.processes = append(h.processes, cmd.Process)
+	h.mu.Unlock()
+
+	// Remove from tracking once complete
+	defer func() {
+		h.mu.Lock()
+		for i, p := range h.processes {
+			if p != nil && p.Pid == cmd.Process.Pid {
+				h.processes = append(h.processes[:i], h.processes[i+1:]...)
+				break
+			}
+		}
+		h.mu.Unlock()
+	}()
+
+	// Wait for the command to complete and get the result
+	err := cmd.Wait()
+
+	// Combine stdout and stderr
+	output := outBuf.String() + errBuf.String()
+
 	if err != nil {
 		return &tools.ToolCallResult{
-			Output: fmt.Sprintf("Error executing command: %s\nOutput: %s", err, string(output)),
+			Output: fmt.Sprintf("Error executing command: %s\nOutput: %s", err, output),
 		}, nil
 	}
 
 	return &tools.ToolCallResult{
-		Output: fmt.Sprintf("Output: %s", string(output)),
+		Output: fmt.Sprintf("Output: %s", output),
 	}, nil
 }
 
@@ -185,5 +234,32 @@ func (t *ShellTool) Start(context.Context) error {
 }
 
 func (t *ShellTool) Stop() error {
+	t.handler.mu.Lock()
+	defer t.handler.mu.Unlock()
+
+	// Kill all tracked processes
+	for _, proc := range t.handler.processes {
+		if proc == nil {
+			continue
+		}
+
+		// On Unix: kill the entire process group
+		// On Windows: terminate the process
+		if runtime.GOOS == "windows" {
+			// On Windows, we kill the process directly
+			_ = proc.Kill()
+		} else {
+			// On Unix, kill the process group (negative PID kills the group)
+			// We use SIGTERM first for graceful shutdown
+			_ = syscall.Kill(-proc.Pid, syscall.SIGTERM)
+
+			// Note: We could add a timeout and send SIGKILL if processes don't stop,
+			// but for now we'll just send SIGTERM
+		}
+	}
+
+	// Clear the processes list
+	t.handler.processes = nil
+
 	return nil
 }
