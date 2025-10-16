@@ -46,8 +46,17 @@ func (c *codeModeTool) Instructions() string {
 	return ""
 }
 
+func isExcludedTool(tool tools.Tool) bool {
+	// TODO(dga): make this more robust. It really a temporary hack to exclude the todo tools.
+	// See #514
+	return strings.Contains(tool.Name, "_todo")
+}
+
 func (c *codeModeTool) Tools(ctx context.Context) ([]tools.Tool, error) {
-	var functionsDoc []string
+	var (
+		functionsDoc  []string
+		excludedTools []tools.Tool
+	)
 
 	for _, toolset := range c.toolsets {
 		allTools, err := toolset.Tools(ctx)
@@ -56,11 +65,15 @@ func (c *codeModeTool) Tools(ctx context.Context) ([]tools.Tool, error) {
 		}
 
 		for _, tool := range allTools {
-			functionsDoc = append(functionsDoc, toolToJsDoc(tool))
+			if isExcludedTool(tool) {
+				excludedTools = append(excludedTools, tool)
+			} else {
+				functionsDoc = append(functionsDoc, toolToJsDoc(tool))
+			}
 		}
 	}
 
-	return []tools.Tool{{
+	allTools := []tools.Tool{{
 		Name:        "run_tools_with_javascript",
 		Description: prompt + strings.Join(functionsDoc, "\n"),
 		Parameters:  tools.MustSchemaFor[RunToolsWithJavascriptArgs](),
@@ -88,7 +101,11 @@ func (c *codeModeTool) Tools(ctx context.Context) ([]tools.Tool, error) {
 		Annotations: tools.ToolAnnotations{
 			Title: "Run tools with Javascript",
 		},
-	}}, nil
+	}}
+
+	allTools = append(allTools, excludedTools...)
+
+	return allTools, nil
 }
 
 func (c *codeModeTool) Start(ctx context.Context) error {
