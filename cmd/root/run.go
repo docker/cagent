@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
@@ -642,9 +643,83 @@ func runUserCommand(userInput string, sess *session.Session, rt runtime.Runtime,
 		}
 
 		return true, nil
+	case "/copy":
+		// Copy the conversation to clipboard
+		transcript := generatePlainTextTranscript(sess)
+		if transcript == "" {
+			fmt.Printf("%s\n", yellow("Conversation is empty; nothing copied."))
+			return true, nil
+		}
+
+		if err := clipboard.WriteAll(transcript); err != nil {
+			fmt.Printf("%s\n", yellow("Failed to copy conversation: %s", err.Error()))
+			return true, err
+		}
+
+		fmt.Printf("%s\n", yellow("Conversation copied to clipboard."))
+		return true, nil
 	}
 
 	return false, nil
+}
+
+// generatePlainTextTranscript generates a plain text transcript from the session
+func generatePlainTextTranscript(sess *session.Session) string {
+	var builder strings.Builder
+
+	for _, item := range sess.Messages {
+		if item.IsMessage() {
+			msg := item.Message
+			// Skip implicit messages
+			if msg.Implicit {
+				continue
+			}
+
+			switch msg.Message.Role {
+			case chat.MessageRoleUser:
+				writeTranscriptSection(&builder, "User", msg.Message.Content)
+			case chat.MessageRoleAssistant:
+				agentLabel := msg.AgentName
+				if agentLabel == "" || agentLabel == "root" {
+					agentLabel = "Assistant"
+				}
+				writeTranscriptSection(&builder, agentLabel, msg.Message.Content)
+			case chat.MessageRoleTool:
+				// Format tool results
+				msgContent := msg.Message.Content
+				if msg.Message.Name != "" {
+					writeTranscriptSection(&builder, fmt.Sprintf("Tool Result (%s)", msg.Message.Name), msgContent)
+				} else {
+					writeTranscriptSection(&builder, "Tool Result", msgContent)
+				}
+			}
+		} else if item.IsSubSession() {
+			// Recursively process sub-sessions
+			subTranscript := generatePlainTextTranscript(item.SubSession)
+			if subTranscript != "" {
+				if builder.Len() > 0 {
+					builder.WriteString("\n\n")
+				}
+				builder.WriteString(subTranscript)
+			}
+		}
+	}
+
+	return strings.TrimSpace(builder.String())
+}
+
+// writeTranscriptSection writes a section to the transcript builder
+func writeTranscriptSection(builder *strings.Builder, title, text string) {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return
+	}
+	if builder.Len() > 0 {
+		builder.WriteString("\n\n")
+	}
+	builder.WriteString(title)
+	builder.WriteString(":\n")
+	builder.WriteString(trimmed)
 }
 
 // parseAttachCommand parses user input for /attach commands

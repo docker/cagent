@@ -112,6 +112,13 @@ func (a *App) CompactSession() {
 	}
 }
 
+// ResetSession clears the conversation history
+func (a *App) ResetSession() {
+	if a.session != nil {
+		a.session.Messages = []session.Item{}
+	}
+}
+
 // ResumeStartOAuth resumes the runtime with OAuth authorization confirmation
 func (a *App) ResumeStartOAuth(bool) {
 	if a.runtime != nil {

@@ -182,6 +182,10 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return p, cmd
 
 	case editor.SendMsg:
+		// Check for slash commands first
+		if handled, cmd := p.handleSlashCommand(msg.Content); handled {
+			return p, cmd
+		}
 		cmd := p.processMessage(msg.Content)
 		return p, cmd
 
@@ -427,6 +431,31 @@ func (p *chatPage) switchFocus() {
 	case PanelEditor:
 		p.focusedPanel = PanelChat
 		p.messages.Focus()
+	}
+}
+
+// handleSlashCommand checks if the content is a slash command and handles it
+// Returns (true, cmd) if command was handled, (false, nil) otherwise
+func (p *chatPage) handleSlashCommand(content string) (bool, tea.Cmd) {
+	trimmed := content
+	// Check if it's a slash command
+	if trimmed == "" || trimmed[0] != '/' {
+		return false, nil
+	}
+
+	switch trimmed {
+	case "/copy":
+		return true, p.CopySessionToClipboard()
+	case "/compact":
+		return true, p.CompactSession()
+	case "/reset":
+		// Reset the session
+		p.app.ResetSession()
+		cmd := p.messages.AddSystemMessage("Conversation history cleared.")
+		return true, tea.Batch(cmd, p.messages.ScrollToBottom())
+	default:
+		// Not a recognized slash command
+		return false, nil
 	}
 }
 
