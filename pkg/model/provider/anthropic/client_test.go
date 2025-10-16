@@ -156,3 +156,120 @@ func TestSystemMessages_InterspersedExtractedAndExcluded(t *testing.T) {
 		assert.Equal(t, expected, m["role"])
 	}
 }
+
+func TestSequencingRepair_Standard(t *testing.T) {
+	msgs := []chat.Message{
+		{Role: chat.MessageRoleUser, Content: "start"},
+		{
+			Role: chat.MessageRoleAssistant,
+			ToolCalls: []tools.ToolCall{
+				{ID: "tool-1", Function: tools.FunctionCall{Name: "do_thing", Arguments: "{}"}},
+			},
+		},
+		// Intentionally missing the user/tool_result message here
+		{Role: chat.MessageRoleUser, Content: "continue"},
+	}
+
+	converted := convertMessages(msgs)
+	err := validateAnthropicSequencing(converted)
+	require.Error(t, err)
+
+	repaired := repairAnthropicSequencing(converted)
+	err = validateAnthropicSequencing(repaired)
+	require.NoError(t, err)
+}
+
+func TestSequencingRepair_Beta(t *testing.T) {
+	msgs := []chat.Message{
+		{Role: chat.MessageRoleUser, Content: "start"},
+		{
+			Role: chat.MessageRoleAssistant,
+			ToolCalls: []tools.ToolCall{
+				{ID: "tool-1", Function: tools.FunctionCall{Name: "do_thing", Arguments: "{}"}},
+			},
+		},
+		// Intentionally missing the user/tool_result message here
+		{Role: chat.MessageRoleUser, Content: "continue"},
+	}
+
+	converted := convertBetaMessages(msgs)
+	err := validateAnthropicSequencingBeta(converted)
+	require.Error(t, err)
+
+	repaired := repairAnthropicSequencingBeta(converted)
+	err = validateAnthropicSequencingBeta(repaired)
+	require.NoError(t, err)
+}
+
+func TestConvertMessages_DropOrphanToolResults_NoPrecedingToolUse(t *testing.T) {
+	msgs := []chat.Message{
+		{Role: chat.MessageRoleUser, Content: "start"},
+		// Orphan tool result (no assistant tool_use immediately before)
+		{Role: chat.MessageRoleTool, ToolCallID: "tool-1", Content: "result-1"},
+		{Role: chat.MessageRoleUser, Content: "continue"},
+	}
+
+	converted := convertMessages(msgs)
+	// Expect only the two user text messages to appear
+	require.Len(t, converted, 2)
+
+	// Ensure none of the converted messages contain tool_result blocks
+	for i := range converted {
+		b, err := json.Marshal(converted[i])
+		require.NoError(t, err)
+		var m map[string]any
+		require.NoError(t, json.Unmarshal(b, &m))
+		content, _ := m["content"].([]any)
+		for _, c := range content {
+			if cb, ok := c.(map[string]any); ok {
+				assert.NotEqual(t, "tool_result", cb["type"], "unexpected orphan tool_result included in payload")
+			}
+		}
+	}
+}
+
+func TestConvertMessages_GroupToolResults_AfterAssistantToolUse(t *testing.T) {
+	msgs := []chat.Message{
+		{Role: chat.MessageRoleUser, Content: "start"},
+		{
+			Role: chat.MessageRoleAssistant,
+			ToolCalls: []tools.ToolCall{
+				{ID: "tool-1", Function: tools.FunctionCall{Name: "t1", Arguments: "{}"}},
+				{ID: "tool-2", Function: tools.FunctionCall{Name: "t2", Arguments: "{}"}},
+			},
+		},
+		{Role: chat.MessageRoleTool, ToolCallID: "tool-1", Content: "r1"},
+		{Role: chat.MessageRoleTool, ToolCallID: "tool-2", Content: "r2"},
+		{Role: chat.MessageRoleUser, Content: "ok"},
+	}
+
+	converted := convertMessages(msgs)
+	// Expect: user(start), assistant(tool_use), user(grouped tool_result), user(ok)
+	require.Len(t, converted, 4)
+
+	// Validate sequencing is acceptable to Anthropic
+	require.NoError(t, validateAnthropicSequencing(converted))
+
+	// Check the third message (index 2) is a user with tool_result blocks for both tools
+	b, err := json.Marshal(converted[2])
+	require.NoError(t, err)
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(b, &m))
+	assert.Equal(t, "user", m["role"])
+	content, ok := m["content"].([]any)
+	require.True(t, ok)
+
+	// Collect tool_result IDs
+	ids := make(map[string]struct{})
+	for _, c := range content {
+		if cb, ok := c.(map[string]any); ok {
+			if cb["type"] == "tool_result" {
+				if id, _ := cb["tool_use_id"].(string); id != "" {
+					ids[id] = struct{}{}
+				}
+			}
+		}
+	}
+	assert.Contains(t, ids, "tool-1")
+	assert.Contains(t, ids, "tool-2")
+}

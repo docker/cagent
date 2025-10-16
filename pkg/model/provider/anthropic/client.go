@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -167,10 +168,21 @@ func (c *Client) CreateChatCompletionStream(
 		return nil, err
 	}
 
+	converted := convertMessages(messages)
+	// Preflight validation to ensure tool_use/tool_result sequencing is valid
+	if err := validateAnthropicSequencing(converted); err != nil {
+		slog.Warn("Invalid message sequencing for Anthropic detected, attempting self-repair", "error", err)
+		converted = repairAnthropicSequencing(converted)
+		if err2 := validateAnthropicSequencing(converted); err2 != nil {
+			slog.Error("Failed to self-repair Anthropic sequencing", "error", err2)
+			return nil, err
+		}
+	}
+
 	params := anthropic.MessageNewParams{
 		Model:     anthropic.Model(c.config.Model),
 		MaxTokens: maxTokens,
-		Messages:  convertMessages(messages),
+		Messages:  converted,
 		Tools:     allTools,
 	}
 
@@ -219,8 +231,11 @@ func (c *Client) CreateChatCompletionStream(
 
 func convertMessages(messages []chat.Message) []anthropic.MessageParam {
 	var anthropicMessages []anthropic.MessageParam
+	// Track whether the last appended assistant message included tool_use blocks
+	// so we can ensure the immediate next message is the grouped tool_result user message.
+	pendingAssistantToolUse := false
 
-	for i := range messages {
+	for i := 0; i < len(messages); i++ {
 		msg := &messages[i]
 		if msg.Role == chat.MessageRoleSystem {
 			// System messages are handled via the top-level params.System
@@ -333,6 +348,8 @@ func convertMessages(messages []chat.Message) []anthropic.MessageParam {
 					}
 				}
 				anthropicMessages = append(anthropicMessages, anthropic.NewAssistantMessage(toolUseBlocks...))
+				// Mark that we expect the very next message to be the grouped tool_result blocks.
+				pendingAssistantToolUse = true
 			} else {
 				if txt := strings.TrimSpace(msg.Content); txt != "" {
 					contentBlocks = append(contentBlocks, anthropic.NewTextBlock(txt))
@@ -340,12 +357,34 @@ func convertMessages(messages []chat.Message) []anthropic.MessageParam {
 				if len(contentBlocks) > 0 {
 					anthropicMessages = append(anthropicMessages, anthropic.NewAssistantMessage(contentBlocks...))
 				}
+				// No tool_use in this assistant message
+				pendingAssistantToolUse = false
 			}
 			continue
 		}
 		if msg.Role == chat.MessageRoleTool {
-			toolResult := anthropic.NewToolResultBlock(msg.ToolCallID, strings.TrimSpace(msg.Content), false)
-			anthropicMessages = append(anthropicMessages, anthropic.NewUserMessage(toolResult))
+			// Group consecutive tool results into a single user message.
+			//
+			// This is to satisfy Anthropic's requirement that tool_use blocks are immediately followed
+			// by a single user message containing all corresponding tool_result blocks.
+			var blocks []anthropic.ContentBlockParamUnion
+			j := i
+			for j < len(messages) && messages[j].Role == chat.MessageRoleTool {
+				tr := anthropic.NewToolResultBlock(messages[j].ToolCallID, strings.TrimSpace(messages[j].Content), false)
+				blocks = append(blocks, tr)
+				j++
+			}
+			if len(blocks) > 0 {
+				// Only include tool_result blocks if they immediately follow an assistant
+				// message that contained tool_use. Otherwise, drop them to avoid invalid
+				// sequencing errors.
+				if pendingAssistantToolUse {
+					anthropicMessages = append(anthropicMessages, anthropic.NewUserMessage(blocks...))
+				}
+				// Whether we used them or not, we've now handled the expected tool_result slot.
+				pendingAssistantToolUse = false
+			}
+			i = j - 1
 			continue
 		}
 	}
@@ -416,4 +455,145 @@ func (c *Client) ID() string {
 // Options returns the effective model options used by this client.
 func (c *Client) Options() options.ModelOptions {
 	return c.modelOptions
+}
+
+// validateAnthropicSequencing verifies that for every assistant message that includes
+// one or more tool_use blocks, the immediately following message is a user message
+// that includes tool_result blocks for all those tool_use IDs (grouped into that single message).
+func validateAnthropicSequencing(msgs []anthropic.MessageParam) error {
+	// Marshal-based inspection to avoid depending on SDK internals of union types
+	for i := range msgs {
+		m, ok := marshalToMap(msgs[i])
+		if !ok || m["role"] != "assistant" {
+			continue
+		}
+
+		toolUseIDs := collectToolUseIDs(contentArray(m))
+		if len(toolUseIDs) == 0 {
+			continue
+		}
+
+		if i+1 >= len(msgs) {
+			slog.Warn("Anthropic sequencing invalid: assistant tool_use present but no next user tool_result message", "assistant_index", i)
+			return errors.New("assistant tool_use present but no subsequent user message with tool_result blocks")
+		}
+
+		next, ok := marshalToMap(msgs[i+1])
+		if !ok || next["role"] != "user" {
+			slog.Warn("Anthropic sequencing invalid: next message after assistant tool_use is not user", "assistant_index", i, "next_role", next["role"])
+			return errors.New("assistant tool_use must be followed by a user message containing corresponding tool_result blocks")
+		}
+
+		toolResultIDs := collectToolResultIDs(contentArray(next))
+		missing := differenceIDs(toolUseIDs, toolResultIDs)
+		if len(missing) > 0 {
+			slog.Warn("Anthropic sequencing invalid: missing tool_result for tool_use id in next user message", "assistant_index", i, "tool_use_id", missing[0], "missing_count", len(missing))
+			return fmt.Errorf("missing tool_result for tool_use id %s in the next user message", missing[0])
+		}
+	}
+	return nil
+}
+
+// repairAnthropicSequencing inserts a synthetic user message containing tool_result blocks
+// immediately after any assistant message that has tool_use blocks missing a corresponding
+// tool_result in the next user message. This is a best-effort local repair to keep the
+// conversation valid for Anthropic while preserving original messages, to keep the agent loop running.
+func repairAnthropicSequencing(msgs []anthropic.MessageParam) []anthropic.MessageParam {
+	if len(msgs) == 0 {
+		return msgs
+	}
+	repaired := make([]anthropic.MessageParam, 0, len(msgs)+2)
+	for i := range msgs {
+		repaired = append(repaired, msgs[i])
+
+		m, ok := marshalToMap(msgs[i])
+		if !ok || m["role"] != "assistant" {
+			continue
+		}
+
+		toolUseIDs := collectToolUseIDs(contentArray(m))
+		if len(toolUseIDs) == 0 {
+			continue
+		}
+
+		// Remove any IDs that already have results in the next user message
+		if i+1 < len(msgs) {
+			if next, ok := marshalToMap(msgs[i+1]); ok && next["role"] == "user" {
+				toolResultIDs := collectToolResultIDs(contentArray(next))
+				for id := range toolResultIDs {
+					delete(toolUseIDs, id)
+				}
+			}
+		}
+
+		if len(toolUseIDs) > 0 {
+			blocks := make([]anthropic.ContentBlockParamUnion, 0, len(toolUseIDs))
+			for id := range toolUseIDs {
+				blocks = append(blocks, anthropic.NewToolResultBlock(id, "(tool execution failed)", false))
+			}
+			repaired = append(repaired, anthropic.NewUserMessage(blocks...))
+		}
+	}
+	return repaired
+}
+
+// Helpers for map-based inspection
+func marshalToMap(v any) (map[string]any, bool) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil, false
+	}
+	var m map[string]any
+	if json.Unmarshal(b, &m) != nil {
+		return nil, false
+	}
+	return m, true
+}
+
+func contentArray(m map[string]any) []any {
+	if a, ok := m["content"].([]any); ok {
+		return a
+	}
+	return nil
+}
+
+func collectToolUseIDs(content []any) map[string]struct{} {
+	ids := make(map[string]struct{})
+	for _, c := range content {
+		if cb, ok := c.(map[string]any); ok {
+			if t, _ := cb["type"].(string); t == "tool_use" {
+				if id, _ := cb["id"].(string); id != "" {
+					ids[id] = struct{}{}
+				}
+			}
+		}
+	}
+	return ids
+}
+
+func collectToolResultIDs(content []any) map[string]struct{} {
+	ids := make(map[string]struct{})
+	for _, c := range content {
+		if cb, ok := c.(map[string]any); ok {
+			if t, _ := cb["type"].(string); t == "tool_result" {
+				if id, _ := cb["tool_use_id"].(string); id != "" {
+					ids[id] = struct{}{}
+				}
+			}
+		}
+	}
+	return ids
+}
+
+func differenceIDs(a, b map[string]struct{}) []string {
+	if len(a) == 0 {
+		return nil
+	}
+	var missing []string
+	for id := range a {
+		if _, ok := b[id]; !ok {
+			missing = append(missing, id)
+		}
+	}
+	return missing
 }
