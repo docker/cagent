@@ -3,11 +3,13 @@ package todo
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss/v2"
 
 	"github.com/docker/cagent/pkg/tools"
+	"github.com/docker/cagent/pkg/tools/builtin"
 	"github.com/docker/cagent/pkg/tui/styles"
 )
 
@@ -42,9 +44,7 @@ func (c *Component) SetTodos(toolCall tools.ToolCall) error {
 	arguments := toolCall.Function.Arguments
 	switch toolName {
 	case "create_todo":
-		var params struct {
-			Description string `json:"description"`
-		}
+		var params builtin.CreateTodoArgs
 		if err := json.Unmarshal([]byte(arguments), &params); err != nil {
 			return err
 		}
@@ -58,30 +58,23 @@ func (c *Component) SetTodos(toolCall tools.ToolCall) error {
 		c.todos = append(c.todos, newTodo)
 
 	case "create_todos":
-		var params struct {
-			Todos []struct {
-				Description string `json:"description"`
-			} `json:"todos"`
-		}
+		var params builtin.CreateTodosArgs
 		if err := json.Unmarshal([]byte(arguments), &params); err != nil {
 			return err
 		}
 
 		// Add all new todos
-		for _, todoParam := range params.Todos {
+		for _, todoParam := range params.Descriptions {
 			newTodo := Todo{
 				ID:          fmt.Sprintf("todo_%d", len(c.todos)+1),
-				Description: todoParam.Description,
+				Description: todoParam,
 				Status:      "pending",
 			}
 			c.todos = append(c.todos, newTodo)
 		}
 
 	case "update_todo":
-		var params struct {
-			ID     string `json:"id"`
-			Status string `json:"status"`
-		}
+		var params builtin.UpdateTodoArgs
 		if err := json.Unmarshal([]byte(arguments), &params); err != nil {
 			return err
 		}
@@ -101,6 +94,7 @@ func (c *Component) SetTodos(toolCall tools.ToolCall) error {
 // Render renders the todo component
 func (c *Component) Render() string {
 	if len(c.todos) == 0 {
+		slog.Debug("No todos to render")
 		return ""
 	}
 
