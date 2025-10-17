@@ -972,29 +972,26 @@ func (r *runtime) generateSessionTitle(ctx context.Context, sess *session.Sessio
 	var conversationHistory strings.Builder
 	messages := sess.GetAllMessages()
 	for i := range messages {
-		role := "Unknown"
-		switch messages[i].Message.Role {
-		case "user":
-			role = "User"
-		case "assistant":
-			role = "Assistant"
-		case "system":
-			role = "System"
+		if messages[i].Message.Role == chat.MessageRoleUser {
+			conversationHistory.WriteString(fmt.Sprintf("\n%s: %s", messages[i].Message.Role, messages[i].Message.Content))
+			break
 		}
-		conversationHistory.WriteString(fmt.Sprintf("\n%s: %s", role, messages[i].Message.Content))
 	}
 
-	// Create a new session for title generation with auto-run tools
+	if conversationHistory.Len() == 0 {
+		slog.Error("Failed generating session title: no user message found in session", "session_id", sess.ID)
+		events <- SessionTitle(sess.ID, "Untitled", r.currentAgent)
+		return
+	}
+
 	systemPrompt := "You are a helpful AI assistant that generates concise, descriptive titles for conversations. You will be given a conversation history and asked to create a title that captures the main topic."
-	userPrompt := fmt.Sprintf("Based on the following conversation between a user and an AI assistant, generate a short, descriptive title (maximum 50 characters) that captures the main topic or purpose of the conversation. Return ONLY the title text, nothing else.\n\nConversation history:%s\n\nGenerate a title for this conversation:", conversationHistory.String())
+	userPrompt := fmt.Sprintf("Based on the following message a user sent to an AI assistant, generate a short, descriptive title (maximum 50 characters) that captures the main topic or purpose of the conversation. Return ONLY the title text, nothing else.\n\nUser message:%s\n\n", conversationHistory.String())
 
 	titleModel := provider.CloneWithOptions(ctx, r.CurrentAgent().Model(), nil, options.WithStructuredOutput(nil))
-
 	newTeam := team.New(
 		team.WithID("title-generator"),
 		team.WithAgents(agent.New("root", systemPrompt, agent.WithModel(titleModel))),
 	)
-
 	titleSession := session.New(session.WithSystemMessage(systemPrompt))
 	titleSession.AddMessage(session.UserMessage("", userPrompt))
 	titleSession.Title = "Generating title..."
