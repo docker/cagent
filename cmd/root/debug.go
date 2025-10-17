@@ -50,7 +50,7 @@ func debugToolsetsCommand(cmd *cobra.Command, args []string) error {
 	}
 
 	slog.Info("Stopping toolsets", "agent", agentFilename)
-	if err := team.StopToolSets(); err != nil {
+	if err := team.StopToolSets(ctx); err != nil {
 		slog.Error("Failed to stop tool sets", "error", err)
 	}
 

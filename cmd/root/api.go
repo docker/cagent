@@ -80,7 +80,7 @@ func runHTTP(cmd *cobra.Command, args []string) error {
 	}
 	defer func() {
 		for _, team := range teams {
-			if err := team.StopToolSets(); err != nil {
+			if err := team.StopToolSets(ctx); err != nil {
 				slog.Error("Failed to stop tool sets", "error", err)
 			}
 		}

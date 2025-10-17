@@ -214,6 +214,6 @@ func (t *TodoTool) Start(context.Context) error {
 	return nil
 }
 
-func (t *TodoTool) Stop() error {
+func (t *TodoTool) Stop(context.Context) error {
 	return nil
 }

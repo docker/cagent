@@ -258,7 +258,7 @@ cagent new --model dmr/ai/gemma3n:2B-F16 --max-iterations 15
 $ cagent new
 
 ------- Welcome to cagent! -------
-(Ctrl+C to stop the agent or exit)
+(Ctrl+C to stop the agent and exit)
 
 What should your agent/agent team do? (describe its purpose):
 

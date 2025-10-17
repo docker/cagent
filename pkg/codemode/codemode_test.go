@@ -79,6 +79,6 @@ func TestCodeModeTool_StartStop(t *testing.T) {
 	err := tool.Start(t.Context())
 	require.NoError(t, err)
 
-	err = tool.Stop()
+	err = tool.Stop(t.Context())
 	require.NoError(t, err)
 }

@@ -117,11 +117,11 @@ func (c *codeModeTool) Start(ctx context.Context) error {
 	return nil
 }
 
-func (c *codeModeTool) Stop() error {
+func (c *codeModeTool) Stop(ctx context.Context) error {
 	var errs []error
 
 	for _, t := range c.toolsets {
-		if err := t.Stop(); err != nil {
+		if err := t.Stop(ctx); err != nil {
 			errs = append(errs, err)
 		}
 	}

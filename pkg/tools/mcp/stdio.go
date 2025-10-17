@@ -47,11 +47,12 @@ func (c *stdioMCPClient) Initialize(ctx context.Context, _ *mcp.InitializeReques
 	return c.session.InitializeResult(), nil
 }
 
-func (c *stdioMCPClient) Close() error {
-	if c.session != nil {
-		return c.session.Close()
+func (c *stdioMCPClient) Close(context.Context) error {
+	if c.session == nil {
+		return nil
 	}
-	return nil
+
+	return c.session.Close()
 }
 
 func (c *stdioMCPClient) ListTools(ctx context.Context, request *mcp.ListToolsParams) iter.Seq2[*mcp.Tool, error] {

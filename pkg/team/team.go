@@ -1,6 +1,7 @@
 package team
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/docker/cagent/pkg/agent"
@@ -57,9 +58,9 @@ func (t *Team) Size() int {
 	return len(t.agents)
 }
 
-func (t *Team) StopToolSets() error {
+func (t *Team) StopToolSets(ctx context.Context) error {
 	for _, agent := range t.agents {
-		if err := agent.StopToolSets(); err != nil {
+		if err := agent.StopToolSets(ctx); err != nil {
 			return fmt.Errorf("failed to stop tool sets: %w", err)
 		}
 	}

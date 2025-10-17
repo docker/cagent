@@ -239,7 +239,7 @@ func (t *ShellTool) Start(context.Context) error {
 	return nil
 }
 
-func (t *ShellTool) Stop() error {
+func (t *ShellTool) Stop(context.Context) error {
 	t.handler.mu.Lock()
 	defer t.handler.mu.Unlock()
 

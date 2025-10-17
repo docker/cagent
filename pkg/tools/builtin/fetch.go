@@ -350,6 +350,6 @@ func (t *FetchTool) Start(context.Context) error {
 	return nil
 }
 
-func (t *FetchTool) Stop() error {
+func (t *FetchTool) Stop(context.Context) error {
 	return nil
 }

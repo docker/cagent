@@ -1,7 +1,6 @@
 package root
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -9,7 +8,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -189,7 +187,7 @@ func doRunCommand(ctx context.Context, args []string, exec bool) error {
 			return err
 		}
 		defer func() {
-			if err := agents.StopToolSets(); err != nil {
+			if err := agents.StopToolSets(ctx); err != nil {
 				slog.Error("Failed to stop tool sets", "error", err)
 			}
 		}()
@@ -363,12 +361,21 @@ func doRunCommand(ctx context.Context, args []string, exec bool) error {
 }
 
 func runWithoutTUI(ctx context.Context, agentFilename string, rt runtime.Runtime, sess *session.Session, args []string) error {
+	// Create a cancellable context for this agentic loop and wire Ctrl+C to cancel it
+	ctx, cancel := context.WithCancel(ctx)
+
+	// Ensure telemetry is initialized and add to context so runtime can access it
+	telemetry.EnsureGlobalTelemetryInitialized()
+	if telemetryClient := telemetry.GetGlobalTelemetryClient(); telemetryClient != nil {
+		ctx = telemetry.WithClient(ctx, telemetryClient)
+	}
+
 	sess.Title = "Running agent"
 	// If the last received event was an error, return it. That way the exit code
 	// will be non-zero if the agent failed.
 	var lastErr error
 
-	oneLoop := func(text string, scannerConfirmations *bufio.Scanner) error {
+	oneLoop := func(text string, rd io.Reader) error {
 		userInput := strings.TrimSpace(text)
 		if userInput == "" {
 			return nil
@@ -382,25 +389,6 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt runtime.Runtime
 		if handled {
 			return nil
 		}
-
-		// Create a cancellable context for this agentic loop and wire Ctrl+C to cancel it
-		loopCtx, loopCancel := context.WithCancel(ctx)
-
-		// Ensure telemetry is initialized and add to context so runtime can access it
-		telemetry.EnsureGlobalTelemetryInitialized()
-		if telemetryClient := telemetry.GetGlobalTelemetryClient(); telemetryClient != nil {
-			loopCtx = telemetry.WithClient(loopCtx, telemetryClient)
-		}
-
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, os.Interrupt)
-		go func() {
-			<-sigCh
-			// Ensure we break any inline typing output nicely
-			fmt.Println()
-			loopCancel()
-		}()
-		defer signal.Stop(sigCh)
 
 		// Parse for /attach commands in the message
 		messageText, attachPath := parseAttachCommand(userInput)
@@ -417,7 +405,7 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt runtime.Runtime
 		lastAgent := rt.CurrentAgent().Name()
 		llmIsTyping := false
 		var lastConfirmedToolCallID string
-		for event := range rt.RunStream(loopCtx, sess) {
+		for event := range rt.RunStream(ctx, sess) {
 			agentName := event.GetAgentName()
 			if agentName != "" && (firstLoop || lastAgent != agentName) {
 				if !firstLoop {
@@ -449,9 +437,9 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt runtime.Runtime
 					fmt.Println()
 					llmIsTyping = false
 				}
-				result := printToolCallWithConfirmation(e.ToolCall, scannerConfirmations)
+				result := printToolCallWithConfirmation(ctx, e.ToolCall, rd)
 				// If interrupted, skip resuming; the runtime will notice context cancellation and stop
-				if loopCtx.Err() != nil {
+				if ctx.Err() != nil {
 					continue
 				}
 				lastConfirmedToolCallID = e.ToolCall.ID // Store the ID to avoid duplicate printing
@@ -466,7 +454,7 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt runtime.Runtime
 					lastConfirmedToolCallID = "" // Clear on reject since tool won't execute
 				case ConfirmationAbort:
 					// Stop the agent loop immediately
-					loopCancel()
+					cancel()
 					continue
 				}
 			case *runtime.ToolCallEvent:
@@ -494,7 +482,7 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt runtime.Runtime
 					llmIsTyping = false
 				}
 				lowerErr := strings.ToLower(e.Error)
-				if strings.Contains(lowerErr, "context cancel") && loopCtx.Err() != nil { // treat Ctrl+C cancellations as non-errors
+				if strings.Contains(lowerErr, "context cancel") && ctx.Err() != nil { // treat Ctrl+C cancellations as non-errors
 					lastErr = nil
 				} else {
 					lastErr = fmt.Errorf("%s", e.Error)
@@ -538,7 +526,7 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt runtime.Runtime
 		}
 
 		// If the loop ended due to Ctrl+C, inform the user succinctly
-		if loopCtx.Err() != nil {
+		if ctx.Err() != nil {
 			fmt.Println(yellow("\n⚠️  agent stopped  ⚠️"))
 		}
 
@@ -556,17 +544,16 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt runtime.Runtime
 				return fmt.Errorf("failed to read from stdin: %w", err)
 			}
 
-			if err := oneLoop(string(buf), bufio.NewScanner(os.Stdin)); err != nil {
+			if err := oneLoop(string(buf), os.Stdin); err != nil {
 				return err
 			}
 		} else {
-			if err := oneLoop(args[1], bufio.NewScanner(os.Stdin)); err != nil {
+			if err := oneLoop(args[1], os.Stdin); err != nil {
 				return err
 			}
 		}
 	} else {
 		printWelcomeMessage()
-		scanner := bufio.NewScanner(os.Stdin)
 		firstQuestion := true
 		for {
 			if !firstQuestion {
@@ -575,17 +562,14 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt runtime.Runtime
 			fmt.Print(blue("> "))
 			firstQuestion = false
 
-			if !scanner.Scan() {
-				break
-			}
-
-			if err := oneLoop(scanner.Text(), scanner); err != nil {
+			line, err := readLine(ctx, os.Stdin)
+			if err != nil {
 				return err
 			}
-		}
 
-		if err := scanner.Err(); err != nil {
-			return err
+			if err := oneLoop(line, os.Stdin); err != nil {
+				return err
+			}
 		}
 	}
 

@@ -83,7 +83,7 @@ func NewNewCmd() *cobra.Command {
 				fmt.Print(blue("> "))
 
 				var err error
-				prompt, err = readLine(ctx)
+				prompt, err = readLine(ctx, os.Stdin)
 				if err != nil {
 					return fmt.Errorf("failed to read purpose: %w", err)
 				}

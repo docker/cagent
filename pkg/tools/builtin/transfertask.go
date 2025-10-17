@@ -47,6 +47,6 @@ func (t *TransferTaskTool) Start(context.Context) error {
 	return nil
 }
 
-func (t *TransferTaskTool) Stop() error {
+func (t *TransferTaskTool) Stop(context.Context) error {
 	return nil
 }

@@ -52,7 +52,7 @@ type ToolSet interface {
 	Tools(ctx context.Context) ([]Tool, error)
 	Instructions() string
 	Start(ctx context.Context) error
-	Stop() error
+	Stop(ctx context.Context) error
 	SetElicitationHandler(handler ElicitationHandler)
 	SetOAuthSuccessHandler(handler func())
 }

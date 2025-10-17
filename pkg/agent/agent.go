@@ -100,7 +100,7 @@ func (a *Agent) Model() provider.Provider {
 
 // Tools returns the tools available to this agent
 func (a *Agent) Tools(ctx context.Context) ([]tools.Tool, error) {
-	if err := a.ensureToolSetsAreStarted(); err != nil {
+	if err := a.ensureToolSetsAreStarted(ctx); err != nil {
 		return nil, err
 	}
 
@@ -149,20 +149,14 @@ func (a *Agent) Commands() map[string]string {
 	return a.commands
 }
 
-func (a *Agent) ensureToolSetsAreStarted() error {
+func (a *Agent) ensureToolSetsAreStarted(ctx context.Context) error {
 	for _, toolSet := range a.toolsets {
 		// Skip if toolset is already started
 		if toolSet.started.Load() {
 			continue
 		}
 
-		// The MCP toolset connection needs to persist beyond the initial HTTP request that triggered its creation.
-		// When OAuth succeeds, subsequent agent requests should reuse the already-authenticated MCP connection.
-		// But if the connection's underlying context is tied to the first HTTP request, it gets cancelled when that request
-		// completes, killing the connection even though OAuth succeeded.
-		// Use background context for starting toolsets to ensure they persist beyond request lifecycle
-		// This is critical for OAuth flows where the toolset connection needs to remain alive after the initial HTTP request completes.
-		if err := toolSet.Start(context.Background()); err != nil {
+		if err := toolSet.Start(ctx); err != nil {
 			return err
 		}
 
@@ -173,14 +167,14 @@ func (a *Agent) ensureToolSetsAreStarted() error {
 	return nil
 }
 
-func (a *Agent) StopToolSets() error {
+func (a *Agent) StopToolSets(ctx context.Context) error {
 	for _, toolSet := range a.toolsets {
 		// Only stop toolsets that are marked as started
 		if !toolSet.started.Load() {
 			continue
 		}
 
-		if err := toolSet.Stop(); err != nil {
+		if err := toolSet.Stop(ctx); err != nil {
 			return fmt.Errorf("failed to stop toolset: %w", err)
 		}
 

@@ -77,6 +77,6 @@ func (t *ThinkTool) Start(context.Context) error {
 	return nil
 }
 
-func (t *ThinkTool) Stop() error {
+func (t *ThinkTool) Stop(context.Context) error {
 	return nil
 }

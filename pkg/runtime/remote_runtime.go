@@ -66,10 +66,10 @@ func (r *RemoteRuntime) CurrentAgent() *agent.Agent {
 }
 
 // StopPendingProcesses stops all pending tool operations for the remote runtime
-func (r *RemoteRuntime) StopPendingProcesses() error {
+func (r *RemoteRuntime) StopPendingProcesses(ctx context.Context) error {
 	// For remote runtime, stop the team's toolsets
 	// This will kill any spawned processes from shell tools
-	return r.team.StopToolSets()
+	return r.team.StopToolSets(ctx)
 }
 
 // RunStream starts the agent's interaction loop and returns a channel of events

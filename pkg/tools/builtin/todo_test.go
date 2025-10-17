@@ -411,7 +411,7 @@ func TestTodoTool_StartStop(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test Stop method
-	err = tool.Stop()
+	err = tool.Stop(t.Context())
 	require.NoError(t, err)
 }
 

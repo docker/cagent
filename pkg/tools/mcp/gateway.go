@@ -105,8 +105,8 @@ func (t *GatewayToolset) Start(ctx context.Context) error {
 	return t.cmdToolset.Start(ctx)
 }
 
-func (t *GatewayToolset) Stop() error {
-	stopErr := t.cmdToolset.Stop()
+func (t *GatewayToolset) Stop(ctx context.Context) error {
+	stopErr := t.cmdToolset.Stop(ctx)
 	cleanUpSecretsErr := t.cleanUpSecrets()
 	cleanUpConfigErr := t.cleanUpConfig()
 

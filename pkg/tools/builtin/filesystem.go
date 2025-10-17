@@ -1013,7 +1013,7 @@ func (t *FilesystemTool) Start(context.Context) error {
 	return nil
 }
 
-func (t *FilesystemTool) Stop() error {
+func (t *FilesystemTool) Stop(context.Context) error {
 	return nil
 }
 

@@ -22,7 +22,7 @@ type mcpClient interface {
 	Initialize(ctx context.Context, request *mcp.InitializeRequest) (*mcp.InitializeResult, error)
 	ListTools(ctx context.Context, request *mcp.ListToolsParams) iter.Seq2[*mcp.Tool, error]
 	CallTool(ctx context.Context, request *mcp.CallToolParams) (*mcp.CallToolResult, error)
-	Close() error
+	Close(ctx context.Context) error
 }
 
 // Toolset represents a set of MCP tools
@@ -71,6 +71,13 @@ func (ts *Toolset) Start(ctx context.Context) error {
 	if ts.started.Load() {
 		return errors.New("toolset already started")
 	}
+
+	// The MCP toolset connection needs to persist beyond the initial HTTP request that triggered its creation.
+	// When OAuth succeeds, subsequent agent requests should reuse the already-authenticated MCP connection.
+	// But if the connection's underlying context is tied to the first HTTP request, it gets cancelled when that request
+	// completes, killing the connection even though OAuth succeeded.
+	// This is critical for OAuth flows where the toolset connection needs to remain alive after the initial HTTP request completes.
+	ctx = context.WithoutCancel(ctx)
 
 	slog.Debug("Starting MCP toolset", "server", ts.logID)
 
@@ -201,10 +208,13 @@ func (ts *Toolset) callTool(ctx context.Context, toolCall tools.ToolCall) (*tool
 	return result, nil
 }
 
-func (ts *Toolset) Stop() error {
+func (ts *Toolset) Stop(ctx context.Context) error {
 	slog.Debug("Stopping MCP toolset", "server", ts.logID)
 
-	if err := ts.mcpClient.Close(); err != nil {
+	if err := ts.mcpClient.Close(context.WithoutCancel(ctx)); err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
 		slog.Error("Failed to stop MCP toolset", "server", ts.logID, "error", err)
 		return err
 	}

@@ -141,6 +141,6 @@ func (t *MemoryTool) Start(context.Context) error {
 	return nil
 }
 
-func (t *MemoryTool) Stop() error {
+func (t *MemoryTool) Stop(context.Context) error {
 	return nil
 }

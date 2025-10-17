@@ -170,7 +170,7 @@ func (c *remoteMCPClient) createHTTPClient() *http.Client {
 	}
 }
 
-func (c *remoteMCPClient) Close() error {
+func (c *remoteMCPClient) Close(context.Context) error {
 	c.mu.RLock()
 	session := c.session
 	c.mu.RUnlock()

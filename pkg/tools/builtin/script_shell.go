@@ -133,6 +133,6 @@ func (t *ScriptShellTool) Start(context.Context) error {
 	return nil
 }
 
-func (t *ScriptShellTool) Stop() error {
+func (t *ScriptShellTool) Stop(context.Context) error {
 	return nil
 }

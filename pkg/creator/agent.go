@@ -40,8 +40,8 @@ func (f *fsToolset) Start(ctx context.Context) error {
 	return f.inner.Start(ctx)
 }
 
-func (f *fsToolset) Stop() error {
-	return f.inner.Stop()
+func (f *fsToolset) Stop(ctx context.Context) error {
+	return f.inner.Stop(ctx)
 }
 
 func (f *fsToolset) SetElicitationHandler(tools.ElicitationHandler) {

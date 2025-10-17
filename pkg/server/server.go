@@ -241,7 +241,7 @@ func (s *Server) editAgentConfigYAML(c echo.Context) error {
 	agentKey := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	if oldTeam, exists := s.teams[agentKey]; exists {
 		// Stop old team's toolsets before replacing
-		if err := oldTeam.StopToolSets(); err != nil {
+		if err := oldTeam.StopToolSets(c.Request().Context()); err != nil {
 			slog.Error("Failed to stop old team toolsets", "agentKey", agentKey, "error", err)
 		}
 	}
@@ -327,7 +327,7 @@ func (s *Server) editAgentConfig(c echo.Context) error {
 	agentKey := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	if oldTeam, exists := s.teams[agentKey]; exists {
 		// Stop old team's toolsets before replacing
-		if err := oldTeam.StopToolSets(); err != nil {
+		if err := oldTeam.StopToolSets(c.Request().Context()); err != nil {
 			slog.Error("Failed to stop old team toolsets", "agentKey", agentKey, "error", err)
 		}
 	}
@@ -754,7 +754,7 @@ func (s *Server) deleteAgent(c echo.Context) error {
 	// Remove from teams map and stop toolsets if active
 	if t, exists := s.teams[agentKey]; exists {
 		slog.Info("Stopping toolsets for agent", "agentKey", agentKey)
-		if err := t.StopToolSets(); err != nil {
+		if err := t.StopToolSets(c.Request().Context()); err != nil {
 			slog.Error("Failed to stop tool sets for agent", "agentKey", agentKey, "error", err)
 			// Continue with deletion even if stopping toolsets fails
 		}
@@ -816,7 +816,7 @@ func (s *Server) refreshAgentsFromDisk(ctx context.Context) error {
 	for id, oldTeam := range s.teams {
 		if _, exists := newTeams[id]; !exists {
 			// Team no longer exists on disk, stop its tool sets
-			if err := oldTeam.StopToolSets(); err != nil {
+			if err := oldTeam.StopToolSets(ctx); err != nil {
 				slog.Error("Failed to stop tool sets for removed team", "team", id, "error", err)
 			}
 		}
@@ -966,7 +966,7 @@ func (s *Server) stopSession(c echo.Context) error {
 
 		// Stop all pending tool operations (including killing shell-spawned processes)
 		if rtExists {
-			if err := rt.StopPendingProcesses(); err != nil {
+			if err := rt.StopPendingProcesses(c.Request().Context()); err != nil {
 				slog.Error("Failed to stop pending tools for session", "session_id", sessionID, "error", err)
 				// Don't return error here, as we still want to report success for stopping the session
 			}

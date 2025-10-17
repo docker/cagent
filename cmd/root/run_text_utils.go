@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -39,7 +40,7 @@ const (
 // text utility functions
 
 func printWelcomeMessage() {
-	fmt.Printf("\n%s\n%s\n\n", blue("------- Welcome to %s! -------", bold(AppName)), white("(Ctrl+C to stop the agent or exit)"))
+	fmt.Printf("\n%s\n%s\n\n", blue("------- Welcome to %s! -------", bold(AppName)), white("(Ctrl+C to stop the agent and exit)"))
 }
 
 func printError(err error) {
@@ -58,7 +59,7 @@ func printToolCall(toolCall tools.ToolCall, colorFunc ...func(format string, a .
 	fmt.Printf("\nCalling %s\n", c("%s%s", bold(toolCall.Function.Name), formatToolCallArguments(toolCall.Function.Arguments)))
 }
 
-func printToolCallWithConfirmation(toolCall tools.ToolCall, scanner *bufio.Scanner) ConfirmationResult {
+func printToolCallWithConfirmation(ctx context.Context, toolCall tools.ToolCall, rd io.Reader) ConfirmationResult {
 	fmt.Printf("\n%s\n", bold(yellow("🛠️ Tool call requires confirmation 🛠️")))
 	printToolCall(toolCall, color.New(color.FgWhite).SprintfFunc())
 	fmt.Printf("\n%s", bold(yellow("Can I run this tool? ([y]es/[a]ll/[n]o): ")))
@@ -97,10 +98,11 @@ func printToolCallWithConfirmation(toolCall tools.ToolCall, scanner *bufio.Scann
 	}
 
 	// Fallback: line-based scanner (requires Enter)
-	if !scanner.Scan() {
+	text, err := readLine(ctx, rd)
+	if err != nil {
 		return ConfirmationReject
 	}
-	text := scanner.Text()
+
 	switch text {
 	case "y":
 		return ConfirmationApprove
@@ -123,7 +125,7 @@ func promptMaxIterationsContinue(ctx context.Context, maxIterations int) Confirm
 	fmt.Printf("%s\n", white("This can happen with smaller or less capable models."))
 	fmt.Printf("\n%s (y/n): ", blue("Do you want to continue for 10 more iterations?"))
 
-	response, err := readLine(ctx)
+	response, err := readLine(ctx, os.Stdin)
 	if err != nil {
 		fmt.Printf("\n%s\n", red("Failed to read input, exiting..."))
 		return ConfirmationAbort
@@ -146,7 +148,7 @@ func promptOAuthAuthorization(ctx context.Context, serverURL string) Confirmatio
 	fmt.Printf("%s\n", white("Your browser will open automatically to complete the authorization."))
 	fmt.Printf("\n%s (y/n): ", blue("Do you want to authorize access?"))
 
-	response, err := readLine(ctx)
+	response, err := readLine(ctx, os.Stdin)
 	if err != nil {
 		fmt.Printf("\n%s\n", red("Failed to read input, aborting authorization..."))
 		return ConfirmationAbort
@@ -290,7 +292,7 @@ func formatJSONValue(key string, value any) string {
 	}
 }
 
-func readLine(ctx context.Context) (string, error) {
+func readLine(ctx context.Context, rd io.Reader) (string, error) {
 	lines := make(chan string)
 	errs := make(chan error)
 
@@ -298,7 +300,7 @@ func readLine(ctx context.Context) (string, error) {
 		defer close(lines)
 		defer close(errs)
 
-		reader := bufio.NewReader(os.Stdin)
+		reader := bufio.NewReader(rd)
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			errs <- err
