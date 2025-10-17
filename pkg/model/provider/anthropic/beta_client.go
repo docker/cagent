@@ -39,7 +39,7 @@ func (c *Client) createBetaStream(
 	}
 
 	params := anthropic.BetaMessageNewParams{
-		Model:     anthropic.Model(c.config.Model),
+		Model:     anthropic.Model(c.ModelConfig.Model),
 		MaxTokens: maxTokens,
 		Messages:  converted,
 		Tools:     allTools,
@@ -53,8 +53,8 @@ func (c *Client) createBetaStream(
 
 	// For interleaved thinking to make sense, we use a default of 16384 tokens for the thinking budget
 	thinkingTokens := int64(16384)
-	if c.config.ThinkingBudget != nil {
-		thinkingTokens = int64(c.config.ThinkingBudget.Tokens)
+	if c.ModelConfig.ThinkingBudget != nil {
+		thinkingTokens = int64(c.ModelConfig.ThinkingBudget.Tokens)
 	} else {
 		slog.Info("Anthropic Beta API using default thinking_budget with interleaved thinking", "budget_tokens", thinkingTokens)
 	}
@@ -78,7 +78,7 @@ func (c *Client) createBetaStream(
 		"message_count", len(params.Messages))
 
 	stream := client.Beta.Messages.NewStreaming(ctx, params)
-	slog.Debug("Anthropic Beta API chat completion stream created successfully", "model", c.config.Model)
+	slog.Debug("Anthropic Beta API chat completion stream created successfully", "model", c.ModelConfig.Model)
 
 	return newBetaStreamAdapter(stream), nil
 }

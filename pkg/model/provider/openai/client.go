@@ -15,6 +15,7 @@ import (
 	latest "github.com/docker/cagent/pkg/config/v2"
 	"github.com/docker/cagent/pkg/desktop"
 	"github.com/docker/cagent/pkg/environment"
+	"github.com/docker/cagent/pkg/model/provider/base"
 	"github.com/docker/cagent/pkg/model/provider/options"
 	"github.com/docker/cagent/pkg/tools"
 )
@@ -22,9 +23,8 @@ import (
 // Client represents an OpenAI client wrapper
 // It implements the provider.Provider interface
 type Client struct {
-	client       *openai.Client
-	config       *latest.ModelConfig
-	modelOptions options.ModelOptions
+	base.Config
+	client *openai.Client
 	// When using the Docker AI Gateway, tokens are short-lived. We rebuild
 	// the client per request using these fields.
 	useGateway     bool
@@ -114,11 +114,13 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 	slog.Debug("OpenAI client created successfully", "model", cfg.Model)
 
 	return &Client{
+		Config: base.Config{
+			ModelConfig:  cfg,
+			ModelOptions: globalOptions,
+		},
 		client:         client,
-		config:         cfg,
 		useGateway:     useGateway,
 		gatewayBaseURL: gatewayBaseURL,
-		modelOptions:   globalOptions,
 	}, nil
 }
 
@@ -211,7 +213,7 @@ func (c *Client) CreateChatCompletionStream(
 	requestTools []tools.Tool,
 ) (chat.MessageStream, error) {
 	slog.Debug("Creating OpenAI chat completion stream",
-		"model", c.config.Model,
+		"model", c.ModelConfig.Model,
 		"message_count", len(messages),
 		"tool_count", len(requestTools))
 
@@ -220,28 +222,28 @@ func (c *Client) CreateChatCompletionStream(
 		return nil, errors.New("at least one message is required")
 	}
 
-	trackUsage := c.config.TrackUsage == nil || *c.config.TrackUsage
+	trackUsage := c.ModelConfig.TrackUsage == nil || *c.ModelConfig.TrackUsage
 
 	request := openai.ChatCompletionRequest{
-		Model:            c.config.Model,
+		Model:            c.ModelConfig.Model,
 		Messages:         convertMessages(messages),
-		Temperature:      float32(c.config.Temperature),
-		TopP:             float32(c.config.TopP),
-		FrequencyPenalty: float32(c.config.FrequencyPenalty),
-		PresencePenalty:  float32(c.config.PresencePenalty),
+		Temperature:      float32(c.ModelConfig.Temperature),
+		TopP:             float32(c.ModelConfig.TopP),
+		FrequencyPenalty: float32(c.ModelConfig.FrequencyPenalty),
+		PresencePenalty:  float32(c.ModelConfig.PresencePenalty),
 		Stream:           true,
 		StreamOptions: &openai.StreamOptions{
 			IncludeUsage: trackUsage,
 		},
 	}
 
-	if c.config.MaxTokens > 0 {
-		if !isResponsesOnlyModel(c.config.Model) {
-			request.MaxTokens = c.config.MaxTokens
-			slog.Debug("OpenAI request configured with max tokens", "max_tokens", c.config.MaxTokens)
+	if c.MaxTokens() > 0 {
+		if !isResponsesOnlyModel(c.ModelConfig.Model) {
+			request.MaxTokens = c.MaxTokens()
+			slog.Debug("OpenAI request configured with max tokens", "max_tokens", c.MaxTokens())
 		} else {
-			request.MaxCompletionTokens = c.config.MaxTokens
-			slog.Debug("using max_completion_tokens instead of max_tokens for Responses-API models", "model", c.config.Model)
+			request.MaxCompletionTokens = c.MaxTokens()
+			slog.Debug("using max_completion_tokens instead of max_tokens for Responses-API models", "model", c.ModelConfig.Model)
 		}
 	}
 
@@ -266,14 +268,14 @@ func (c *Client) CreateChatCompletionStream(
 
 			slog.Debug("Added tool to OpenAI request", "tool_name", tool.Name)
 		}
-		if c.config.ParallelToolCalls != nil {
-			request.ParallelToolCalls = *c.config.ParallelToolCalls
+		if c.ModelConfig.ParallelToolCalls != nil {
+			request.ParallelToolCalls = *c.ModelConfig.ParallelToolCalls
 		}
 	}
 
 	// Apply thinking budget: set reasoning_effort parameter
-	if c.config.ThinkingBudget != nil {
-		effort, err := getOpenAIReasoningEffort(c.config)
+	if c.ModelConfig.ThinkingBudget != nil {
+		effort, err := getOpenAIReasoningEffort(c.ModelConfig)
 		if err != nil {
 			slog.Error("OpenAI request using thinking_budget failed", "error", err)
 			return nil, err
@@ -283,17 +285,17 @@ func (c *Client) CreateChatCompletionStream(
 	}
 
 	// Apply structured output configuration
-	if c.modelOptions.StructuredOutput != nil {
+	if c.ModelOptions.StructuredOutput != nil {
 		request.ResponseFormat = &openai.ChatCompletionResponseFormat{
 			Type: openai.ChatCompletionResponseFormatTypeJSONSchema,
 			JSONSchema: &openai.ChatCompletionResponseFormatJSONSchema{
-				Name:        c.modelOptions.StructuredOutput.Name,
-				Description: c.modelOptions.StructuredOutput.Description,
-				Schema:      jsonSchema(c.modelOptions.StructuredOutput.Schema),
-				Strict:      c.modelOptions.StructuredOutput.Strict,
+				Name:        c.ModelOptions.StructuredOutput.Name,
+				Description: c.ModelOptions.StructuredOutput.Description,
+				Schema:      jsonSchema(c.ModelOptions.StructuredOutput.Schema),
+				Strict:      c.ModelOptions.StructuredOutput.Strict,
 			},
 		}
-		slog.Debug("OpenAI request using structured output", "name", c.modelOptions.StructuredOutput.Name, "strict", c.modelOptions.StructuredOutput.Strict)
+		slog.Debug("OpenAI request using structured output", "name", c.ModelOptions.StructuredOutput.Name, "strict", c.ModelOptions.StructuredOutput.Strict)
 	}
 
 	// Log the request in JSON format for debugging
@@ -312,17 +314,17 @@ func (c *Client) CreateChatCompletionStream(
 	if err != nil {
 		// Fallback for future models: retry without max_tokens if server complains
 		if isMaxTokensUnsupportedError(err) {
-			slog.Debug("Retrying OpenAI stream without max_tokens due to server requirement", "model", c.config.Model)
+			slog.Debug("Retrying OpenAI stream without max_tokens due to server requirement", "model", c.ModelConfig.Model)
 			request.MaxTokens = 0
 			stream, err = client.CreateChatCompletionStream(ctx, request)
 		}
 		if err != nil {
-			slog.Error("OpenAI stream creation failed", "error", err, "model", c.config.Model)
+			slog.Error("OpenAI stream creation failed", "error", err, "model", c.ModelConfig.Model)
 			return nil, err
 		}
 	}
 
-	slog.Debug("OpenAI chat completion stream created successfully", "model", c.config.Model)
+	slog.Debug("OpenAI chat completion stream created successfully", "model", c.ModelConfig.Model)
 	return newStreamAdapter(stream, trackUsage), nil
 }
 
@@ -367,15 +369,6 @@ func isMaxTokensUnsupportedError(err error) bool {
 	e := strings.ToLower(err.Error())
 	return strings.Contains(e, "this model is not supported maxtokens") ||
 		strings.Contains(e, "use maxcompletiontokens")
-}
-
-func (c *Client) ID() string {
-	return c.config.Provider + "/" + c.config.Model
-}
-
-// Options returns the effective model options used by this client.
-func (c *Client) Options() options.ModelOptions {
-	return c.modelOptions
 }
 
 // getOpenAIReasoningEffort resolves the reasoning effort value from the

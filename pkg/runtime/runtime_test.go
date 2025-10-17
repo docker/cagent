@@ -115,6 +115,8 @@ func (m *mockProvider) CreateChatCompletionStream(context.Context, []chat.Messag
 
 func (m *mockProvider) Options() options.ModelOptions { return options.ModelOptions{} }
 
+func (m *mockProvider) MaxTokens() int { return 0 }
+
 type mockProviderWithError struct {
 	id string
 }
@@ -126,6 +128,8 @@ func (m *mockProviderWithError) CreateChatCompletionStream(context.Context, []ch
 }
 
 func (m *mockProviderWithError) Options() options.ModelOptions { return options.ModelOptions{} }
+
+func (m *mockProviderWithError) MaxTokens() int { return 0 }
 
 type mockModelStore struct{}
 
@@ -420,6 +424,8 @@ func (p *queueProvider) CreateChatCompletionStream(context.Context, []chat.Messa
 }
 
 func (p *queueProvider) Options() options.ModelOptions { return options.ModelOptions{} }
+
+func (p *queueProvider) MaxTokens() int { return 0 }
 
 type mockModelStoreWithLimit struct{ limit int }
 

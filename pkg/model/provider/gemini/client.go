@@ -15,6 +15,7 @@ import (
 	latest "github.com/docker/cagent/pkg/config/v2"
 	"github.com/docker/cagent/pkg/desktop"
 	"github.com/docker/cagent/pkg/environment"
+	"github.com/docker/cagent/pkg/model/provider/base"
 	"github.com/docker/cagent/pkg/model/provider/options"
 	"github.com/docker/cagent/pkg/tools"
 )
@@ -22,9 +23,8 @@ import (
 // Client represents a Gemini client wrapper
 // It implements the provider.Provider interface
 type Client struct {
-	client       *genai.Client
-	config       *latest.ModelConfig
-	modelOptions options.ModelOptions
+	base.Config
+	client *genai.Client
 	// When using the Docker AI Gateway, tokens are short-lived. We rebuild
 	// the client per request when in gateway mode.
 	useGateway     bool
@@ -78,11 +78,13 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 	}
 
 	return &Client{
+		Config: base.Config{
+			ModelConfig:  cfg,
+			ModelOptions: modelOptions,
+		},
 		client:         client,
-		config:         cfg,
 		useGateway:     useGateway,
 		gatewayBaseURL: gatewayBaseURL,
-		modelOptions:   modelOptions,
 	}, nil
 }
 
@@ -209,18 +211,18 @@ func convertMessagesToGemini(messages []chat.Message) []*genai.Content {
 
 // buildConfig creates GenerateContentConfig from model config
 func (c *Client) buildConfig() *genai.GenerateContentConfig {
-	if c.config == nil {
+	if c.ModelConfig == nil {
 		return nil
 	}
 
 	config := &genai.GenerateContentConfig{
-		Temperature:      genai.Ptr(float32(c.config.Temperature)),
-		TopP:             genai.Ptr(float32(c.config.TopP)),
-		FrequencyPenalty: genai.Ptr(float32(c.config.FrequencyPenalty)),
-		PresencePenalty:  genai.Ptr(float32(c.config.PresencePenalty)),
+		Temperature:      genai.Ptr(float32(c.ModelConfig.Temperature)),
+		TopP:             genai.Ptr(float32(c.ModelConfig.TopP)),
+		FrequencyPenalty: genai.Ptr(float32(c.ModelConfig.FrequencyPenalty)),
+		PresencePenalty:  genai.Ptr(float32(c.ModelConfig.PresencePenalty)),
 	}
-	if c.config.MaxTokens > 0 {
-		config.MaxOutputTokens = int32(c.config.MaxTokens)
+	if c.ModelConfig.MaxTokens > 0 {
+		config.MaxOutputTokens = int32(c.ModelConfig.MaxTokens)
 	}
 
 	// Apply thinking budget for Gemini models using token-based configuration.
@@ -229,12 +231,12 @@ func (c *Client) buildConfig() *genai.GenerateContentConfig {
 	// - Set thinkingBudget to -1 for dynamic thinking (model decides)
 	// - Set to a specific value for a fixed token budget,
 	//   maximum is 24576 for all models except Gemini 2.5 Pro (max 32768)
-	if c.config.ThinkingBudget != nil {
+	if c.ModelConfig.ThinkingBudget != nil {
 		if config.ThinkingConfig == nil {
 			config.ThinkingConfig = &genai.ThinkingConfig{}
 		}
 		config.ThinkingConfig.IncludeThoughts = true
-		tokens := c.config.ThinkingBudget.Tokens
+		tokens := c.ModelConfig.ThinkingBudget.Tokens
 		config.ThinkingConfig.ThinkingBudget = genai.Ptr(int32(tokens))
 
 		switch tokens {
@@ -247,9 +249,9 @@ func (c *Client) buildConfig() *genai.GenerateContentConfig {
 		}
 	}
 
-	if c.modelOptions.StructuredOutput != nil {
+	if c.ModelOptions.StructuredOutput != nil {
 		config.ResponseMIMEType = "application/json"
-		config.ResponseJsonSchema = c.modelOptions.StructuredOutput.Schema
+		config.ResponseJsonSchema = c.ModelOptions.StructuredOutput.Schema
 	}
 
 	return config
@@ -340,21 +342,12 @@ func (c *Client) CreateChatCompletionStream(
 	var iter func(func(*genai.GenerateContentResponse, error) bool)
 	if c.useGateway {
 		if gwClient, err := c.newGatewayClient(ctx); err == nil {
-			iter = gwClient.Models.GenerateContentStream(ctx, c.config.Model, contents, config)
+			iter = gwClient.Models.GenerateContentStream(ctx, c.ModelConfig.Model, contents, config)
 		} else {
-			iter = c.client.Models.GenerateContentStream(ctx, c.config.Model, contents, config)
+			iter = c.client.Models.GenerateContentStream(ctx, c.ModelConfig.Model, contents, config)
 		}
 	} else {
-		iter = c.client.Models.GenerateContentStream(ctx, c.config.Model, contents, config)
+		iter = c.client.Models.GenerateContentStream(ctx, c.ModelConfig.Model, contents, config)
 	}
-	return NewStreamAdapter(iter, c.config.Model), nil
-}
-
-func (c *Client) ID() string {
-	return c.config.Provider + "/" + c.config.Model
-}
-
-// Options returns the effective model options used by this client.
-func (c *Client) Options() options.ModelOptions {
-	return c.modelOptions
+	return NewStreamAdapter(iter, c.ModelConfig.Model), nil
 }

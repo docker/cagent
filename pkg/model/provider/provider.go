@@ -49,6 +49,8 @@ type Provider interface {
 	) (chat.MessageStream, error)
 	// Options returns the effective model options used by this provider
 	Options() options.ModelOptions
+	// MaxTokens returns the maximum tokens configured for this provider
+	MaxTokens() int
 }
 
 func New(ctx context.Context, cfg *latest.ModelConfig, env environment.Provider, opts ...options.Opt) (Provider, error) {

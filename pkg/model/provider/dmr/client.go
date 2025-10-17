@@ -18,6 +18,7 @@ import (
 
 	"github.com/docker/cagent/pkg/chat"
 	latest "github.com/docker/cagent/pkg/config/v2"
+	"github.com/docker/cagent/pkg/model/provider/base"
 	"github.com/docker/cagent/pkg/model/provider/options"
 	"github.com/docker/cagent/pkg/tools"
 )
@@ -25,10 +26,9 @@ import (
 // Client represents an DMR client wrapper
 // It implements the provider.Provider interface
 type Client struct {
-	client       *openai.Client
-	config       *latest.ModelConfig
-	modelOptions options.ModelOptions
-	baseURL      string
+	base.Config
+	client  *openai.Client
+	baseURL string
 }
 
 // NewClient creates a new DMR client from the provided configuration
@@ -94,10 +94,12 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, opts ...options.Opt
 	slog.Debug("DMR client created successfully", "model", cfg.Model, "base_url", clientConfig.BaseURL)
 
 	return &Client{
-		client:       openai.NewClientWithConfig(clientConfig),
-		config:       cfg,
-		baseURL:      clientConfig.BaseURL,
-		modelOptions: globalOptions,
+		Config: base.Config{
+			ModelConfig:  cfg,
+			ModelOptions: globalOptions,
+		},
+		client:  openai.NewClientWithConfig(clientConfig),
+		baseURL: clientConfig.BaseURL,
 	}, nil
 }
 
@@ -295,7 +297,7 @@ func convertMessages(messages []chat.Message) []openai.ChatCompletionMessage {
 // It returns a stream that can be iterated over to get completion chunks
 func (c *Client) CreateChatCompletionStream(ctx context.Context, messages []chat.Message, requestTools []tools.Tool) (chat.MessageStream, error) {
 	slog.Debug("Creating DMR chat completion stream",
-		"model", c.config.Model,
+		"model", c.ModelConfig.Model,
 		"message_count", len(messages),
 		"tool_count", len(requestTools),
 		"base_url", c.baseURL,
@@ -306,15 +308,15 @@ func (c *Client) CreateChatCompletionStream(ctx context.Context, messages []chat
 		return nil, errors.New("at least one message is required")
 	}
 
-	trackUsage := c.config.TrackUsage == nil || *c.config.TrackUsage
+	trackUsage := c.ModelConfig.TrackUsage == nil || *c.ModelConfig.TrackUsage
 
 	request := openai.ChatCompletionRequest{
-		Model:            c.config.Model,
+		Model:            c.ModelConfig.Model,
 		Messages:         convertMessages(messages),
-		Temperature:      float32(c.config.Temperature),
-		TopP:             float32(c.config.TopP),
-		FrequencyPenalty: float32(c.config.FrequencyPenalty),
-		PresencePenalty:  float32(c.config.PresencePenalty),
+		Temperature:      float32(c.ModelConfig.Temperature),
+		TopP:             float32(c.ModelConfig.TopP),
+		FrequencyPenalty: float32(c.ModelConfig.FrequencyPenalty),
+		PresencePenalty:  float32(c.ModelConfig.PresencePenalty),
 		Stream:           true,
 		StreamOptions: &openai.StreamOptions{
 			IncludeUsage: trackUsage,
@@ -322,13 +324,13 @@ func (c *Client) CreateChatCompletionStream(ctx context.Context, messages []chat
 	}
 
 	// Only set ParallelToolCalls when tools are present; matches OpenAI provider behavior
-	if len(requestTools) > 0 && c.config.ParallelToolCalls != nil {
-		request.ParallelToolCalls = *c.config.ParallelToolCalls
+	if len(requestTools) > 0 && c.ModelConfig.ParallelToolCalls != nil {
+		request.ParallelToolCalls = *c.ModelConfig.ParallelToolCalls
 	}
 
-	if c.config.MaxTokens > 0 {
-		request.MaxTokens = c.config.MaxTokens
-		slog.Debug("DMR request configured with max tokens", "max_tokens", c.config.MaxTokens)
+	if c.ModelConfig.MaxTokens > 0 {
+		request.MaxTokens = c.ModelConfig.MaxTokens
+		slog.Debug("DMR request configured with max tokens", "max_tokens", c.ModelConfig.MaxTokens)
 	}
 
 	if len(requestTools) > 0 {
@@ -359,8 +361,8 @@ func (c *Client) CreateChatCompletionStream(ctx context.Context, messages []chat
 			}
 			slog.Debug("Added tool to DMR request", "tool_name", tool.Name)
 		}
-		if c.config.ParallelToolCalls != nil {
-			request.ParallelToolCalls = *c.config.ParallelToolCalls
+		if c.ModelConfig.ParallelToolCalls != nil {
+			request.ParallelToolCalls = *c.ModelConfig.ParallelToolCalls
 		}
 	}
 
@@ -370,41 +372,32 @@ func (c *Client) CreateChatCompletionStream(ctx context.Context, messages []chat
 	} else {
 		slog.Error("Failed to marshal DMR request to JSON", "error", err)
 	}
-	if c.modelOptions.StructuredOutput != nil {
-		slog.Debug("Adding structured output to DMR request", "structured_output", c.modelOptions.StructuredOutput)
+	if c.ModelOptions.StructuredOutput != nil {
+		slog.Debug("Adding structured output to DMR request", "structured_output", c.ModelOptions.StructuredOutput)
 		request.ResponseFormat = &openai.ChatCompletionResponseFormat{
 			Type: openai.ChatCompletionResponseFormatTypeJSONSchema,
 			JSONSchema: &openai.ChatCompletionResponseFormatJSONSchema{
-				Name:        c.modelOptions.StructuredOutput.Name,
-				Description: c.modelOptions.StructuredOutput.Description,
-				Schema:      jsonSchema(c.modelOptions.StructuredOutput.Schema),
-				Strict:      c.modelOptions.StructuredOutput.Strict,
+				Name:        c.ModelOptions.StructuredOutput.Name,
+				Description: c.ModelOptions.StructuredOutput.Description,
+				Schema:      jsonSchema(c.ModelOptions.StructuredOutput.Schema),
+				Strict:      c.ModelOptions.StructuredOutput.Strict,
 			},
 		}
 	}
 
 	stream, err := c.client.CreateChatCompletionStream(ctx, request)
 	if err != nil {
-		slog.Error("DMR stream creation failed", "error", err, "model", c.config.Model, "base_url", c.baseURL)
+		slog.Error("DMR stream creation failed", "error", err, "model", c.ModelConfig.Model, "base_url", c.baseURL)
 		return nil, err
 	}
 
-	slog.Debug("DMR chat completion stream created successfully", "model", c.config.Model, "base_url", c.baseURL)
+	slog.Debug("DMR chat completion stream created successfully", "model", c.ModelConfig.Model, "base_url", c.baseURL)
 	return newStreamAdapter(stream, trackUsage), nil
 }
 
 // ConvertParametersToSchema converts parameters to DMR Schema format
 func ConvertParametersToSchema(params any) (any, error) {
 	return tools.SchemaToMap(params)
-}
-
-func (c *Client) ID() string {
-	return c.config.Provider + "/" + c.config.Model
-}
-
-// Options returns the effective model options used by this client.
-func (c *Client) Options() options.ModelOptions {
-	return c.modelOptions
 }
 
 func parseDMRProviderOpts(cfg *latest.ModelConfig) (contextSize int, runtimeFlags []string) {

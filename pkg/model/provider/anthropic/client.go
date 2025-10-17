@@ -15,6 +15,7 @@ import (
 	latest "github.com/docker/cagent/pkg/config/v2"
 	"github.com/docker/cagent/pkg/desktop"
 	"github.com/docker/cagent/pkg/environment"
+	"github.com/docker/cagent/pkg/model/provider/base"
 	"github.com/docker/cagent/pkg/model/provider/options"
 	"github.com/docker/cagent/pkg/tools"
 )
@@ -22,9 +23,8 @@ import (
 // Client represents an Anthropic client wrapper implementing provider.Provider
 // It holds the anthropic client and model config
 type Client struct {
-	client       anthropic.Client
-	config       *latest.ModelConfig
-	modelOptions options.ModelOptions
+	base.Config
+	client anthropic.Client
 	// When using the Docker AI Gateway, tokens are short-lived. We rebuild
 	// the client per request when in gateway mode.
 	useGateway     bool
@@ -35,10 +35,10 @@ type Client struct {
 // models:provider_opts:interleaved_thinking: true
 func (c *Client) interleavedThinkingEnabled() bool {
 	// Default to false if not provided
-	if c == nil || c.config == nil || len(c.config.ProviderOpts) == 0 {
+	if c == nil || c.ModelConfig == nil || len(c.ModelConfig.ProviderOpts) == 0 {
 		return false
 	}
-	v, ok := c.config.ProviderOpts["interleaved_thinking"]
+	v, ok := c.ModelConfig.ProviderOpts["interleaved_thinking"]
 	if !ok {
 		return false
 	}
@@ -114,9 +114,11 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 	}
 
 	return &Client{
+		Config: base.Config{
+			ModelConfig:  cfg,
+			ModelOptions: globalOptions,
+		},
 		client:         client,
-		config:         cfg,
-		modelOptions:   globalOptions,
 		useGateway:     useGateway,
 		gatewayBaseURL: gatewayBaseURL,
 	}, nil
@@ -142,11 +144,11 @@ func (c *Client) CreateChatCompletionStream(
 	requestTools []tools.Tool,
 ) (chat.MessageStream, error) {
 	slog.Debug("Creating Anthropic chat completion stream",
-		"model", c.config.Model,
+		"model", c.ModelConfig.Model,
 		"message_count", len(messages),
 		"tool_count", len(requestTools))
 
-	maxTokens := int64(c.config.MaxTokens)
+	maxTokens := int64(c.ModelConfig.MaxTokens)
 	if maxTokens == 0 {
 		maxTokens = 8192 // min output limit for anthropic models >= 3.5
 	}
@@ -180,7 +182,7 @@ func (c *Client) CreateChatCompletionStream(
 	}
 
 	params := anthropic.MessageNewParams{
-		Model:     anthropic.Model(c.config.Model),
+		Model:     anthropic.Model(c.ModelConfig.Model),
 		MaxTokens: maxTokens,
 		Messages:  converted,
 		Tools:     allTools,
@@ -192,8 +194,8 @@ func (c *Client) CreateChatCompletionStream(
 	}
 
 	// Apply thinking budget
-	if c.config.ThinkingBudget != nil && c.config.ThinkingBudget.Tokens > 0 {
-		thinkingTokens := int64(c.config.ThinkingBudget.Tokens)
+	if c.ModelConfig.ThinkingBudget != nil && c.ModelConfig.ThinkingBudget.Tokens > 0 {
+		thinkingTokens := int64(c.ModelConfig.ThinkingBudget.Tokens)
 		switch {
 		case thinkingTokens >= 1024 && thinkingTokens < maxTokens:
 			params.Thinking = anthropic.ThinkingConfigParamOfEnabled(thinkingTokens)
@@ -224,7 +226,7 @@ func (c *Client) CreateChatCompletionStream(
 	}
 
 	stream := client.Messages.NewStreaming(ctx, params)
-	slog.Debug("Anthropic chat completion stream created successfully", "model", c.config.Model)
+	slog.Debug("Anthropic chat completion stream created successfully", "model", c.ModelConfig.Model)
 
 	return newStreamAdapter(stream), nil
 }
@@ -446,15 +448,6 @@ func ConvertParametersToSchema(params any) (anthropic.ToolInputSchemaParam, erro
 	}
 
 	return schema, nil
-}
-
-func (c *Client) ID() string {
-	return c.config.Provider + "/" + c.config.Model
-}
-
-// Options returns the effective model options used by this client.
-func (c *Client) Options() options.ModelOptions {
-	return c.modelOptions
 }
 
 // validateAnthropicSequencing verifies that for every assistant message that includes
