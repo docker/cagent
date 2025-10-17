@@ -63,7 +63,7 @@ cagent is a multi-agent AI system with hierarchical agent structure and pluggabl
 #### Command Layer (`cmd/root/`)
 
 - **Multiple interfaces**: CLI (`run.go`), TUI (default for `run` command), API (`api.go`)
-- **Interactive commands**: `/exit`, `/reset`, `/eval`, `/usage`, `/compact` during sessions
+- **Interactive commands**: `/exit`, `/reset`, `/eval`, `/usage`, `/compact`, `/copy` during sessions
 - **Debug support**: `--debug` flag for detailed logging
 - **Gateway mode**: SSE-based transport for external MCP clients like Claude Code
 
@@ -290,6 +290,7 @@ agents:
 - `/reset` - Clear session history
 - `/usage` - Show token usage statistics
 - `/compact` - Generate summary and compact session history
+- `/copy` - Copy the current conversation to clipboard
 - `/eval` - Save evaluation data
 
 ## File Locations and Patterns
