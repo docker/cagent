@@ -18,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 	"go.opentelemetry.io/otel"
 
+	"github.com/docker/cagent/pkg/aliases"
 	"github.com/docker/cagent/pkg/app"
 	"github.com/docker/cagent/pkg/chat"
 	"github.com/docker/cagent/pkg/config"
@@ -92,6 +93,15 @@ func doRunCommand(ctx context.Context, args []string, exec bool) error {
 	slog.Debug("Starting agent", "agent", agentName, "debug_mode", debugMode)
 
 	agentFilename := args[0]
+
+	// Try to resolve as an alias first
+	if aliasStore, err := aliases.Load(); err == nil {
+		if resolvedPath, ok := aliasStore.Get(agentFilename); ok {
+			slog.Debug("Resolved alias", "alias", agentFilename, "path", resolvedPath)
+			agentFilename = resolvedPath
+		}
+	}
+
 	if !strings.Contains(agentFilename, "\n") && (strings.Contains(agentFilename, ".yaml") || strings.Contains(agentFilename, ".yml")) {
 		if abs, err := filepath.Abs(agentFilename); err == nil {
 			agentFilename = abs
