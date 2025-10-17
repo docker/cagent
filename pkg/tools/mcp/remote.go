@@ -6,9 +6,7 @@ import (
 	"iter"
 	"log/slog"
 	"net/http"
-	"strings"
 	"sync"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -86,76 +84,47 @@ func (c *remoteMCPClient) Initialize(ctx context.Context, _ *mcp.InitializeReque
 	// Create HTTP client with OAuth support
 	httpClient := c.createHTTPClient()
 
-	// Attempt MCP initialization with retry logic for OAuth-related failures.
-	// When a server requires OAuth, the first connection attempt may fail with a "broken session"
-	// error because OAuth flow (even successful flow) interrupts the MCP handshake. Let's retry once after OAuth completes.
-	// Example of such MCP Server that broke the session with OAuth flow: https://mcp.prisma.io/mcp
-	const maxAttempts = 2
-	var lastErr error
+	var transport mcp.Transport
 
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		if attempt > 1 {
-			slog.Debug("Retrying MCP initialization after OAuth flow", "attempt", attempt)
+	switch c.transportType {
+	case "sse":
+		transport = &mcp.SSEClientTransport{
+			Endpoint:   c.url,
+			HTTPClient: httpClient,
 		}
-
-		var transport mcp.Transport
-
-		switch c.transportType {
-		case "sse":
-			transport = &mcp.SSEClientTransport{
-				Endpoint:   c.url,
-				HTTPClient: httpClient,
-			}
-		case "streamable", "streamable-http":
-			transport = &mcp.StreamableClientTransport{
-				Endpoint:   c.url,
-				HTTPClient: httpClient,
-			}
-		default:
-			return nil, fmt.Errorf("unsupported transport type: %s", c.transportType)
+	case "streamable", "streamable-http":
+		transport = &mcp.StreamableClientTransport{
+			Endpoint:   c.url,
+			HTTPClient: httpClient,
 		}
-
-		// Create an MCP client with elicitation support
-		impl := &mcp.Implementation{
-			Name:    "cagent",
-			Version: "1.0.0",
-		}
-
-		opts := &mcp.ClientOptions{
-			ElicitationHandler: c.handleElicitationRequest,
-		}
-
-		client := mcp.NewClient(impl, opts)
-
-		// Connect to the MCP server
-		session, err := client.Connect(ctx, transport, nil)
-		if err != nil {
-			lastErr = err
-
-			// Check if this is a "broken session" error that might be OAuth-related
-			if attempt < maxAttempts && isBrokenSessionError(err) {
-				slog.Debug("MCP connection failed with broken session error, retrying after OAuth", "error", err)
-				// Brief pause before retry to allow OAuth state to settle
-				select {
-				case <-ctx.Done():
-					return nil, fmt.Errorf("failed to connect to MCP server: %w", ctx.Err())
-				case <-time.After(100 * time.Millisecond):
-				}
-				continue
-			}
-
-			return nil, fmt.Errorf("failed to connect to MCP server: %w", err)
-		}
-
-		c.mu.Lock()
-		c.session = session
-		c.mu.Unlock()
-
-		slog.Debug("Remote MCP client connected successfully", "attempt", attempt)
-		return session.InitializeResult(), nil
+	default:
+		return nil, fmt.Errorf("unsupported transport type: %s", c.transportType)
 	}
 
-	return nil, fmt.Errorf("failed to connect to MCP server after %d attempts: %w", maxAttempts, lastErr)
+	// Create an MCP client with elicitation support
+	impl := &mcp.Implementation{
+		Name:    "cagent",
+		Version: "1.0.0",
+	}
+
+	opts := &mcp.ClientOptions{
+		ElicitationHandler: c.handleElicitationRequest,
+	}
+
+	client := mcp.NewClient(impl, opts)
+
+	// Connect to the MCP server
+	session, err := client.Connect(ctx, transport, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to MCP server: %w", err)
+	}
+
+	c.mu.Lock()
+	c.session = session
+	c.mu.Unlock()
+
+	slog.Debug("Remote MCP client connected successfully")
+	return session.InitializeResult(), nil
 }
 
 // createHTTPClient creates an HTTP client with OAuth support
@@ -224,16 +193,4 @@ func (c *remoteMCPClient) requestUserConsent(ctx context.Context) (bool, error) 
 	slog.Debug("Elicitation response received", "result", result)
 
 	return result.Action == "accept", nil
-}
-
-// isBrokenSessionError checks if an error is a "broken session" error from the MCP SDK
-// This error typically occurs when OAuth interrupts the MCP session handshake
-func isBrokenSessionError(err error) bool {
-	if err == nil {
-		return false
-	}
-	errMsg := strings.ToLower(err.Error())
-	// The error message comes from mcp-go/mcp/streamable.go:1211
-	// "broken session: 400 Bad Request"
-	return strings.Contains(errMsg, "broken session")
 }
