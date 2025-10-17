@@ -336,6 +336,16 @@ type oauthTransport struct {
 }
 
 func (t *oauthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	var bodyBytes []byte
+	if req.Body != nil && req.Body != http.NoBody {
+		var err error
+		bodyBytes, err = io.ReadAll(req.Body)
+		if err != nil {
+			return nil, err
+		}
+		req.Body = io.NopCloser(strings.NewReader(string(bodyBytes)))
+	}
+
 	reqClone := req.Clone(req.Context())
 
 	if token, err := t.tokenStore.GetToken(t.baseURL); err == nil && !token.IsExpired() {
@@ -355,6 +365,10 @@ func (t *oauthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			authServer := req.URL.Scheme + "://" + req.URL.Host
 			if err := t.handleOAuthFlow(req.Context(), authServer, wwwAuth); err != nil {
 				return nil, fmt.Errorf("OAuth flow failed: %w", err)
+			}
+
+			if len(bodyBytes) > 0 {
+				req.Body = io.NopCloser(strings.NewReader(string(bodyBytes)))
 			}
 
 			return t.RoundTrip(req)
