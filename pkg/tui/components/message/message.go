@@ -78,49 +78,45 @@ func (mv *messageModel) Render(width int) string {
 	switch msg.Type {
 	case types.MessageTypeSpinner:
 		return mv.spinner.View()
+
 	case types.MessageTypeUser:
 		s := lipgloss.NewStyle().PaddingLeft(1).BorderLeft(true).BorderStyle(lipgloss.ThickBorder())
-		if rendered, err := markdown.NewRenderer(width - len(s.Render(""))).Render(msg.Content); err == nil {
-			return s.Render(strings.TrimRight(rendered, "\n\r\t "))
-		}
+		rendered := markdown.Render(msg.Content, width-len(s.Render("")))
+		return s.Render(strings.TrimRight(rendered, "\n\r\t "))
 
-		return msg.Content
 	case types.MessageTypeAssistant:
 		if msg.Content == "" {
 			return mv.spinner.View()
 		}
 
 		text := senderPrefix(msg.Sender) + msg.Content
-		rendered, err := markdown.NewRenderer(width).Render(text)
-		if err != nil {
-			return text
-		}
-
+		rendered := markdown.Render(text, width)
 		return strings.TrimRight(rendered, "\n\r\t ")
+
 	case types.MessageTypeAssistantReasoning:
 		if msg.Content == "" {
 			return mv.spinner.View()
 		}
 		text := "Thinking: " + senderPrefix(msg.Sender) + msg.Content
 		// Render through the markdown renderer to ensure proper wrapping to width
-		rendered, err := markdown.NewRenderer(width).Render(text)
-		if err != nil {
-			return styles.MutedStyle.Italic(true).Render(text)
-		}
+		rendered := markdown.Render(text, width)
 		// Strip ANSI from inner rendering so muted style fully applies
 		clean := stripANSI(strings.TrimRight(rendered, "\n\r\t "))
 		return styles.MutedStyle.Italic(true).Render(clean)
+
 	case types.MessageTypeShellOutput:
-		if rendered, err := markdown.NewRenderer(width).Render(fmt.Sprintf("```console\n%s\n```", msg.Content)); err == nil {
-			return strings.TrimRight(rendered, "\n\r\t ")
-		}
-		return msg.Content
+		rendered := markdown.Render(fmt.Sprintf("```console\n%s\n```", msg.Content), width)
+		return strings.TrimRight(rendered, "\n\r\t ")
+
 	case types.MessageTypeSeparator:
 		return styles.MutedStyle.Render("•" + strings.Repeat("─", mv.width-3) + "•")
+
 	case types.MessageTypeError:
 		return styles.ErrorStyle.Render("│ " + msg.Content)
+
 	case types.MessageTypeSystem:
 		return styles.MutedStyle.Render("ℹ " + msg.Content)
+
 	default:
 		return msg.Content
 	}

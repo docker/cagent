@@ -1,22 +1,9 @@
 package markdown
 
-import (
-	"github.com/charmbracelet/glamour/v2"
-	allstyles "github.com/charmbracelet/glamour/v2/styles"
-)
+import "sync"
 
-func uintPtr(u uint) *uint { return &u }
+var renderer = sync.OnceValue(newRenderer)
 
-func NewRenderer(width int) *glamour.TermRenderer {
-	customDarkStyle := *allstyles.DefaultStyles["dark"]
-
-	customDarkStyle.Document.Margin = uintPtr(0)
-	customDarkStyle.Document.BlockPrefix = ""
-	customDarkStyle.Document.BlockSuffix = ""
-
-	r, _ := glamour.NewTermRenderer(
-		glamour.WithWordWrap(min(width, 120)),
-		glamour.WithStyles(customDarkStyle),
-	)
-	return r
+func Render(input string, width int) string {
+	return renderer().Render([]byte(input), min(width, 120))
 }
