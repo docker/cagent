@@ -12,7 +12,6 @@ import (
 	"github.com/docker/cagent/pkg/app"
 	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/tools"
-	"github.com/docker/cagent/pkg/tui/components/markdown"
 	"github.com/docker/cagent/pkg/tui/components/message"
 	"github.com/docker/cagent/pkg/tui/components/tool"
 	"github.com/docker/cagent/pkg/tui/core"
@@ -612,7 +611,7 @@ func (m *model) PlainTextTranscript() string {
 }
 
 func (m *model) createToolCallView(msg *types.Message) layout.Model {
-	view := tool.New(msg, m.app, markdown.NewRenderer(m.width))
+	view := tool.New(msg, m.app)
 	view.SetSize(m.width, 0)
 	return view
 }
