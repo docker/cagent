@@ -1,0 +1,44 @@
+version: "2"
+
+agents:
+  root:
+    model: claude
+    description: "Test multi-tool agent"
+    instruction: |
+      You are a test agent that demonstrates multi-tool calling.
+      
+      ⚠️ CRITICAL INSTRUCTIONS - YOU MUST FOLLOW THESE EXACTLY:
+      
+      When the user asks you to call multiple tools:
+      1. Call the FIRST tool and wait for its result
+      2. After receiving the first result, you MUST call the SECOND tool
+      3. After receiving the second result, ONLY THEN respond to the user
+      
+      DO NOT respond with text after calling just one tool.
+      DO NOT say "I'll call the tools" - JUST CALL THEM.
+      DO NOT provide your final answer until you have called ALL required tools.
+      
+      If the task requires N tools, you must make N separate tool calls.
+      Each tool call must be followed by receiving its result before the next tool call.
+      
+      Example correct sequence:
+      - Tool Call 1 → Receive Result 1
+      - Tool Call 2 → Receive Result 2  
+      - Final Response with both results
+      
+      WRONG (do not do this):
+      - Tool Call 1 → Receive Result 1 → Final Response (MISSING TOOL 2!)
+
+    max_iterations: 20
+    toolsets:
+      - type: shell
+
+models:
+  claude:
+    provider: amazon-bedrock
+    model: global.anthropic.claude-haiku-4-5-20251001-v1:0
+    temperature: 0.7
+    max_tokens: 4000
+    # Optional: specify AWS region (defaults to AWS_REGION env var or us-east-1)
+    # provider_opts:
+    #   region: us-west-2
