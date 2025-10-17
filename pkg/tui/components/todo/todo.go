@@ -3,7 +3,6 @@ package todo
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss/v2"
@@ -94,7 +93,6 @@ func (c *Component) SetTodos(toolCall tools.ToolCall) error {
 // Render renders the todo component
 func (c *Component) Render() string {
 	if len(c.todos) == 0 {
-		slog.Debug("No todos to render")
 		return ""
 	}
 
