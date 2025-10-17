@@ -14,6 +14,9 @@ func NewRenderer(width int) *glamour.TermRenderer {
 	customDarkStyle.Document.BlockPrefix = ""
 	customDarkStyle.Document.BlockSuffix = ""
 
+	// The default indent token is buggy. It breaks line splitting.
+	customDarkStyle.BlockQuote.IndentToken = nil
+
 	r, _ := glamour.NewTermRenderer(
 		glamour.WithWordWrap(min(width, 120)),
 		glamour.WithStyles(customDarkStyle),
