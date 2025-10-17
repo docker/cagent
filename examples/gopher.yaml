@@ -60,8 +60,7 @@ agents:
     add_date: true
     add_environment_info: true
     add_prompt_files:
-      - CLAUDE.md
-      - agents.md
+      - AGENTS.md
     toolsets:
       - type: filesystem
       - type: shell

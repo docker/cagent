@@ -1,23 +1,12 @@
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Development Commands
 
 ### Build and Development
 
-- `task build` - Build the application binary 
+- `task build` - Build the application binary
 - `task test` - Run Go tests
 - `task lint` - Run golangci-lint
 - `task format` - Format code
 - `task link` - Create symlink to ~/bin for easy access
-
-### Docker Operations
-
-- `task build-image` - Build Docker image
-- `task push-image` - Build and push Docker image
-- `task build-local` - Build binaries for local platform using Docker
-- `task cross` - Build cross-platform binaries using Docker
 
 ### Running cagent
 
@@ -74,7 +63,6 @@ cagent is a multi-agent AI system with hierarchical agent structure and pluggabl
 - **think**: Step-by-step reasoning tool
 - **todo**: Task list management
 - **memory**: Persistent SQLite-based storage
-- **transfer_task**: Agent-to-agent task delegation
 - **filesystem**: File operations
 - **shell**: Command execution
 - **script**: Custom shell scripts
@@ -96,7 +84,7 @@ version: "2"
 
 agents:
   root:
-    model: model_ref  # Can be inline like "openai/gpt-4o" or reference defined models
+    model: model_ref # Can be inline like "openai/gpt-4o" or reference defined models
     description: purpose
     instruction: detailed_behavior
     sub_agents: [list]
@@ -333,9 +321,3 @@ agents:
 
 - Add `--otel` flag to enable OpenTelemetry tracing
 - Example: `./bin/cagent run config.yaml --otel`
-
-### Common Issues
-
-- **Agent not found**: Check agent name matches config file agent definitions
-- **Tool startup failures**: Verify MCP tool commands and dependencies are available
-- **Model not found**: Ensure model is defined in config or use inline format (provider/model)
