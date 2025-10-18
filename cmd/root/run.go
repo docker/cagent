@@ -278,8 +278,13 @@ func doRunCommand(ctx context.Context, args []string, exec bool) error {
 		rt = remoteRt
 		slog.Debug("Using remote runtime", "address", remoteAddress, "agent", agentName)
 	} else {
+		agent, err := agents.Agent(agentName)
+		if err != nil {
+			return err
+		}
+
 		// Create session first to get its ID for OAuth state encoding
-		sess = session.New(session.WithMaxIterations(agents.Agent(agentName).MaxIterations()))
+		sess = session.New(session.WithMaxIterations(agent.MaxIterations()))
 		sess.ToolsApproved = autoApprove
 
 		// Create local runtime with root session ID for OAuth state encoding
@@ -817,10 +822,12 @@ func getCommandsForAgent(agentFilename string, isRemote bool, agents *team.Team,
 		if agents == nil {
 			return nil, fmt.Errorf("failed to load agent team")
 		}
-		ag := agents.Agent(agentName)
-		if ag == nil {
-			return nil, fmt.Errorf("agent not found: %s", agentName)
+
+		ag, err := agents.Agent(agentName)
+		if err != nil {
+			return nil, err
 		}
+
 		return ag.Commands(), nil
 	}
 

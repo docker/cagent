@@ -539,11 +539,17 @@ func (s *Server) importAgent(c echo.Context) error {
 
 	s.teams[agentKey] = t
 
+	rootAgent, err := t.Agent("root")
+	if err != nil {
+		slog.Error("Failed to get root agent", "error", err)
+		return jsonErr(c, http.StatusInternalServerError, "failed to get root agent: "+err.Error())
+	}
+
 	slog.Info("Agent imported successfully", "originalPath", validatedSourcePath, "targetPath", targetPath, "key", agentKey)
 	return c.JSON(http.StatusOK, map[string]string{
 		"originalPath": validatedSourcePath,
 		"targetPath":   targetPath,
-		"description":  t.Agent("root").Description(),
+		"description":  rootAgent.Description(),
 	})
 }
 
@@ -659,7 +665,13 @@ func (s *Server) pullAgent(c echo.Context) error {
 
 	s.teams[agentName] = t
 
-	return c.JSON(http.StatusOK, map[string]string{"name": agentName, "description": t.Agent("root").Description()})
+	rootAgent, err := t.Agent("root")
+	if err != nil {
+		slog.Error("Failed to get root agent", "error", err)
+		return jsonErr(c, http.StatusInternalServerError, "failed to get root agent: "+err.Error())
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{"name": agentName, "description": rootAgent.Description()})
 }
 
 func (s *Server) pushAgent(c echo.Context) error {
@@ -782,8 +794,8 @@ func (s *Server) getAgents(c echo.Context) error {
 
 	var agents []api.Agent
 	for id, t := range s.teams {
-		a := t.Agent("root")
-		if a == nil {
+		a, err := t.Agent("root")
+		if err != nil {
 			slog.Error("Agent root not found", "team", id)
 			continue
 		}
@@ -1033,8 +1045,9 @@ func (s *Server) runAgent(c echo.Context) error {
 	if err != nil {
 		return jsonErr(c, http.StatusInternalServerError, "failed to load agent for session")
 	}
-	agent := t.Agent(currentAgent)
-	if agent == nil {
+
+	agent, err := t.Agent(currentAgent)
+	if err != nil {
 		return jsonErr(c, http.StatusNotFound, fmt.Sprintf("agent not found: %s", currentAgent))
 	}
 

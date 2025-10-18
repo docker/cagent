@@ -2,7 +2,9 @@ package team
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/docker/cagent/pkg/agent"
 )
@@ -44,14 +46,22 @@ func (t *Team) AgentNames() []string {
 	return names
 }
 
-func (t *Team) Agent(name string) *agent.Agent {
-	if t.agents == nil {
-		return nil
+func (t *Team) Agent(name string) (*agent.Agent, error) {
+	if len(t.agents) == 0 {
+		return nil, errors.New("no agents loaded; ensure your agent configuration defines at least one agent")
 	}
-	if _, ok := t.agents[name]; !ok {
-		return nil
+
+	found, ok := t.agents[name]
+	if !ok {
+		var names []string
+		for n := range t.agents {
+			names = append(names, n)
+		}
+
+		return nil, fmt.Errorf("agent not found: %s (available agents: %s)", name, strings.Join(names, ", "))
 	}
-	return t.agents[name]
+
+	return found, nil
 }
 
 func (t *Team) Size() int {

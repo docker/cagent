@@ -531,9 +531,7 @@ func TestNewRuntime_InvalidCurrentAgentError(t *testing.T) {
 
 	// Ask for a non-existent current agent
 	_, err := New(tm, WithCurrentAgent("other"), WithModelStore(mockModelStore{}))
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "agent \"other\" not found")
-	require.Contains(t, err.Error(), "root") // available agents listed in error
+	require.Contains(t, err.Error(), "agent not found: other (available agents: root)")
 }
 
 func TestProcessToolCalls_UnknownTool_NoToolResultMessage(t *testing.T) {

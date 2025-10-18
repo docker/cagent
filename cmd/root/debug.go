@@ -36,7 +36,12 @@ func debugToolsetsCommand(cmd *cobra.Command, args []string) error {
 	}
 
 	for _, name := range team.AgentNames() {
-		agent := team.Agent(name)
+		agent, err := team.Agent(name)
+		if err != nil {
+			slog.Error("Failed to get agent", "name", name, "error", err)
+			continue
+		}
+
 		slog.Info("Query tools", "name", agent.Name())
 		tools, err := agent.Tools(ctx)
 		if err != nil {

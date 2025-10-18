@@ -165,15 +165,8 @@ func New(agents *team.Team, opts ...Opt) (Runtime, error) {
 	}
 
 	// Validate that we have at least one agent and that the current agent exists
-	if r.team == nil || r.team.Size() == 0 {
-		return nil, fmt.Errorf("no agents loaded; ensure your agent configuration defines at least one agent")
-	}
-	if r.team.Agent(r.currentAgent) == nil {
-		names := strings.Join(r.team.AgentNames(), ", ")
-		if names == "" {
-			names = "(none)"
-		}
-		return nil, fmt.Errorf("agent %q not found in team; available agents: %s", r.currentAgent, names)
+	if _, err = r.team.Agent(r.currentAgent); err != nil {
+		return nil, err
 	}
 
 	slog.Debug("Creating new runtime", "agent", r.currentAgent, "available_agents", agents.Size())
@@ -182,7 +175,9 @@ func New(agents *team.Team, opts ...Opt) (Runtime, error) {
 }
 
 func (r *runtime) CurrentAgent() *agent.Agent {
-	return r.team.Agent(r.currentAgent)
+	// We validated already that the agent exists
+	current, _ := r.team.Agent(r.currentAgent)
+	return current
 }
 
 func (r *runtime) StopPendingProcesses(ctx context.Context) error {
@@ -222,13 +217,12 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 		))
 		defer sessionSpan.End()
 
-		a := r.team.Agent(r.currentAgent)
-
 		// Set the events channel for elicitation requests
 		r.setElicitationEventsChannel(events)
 		defer r.clearElicitationEventsChannel()
 
 		// Set elicitation handler on all MCP toolsets before getting tools
+		a := r.CurrentAgent()
 		for _, toolset := range a.ToolSets() {
 			toolset.SetElicitationHandler(r.elicitationHandler)
 			toolset.SetOAuthSuccessHandler(func() {
@@ -928,15 +922,15 @@ func (r *runtime) handleTaskTransfer(ctx context.Context, sess *session.Session,
 
 	slog.Debug("Creating new session with parent session", "parent_session_id", sess.ID, "tools_approved", sess.ToolsApproved)
 
-	subAgentMaxIter := 0
-	if child := r.team.Agent(params.Agent); child != nil {
-		subAgentMaxIter = child.MaxIterations()
+	child, err := r.team.Agent(params.Agent)
+	if err != nil {
+		return nil, err
 	}
 
 	s := session.New(
 		session.WithSystemMessage(memberAgentTask),
 		session.WithImplicitUserMessage("", "Follow the default instructions"),
-		session.WithMaxIterations(subAgentMaxIter),
+		session.WithMaxIterations(child.MaxIterations()),
 	)
 	s.SendUserMessage = false
 	s.Title = "Transferred task"
