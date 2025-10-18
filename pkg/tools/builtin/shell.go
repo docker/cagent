@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/docker/cagent/pkg/tools"
 )
@@ -23,11 +25,19 @@ type ShellTool struct {
 var _ tools.ToolSet = (*ShellTool)(nil)
 
 type shellHandler struct {
-	shell           string
-	shellArgsPrefix []string
-	env             []string
-	mu              sync.Mutex
-	processes       []*os.Process
+	shell              string
+	shellArgsPrefix    []string
+	env                []string
+	mu                 sync.Mutex
+	processes          []*os.Process
+	backgroundCommands map[int]*backgroundCommand
+}
+
+type backgroundCommand struct {
+	cmd    *exec.Cmd
+	outBuf *bytes.Buffer
+	errBuf *bytes.Buffer
+	done   chan error
 }
 
 type RunShellArgs struct {
@@ -62,10 +72,19 @@ func (h *shellHandler) RunShell(ctx context.Context, toolCall tools.ToolCall) (*
 	// Note: On Windows, we would set CreationFlags, but that requires
 	// platform-specific code in a _windows.go file
 
-	// Capture output using buffers
-	var outBuf, errBuf bytes.Buffer
-	cmd.Stdout = &outBuf
-	cmd.Stderr = &errBuf
+	// Use pipes for real-time output capture
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return &tools.ToolCallResult{
+			Output: fmt.Sprintf("Error creating stdout pipe: %s", err),
+		}, nil
+	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return &tools.ToolCallResult{
+			Output: fmt.Sprintf("Error creating stderr pipe: %s", err),
+		}, nil
+	}
 
 	// Start the command so we can track it
 	if err := cmd.Start(); err != nil {
@@ -91,27 +110,117 @@ func (h *shellHandler) RunShell(ctx context.Context, toolCall tools.ToolCall) (*
 		h.mu.Unlock()
 	}()
 
-	// Wait for the command to complete and get the result
-	err := cmd.Wait()
+	// Capture output in real-time
+	var outBuf, errBuf bytes.Buffer
+	var wg sync.WaitGroup
+	wg.Add(2)
 
-	// Combine stdout and stderr
-	output := outBuf.String() + errBuf.String()
+	// Read stdout
+	go func() {
+		defer wg.Done()
+		_, _ = io.Copy(&outBuf, stdoutPipe)
+	}()
 
-	if err != nil {
+	// Read stderr
+	go func() {
+		defer wg.Done()
+		_, _ = io.Copy(&errBuf, stderrPipe)
+	}()
+
+	// Wait for command completion with timeout
+	const quickCommandTimeout = 30 * time.Second
+	done := make(chan error, 1)
+	go func() {
+		wg.Wait() // Wait for output to be fully read
+		done <- cmd.Wait()
+	}()
+
+	select {
+	case err := <-done:
+		// Command completed quickly (within 30 seconds)
+		output := outBuf.String() + errBuf.String()
+		if err != nil {
+			return &tools.ToolCallResult{
+				Output: fmt.Sprintf("Error executing command: %s\nOutput: %s", err, output),
+			}, nil
+		}
 		return &tools.ToolCallResult{
-			Output: fmt.Sprintf("Error executing command: %s\nOutput: %s", err, output),
+			Output: fmt.Sprintf("Output: %s", output),
+		}, nil
+
+	case <-time.After(quickCommandTimeout):
+		// Command is taking too long - track it as a background command
+		pid := cmd.Process.Pid
+
+		h.mu.Lock()
+		if h.backgroundCommands == nil {
+			h.backgroundCommands = make(map[int]*backgroundCommand)
+		}
+		h.backgroundCommands[pid] = &backgroundCommand{
+			cmd:    cmd,
+			outBuf: &outBuf,
+			errBuf: &errBuf,
+			done:   done,
+		}
+		h.mu.Unlock()
+
+		// Return immediately with PID
+		return &tools.ToolCallResult{
+			Output: fmt.Sprintf("Command is running in background (PID: %d). Use get_logs tool with this PID to retrieve output.", pid),
+		}, nil
+	}
+}
+
+type GetLogsArgs struct {
+	PID int `json:"pid" jsonschema:"The process ID of the background command"`
+}
+
+func (h *shellHandler) GetLogs(ctx context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
+	var params GetLogsArgs
+	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &params); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+
+	h.mu.Lock()
+	bgCmd, exists := h.backgroundCommands[params.PID]
+	h.mu.Unlock()
+
+	if !exists {
+		return &tools.ToolCallResult{
+			Output: fmt.Sprintf("No background command found with PID: %d", params.PID),
 		}, nil
 	}
 
-	if output == "" {
+	// Check if command has completed
+	select {
+	case err := <-bgCmd.done:
+		// Command completed - get final output and clean up
+		h.mu.Lock()
+		delete(h.backgroundCommands, params.PID)
+		h.mu.Unlock()
+
+		output := bgCmd.outBuf.String() + bgCmd.errBuf.String()
+		if err != nil {
+			return &tools.ToolCallResult{
+				Output: fmt.Sprintf("Command (PID: %d) completed with error: %s\n\nOutput:\n%s", params.PID, err, output),
+			}, nil
+		}
 		return &tools.ToolCallResult{
-			Output: "<no output>",
+			Output: fmt.Sprintf("Command (PID: %d) completed successfully.\n\nOutput:\n%s", params.PID, output),
+		}, nil
+
+	default:
+		// Command still running - return current output
+		output := bgCmd.outBuf.String() + bgCmd.errBuf.String()
+		if output == "" {
+			return &tools.ToolCallResult{
+				Output: fmt.Sprintf("Command (PID: %d) is still running. No output yet.", params.PID),
+			}, nil
+		}
+		return &tools.ToolCallResult{
+			Output: fmt.Sprintf("Command (PID: %d) is still running.\n\nCurrent output:\n%s", params.PID, output),
 		}, nil
 	}
-
-	return &tools.ToolCallResult{
-		Output: output,
-	}, nil
 }
 
 func NewShellTool(env []string) *ShellTool {
@@ -230,6 +339,17 @@ func (t *ShellTool) Tools(context.Context) ([]tools.Tool, error) {
 			Handler:      t.handler.RunShell,
 			Annotations: tools.ToolAnnotations{
 				Title: "Run Shell Command",
+			},
+		},
+		{
+			Name:         "get_logs",
+			Category:     "shell",
+			Description:  `Retrieves the output logs from a background shell command by its process ID.`,
+			Parameters:   tools.MustSchemaFor[GetLogsArgs](),
+			OutputSchema: tools.MustSchemaFor[string](),
+			Handler:      t.handler.GetLogs,
+			Annotations: tools.ToolAnnotations{
+				Title: "Get Background Command Logs",
 			},
 		},
 	}, nil

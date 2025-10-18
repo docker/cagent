@@ -34,7 +34,7 @@ func TestShellTool_Tools(t *testing.T) {
 	allTools, err := tool.Tools(t.Context())
 
 	require.NoError(t, err)
-	assert.Len(t, allTools, 1)
+	assert.Len(t, allTools, 2) // shell and get_logs
 	for _, tool := range allTools {
 		assert.NotNil(t, tool.Handler)
 		assert.Equal(t, "shell", tool.Category)
@@ -42,6 +42,9 @@ func TestShellTool_Tools(t *testing.T) {
 	// Verify bash function
 	assert.Equal(t, "shell", allTools[0].Name)
 	assert.Contains(t, allTools[0].Description, "Executes the given shell command")
+	// Verify get_logs function
+	assert.Equal(t, "get_logs", allTools[1].Name)
+	assert.Contains(t, allTools[1].Description, "Retrieves the output logs")
 
 	schema, err := json.Marshal(allTools[0].Parameters)
 	require.NoError(t, err)
@@ -84,7 +87,7 @@ func TestShellTool_HandlerEcho(t *testing.T) {
 	// Get handler from tool
 	tls, err := tool.Tools(t.Context())
 	require.NoError(t, err)
-	require.Len(t, tls, 1)
+	require.Len(t, tls, 2) // shell and get_logs
 
 	handler := tls[0].Handler
 
@@ -118,7 +121,7 @@ func TestShellTool_HandlerWithCwd(t *testing.T) {
 	// Get handler from tool
 	tls, err := tool.Tools(t.Context())
 	require.NoError(t, err)
-	require.Len(t, tls, 1)
+	require.Len(t, tls, 2) // shell and get_logs
 
 	handler := tls[0].Handler
 
@@ -156,7 +159,7 @@ func TestShellTool_HandlerError(t *testing.T) {
 	// Get handler from tool
 	tls, err := tool.Tools(t.Context())
 	require.NoError(t, err)
-	require.Len(t, tls, 1)
+	require.Len(t, tls, 2) // shell and get_logs
 
 	handler := tls[0].Handler
 
@@ -189,7 +192,7 @@ func TestShellTool_InvalidArguments(t *testing.T) {
 	// Get handler from tool
 	tls, err := tool.Tools(t.Context())
 	require.NoError(t, err)
-	require.Len(t, tls, 1)
+	require.Len(t, tls, 2) // shell and get_logs
 
 	handler := tls[0].Handler
 
