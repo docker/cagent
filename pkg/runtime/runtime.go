@@ -219,21 +219,35 @@ func (r *runtime) emitUsageEvent(sess *session.Session, contextLimit int, events
 		return
 	}
 
-	totalInput := sess.TotalInputTokens
-	totalOutput := sess.TotalOutputTokens
-	totalCost := sess.TotalCost
-
-	if r.usageTracker != nil {
-		totalInput, totalOutput, totalCost = r.usageTracker.totals()
+	usage := &Usage{
+		ContextLength: sess.TotalInputTokens + sess.TotalOutputTokens,
+		ContextLimit:  contextLimit,
+		InputTokens:   sess.TotalInputTokens,
+		OutputTokens:  sess.TotalOutputTokens,
+		Cost:          sess.TotalCost,
 	}
 
-	events <- TokenUsage(
-		totalInput,
-		totalOutput,
-		totalInput+totalOutput,
-		contextLimit,
-		totalCost,
-	)
+	if r.usageTracker != nil {
+		summary := r.usageTracker.snapshot(contextLimit)
+		usage.InputTokens = summary.TotalInput
+		usage.OutputTokens = summary.TotalOutput
+		usage.Cost = summary.TotalCost
+		usage.ContextLength = summary.TotalInput + summary.TotalOutput
+		if len(summary.Rows) > 0 {
+			usage.Breakdown = summary.Rows
+		}
+		if len(summary.ActiveSessions) > 0 {
+			usage.ActiveSessions = summary.ActiveSessions
+		}
+		if summary.ContextLimit > 0 {
+			usage.ContextLimit = summary.ContextLimit
+		}
+	}
+
+	events <- &TokenUsageEvent{
+		Type:  "token_usage",
+		Usage: usage,
+	}
 }
 
 // RunStream starts the agent's interaction loop and returns a channel of events

@@ -55,6 +55,10 @@ func (m *model) Init() tea.Cmd {
 }
 
 func (m *model) SetTokenUsage(usage *runtime.Usage) {
+	if usage == nil {
+		m.usage = &runtime.Usage{}
+		return
+	}
 	m.usage = usage
 }
 
@@ -89,6 +93,13 @@ func formatTokenCount(count int) string {
 		return fmt.Sprintf("%.1fK", float64(count)/1000)
 	}
 	return fmt.Sprintf("%d", count)
+}
+
+func formatCost(cost float64) string {
+	if cost < 0.01 && cost > 0 {
+		return fmt.Sprintf("$%.4f", cost)
+	}
+	return fmt.Sprintf("$%.2f", cost)
 }
 
 // getCurrentWorkingDirectory returns the current working directory with home directory replaced by ~/
@@ -162,6 +173,45 @@ func (m *model) View() string {
 	// Get todo content (if any)
 	m.todoComp.SetSize(m.width)
 	todoContent := m.todoComp.Render()
+
+	// Build per-session breakdown if available
+	var sessionsContent string
+	if len(m.usage.Breakdown) > 0 {
+		active := make(map[string]struct{}, len(m.usage.ActiveSessions))
+		for _, id := range m.usage.ActiveSessions {
+			active[id] = struct{}{}
+		}
+
+		var builder strings.Builder
+		builder.WriteString(styles.HighlightStyle.Render("Sessions"))
+		for _, row := range m.usage.Breakdown {
+			total := row.InputTokens + row.OutputTokens
+			name := row.AgentName
+			if name == "" {
+				name = row.SessionID
+			}
+			if row.Title != "" {
+				name = fmt.Sprintf("%s — %s", name, row.Title)
+			}
+			line := fmt.Sprintf("%s%s • %s • %s",
+				strings.Repeat("  ", row.Depth),
+				name,
+				formatTokenCount(total),
+				formatCost(row.Cost),
+			)
+
+			if _, ok := active[row.SessionID]; ok {
+				builder.WriteString("\n" + styles.ActiveStyle.Render(line))
+			} else {
+				builder.WriteString("\n" + styles.BaseStyle.Render(line))
+			}
+		}
+		sessionsContent = builder.String()
+	}
+
+	if sessionsContent != "" {
+		topContent += "\n\n" + sessionsContent
+	}
 
 	// If we have todos, create a layout with todos at the bottom
 	if todoContent != "" {

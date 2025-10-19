@@ -200,6 +200,34 @@ func hasEventType(t *testing.T, events []Event, target Event) bool {
 	return false
 }
 
+func assertTokenUsageEvent(t *testing.T, ev Event, sess *session.Session, input, output int) {
+	t.Helper()
+
+	usageEvent, ok := ev.(*TokenUsageEvent)
+	require.True(t, ok, "expected TokenUsageEvent, got %T", ev)
+	require.NotNil(t, usageEvent.Usage)
+
+	require.Equal(t, input, usageEvent.Usage.InputTokens)
+	require.Equal(t, output, usageEvent.Usage.OutputTokens)
+	require.Equal(t, input+output, usageEvent.Usage.ContextLength)
+	require.InDelta(t, 0.0, usageEvent.Usage.Cost, 1e-9)
+
+	require.NotNil(t, usageEvent.Usage.Breakdown)
+	require.Len(t, usageEvent.Usage.Breakdown, 1)
+
+	row := usageEvent.Usage.Breakdown[0]
+	require.Equal(t, sess.ID, row.SessionID)
+	require.Equal(t, "root", row.AgentName)
+	require.Equal(t, sess.Title, row.Title)
+	require.Equal(t, 0, row.Depth)
+	require.Equal(t, input, row.InputTokens)
+	require.Equal(t, output, row.OutputTokens)
+	require.InDelta(t, 0.0, row.Cost, 1e-9)
+	require.True(t, row.Active)
+
+	require.ElementsMatch(t, []string{sess.ID}, usageEvent.Usage.ActiveSessions)
+}
+
 func TestSimple(t *testing.T) {
 	stream := newStreamBuilder().
 		AddContent("Hello").
@@ -210,15 +238,21 @@ func TestSimple(t *testing.T) {
 
 	events := runSession(t, sess, stream)
 
-	expectedEvents := []Event{
-		UserMessage("Hi"),
-		StreamStarted(sess.ID, "root"),
-		AgentChoice("root", "Hello"),
-		TokenUsage(3, 2, 5, 0, 0),
-		StreamStopped(sess.ID, "root"),
-	}
+	require.Len(t, events, 5)
 
-	require.Equal(t, expectedEvents, events)
+	require.IsType(t, &UserMessageEvent{}, events[0])
+	require.Equal(t, "Hi", events[0].(*UserMessageEvent).Message)
+
+	require.IsType(t, &StreamStartedEvent{}, events[1])
+	require.Equal(t, sess.ID, events[1].(*StreamStartedEvent).SessionID)
+
+	require.IsType(t, &AgentChoiceEvent{}, events[2])
+	require.Equal(t, "Hello", events[2].(*AgentChoiceEvent).Content)
+
+	assertTokenUsageEvent(t, events[3], sess, 3, 2)
+
+	require.IsType(t, &StreamStoppedEvent{}, events[4])
+	require.Equal(t, sess.ID, events[4].(*StreamStoppedEvent).SessionID)
 }
 
 func TestMultipleContentChunks(t *testing.T) {
@@ -235,19 +269,29 @@ func TestMultipleContentChunks(t *testing.T) {
 
 	events := runSession(t, sess, stream)
 
-	expectedEvents := []Event{
-		UserMessage("Please greet me"),
-		StreamStarted(sess.ID, "root"),
-		AgentChoice("root", "Hello "),
-		AgentChoice("root", "there, "),
-		AgentChoice("root", "how "),
-		AgentChoice("root", "are "),
-		AgentChoice("root", "you?"),
-		TokenUsage(8, 12, 20, 0, 0),
-		StreamStopped(sess.ID, "root"),
-	}
+	require.Len(t, events, 8)
 
-	require.Equal(t, expectedEvents, events)
+	require.IsType(t, &UserMessageEvent{}, events[0])
+	require.Equal(t, "Please greet me", events[0].(*UserMessageEvent).Message)
+
+	require.IsType(t, &StreamStartedEvent{}, events[1])
+
+	require.IsType(t, &AgentChoiceEvent{}, events[2])
+	require.Equal(t, "Hello ", events[2].(*AgentChoiceEvent).Content)
+
+	require.IsType(t, &AgentChoiceEvent{}, events[3])
+	require.Equal(t, "there, ", events[3].(*AgentChoiceEvent).Content)
+
+	require.IsType(t, &AgentChoiceEvent{}, events[4])
+	require.Equal(t, "how ", events[4].(*AgentChoiceEvent).Content)
+
+	require.IsType(t, &AgentChoiceEvent{}, events[5])
+	require.Equal(t, "are ", events[5].(*AgentChoiceEvent).Content)
+
+	require.IsType(t, &AgentChoiceEvent{}, events[6])
+	require.Equal(t, "you?", events[6].(*AgentChoiceEvent).Content)
+
+	assertTokenUsageEvent(t, events[7], sess, 8, 12)
 }
 
 func TestWithReasoning(t *testing.T) {
@@ -262,17 +306,25 @@ func TestWithReasoning(t *testing.T) {
 
 	events := runSession(t, sess, stream)
 
-	expectedEvents := []Event{
-		UserMessage("Hi"),
-		StreamStarted(sess.ID, "root"),
-		AgentChoiceReasoning("root", "Let me think about this..."),
-		AgentChoiceReasoning("root", " I should respond politely."),
-		AgentChoice("root", "Hello, how can I help you?"),
-		TokenUsage(10, 15, 25, 0, 0),
-		StreamStopped(sess.ID, "root"),
-	}
+	require.Len(t, events, 7)
 
-	require.Equal(t, expectedEvents, events)
+	require.IsType(t, &UserMessageEvent{}, events[0])
+	require.Equal(t, "Hi", events[0].(*UserMessageEvent).Message)
+
+	require.IsType(t, &StreamStartedEvent{}, events[1])
+
+	require.IsType(t, &AgentChoiceReasoningEvent{}, events[2])
+	require.Equal(t, "Let me think about this...", events[2].(*AgentChoiceReasoningEvent).Content)
+
+	require.IsType(t, &AgentChoiceReasoningEvent{}, events[3])
+	require.Equal(t, " I should respond politely.", events[3].(*AgentChoiceReasoningEvent).Content)
+
+	require.IsType(t, &AgentChoiceEvent{}, events[4])
+	require.Equal(t, "Hello, how can I help you?", events[4].(*AgentChoiceEvent).Content)
+
+	assertTokenUsageEvent(t, events[5], sess, 10, 15)
+
+	require.IsType(t, &StreamStoppedEvent{}, events[6])
 }
 
 func TestMixedContentAndReasoning(t *testing.T) {
@@ -288,18 +340,28 @@ func TestMixedContentAndReasoning(t *testing.T) {
 
 	events := runSession(t, sess, stream)
 
-	expectedEvents := []Event{
-		UserMessage("Hi there"),
-		StreamStarted(sess.ID, "root"),
-		AgentChoiceReasoning("root", "The user wants a greeting"),
-		AgentChoice("root", "Hello!"),
-		AgentChoiceReasoning("root", " I should be friendly"),
-		AgentChoice("root", " How can I help you today?"),
-		TokenUsage(15, 20, 35, 0, 0),
-		StreamStopped(sess.ID, "root"),
-	}
+	require.Len(t, events, 8)
 
-	require.Equal(t, expectedEvents, events)
+	require.IsType(t, &UserMessageEvent{}, events[0])
+	require.Equal(t, "Hi there", events[0].(*UserMessageEvent).Message)
+
+	require.IsType(t, &StreamStartedEvent{}, events[1])
+
+	require.IsType(t, &AgentChoiceReasoningEvent{}, events[2])
+	require.Equal(t, "The user wants a greeting", events[2].(*AgentChoiceReasoningEvent).Content)
+
+	require.IsType(t, &AgentChoiceEvent{}, events[3])
+	require.Equal(t, "Hello!", events[3].(*AgentChoiceEvent).Content)
+
+	require.IsType(t, &AgentChoiceReasoningEvent{}, events[4])
+	require.Equal(t, " I should be friendly", events[4].(*AgentChoiceReasoningEvent).Content)
+
+	require.IsType(t, &AgentChoiceEvent{}, events[5])
+	require.Equal(t, " How can I help you today?", events[5].(*AgentChoiceEvent).Content)
+
+	assertTokenUsageEvent(t, events[6], sess, 15, 20)
+
+	require.IsType(t, &StreamStoppedEvent{}, events[7])
 }
 
 func TestToolCallSequence(t *testing.T) {

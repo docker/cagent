@@ -189,11 +189,26 @@ type TokenUsageEvent struct {
 }
 
 type Usage struct {
-	InputTokens   int     `json:"input_tokens"`
-	OutputTokens  int     `json:"output_tokens"`
-	ContextLength int     `json:"context_length"`
-	ContextLimit  int     `json:"context_limit"`
-	Cost          float64 `json:"cost"`
+	InputTokens    int             `json:"input_tokens"`
+	OutputTokens   int             `json:"output_tokens"`
+	ContextLength  int             `json:"context_length"`
+	ContextLimit   int             `json:"context_limit"`
+	Cost           float64         `json:"cost"`
+	Breakdown      []*SessionUsage `json:"breakdown,omitempty"`
+	ActiveSessions []string        `json:"active_sessions,omitempty"`
+}
+
+type SessionUsage struct {
+	SessionID       string  `json:"session_id"`
+	AgentName       string  `json:"agent_name"`
+	Title           string  `json:"title,omitempty"`
+	ParentSessionID string  `json:"parent_session_id,omitempty"`
+	Depth           int     `json:"depth"`
+	InputTokens     int     `json:"input_tokens"`
+	OutputTokens    int     `json:"output_tokens"`
+	Cost            float64 `json:"cost"`
+	ContextLimit    int     `json:"context_limit,omitempty"`
+	Active          bool    `json:"active"`
 }
 
 func TokenUsage(inputTokens, outputTokens, contextLength, contextLimit int, cost float64) Event {
