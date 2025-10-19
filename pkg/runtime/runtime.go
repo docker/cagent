@@ -374,7 +374,7 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 			if m != nil {
 				contextLimit = m.Limit.Context
 			}
-			events <- TokenUsage(sess.InputTokens, sess.OutputTokens, sess.InputTokens+sess.OutputTokens, contextLimit, sess.Cost)
+			events <- TokenUsage(sess.TotalInputTokens, sess.TotalOutputTokens, sess.TotalInputTokens+sess.TotalOutputTokens, contextLimit, sess.TotalCost)
 
 			if m != nil && r.sessionCompaction {
 				if sess.InputTokens+sess.OutputTokens > int(float64(contextLimit)*0.9) {
@@ -383,7 +383,7 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 					if len(res.Calls) == 0 {
 						events <- SessionCompaction(sess.ID, "start", r.currentAgent)
 						r.Summarize(ctx, sess, events)
-						events <- TokenUsage(sess.InputTokens, sess.OutputTokens, sess.InputTokens+sess.OutputTokens, contextLimit, sess.Cost)
+						events <- TokenUsage(sess.TotalInputTokens, sess.TotalOutputTokens, sess.TotalInputTokens+sess.TotalOutputTokens, contextLimit, sess.TotalCost)
 						events <- SessionCompaction(sess.ID, "completed", r.currentAgent)
 					}
 				}
@@ -397,7 +397,7 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 				if sess.InputTokens+sess.OutputTokens > int(float64(contextLimit)*0.9) {
 					events <- SessionCompaction(sess.ID, "start", r.currentAgent)
 					r.Summarize(ctx, sess, events)
-					events <- TokenUsage(sess.InputTokens, sess.OutputTokens, sess.InputTokens+sess.OutputTokens, contextLimit, sess.Cost)
+					events <- TokenUsage(sess.TotalInputTokens, sess.TotalOutputTokens, sess.TotalInputTokens+sess.TotalOutputTokens, contextLimit, sess.TotalCost)
 					events <- SessionCompaction(sess.ID, "completed", r.currentAgent)
 				}
 			}
@@ -520,12 +520,19 @@ func (r *LocalRuntime) Run(ctx context.Context, sess *session.Session) ([]sessio
 func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStream, a *agent.Agent, agentTools []tools.Tool, sess *session.Session, m *modelsdev.Model, events chan Event) (streamResult, error) {
 	defer stream.Close()
 
+	sess.ResetUsageTracking()
+
 	var fullContent strings.Builder
 	var fullReasoningContent strings.Builder
 	var thinkingSignature string
 	var toolCalls []tools.ToolCall
 	// Track which tool call indices we've already emitted partial events for
 	emittedPartialEvents := make(map[string]bool)
+
+	var lastPromptTokens int
+	var lastCompletionTokens int
+	var lastCachedInputTokens int
+	var lastCachedOutputTokens int
 
 	for {
 		response, err := stream.Recv()
@@ -537,21 +544,62 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 		}
 
 		if response.Usage != nil {
-			if m != nil {
-				sess.Cost += (float64(response.Usage.InputTokens)*m.Cost.Input +
-					float64(response.Usage.OutputTokens+response.Usage.ReasoningTokens)*m.Cost.Output +
-					float64(response.Usage.CachedInputTokens)*m.Cost.CacheRead +
-					float64(response.Usage.CachedOutputTokens)*m.Cost.CacheWrite) / 1e6
+			promptTokensAbs := response.Usage.InputTokens
+			completionTokensAbs := response.Usage.OutputTokens + response.Usage.ReasoningTokens
+			cachedInputTokensAbs := response.Usage.CachedInputTokens
+			cachedOutputTokensAbs := response.Usage.CachedOutputTokens
+
+			inputTokensAbs := promptTokensAbs + cachedInputTokensAbs
+			outputTokensAbs := completionTokensAbs + cachedOutputTokensAbs
+
+			inputDelta := inputTokensAbs - sess.InputTokens
+			if inputDelta < 0 {
+				inputDelta = 0
+			}
+			outputDelta := outputTokensAbs - sess.OutputTokens
+			if outputDelta < 0 {
+				outputDelta = 0
 			}
 
-			sess.InputTokens = response.Usage.InputTokens + response.Usage.CachedInputTokens
-			sess.OutputTokens = response.Usage.OutputTokens + response.Usage.CachedOutputTokens + response.Usage.ReasoningTokens
-
-			modelName := "unknown"
-			if m != nil {
-				modelName = m.Name
+			promptDelta := promptTokensAbs - lastPromptTokens
+			if promptDelta < 0 {
+				promptDelta = 0
 			}
-			telemetry.RecordTokenUsage(ctx, modelName, int64(response.Usage.InputTokens), int64(response.Usage.OutputTokens+response.Usage.ReasoningTokens), sess.Cost)
+			completionDelta := completionTokensAbs - lastCompletionTokens
+			if completionDelta < 0 {
+				completionDelta = 0
+			}
+			cachedInputDelta := cachedInputTokensAbs - lastCachedInputTokens
+			if cachedInputDelta < 0 {
+				cachedInputDelta = 0
+			}
+			cachedOutputDelta := cachedOutputTokensAbs - lastCachedOutputTokens
+			if cachedOutputDelta < 0 {
+				cachedOutputDelta = 0
+			}
+
+			lastPromptTokens = promptTokensAbs
+			lastCompletionTokens = completionTokensAbs
+			lastCachedInputTokens = cachedInputTokensAbs
+			lastCachedOutputTokens = cachedOutputTokensAbs
+
+			var costDelta float64
+			if m != nil {
+				costDelta = (float64(promptDelta)*m.Cost.Input +
+					float64(completionDelta)*m.Cost.Output +
+					float64(cachedInputDelta)*m.Cost.CacheRead +
+					float64(cachedOutputDelta)*m.Cost.CacheWrite) / 1e6
+			}
+
+			if inputDelta > 0 || outputDelta > 0 || costDelta > 0 {
+				sess.AddUsageDelta(inputDelta, outputDelta, costDelta)
+
+				modelName := "unknown"
+				if m != nil {
+					modelName = m.Name
+				}
+				telemetry.RecordTokenUsage(ctx, modelName, int64(inputDelta), int64(outputDelta), costDelta)
+			}
 		}
 
 		if len(response.Choices) == 0 {
