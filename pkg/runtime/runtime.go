@@ -93,6 +93,7 @@ type runtime struct {
 	elicitationRequestCh        chan ElicitationResult // Channel for receiving elicitation responses
 	elicitationEventsChannel    chan Event             // Current events channel for sending elicitation requests
 	elicitationEventsChannelMux sync.RWMutex           // Protects elicitationEventsChannel
+	usageTracker                *usageTracker
 }
 
 type streamResult struct {
@@ -158,6 +159,7 @@ func New(agents *team.Team, opts ...Opt) (Runtime, error) {
 		modelsStore:          modelsStore,
 		sessionCompaction:    true,
 		managedOAuth:         true,
+		usageTracker:         newUsageTracker(),
 	}
 
 	for _, opt := range opts {
@@ -194,6 +196,10 @@ func (r *runtime) registerDefaultTools() {
 func (r *runtime) finalizeEventChannel(ctx context.Context, sess *session.Session, events chan Event) {
 	defer close(events)
 
+	if r.usageTracker != nil {
+		r.usageTracker.markActive(sess.ID, false)
+	}
+
 	events <- StreamStopped(sess.ID, r.currentAgent)
 
 	telemetry.RecordSessionEnd(ctx)
@@ -201,6 +207,28 @@ func (r *runtime) finalizeEventChannel(ctx context.Context, sess *session.Sessio
 	if sess.Title == "" && len(sess.GetAllMessages()) > 0 {
 		r.generateSessionTitle(ctx, sess, events)
 	}
+}
+
+func (r *runtime) emitUsageEvent(sess *session.Session, contextLimit int, events chan Event) {
+	if sess == nil || events == nil {
+		return
+	}
+
+	totalInput := sess.TotalInputTokens
+	totalOutput := sess.TotalOutputTokens
+	totalCost := sess.TotalCost
+
+	if r.usageTracker != nil {
+		totalInput, totalOutput, totalCost = r.usageTracker.totals()
+	}
+
+	events <- TokenUsage(
+		totalInput,
+		totalOutput,
+		totalInput+totalOutput,
+		contextLimit,
+		totalCost,
+	)
 }
 
 // RunStream starts the agent's interaction loop and returns a channel of events
@@ -223,6 +251,13 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 
 		// Set elicitation handler on all MCP toolsets before getting tools
 		a := r.CurrentAgent()
+		if sess.AgentName == "" {
+			sess.AgentName = a.Name()
+		}
+		if r.usageTracker != nil {
+			r.usageTracker.registerSession(sess.ID, sess.AgentName, sess.ParentSessionID, sess.Title, 0)
+			r.usageTracker.markActive(sess.ID, true)
+		}
 		for _, toolset := range a.ToolSets() {
 			toolset.SetElicitationHandler(r.elicitationHandler)
 			toolset.SetOAuthSuccessHandler(func() {
@@ -303,6 +338,8 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 			m, err := r.modelsStore.GetModel(ctx, modelID)
 			if err != nil {
 				slog.Debug("Failed to get model definition", "error", err)
+			} else if r.usageTracker != nil && m != nil {
+				r.usageTracker.registerSession(sess.ID, "", "", "", m.Limit.Context)
 			}
 
 			slog.Debug("Creating chat completion stream", "agent", a.Name())
@@ -366,7 +403,7 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 			if m != nil {
 				contextLimit = m.Limit.Context
 			}
-			events <- TokenUsage(sess.TotalInputTokens, sess.TotalOutputTokens, sess.TotalInputTokens+sess.TotalOutputTokens, contextLimit, sess.TotalCost)
+			r.emitUsageEvent(sess, contextLimit, events)
 
 			if m != nil && r.sessionCompaction {
 				if sess.InputTokens+sess.OutputTokens > int(float64(contextLimit)*0.9) {
@@ -375,7 +412,7 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 					if len(res.Calls) == 0 {
 						events <- SessionCompaction(sess.ID, "start", r.currentAgent)
 						r.Summarize(ctx, sess, events)
-						events <- TokenUsage(sess.TotalInputTokens, sess.TotalOutputTokens, sess.TotalInputTokens+sess.TotalOutputTokens, contextLimit, sess.TotalCost)
+						r.emitUsageEvent(sess, contextLimit, events)
 						events <- SessionCompaction(sess.ID, "completed", r.currentAgent)
 					}
 				}
@@ -389,7 +426,7 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 				if sess.InputTokens+sess.OutputTokens > int(float64(contextLimit)*0.9) {
 					events <- SessionCompaction(sess.ID, "start", r.currentAgent)
 					r.Summarize(ctx, sess, events)
-					events <- TokenUsage(sess.TotalInputTokens, sess.TotalOutputTokens, sess.TotalInputTokens+sess.TotalOutputTokens, contextLimit, sess.TotalCost)
+					r.emitUsageEvent(sess, contextLimit, events)
 					events <- SessionCompaction(sess.ID, "completed", r.currentAgent)
 				}
 			}
@@ -561,6 +598,9 @@ func (r *runtime) handleStream(ctx context.Context, stream chat.MessageStream, a
 
 			if inputDelta > 0 || outputDelta > 0 || costDelta > 0 {
 				sess.AddUsageDelta(inputDelta, outputDelta, costDelta)
+				if r.usageTracker != nil {
+					r.usageTracker.addDelta(sess.ID, inputDelta, outputDelta, costDelta)
+				}
 
 				modelName := "unknown"
 				if m != nil {
@@ -979,10 +1019,14 @@ func (r *runtime) handleTaskTransfer(ctx context.Context, sess *session.Session,
 		session.WithSystemMessage(memberAgentTask),
 		session.WithImplicitUserMessage("", "Follow the default instructions"),
 		session.WithMaxIterations(child.MaxIterations()),
+		session.WithAgentMetadata(params.Agent, sess.ID),
 	)
 	s.SendUserMessage = false
 	s.Title = "Transferred task"
 	s.ToolsApproved = sess.ToolsApproved
+	if r.usageTracker != nil {
+		r.usageTracker.registerSession(s.ID, s.AgentName, s.ParentSessionID, s.Title, 0)
+	}
 
 	for event := range r.RunStream(ctx, s) {
 		evts <- event
@@ -1006,13 +1050,7 @@ func (r *runtime) handleTaskTransfer(ctx context.Context, sess *session.Session,
 		}
 	}
 
-	evts <- TokenUsage(
-		sess.TotalInputTokens,
-		sess.TotalOutputTokens,
-		sess.TotalInputTokens+sess.TotalOutputTokens,
-		contextLimit,
-		sess.TotalCost,
-	)
+	r.emitUsageEvent(sess, contextLimit, evts)
 
 	sess.AddSubSession(s)
 
@@ -1075,6 +1113,9 @@ func (r *runtime) generateSessionTitle(ctx context.Context, sess *session.Sessio
 		return
 	}
 	sess.Title = title
+	if r.usageTracker != nil {
+		r.usageTracker.registerSession(sess.ID, "", "", sess.Title, 0)
+	}
 	slog.Debug("Generated session title", "session_id", sess.ID, "title", title)
 	events <- SessionTitle(sess.ID, title, r.currentAgent)
 }
