@@ -1030,7 +1030,7 @@ func (r *LocalRuntime) handleTaskTransfer(ctx context.Context, sess *session.Ses
 	sess.MergeChildUsage(s)
 
 	contextLimit := 0
-	if parentAgent := r.team.Agent(ca); parentAgent != nil {
+	if parentAgent, _ := r.team.Agent(ca); parentAgent != nil {
 		if model := parentAgent.Model(); model != nil {
 			if modelDef, err := r.modelsStore.GetModel(ctx, model.ID()); err == nil && modelDef != nil {
 				contextLimit = modelDef.Limit.Context
