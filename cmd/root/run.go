@@ -212,7 +212,7 @@ func doRunCommand(ctx context.Context, args []string, exec bool) error {
 			return fmt.Errorf("failed to create remote client: %w", err)
 		}
 
-		sessTemplate := session.New()
+		sessTemplate := session.New(session.WithAgentMetadata(agentName, ""))
 		sessTemplate.ToolsApproved = autoApprove
 		sess, err = remoteClient.CreateSession(ctx, sessTemplate)
 		if err != nil {
@@ -235,7 +235,10 @@ func doRunCommand(ctx context.Context, args []string, exec bool) error {
 		}
 
 		// Create session first to get its ID for OAuth state encoding
-		sess = session.New(session.WithMaxIterations(agent.MaxIterations()))
+		sess = session.New(
+			session.WithMaxIterations(agent.MaxIterations()),
+			session.WithAgentMetadata(agentName, ""),
+		)
 		sess.ToolsApproved = autoApprove
 
 		// Create local runtime with root session ID for OAuth state encoding

@@ -46,6 +46,12 @@ type Session struct {
 	// Title is the title of the session, set by the runtime
 	Title string `json:"title"`
 
+	// AgentName tracks the agent responsible for this session
+	AgentName string `json:"agent_name"`
+
+	// ParentSessionID links sub-sessions back to their parent
+	ParentSessionID string `json:"parent_session_id,omitempty"`
+
 	// Messages holds the conversation history (messages and sub-sessions)
 	Messages []Item `json:"messages"`
 
@@ -248,6 +254,14 @@ func WithWorkingDir(workingDir string) Opt {
 func WithTitle(title string) Opt {
 	return func(s *Session) {
 		s.Title = title
+	}
+}
+
+// WithAgentMetadata sets agent attribution metadata on the session
+func WithAgentMetadata(agentName, parentSessionID string) Opt {
+	return func(s *Session) {
+		s.AgentName = agentName
+		s.ParentSessionID = parentSessionID
 	}
 }
 
