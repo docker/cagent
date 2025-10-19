@@ -995,6 +995,24 @@ func (r *runtime) handleTaskTransfer(ctx context.Context, sess *session.Session,
 
 	sess.ToolsApproved = s.ToolsApproved
 	sess.Cost += s.Cost
+	sess.MergeChildUsage(s)
+
+	contextLimit := 0
+	if parentAgent := r.team.Agent(ca); parentAgent != nil {
+		if model := parentAgent.Model(); model != nil {
+			if modelDef, err := r.modelsStore.GetModel(ctx, model.ID()); err == nil && modelDef != nil {
+				contextLimit = modelDef.Limit.Context
+			}
+		}
+	}
+
+	evts <- TokenUsage(
+		sess.TotalInputTokens,
+		sess.TotalOutputTokens,
+		sess.TotalInputTokens+sess.TotalOutputTokens,
+		contextLimit,
+		sess.TotalCost,
+	)
 
 	sess.AddSubSession(s)
 
