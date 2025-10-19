@@ -76,7 +76,8 @@ type Session struct {
 	// TotalCost accumulates the total cost incurred in this session, including sub-sessions.
 	TotalCost float64 `json:"total_cost"`
 
-	lastSeenUsage usageSnapshot
+	lastSeenUsage    usageSnapshot
+	mergedIntoParent bool
 }
 
 type usageSnapshot struct {
@@ -418,6 +419,9 @@ func (s *Session) AddUsageDelta(inputDelta, outputDelta int, cost float64) {
 	if outputDelta < 0 {
 		outputDelta = 0
 	}
+	if cost < 0 {
+		cost = 0
+	}
 
 	s.TotalInputTokens += inputDelta
 	s.TotalOutputTokens += outputDelta
@@ -435,13 +439,14 @@ func (s *Session) AddUsageDelta(inputDelta, outputDelta int, cost float64) {
 
 // MergeChildUsage folds a completed child session's totals into the current session.
 func (s *Session) MergeChildUsage(child *Session) {
-	if child == nil {
+	if child == nil || child.mergedIntoParent {
 		return
 	}
 
 	s.TotalInputTokens += child.TotalInputTokens
 	s.TotalOutputTokens += child.TotalOutputTokens
 	s.TotalCost += child.TotalCost
+	child.mergedIntoParent = true
 }
 
 // ResetUsageTracking clears per-call usage counters while keeping cumulative totals intact.
@@ -450,6 +455,11 @@ func (s *Session) ResetUsageTracking() {
 	s.OutputTokens = 0
 	s.Cost = 0
 	s.lastSeenUsage = usageSnapshot{}
+}
+
+// UsageSnapshot returns a copy of the last tracked usage snapshot for diagnostic/testing purposes.
+func (s *Session) UsageSnapshot() (inputTokens, outputTokens int, cost float64) {
+	return s.lastSeenUsage.inputTokens, s.lastSeenUsage.outputTokens, s.lastSeenUsage.cost
 }
 
 // trimMessages ensures we don't exceed the maximum number of messages while maintaining
