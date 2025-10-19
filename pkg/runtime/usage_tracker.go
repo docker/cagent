@@ -1,11 +1,16 @@
 package runtime
 
-import "sync"
+import (
+	"sort"
+	"sync"
+)
 
 // usageTracker maintains per-session usage metrics for runtime streams.
 type usageTracker struct {
-	mu   sync.RWMutex
-	rows map[string]*usageRow
+	mu              sync.RWMutex
+	rows            map[string]*usageRow
+	activeSessions  map[string]struct{}
+	maxContextLimit int
 }
 
 type usageRow struct {
@@ -26,7 +31,10 @@ type usageRow struct {
 }
 
 func newUsageTracker() *usageTracker {
-	return &usageTracker{rows: make(map[string]*usageRow)}
+	return &usageTracker{
+		rows:           make(map[string]*usageRow),
+		activeSessions: make(map[string]struct{}),
+	}
 }
 
 // registerSession ensures a row exists for the given session.
@@ -55,6 +63,9 @@ func (t *usageTracker) registerSession(sessID, agentName, parentID, title string
 	}
 	if contextLimit > 0 {
 		row.ContextLimit = contextLimit
+		if contextLimit > t.maxContextLimit {
+			t.maxContextLimit = contextLimit
+		}
 	}
 }
 
@@ -92,28 +103,120 @@ func (t *usageTracker) markActive(sessID string, active bool) {
 	}
 
 	row.Active = active
+	if active {
+		t.activeSessions[sessID] = struct{}{}
+	} else {
+		delete(t.activeSessions, sessID)
+	}
 }
 
-func (t *usageTracker) totals() (input, output int, cost float64) {
+type usageSnapshot struct {
+	Rows           []*SessionUsage
+	TotalInput     int
+	TotalOutput    int
+	TotalCost      float64
+	ActiveSessions []string
+	ContextLimit   int
+}
+
+func (t *usageTracker) snapshot(defaultContextLimit int) usageSnapshot {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
-	for _, row := range t.rows {
-		input += row.InputTokens
-		output += row.OutputTokens
-		cost += row.Cost
+	if len(t.rows) == 0 {
+		return usageSnapshot{
+			ContextLimit: defaultContextLimit,
+		}
 	}
-	return
-}
 
-func (t *usageTracker) snapshot() []*usageRow {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-
-	rows := make([]*usageRow, 0, len(t.rows))
+	children := make(map[string][]*usageRow, len(t.rows))
+	roots := make([]*usageRow, 0, len(t.rows))
 	for _, row := range t.rows {
-		copyRow := *row
-		rows = append(rows, &copyRow)
+		parentID := row.ParentSessionID
+		if parentID == "" || t.rows[parentID] == nil {
+			roots = append(roots, row)
+			continue
+		}
+		children[parentID] = append(children[parentID], row)
 	}
-	return rows
+
+	sort.SliceStable(roots, func(i, j int) bool {
+		return roots[i].SessionID < roots[j].SessionID
+	})
+	for parentID := range children {
+		kids := children[parentID]
+		sort.SliceStable(kids, func(i, j int) bool {
+			return kids[i].SessionID < kids[j].SessionID
+		})
+		children[parentID] = kids
+	}
+
+	var (
+		result      []*SessionUsage
+		totalInput  int
+		totalOutput int
+		totalCost   float64
+		visited     = make(map[string]bool, len(t.rows))
+	)
+
+	var traverse func(row *usageRow, depth int)
+	traverse = func(row *usageRow, depth int) {
+		if row == nil {
+			return
+		}
+		if visited[row.SessionID] {
+			return
+		}
+		visited[row.SessionID] = true
+
+		result = append(result, &SessionUsage{
+			SessionID:       row.SessionID,
+			AgentName:       row.AgentName,
+			Title:           row.Title,
+			ParentSessionID: row.ParentSessionID,
+			Depth:           depth,
+			InputTokens:     row.InputTokens,
+			OutputTokens:    row.OutputTokens,
+			Cost:            row.Cost,
+			ContextLimit:    row.ContextLimit,
+			Active:          row.Active,
+		})
+
+		totalInput += row.InputTokens
+		totalOutput += row.OutputTokens
+		totalCost += row.Cost
+
+		for _, child := range children[row.SessionID] {
+			traverse(child, depth+1)
+		}
+	}
+
+	for _, root := range roots {
+		traverse(root, 0)
+	}
+	for _, row := range t.rows {
+		if !visited[row.SessionID] {
+			traverse(row, 0)
+		}
+	}
+
+	active := make([]string, 0, len(t.activeSessions))
+	for id := range t.activeSessions {
+		active = append(active, id)
+	}
+	sort.Strings(active)
+
+	contextLimit := t.maxContextLimit
+	if contextLimit == 0 {
+		contextLimit = defaultContextLimit
+	}
+
+	return usageSnapshot{
+		Rows:           result,
+		TotalInput:     totalInput,
+		TotalOutput:    totalOutput,
+		TotalCost:      totalCost,
+		ActiveSessions: active,
+		ContextLimit:   contextLimit,
+	}
 }
