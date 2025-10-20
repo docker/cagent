@@ -8,87 +8,84 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAliases(t *testing.T) {
+func TestAliases_Empty(t *testing.T) {
 	tmpDir := t.TempDir()
 	aliasesFile := filepath.Join(tmpDir, "aliases.yaml")
 
-	t.Run("Load empty aliases", func(t *testing.T) {
-		s, err := LoadFrom(aliasesFile)
-		require.NoError(t, err)
-		assert.Empty(t, s.Aliases)
-	})
+	s, err := loadFrom(aliasesFile)
 
-	t.Run("Set and Get alias", func(t *testing.T) {
-		s, err := LoadFrom(aliasesFile)
-		require.NoError(t, err)
+	require.NoError(t, err)
+	assert.Empty(t, s)
+}
 
-		s.Set("test", "agentcatalog/test-agent")
+func TestAliases_SetGet(t *testing.T) {
+	tmpDir := t.TempDir()
+	aliasesFile := filepath.Join(tmpDir, "aliases.yaml")
 
-		value, ok := s.Get("test")
-		assert.True(t, ok)
-		assert.Equal(t, "agentcatalog/test-agent", value)
-	})
+	s, err := loadFrom(aliasesFile)
+	require.NoError(t, err)
+	assert.Empty(t, s)
 
-	t.Run("Save and load aliases", func(t *testing.T) {
-		s := &Aliases{
-			Aliases: map[string]string{
-				"code":    "agentcatalog/notion-expert",
-				"myagent": "/path/to/myagent.yaml",
-			},
-		}
+	s.Set("test", "agentcatalog/test-agent")
 
-		err := s.SaveTo(aliasesFile)
-		require.NoError(t, err)
+	value, ok := s.Get("test")
+	assert.True(t, ok)
+	assert.Equal(t, "agentcatalog/test-agent", value)
+}
 
-		loaded, err := LoadFrom(aliasesFile)
-		require.NoError(t, err)
+func TestAliases_SaveAndLoad(t *testing.T) {
+	tmpDir := t.TempDir()
+	aliasesFile := filepath.Join(tmpDir, "aliases.yaml")
 
-		assert.Len(t, loaded.Aliases, 2)
-		assert.Equal(t, "agentcatalog/notion-expert", loaded.Aliases["code"])
-		assert.Equal(t, "/path/to/myagent.yaml", loaded.Aliases["myagent"])
-	})
+	s := &Aliases{
+		"code":    "agentcatalog/notion-expert",
+		"myagent": "/path/to/myagent.yaml",
+	}
 
-	t.Run("Delete alias", func(t *testing.T) {
-		s := &Aliases{
-			Aliases: map[string]string{
-				"code":    "agentcatalog/notion-expert",
-				"myagent": "/path/to/myagent.yaml",
-			},
-		}
+	err := s.saveTo(aliasesFile)
+	require.NoError(t, err)
 
-		deleted := s.Delete("code")
-		assert.True(t, deleted)
+	loaded, err := loadFrom(aliasesFile)
+	require.NoError(t, err)
 
-		_, ok := s.Get("code")
-		assert.False(t, ok)
+	assert.Len(t, *loaded, 2)
+	assert.Equal(t, "agentcatalog/notion-expert", (*loaded)["code"])
+	assert.Equal(t, "/path/to/myagent.yaml", (*loaded)["myagent"])
+}
 
-		assert.Len(t, s.Aliases, 1)
+func TestAliases_Delete(t *testing.T) {
+	s := &Aliases{
+		"code":    "agentcatalog/notion-expert",
+		"myagent": "/path/to/myagent.yaml",
+	}
 
-		deleted = s.Delete("nonexistent")
-		assert.False(t, deleted)
-	})
+	deleted := s.Delete("code")
+	assert.True(t, deleted)
 
-	t.Run("List aliases", func(t *testing.T) {
-		s := &Aliases{
-			Aliases: map[string]string{
-				"code":    "agentcatalog/notion-expert",
-				"myagent": "/path/to/myagent.yaml",
-			},
-		}
+	_, ok := s.Get("code")
+	assert.False(t, ok)
+	assert.Len(t, *s, 1)
 
-		list := s.List()
-		assert.Len(t, list, 2)
-		assert.Equal(t, "agentcatalog/notion-expert", list["code"])
-	})
+	deleted = s.Delete("nonexistent")
+	assert.False(t, deleted)
+}
 
-	t.Run("Get non-existent alias", func(t *testing.T) {
-		s := &Aliases{
-			Aliases: map[string]string{
-				"code": "agentcatalog/notion-expert",
-			},
-		}
+func TestAliases_List(t *testing.T) {
+	s := &Aliases{
+		"code":    "agentcatalog/notion-expert",
+		"myagent": "/path/to/myagent.yaml",
+	}
 
-		_, ok := s.Get("nonexistent")
-		assert.False(t, ok)
-	})
+	list := s.List()
+	assert.Len(t, list, 2)
+	assert.Equal(t, "agentcatalog/notion-expert", list["code"])
+}
+
+func TestAliases_GetUnknown(t *testing.T) {
+	s := &Aliases{
+		"code": "agentcatalog/notion-expert",
+	}
+
+	_, ok := s.Get("nonexistent")
+	assert.False(t, ok)
 }

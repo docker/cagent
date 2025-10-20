@@ -45,7 +45,7 @@ func newAliasAddCmd() *cobra.Command {
 		Use:   "add <alias-name> <agent-path>",
 		Short: "Add a new alias",
 		Args:  cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			telemetry.TrackCommand("alias", append([]string{"add"}, args...))
 			return createAlias(args[0], args[1])
 		},
@@ -59,7 +59,7 @@ func newAliasListCmd() *cobra.Command {
 		Aliases: []string{"ls"},
 		Short:   "List all registered aliases",
 		Args:    cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(*cobra.Command, []string) error {
 			telemetry.TrackCommand("alias", []string{"list"})
 			return listAliases()
 		},
@@ -73,7 +73,7 @@ func newAliasRemoveCmd() *cobra.Command {
 		Aliases: []string{"rm"},
 		Short:   "Remove a registered alias",
 		Args:    cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			telemetry.TrackCommand("alias", append([]string{"remove"}, args...))
 			return removeAlias(args[0])
 		},
@@ -89,14 +89,13 @@ func createAlias(name, agentPath string) error {
 	}
 
 	// Expand tilde in path if it's a local file path
-	if strings.HasPrefix(agentPath, "~/") {
-		if abs, err := expandTilde(agentPath); err == nil {
-			agentPath = abs
-		}
+	absAgentPath, err := expandTilde(agentPath)
+	if err != nil {
+		return err
 	}
 
 	// Store the alias
-	s.Set(name, agentPath)
+	s.Set(name, absAgentPath)
 
 	// Save to file
 	if err := s.Save(); err != nil {
@@ -105,7 +104,7 @@ func createAlias(name, agentPath string) error {
 
 	fmt.Printf("Alias '%s' created successfully\n", name)
 	fmt.Printf("  Alias: %s\n", name)
-	fmt.Printf("  Agent: %s\n", agentPath)
+	fmt.Printf("  Agent: %s\n", absAgentPath)
 	fmt.Printf("\nYou can now run: cagent run %s\n", name)
 
 	return nil

@@ -127,7 +127,7 @@ models:
 
 #### Testing Best Practices
 
-This project uses `github.com/stretchr/testify` for assertions. 
+This project uses `github.com/stretchr/testify` for assertions.
 
 In Go tests, always prefer `require` and `assert` from the `testify` package over manual error handling.
 
