@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -931,15 +932,36 @@ func (s *Server) getSession(c echo.Context) error {
 		return jsonErr(c, http.StatusNotFound, "session not found")
 	}
 
+	params := api.PaginationParams{
+		Limit:  api.DefaultLimit,
+		Before: c.QueryParam("before"),
+		After:  c.QueryParam("after"),
+	}
+
+	if limitStr := c.QueryParam("limit"); limitStr != "" {
+		if limit, err := strconv.Atoi(limitStr); err == nil && limit > 0 {
+			params.Limit = limit
+		}
+	}
+
+	allMessages := sess.GetAllMessages()
+
+	paginatedMessages, pagination, err := api.PaginateMessages(allMessages, params)
+	if err != nil {
+		slog.Error("Failed to paginate messages", "error", err)
+		return jsonErr(c, http.StatusBadRequest, "invalid pagination parameters: "+err.Error())
+	}
+
 	sr := api.SessionResponse{
 		ID:            sess.ID,
 		Title:         sess.Title,
 		CreatedAt:     sess.CreatedAt,
-		Messages:      sess.GetAllMessages(),
+		Messages:      paginatedMessages,
 		ToolsApproved: sess.ToolsApproved,
 		InputTokens:   sess.InputTokens,
 		OutputTokens:  sess.OutputTokens,
 		WorkingDir:    sess.WorkingDir,
+		Pagination:    pagination,
 	}
 
 	return c.JSON(http.StatusOK, sr)
