@@ -39,7 +39,7 @@ func TestNewMemoryDatabase(t *testing.T) {
 	assert.NotNil(t, db, "Database should be created successfully")
 
 	// Test with invalid path
-	_, err := NewMemoryDatabase("/:invalid:path")
+	_, err := NewMemoryDatabase("/this/does/not/exist.db")
 	require.Error(t, err, "Should fail with invalid database path")
 }
 
