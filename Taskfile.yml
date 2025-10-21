@@ -25,7 +25,7 @@ tasks:
   lint:
     desc: Run golangci-lint
     cmds:
-      - golangci-lint run
+      - docker buildx bake lint
 
   format:
     desc: Format code
