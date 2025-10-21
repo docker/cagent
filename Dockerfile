@@ -25,6 +25,7 @@ RUN wget -O- -nv https://raw.githubusercontent.com/golangci/golangci-lint/master
 WORKDIR /src
 ARG TARGETPLATFORM
 RUN --mount=target=/src \
+    --mount=type=cache,target=/go/pkg/mod \
     --mount=target=/root/.cache,type=cache,id=lint-$TARGETPLATFORM \
     xx-go --wrap && \
     golangci-lint run

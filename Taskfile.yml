@@ -8,7 +8,7 @@ tasks:
     cmd: task --list
 
   dev:
-    deps: ["lint", "test", "build"]
+    deps: ["test", "build"]
 
   build:
     desc: Build the application binary
@@ -21,16 +21,6 @@ tasks:
     desc: Creates a symlink to ~/bin
     cmds:
       - ln -sf {{.USER_WORKING_DIR}}/{{.DESTDIR}}/cagent {{.HOME}}/bin/cagent
-
-  lint:
-    desc: Run golangci-lint
-    cmds:
-      - docker buildx bake lint
-
-  format:
-    desc: Format code
-    cmds:
-      - golangci-lint fmt
 
   test:
     desc: Run tests
