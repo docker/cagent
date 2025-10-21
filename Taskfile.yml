@@ -1,16 +1,7 @@
 version: "3"
 
 vars:
-  BINARY_NAME: cagent{{if eq OS "windows"}}.exe{{end}}
-  MAIN_PKG: ./main.go
-  BUILD_DIR: ./bin
-  GIT_TAG:
-    sh: git describe --tags --exact-match 2>/dev/null || echo dev
-  GIT_COMMIT:
-    sh: git rev-parse HEAD
-  GO_SOURCES: "**/*.go"
-  BUILD_ARGS: '--build-arg GIT_TAG="{{.GIT_TAG}}" --build-arg GIT_COMMIT="{{.GIT_COMMIT}}"'
-  LDFLAGS: '-X "github.com/docker/cagent/pkg/version.Version={{.GIT_TAG}}" -X "github.com/docker/cagent/pkg/version.Commit={{.GIT_COMMIT}}"'
+  DESTDIR: ./bin/build
 
 tasks:
   default:
@@ -22,56 +13,29 @@ tasks:
   build:
     desc: Build the application binary
     cmds:
-      - go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.BINARY_NAME}} {{.MAIN_PKG}}
-    sources:
-      - "{{.GO_SOURCES}}"
-      - "**/*.template"
-      - "**/*.txt"
-      - "go.mod"
-      - "go.sum"
+      - docker buildx bake binaries
     generates:
-      - "{{.BUILD_DIR}}/{{.BINARY_NAME}}"
+      - "{{.DESTDIR}}/cagent"
 
   link:
     desc: Creates a symlink to ~/bin
-    cmd: ln -sf {{.USER_WORKING_DIR}}/{{.BUILD_DIR}}/{{.BINARY_NAME}} {{.HOME}}/bin/{{.BINARY_NAME}}
+    cmds:
+      - ln -sf {{.USER_WORKING_DIR}}/{{.DESTDIR}}/cagent {{.HOME}}/bin/cagent
 
   lint:
     desc: Run golangci-lint
-    cmd: golangci-lint run
-    sources:
-      - "{{.GO_SOURCES}}"
-      - ".golangci.yml"
+    cmds:
+      - golangci-lint run
 
   format:
     desc: Format code
-    cmd: golangci-lint fmt
-    sources:
-      - "{{.GO_SOURCES}}"
-      - ".golangci.yml"
+    cmds:
+      - golangci-lint fmt
 
   test:
     desc: Run tests
-    cmd: go test ./...
-    sources:
-      - "{{.GO_SOURCES}}"
-      - "**/*.txt"
-
-  build-local:
-    desc: Build binaries for local host platform
-    cmd: docker buildx build --target=binaries {{.BUILD_ARGS}} --platform local --output=./dist .
-
-  cross:
-    desc: Build binaries for multiple platforms
-    cmd: docker buildx build --target=binaries {{.BUILD_ARGS}} --platform linux/amd64,linux/arm64,darwin/amd64,darwin/arm64,windows/amd64,windows/arm64 --output=./dist .
-
-  build-image:
-    desc: Build Docker image
-    cmd: docker buildx build -t docker/cagent {{.BUILD_ARGS}} .
-
-  push-image:
-    desc: Build and Push Docker image
-    cmd: docker buildx build --push --platform linux/amd64,linux/arm64 -t docker/cagent {{.BUILD_ARGS}} .
+    cmds:
+      - go test ./...
 
   push-agent:
     desc: Build dockerized agent
@@ -80,7 +44,8 @@ tasks:
       DOCKER_ID:
         sh: curl -s --unix-socket ~/Library/Containers/com.docker.docker/Data/backend.sock http://_/registry/info | jq -r .id
     deps: ["build"]
-    cmd: ./bin/cagent build --push ./examples/{{.AGENT}}.yaml {{.DOCKER_ID}}/cagent-{{.AGENT}}
+    cmds:
+      - ./bin/build/cagent build --push ./examples/{{.AGENT}}.yaml {{.DOCKER_ID}}/cagent-{{.AGENT}}
 
   push-agents:
     desc: Build dockerized agents
