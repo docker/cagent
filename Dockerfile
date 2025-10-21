@@ -1,9 +1,13 @@
 # syntax=docker/dockerfile:1
 
+ARG GO_VERSION="1.25.3"
+ARG ALPINE_VERSION="3.22"
+ARG GOLANGCI_LINT_VERSION="v2.5.0"
+
 # xx is a helper for cross-compilation
 FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.7.0 AS xx
 
-FROM --platform=$BUILDPLATFORM golang:1.25.3-alpine3.22 AS builder-base
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine${ALPINE_VERSION} AS builder-base
 COPY --from=xx / /
 RUN apk add --no-cache file git
 ENV CGO_ENABLED=0
@@ -12,6 +16,18 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=bind,source=go.mod,target=go.mod \
     --mount=type=bind,source=go.sum,target=go.sum \
     go mod download
+
+FROM builder-base AS lint
+RUN apk add --no-cache gcc musl-dev
+WORKDIR /
+ARG GOLANGCI_LINT_VERSION
+RUN wget -O- -nv https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s ${GOLANGCI_LINT_VERSION}
+WORKDIR /src
+ARG TARGETPLATFORM
+RUN --mount=target=/src \
+    --mount=target=/root/.cache,type=cache,id=lint-$TARGETPLATFORM \
+    xx-go --wrap && \
+    golangci-lint run
 
 FROM builder-base AS version
 RUN --mount=target=. <<'EOT'
@@ -60,7 +76,7 @@ EOT
 FROM scratch AS release
 COPY --from=releaser /out/ /
 
-FROM alpine AS image
+FROM alpine:${ALPINE_VERSION} AS image
 RUN apk add --no-cache ca-certificates docker-cli
 RUN addgroup -S cagent && adduser -S -G cagent cagent
 ENV DOCKER_MCP_IN_CONTAINER=1
