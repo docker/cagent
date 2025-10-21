@@ -60,7 +60,7 @@ EOT
 FROM scratch AS release
 COPY --from=releaser /out/ /
 
-FROM alpine
+FROM alpine AS image
 RUN apk add --no-cache ca-certificates docker-cli
 RUN addgroup -S cagent && adduser -S -G cagent cagent
 ENV DOCKER_MCP_IN_CONTAINER=1
@@ -71,3 +71,5 @@ COPY --from=builder /binaries/cagent /cagent
 USER cagent
 WORKDIR /work
 ENTRYPOINT ["/cagent"]
+
+FROM binaries
