@@ -5,6 +5,7 @@ FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.7.0 AS xx
 
 FROM --platform=$BUILDPLATFORM golang:1.25.3-alpine3.22 AS builder-base
 COPY --from=xx / /
+RUN apk add --no-cache file git
 ENV CGO_ENABLED=0
 WORKDIR /src
 RUN --mount=type=cache,target=/go/pkg/mod \
@@ -12,16 +13,27 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=bind,source=go.sum,target=go.sum \
     go mod download
 
+FROM builder-base AS version
+RUN --mount=target=. <<'EOT'
+  git rev-parse HEAD 2>/dev/null || {
+    echo >&2 "Failed to get git revision, make sure --build-arg BUILDKIT_CONTEXT_KEEP_GIT_DIR=1 is set when building from Git directly"
+    exit 1
+  }
+  set -ex
+  export PKG=github.com/docker/cagent VERSION=$(git describe --match 'v[0-9]*' --dirty='.m' --always --tags) COMMIT=$(git rev-parse HEAD)$(if ! git diff --no-ext-diff --quiet --exit-code; then echo .m; fi);
+  echo "-X ${PKG}/pkg/version.Version=${VERSION} -X ${PKG}/pkg/version.Commit=${COMMIT}" > /tmp/.ldflags;
+  echo -n "${VERSION}" > /tmp/.version;
+EOT
+
 FROM builder-base AS builder
 COPY . ./
-ARG GIT_TAG
-ARG GIT_COMMIT
 ARG TARGETPLATFORM
 ARG TARGETOS
 RUN --mount=type=cache,target=/root/.cache,id=docker-ai-$TARGETPLATFORM \
+    --mount=source=/tmp/.ldflags,target=/tmp/.ldflags,from=version \
     --mount=type=cache,target=/go/pkg/mod <<EOT
     set -ex
-    xx-go build -trimpath -ldflags "-s -w -X 'github.com/docker/cagent/pkg/version.Version=$GIT_TAG' -X 'github.com/docker/cagent/pkg/version.Commit=$GIT_COMMIT'" -o /binaries/cagent .
+    xx-go build -trimpath -ldflags "-s -w $(cat /tmp/.ldflags)" -o /binaries/cagent .
     xx-verify --static /binaries/cagent
     if [ "$TARGETOS" = "windows" ]; then
       mv /binaries/cagent /binaries/cagent.exe
