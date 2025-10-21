@@ -74,7 +74,14 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJson(needs.prepare-binaries.outputs.includes) }}
+    env:
+      DESTDIR: ./bin
     steps:
+      - name: Prepare
+        run: |
+          platform=${{ matrix.platforms }}
+          echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
+
       - name: Checkout
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
@@ -90,6 +97,13 @@ jobs:
           targets: release
           set: |
             *.platform=${{ matrix.platforms }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cagent-${{ env.PLATFORM_PAIR }}
+          path: ${{ env.DESTDIR }}/*
+          if-no-files-found: error
 
   build-image:
     needs:
