@@ -28,13 +28,19 @@ group "default" {
 }
 
 group "validate" {
-  targets = ["lint"]
+  targets = ["lint", "test"]
 }
 
 target "lint" {
   inherits = ["_common"]
   target = "lint"
   output = ["type=cacheonly"]
+}
+
+target "test" {
+  inherits = ["_common"]
+  target = "test-coverage"
+  output = [bindir("coverage")]
 }
 
 target "binaries" {
