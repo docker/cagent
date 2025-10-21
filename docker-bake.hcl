@@ -28,7 +28,7 @@ group "default" {
 }
 
 group "validate" {
-  targets = ["lint", "test"]
+  targets = ["lint", "test", "licenses"]
 }
 
 target "lint" {
@@ -41,6 +41,12 @@ target "test" {
   inherits = ["_common"]
   target = "test-coverage"
   output = [bindir("coverage")]
+}
+
+target "licenses" {
+  inherits = ["_common"]
+  target = "licenses-validate"
+  output = ["type=cacheonly"]
 }
 
 target "binaries" {

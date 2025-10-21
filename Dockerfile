@@ -17,6 +17,26 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=bind,source=go.sum,target=go.sum \
     go mod download
 
+FROM builder-base AS go-licenses
+ARG TARGETPLATFORM
+RUN --mount=target=/root/.cache,type=cache \
+    --mount=type=cache,target=/go/pkg/mod <<EOT
+  set -ex
+  xx-go install github.com/google/go-licenses@latest
+  mkdir /out
+  if ! xx-info is-cross; then
+    mv /go/bin/go-licenses /out
+  else
+    mv /go/bin/*/go-licenses* /out
+  fi
+EOT
+
+FROM builder-base AS licenses-validate
+RUN --mount=type=bind,target=. \
+    --mount=type=cache,target=/go/pkg/mod \
+    --mount=from=go-licenses,source=/out/go-licenses,target=/usr/bin/go-licenses \
+  go-licenses check . --allowed_licenses=Apache-2.0,MIT,BSD-3-Clause,BSD-2-Clause --ignore modernc.org/mathutil
+
 FROM builder-base AS lint
 RUN apk add --no-cache gcc musl-dev
 WORKDIR /
@@ -24,7 +44,7 @@ ARG GOLANGCI_LINT_VERSION
 RUN wget -O- -nv https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s ${GOLANGCI_LINT_VERSION}
 WORKDIR /src
 ARG TARGETPLATFORM
-RUN --mount=target=/src \
+RUN --mount=type=bind,target=. \
     --mount=type=cache,target=/go/pkg/mod \
     --mount=target=/root/.cache,type=cache,id=lint-$TARGETPLATFORM \
     xx-go --wrap && \
@@ -43,7 +63,7 @@ FROM scratch AS test-coverage
 COPY --from=test /tmp/coverage.txt /coverage.txt
 
 FROM builder-base AS version
-RUN --mount=target=. <<'EOT'
+RUN --mount=type=bind,target=. <<'EOT'
   git rev-parse HEAD 2>/dev/null || {
     echo >&2 "Failed to get git revision, make sure --build-arg BUILDKIT_CONTEXT_KEEP_GIT_DIR=1 is set when building from Git directly"
     exit 1
@@ -55,18 +75,18 @@ RUN --mount=target=. <<'EOT'
 EOT
 
 FROM builder-base AS builder
-COPY . ./
 ARG TARGETPLATFORM
 ARG TARGETOS
-RUN --mount=type=cache,target=/root/.cache,id=docker-ai-$TARGETPLATFORM \
+RUN --mount=type=bind,target=. \
+    --mount=type=cache,target=/root/.cache,id=docker-ai-$TARGETPLATFORM \
     --mount=source=/tmp/.ldflags,target=/tmp/.ldflags,from=version \
     --mount=type=cache,target=/go/pkg/mod <<EOT
-    set -ex
-    xx-go build -trimpath -ldflags "-s -w $(cat /tmp/.ldflags)" -o /binaries/cagent .
-    xx-verify --static /binaries/cagent
-    if [ "$TARGETOS" = "windows" ]; then
-      mv /binaries/cagent /binaries/cagent.exe
-    fi
+  set -ex
+  xx-go build -trimpath -ldflags "-s -w $(cat /tmp/.ldflags)" -o /binaries/cagent .
+  xx-verify --static /binaries/cagent
+  if [ "$TARGETOS" = "windows" ]; then
+    mv /binaries/cagent /binaries/cagent.exe
+  fi
 EOT
 
 FROM scratch AS binaries
