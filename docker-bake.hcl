@@ -27,6 +27,16 @@ group "default" {
   targets = ["binaries"]
 }
 
+group "validate" {
+  targets = ["lint"]
+}
+
+target "lint" {
+  inherits = ["_common"]
+  target = "lint"
+  output = ["type=cacheonly"]
+}
+
 target "binaries" {
   inherits = ["_common"]
   target = "binaries"
