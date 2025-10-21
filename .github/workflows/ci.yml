@@ -122,13 +122,13 @@ jobs:
             type=ref,event=pr
 
       - name: Build and push image
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        uses: docker/bake-action@3acf805d94d93a86cce4ca44798a76464a75b88c # v6.9.0
         with:
-          context: .
-          target: image
-          platforms: linux/amd64,linux/arm64
+          source: .
+          files: |
+            ./docker-bake.hcl
+            ${{ steps.meta.outputs.bake-file }}
+          targets: image-cross
           push: ${{ github.event_name != 'pull_request' }}
           sbom: true
           provenance: mode=max
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
