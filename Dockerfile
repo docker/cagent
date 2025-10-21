@@ -30,6 +30,18 @@ RUN --mount=target=/src \
     xx-go --wrap && \
     golangci-lint run
 
+FROM builder-base AS test
+RUN --mount=type=bind,target=.,rw \
+    --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build <<EOT
+  set -ex
+  go test -coverprofile=/tmp/coverage.txt ./...
+  go tool cover -func=/tmp/coverage.txt
+EOT
+
+FROM scratch AS test-coverage
+COPY --from=test /tmp/coverage.txt /coverage.txt
+
 FROM builder-base AS version
 RUN --mount=target=. <<'EOT'
   git rev-parse HEAD 2>/dev/null || {
