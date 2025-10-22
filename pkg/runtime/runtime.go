@@ -93,6 +93,7 @@ type runtime struct {
 	elicitationRequestCh        chan ElicitationResult // Channel for receiving elicitation responses
 	elicitationEventsChannel    chan Event             // Current events channel for sending elicitation requests
 	elicitationEventsChannelMux sync.RWMutex           // Protects elicitationEventsChannel
+	usageTracker                *usageTracker
 }
 
 type streamResult struct {
@@ -158,6 +159,7 @@ func New(agents *team.Team, opts ...Opt) (Runtime, error) {
 		modelsStore:          modelsStore,
 		sessionCompaction:    true,
 		managedOAuth:         true,
+		usageTracker:         newUsageTracker(),
 	}
 
 	for _, opt := range opts {
@@ -194,12 +196,52 @@ func (r *runtime) registerDefaultTools() {
 func (r *runtime) finalizeEventChannel(ctx context.Context, sess *session.Session, events chan Event) {
 	defer close(events)
 
+	if r.usageTracker != nil {
+		r.usageTracker.markActive(sess.ID, false)
+	}
+
 	events <- StreamStopped(sess.ID, r.currentAgent)
 
 	telemetry.RecordSessionEnd(ctx)
 
 	if sess.Title == "" && len(sess.GetAllMessages()) > 0 {
 		r.generateSessionTitle(ctx, sess, events)
+	}
+}
+
+func (r *runtime) emitUsageEvent(sess *session.Session, contextLimit int, events chan Event) {
+	if sess == nil || events == nil {
+		return
+	}
+
+	usage := &Usage{
+		ContextLength: sess.TotalInputTokens + sess.TotalOutputTokens,
+		ContextLimit:  contextLimit,
+		InputTokens:   sess.TotalInputTokens,
+		OutputTokens:  sess.TotalOutputTokens,
+		Cost:          sess.TotalCost,
+	}
+
+	if r.usageTracker != nil {
+		summary := r.usageTracker.snapshot(contextLimit)
+		usage.InputTokens = summary.TotalInput
+		usage.OutputTokens = summary.TotalOutput
+		usage.Cost = summary.TotalCost
+		usage.ContextLength = summary.TotalInput + summary.TotalOutput
+		if len(summary.Rows) > 0 {
+			usage.Breakdown = summary.Rows
+		}
+		if len(summary.ActiveSessions) > 0 {
+			usage.ActiveSessions = summary.ActiveSessions
+		}
+		if summary.ContextLimit > 0 {
+			usage.ContextLimit = summary.ContextLimit
+		}
+	}
+
+	events <- &TokenUsageEvent{
+		Type:  "token_usage",
+		Usage: usage,
 	}
 }
 
@@ -223,6 +265,13 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 
 		// Set elicitation handler on all MCP toolsets before getting tools
 		a := r.CurrentAgent()
+		if sess.AgentName == "" {
+			sess.AgentName = a.Name()
+		}
+		if r.usageTracker != nil {
+			r.usageTracker.registerSession(sess.ID, sess.AgentName, sess.ParentSessionID, sess.Title, 0)
+			r.usageTracker.markActive(sess.ID, true)
+		}
 		for _, toolset := range a.ToolSets() {
 			toolset.SetElicitationHandler(r.elicitationHandler)
 			toolset.SetOAuthSuccessHandler(func() {
@@ -303,6 +352,8 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 			m, err := r.modelsStore.GetModel(ctx, modelID)
 			if err != nil {
 				slog.Debug("Failed to get model definition", "error", err)
+			} else if r.usageTracker != nil && m != nil {
+				r.usageTracker.registerSession(sess.ID, "", "", "", m.Limit.Context)
 			}
 
 			slog.Debug("Creating chat completion stream", "agent", a.Name())
@@ -366,7 +417,7 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 			if m != nil {
 				contextLimit = m.Limit.Context
 			}
-			events <- TokenUsage(sess.InputTokens, sess.OutputTokens, sess.InputTokens+sess.OutputTokens, contextLimit, sess.Cost)
+			r.emitUsageEvent(sess, contextLimit, events)
 
 			if m != nil && r.sessionCompaction {
 				if sess.InputTokens+sess.OutputTokens > int(float64(contextLimit)*0.9) {
@@ -375,7 +426,7 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 					if len(res.Calls) == 0 {
 						events <- SessionCompaction(sess.ID, "start", r.currentAgent)
 						r.Summarize(ctx, sess, events)
-						events <- TokenUsage(sess.InputTokens, sess.OutputTokens, sess.InputTokens+sess.OutputTokens, contextLimit, sess.Cost)
+						r.emitUsageEvent(sess, contextLimit, events)
 						events <- SessionCompaction(sess.ID, "completed", r.currentAgent)
 					}
 				}
@@ -389,7 +440,7 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 				if sess.InputTokens+sess.OutputTokens > int(float64(contextLimit)*0.9) {
 					events <- SessionCompaction(sess.ID, "start", r.currentAgent)
 					r.Summarize(ctx, sess, events)
-					events <- TokenUsage(sess.InputTokens, sess.OutputTokens, sess.InputTokens+sess.OutputTokens, contextLimit, sess.Cost)
+					r.emitUsageEvent(sess, contextLimit, events)
 					events <- SessionCompaction(sess.ID, "completed", r.currentAgent)
 				}
 			}
@@ -488,12 +539,19 @@ func (r *runtime) Run(ctx context.Context, sess *session.Session) ([]session.Mes
 func (r *runtime) handleStream(ctx context.Context, stream chat.MessageStream, a *agent.Agent, agentTools []tools.Tool, sess *session.Session, m *modelsdev.Model, events chan Event) (streamResult, error) {
 	defer stream.Close()
 
+	sess.ResetUsageTracking()
+
 	var fullContent strings.Builder
 	var fullReasoningContent strings.Builder
 	var thinkingSignature string
 	var toolCalls []tools.ToolCall
 	// Track which tool call indices we've already emitted partial events for
 	emittedPartialEvents := make(map[string]bool)
+
+	var lastPromptTokens int
+	var lastCompletionTokens int
+	var lastCachedInputTokens int
+	var lastCachedOutputTokens int
 
 	for {
 		response, err := stream.Recv()
@@ -505,21 +563,65 @@ func (r *runtime) handleStream(ctx context.Context, stream chat.MessageStream, a
 		}
 
 		if response.Usage != nil {
-			if m != nil {
-				sess.Cost += (float64(response.Usage.InputTokens)*m.Cost.Input +
-					float64(response.Usage.OutputTokens+response.Usage.ReasoningTokens)*m.Cost.Output +
-					float64(response.Usage.CachedInputTokens)*m.Cost.CacheRead +
-					float64(response.Usage.CachedOutputTokens)*m.Cost.CacheWrite) / 1e6
+			promptTokensAbs := response.Usage.InputTokens
+			completionTokensAbs := response.Usage.OutputTokens + response.Usage.ReasoningTokens
+			cachedInputTokensAbs := response.Usage.CachedInputTokens
+			cachedOutputTokensAbs := response.Usage.CachedOutputTokens
+
+			inputTokensAbs := promptTokensAbs + cachedInputTokensAbs
+			outputTokensAbs := completionTokensAbs + cachedOutputTokensAbs
+
+			inputDelta := inputTokensAbs - sess.InputTokens
+			if inputDelta < 0 {
+				inputDelta = 0
+			}
+			outputDelta := outputTokensAbs - sess.OutputTokens
+			if outputDelta < 0 {
+				outputDelta = 0
 			}
 
-			sess.InputTokens = response.Usage.InputTokens + response.Usage.CachedInputTokens
-			sess.OutputTokens = response.Usage.OutputTokens + response.Usage.CachedOutputTokens + response.Usage.ReasoningTokens
-
-			modelName := "unknown"
-			if m != nil {
-				modelName = m.Name
+			promptDelta := promptTokensAbs - lastPromptTokens
+			if promptDelta < 0 {
+				promptDelta = 0
 			}
-			telemetry.RecordTokenUsage(ctx, modelName, int64(response.Usage.InputTokens), int64(response.Usage.OutputTokens+response.Usage.ReasoningTokens), sess.Cost)
+			completionDelta := completionTokensAbs - lastCompletionTokens
+			if completionDelta < 0 {
+				completionDelta = 0
+			}
+			cachedInputDelta := cachedInputTokensAbs - lastCachedInputTokens
+			if cachedInputDelta < 0 {
+				cachedInputDelta = 0
+			}
+			cachedOutputDelta := cachedOutputTokensAbs - lastCachedOutputTokens
+			if cachedOutputDelta < 0 {
+				cachedOutputDelta = 0
+			}
+
+			lastPromptTokens = promptTokensAbs
+			lastCompletionTokens = completionTokensAbs
+			lastCachedInputTokens = cachedInputTokensAbs
+			lastCachedOutputTokens = cachedOutputTokensAbs
+
+			var costDelta float64
+			if m != nil {
+				costDelta = (float64(promptDelta)*m.Cost.Input +
+					float64(completionDelta)*m.Cost.Output +
+					float64(cachedInputDelta)*m.Cost.CacheRead +
+					float64(cachedOutputDelta)*m.Cost.CacheWrite) / 1e6
+			}
+
+			if inputDelta > 0 || outputDelta > 0 || costDelta > 0 {
+				sess.AddUsageDelta(inputDelta, outputDelta, costDelta)
+				if r.usageTracker != nil {
+					r.usageTracker.addDelta(sess.ID, inputDelta, outputDelta, costDelta)
+				}
+
+				modelName := "unknown"
+				if m != nil {
+					modelName = m.Name
+				}
+				telemetry.RecordTokenUsage(ctx, modelName, int64(inputDelta), int64(outputDelta), costDelta)
+			}
 		}
 
 		if len(response.Choices) == 0 {
@@ -931,10 +1033,14 @@ func (r *runtime) handleTaskTransfer(ctx context.Context, sess *session.Session,
 		session.WithSystemMessage(memberAgentTask),
 		session.WithImplicitUserMessage("", "Follow the default instructions"),
 		session.WithMaxIterations(child.MaxIterations()),
+		session.WithAgentMetadata(params.Agent, sess.ID),
 	)
 	s.SendUserMessage = false
 	s.Title = "Transferred task"
 	s.ToolsApproved = sess.ToolsApproved
+	if r.usageTracker != nil {
+		r.usageTracker.registerSession(s.ID, s.AgentName, s.ParentSessionID, s.Title, 0)
+	}
 
 	for event := range r.RunStream(ctx, s) {
 		evts <- event
@@ -947,6 +1053,18 @@ func (r *runtime) handleTaskTransfer(ctx context.Context, sess *session.Session,
 
 	sess.ToolsApproved = s.ToolsApproved
 	sess.Cost += s.Cost
+	sess.MergeChildUsage(s)
+
+	contextLimit := 0
+	if parentAgent, _ := r.team.Agent(ca); parentAgent != nil {
+		if model := parentAgent.Model(); model != nil {
+			if modelDef, err := r.modelsStore.GetModel(ctx, model.ID()); err == nil && modelDef != nil {
+				contextLimit = modelDef.Limit.Context
+			}
+		}
+	}
+
+	r.emitUsageEvent(sess, contextLimit, evts)
 
 	sess.AddSubSession(s)
 
@@ -1009,6 +1127,9 @@ func (r *runtime) generateSessionTitle(ctx context.Context, sess *session.Sessio
 		return
 	}
 	sess.Title = title
+	if r.usageTracker != nil {
+		r.usageTracker.registerSession(sess.ID, "", "", sess.Title, 0)
+	}
 	slog.Debug("Generated session title", "session_id", sess.ID, "title", title)
 	events <- SessionTitle(sess.ID, title, r.currentAgent)
 }
