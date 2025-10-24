@@ -1,7 +1,6 @@
 package root
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,6 +11,7 @@ import (
 	"github.com/fatih/color"
 	"golang.org/x/term"
 
+	"github.com/docker/cagent/pkg/input"
 	"github.com/docker/cagent/pkg/tools"
 )
 
@@ -98,7 +98,7 @@ func printToolCallWithConfirmation(ctx context.Context, toolCall tools.ToolCall,
 	}
 
 	// Fallback: line-based scanner (requires Enter)
-	text, err := readLine(ctx, rd)
+	text, err := input.ReadLine(ctx, rd)
 	if err != nil {
 		return ConfirmationReject
 	}
@@ -125,7 +125,7 @@ func promptMaxIterationsContinue(ctx context.Context, maxIterations int) Confirm
 	fmt.Printf("%s\n", white("This can happen with smaller or less capable models."))
 	fmt.Printf("\n%s (y/n): ", blue("Do you want to continue for 10 more iterations?"))
 
-	response, err := readLine(ctx, os.Stdin)
+	response, err := input.ReadLine(ctx, os.Stdin)
 	if err != nil {
 		fmt.Printf("\n%s\n", red("Failed to read input, exiting..."))
 		return ConfirmationAbort
@@ -148,7 +148,7 @@ func promptOAuthAuthorization(ctx context.Context, serverURL string) Confirmatio
 	fmt.Printf("%s\n", white("Your browser will open automatically to complete the authorization."))
 	fmt.Printf("\n%s (y/n): ", blue("Do you want to authorize access?"))
 
-	response, err := readLine(ctx, os.Stdin)
+	response, err := input.ReadLine(ctx, os.Stdin)
 	if err != nil {
 		fmt.Printf("\n%s\n", red("Failed to read input, aborting authorization..."))
 		return ConfirmationAbort
@@ -289,32 +289,5 @@ func formatJSONValue(key string, value any) string {
 	default:
 		jsonBytes, _ := json.Marshal(v)
 		return fmt.Sprintf("%s: %s", bold(key), string(jsonBytes))
-	}
-}
-
-func readLine(ctx context.Context, rd io.Reader) (string, error) {
-	lines := make(chan string)
-	errs := make(chan error)
-
-	go func() {
-		defer close(lines)
-		defer close(errs)
-
-		reader := bufio.NewReader(rd)
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			errs <- err
-		} else {
-			lines <- line
-		}
-	}()
-
-	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-	case err := <-errs:
-		return "", err
-	case line := <-lines:
-		return line, nil
 	}
 }

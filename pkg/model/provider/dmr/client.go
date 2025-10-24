@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -15,9 +16,11 @@ import (
 	"strings"
 
 	"github.com/sashabaranov/go-openai"
+	"golang.org/x/term"
 
 	"github.com/docker/cagent/pkg/chat"
 	latest "github.com/docker/cagent/pkg/config/v2"
+	"github.com/docker/cagent/pkg/input"
 	"github.com/docker/cagent/pkg/model/provider/base"
 	"github.com/docker/cagent/pkg/model/provider/options"
 	"github.com/docker/cagent/pkg/tools"
@@ -77,6 +80,12 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, opts ...options.Opt
 	default:
 		// Docker CE
 		clientConfig.BaseURL = endpoint
+	}
+
+	// Pull the model if it doesn't exist
+	if err := pullDockerModelIfNeeded(ctx, cfg.Model); err != nil {
+		slog.Debug("docker model pull failed", "error", err)
+		return nil, err
 	}
 
 	// Build runtime flags from ModelConfig and engine
@@ -425,6 +434,56 @@ func parseDMRProviderOpts(cfg *latest.ModelConfig) (contextSize int, runtimeFlag
 	}
 
 	return contextSize, runtimeFlags
+}
+
+func pullDockerModelIfNeeded(ctx context.Context, model string) error {
+	if modelExists(ctx, model) {
+		slog.Debug("Model already exists, skipping pull", "model", model)
+		return nil
+	}
+
+	// Check if running in interactive mode (stdin is a terminal)
+	if interactive := term.IsTerminal(int(os.Stdin.Fd())); interactive {
+		// Prompt user for confirmation in interactive mode
+		fmt.Printf("\nModel %s not found locally.\n", model)
+		fmt.Printf("Do you want to pull it now? ([y]es/[n]o): ")
+
+		response, err := input.ReadLine(ctx, os.Stdin)
+		if err != nil {
+			return fmt.Errorf("failed to read user input: %w", err)
+		}
+
+		response = strings.TrimSpace(strings.ToLower(response))
+		if response != "y" && response != "yes" {
+			return fmt.Errorf("model pull declined by user")
+		}
+	}
+
+	// Pull the model
+	slog.Info("Pulling DMR model", "model", model)
+	fmt.Printf("Pulling model %s...\n", model)
+	cmd := exec.CommandContext(ctx, "docker", "model", "pull", model)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to pull model %s: %w", model, err)
+	}
+
+	slog.Info("Model pulled successfully", "model", model)
+	fmt.Printf("Model %s pulled successfully.\n", model)
+	return nil
+}
+
+func modelExists(ctx context.Context, model string) bool {
+	cmd := exec.CommandContext(ctx, "docker", "model", "inspect", model)
+	var stderr bytes.Buffer
+	cmd.Stdout = io.Discard
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		slog.Debug("Model does not exist", "model", model, "error", strings.TrimSpace(stderr.String()))
+		return false
+	}
+	return true
 }
 
 func configureDockerModel(ctx context.Context, model string, contextSize int, runtimeFlags []string) error {

@@ -24,6 +24,7 @@ import (
 	"github.com/docker/cagent/pkg/config"
 	"github.com/docker/cagent/pkg/content"
 	"github.com/docker/cagent/pkg/evaluation"
+	"github.com/docker/cagent/pkg/input"
 	"github.com/docker/cagent/pkg/remote"
 	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/session"
@@ -594,7 +595,7 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt runtime.Runtime
 			fmt.Print(blue("> "))
 			firstQuestion = false
 
-			line, err := readLine(ctx, os.Stdin)
+			line, err := input.ReadLine(ctx, os.Stdin)
 			if err != nil {
 				return err
 			}
@@ -665,8 +666,8 @@ func runUserCommand(userInput string, sess *session.Session, rt runtime.Runtime,
 
 // parseAttachCommand parses user input for /attach commands
 // Returns the message text (with /attach commands removed) and the attachment path
-func parseAttachCommand(input string) (messageText, attachPath string) {
-	lines := strings.Split(input, "\n")
+func parseAttachCommand(userInput string) (messageText, attachPath string) {
+	lines := strings.Split(userInput, "\n")
 	var messageLines []string
 
 	for _, line := range lines {
