@@ -39,6 +39,7 @@ type Page interface {
 	layout.Help
 	CompactSession() tea.Cmd
 	CopySessionToClipboard() tea.Cmd
+	ExecuteCommand(commandText string) tea.Cmd
 	Cleanup()
 }
 
@@ -179,7 +180,9 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return p, cmd
 
 	case editor.SendMsg:
-		cmd := p.processMessage(msg.Content)
+		// Resolve agent commands (if any)
+		content := p.app.ResolveCommand(msg.Content)
+		cmd := p.processMessage(content)
 		return p, cmd
 
 	case messages.StreamCancelledMsg:
@@ -509,6 +512,13 @@ func (p *chatPage) CompactSession() tea.Cmd {
 	p.app.CompactSession()
 
 	return p.messages.ScrollToBottom()
+}
+
+// ExecuteCommand sends a command text as a message (used by command palette)
+func (p *chatPage) ExecuteCommand(commandText string) tea.Cmd {
+	return func() tea.Msg {
+		return editor.SendMsg{Content: commandText}
+	}
 }
 
 func (p *chatPage) Cleanup() {

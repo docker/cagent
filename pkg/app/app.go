@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"os/exec"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea/v2"
@@ -47,6 +48,47 @@ func (a *App) Team() *team.Team {
 
 func (a *App) Title() string {
 	return a.title
+}
+
+// CurrentAgentCommands returns the commands for the active agent
+func (a *App) CurrentAgentCommands() map[string]string {
+	if a.runtime == nil {
+		return nil
+	}
+
+	agent := a.runtime.CurrentAgent()
+	if agent == nil {
+		return nil
+	}
+
+	return agent.Commands()
+}
+
+// ResolveCommand converts /command to its prompt text
+func (a *App) ResolveCommand(input string) string {
+	if !strings.HasPrefix(input, "/") {
+		return input
+	}
+
+	trimmed := strings.TrimSpace(input)
+	parts := strings.Fields(trimmed)
+	if len(parts) == 0 {
+		return input
+	}
+
+	cmdName := strings.TrimPrefix(parts[0], "/")
+	commands := a.CurrentAgentCommands()
+
+	if prompt, ok := commands[cmdName]; ok {
+		// If there are additional arguments, append them to the prompt
+		if len(parts) > 1 {
+			args := strings.Join(parts[1:], " ")
+			return prompt + " " + args
+		}
+		return prompt
+	}
+
+	return input
 }
 
 // Run one agent loop
