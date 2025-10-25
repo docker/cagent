@@ -39,6 +39,14 @@ func Expand(ctx context.Context, value string, env Provider) (string, error) {
 	return expanded, nil
 }
 
+// ExpandLenient expands environment variables without returning errors for undefined variables.
+// Undefined variables expand to empty strings, similar to standard shell behavior.
+func ExpandLenient(ctx context.Context, value string, env Provider) string {
+	return os.Expand(value, func(name string) string {
+		return env.Get(ctx, name)
+	})
+}
+
 func ToValues(envMap map[string]string) []string {
 	var values []string
 	for k, v := range envMap {
