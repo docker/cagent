@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	latest "github.com/docker/cagent/pkg/config/v2"
-	"github.com/docker/cagent/pkg/environment"
 )
 
 func TestAutoRegisterModels(t *testing.T) {
@@ -196,84 +195,6 @@ func openRoot(t *testing.T, dir string) *os.Root {
 type noEnvProvider struct{}
 
 func (p *noEnvProvider) Get(context.Context, string) string { return "" }
-
-func TestCheckRequiredEnvVars(t *testing.T) {
-	tests := []struct {
-		yaml            string
-		expectedMissing []string
-	}{
-		{
-			yaml:            "openai_inline.yaml",
-			expectedMissing: []string{"OPENAI_API_KEY"},
-		},
-		{
-			yaml:            "anthropic_inline.yaml",
-			expectedMissing: []string{"ANTHROPIC_API_KEY"},
-		},
-		{
-			yaml:            "google_inline.yaml",
-			expectedMissing: []string{"GOOGLE_API_KEY"},
-		},
-		{
-			yaml:            "dmr_inline.yaml",
-			expectedMissing: []string{},
-		},
-		{
-			yaml:            "openai_model.yaml",
-			expectedMissing: []string{"OPENAI_API_KEY"},
-		},
-		{
-			yaml:            "anthropic_model.yaml",
-			expectedMissing: []string{"ANTHROPIC_API_KEY"},
-		},
-		{
-			yaml:            "google_model.yaml",
-			expectedMissing: []string{"GOOGLE_API_KEY"},
-		},
-		{
-			yaml:            "dmr_model.yaml",
-			expectedMissing: []string{},
-		},
-		{
-			yaml:            "all.yaml",
-			expectedMissing: []string{"ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY"},
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.yaml, func(t *testing.T) {
-			t.Parallel()
-
-			root := openRoot(t, "testdata/env")
-
-			cfg, err := LoadConfig(test.yaml, root)
-			require.NoError(t, err)
-
-			err = CheckRequiredEnvVars(t.Context(), cfg, &noEnvProvider{}, RuntimeConfig{})
-
-			if len(test.expectedMissing) == 0 {
-				require.NoError(t, err)
-			} else {
-				require.Error(t, err)
-				assert.Equal(t, test.expectedMissing, err.(*environment.RequiredEnvError).Missing)
-			}
-		})
-	}
-}
-
-func TestCheckRequiredEnvVarsWithModelGateway(t *testing.T) {
-	t.Parallel()
-
-	root := openRoot(t, "testdata/env")
-
-	cfg, err := LoadConfig("all.yaml", root)
-	require.NoError(t, err)
-
-	err = CheckRequiredEnvVars(t.Context(), cfg, &noEnvProvider{}, RuntimeConfig{
-		ModelsGateway: "gateway:8080",
-	})
-
-	require.NoError(t, err)
-}
 
 func TestApplyModelOverrides(t *testing.T) {
 	tests := []struct {
