@@ -15,7 +15,7 @@ agents with specialized capabilities and tools. It features:
 - **📦 Agent distribution** via Docker registry integration
 - **🔒 Security-first design** with proper client scoping and resource isolation
 - **⚡ Event-driven streaming** for real-time interactions
-- **🧠 Multi-model support** (OpenAI, Anthropic, Gemini, [Docker Model Runner (DMR)](https://docs.docker.com/ai/model-runner/))
+- **🧠 Multi-model support** (OpenAI, Anthropic, Gemini, Amazon Bedrock, [Docker Model Runner (DMR)](https://docs.docker.com/ai/model-runner/))
 
 
 ## Why?
@@ -144,7 +144,7 @@ cagent run ./agent.yaml --command ls
 
 | Property            | Type       | Description                                                                  | Required |
 |---------------------|------------|------------------------------------------------------------------------------|----------|
-| `provider`          | string     | Provider: `openai`, `anthropic`, `google`, `dmr`                             | ✓        |
+| `provider`          | string     | Provider: `openai`, `anthropic`, `google`, `amazon-bedrock`, `dmr`           | ✓        |
 | `model`             | string     | Model name (e.g., `gpt-4o`, `claude-sonnet-4-0`, `gemini-2.5-flash`)         | ✓        |
 | `temperature`       | float      | Randomness (0.0-1.0)                                                         | ✗        |
 | `max_tokens`        | integer    | Response length limit                                                        | ✗        |
@@ -159,7 +159,7 @@ cagent run ./agent.yaml --command ls
 ```yaml
 models:
   model_name:
-    provider: string # Provider: openai, anthropic, google, dmr
+    provider: string # Provider: openai, anthropic, google, amazon-bedrock, dmr
     model: string # Model name: gpt-4o, claude-3-5-sonnet-latest, gemini-2.5-flash, qwen3:4B, ...
     temperature: float # Randomness (0.0-1.0)
     max_tokens: integer # Response length limit
@@ -285,6 +285,12 @@ models:
     provider: google
     model: gemini-2.5-flash
 
+# Amazon Bedrock
+models:
+  bedrock-claude:
+    provider: amazon-bedrock
+    model: anthropic.claude-3-5-sonnet-20241022-v2:0
+
 # Docker Model Runner (DMR)
 models:
   qwen:
@@ -389,6 +395,57 @@ Troubleshooting:
 - Endpoint empty in status: ensure the Model Runner is running, or set `base_url` manually
 - Flag parsing: if using a single string, quote properly in YAML; you can also use a list
 
+#### Amazon Bedrock provider usage
+
+The `amazon-bedrock` provider enables access to various AI models hosted on AWS Bedrock, including Anthropic Claude, Amazon Titan, Meta Llama, and Mistral models.
+
+**Authentication:**
+
+The Bedrock provider supports two authentication methods:
+
+1. **Bearer Token** (via `AWS_BEDROCK_TOKEN` environment variable):
+   - Use for custom authentication services or proxy scenarios
+   - If set, the provider uses Bearer token authentication and skips AWS Signature v4 signing
+   - Example: `export AWS_BEDROCK_TOKEN="your-token-here"`
+
+2. **Standard AWS Credentials** (default chain):
+   - Environment variables: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`
+   - AWS profile: `AWS_PROFILE` environment variable or default profile in `~/.aws/credentials`
+   - IAM role (for EC2/ECS/Lambda environments)
+
+**Configuration:**
+
+Basic configuration:
+
+```yaml
+models:
+  bedrock-claude:
+    provider: amazon-bedrock
+    model: anthropic.claude-3-5-sonnet-20241022-v2:0
+    temperature: 0.7
+    max_tokens: 4000
+```
+
+With custom region:
+
+```yaml
+models:
+  bedrock-claude:
+    provider: amazon-bedrock
+    model: anthropic.claude-3-5-sonnet-20241022-v2:0
+    provider_opts:
+      region: us-west-2  # Optional, defaults to AWS_REGION or us-east-1
+```
+
+With custom endpoint (for VPC endpoints or proxies):
+
+```yaml
+models:
+  bedrock-claude:
+    provider: amazon-bedrock
+    model: anthropic.claude-3-5-sonnet-20241022-v2:0
+    base_url: https://bedrock-runtime.us-east-1.amazonaws.com
+```
 
 ### Alloy models
 
