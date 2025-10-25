@@ -23,7 +23,6 @@ import (
 	"github.com/docker/cagent/pkg/chat"
 	"github.com/docker/cagent/pkg/config"
 	"github.com/docker/cagent/pkg/content"
-	"github.com/docker/cagent/pkg/environment"
 	"github.com/docker/cagent/pkg/evaluation"
 	"github.com/docker/cagent/pkg/remote"
 	"github.com/docker/cagent/pkg/runtime"
@@ -244,13 +243,7 @@ func doRunCommand(ctx context.Context, args []string, exec bool) error {
 			return fmt.Errorf("agent '%s' has no commands", agentName)
 		}
 		if msg, ok := cmds[trimmed]; ok {
-			// Expand $placeholders with environment variable values
-			env := environment.NewDefaultProvider()
-			expandedMsg, err := environment.Expand(ctx, msg, env)
-			if err != nil {
-				return fmt.Errorf("failed to expand command message: %w", err)
-			}
-			commandFirstMessage = &expandedMsg
+			commandFirstMessage = &msg
 		} else {
 			var names []string
 			for k := range cmds {

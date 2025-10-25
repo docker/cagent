@@ -1,0 +1,40 @@
+#!/usr/bin/env cagent run
+version: "2"
+
+# Example demonstrating environment variable placeholder expansion in commands
+# 
+# This example shows how to use $VARIABLE_NAME or ${VARIABLE_NAME} placeholders
+# in command definitions, which are automatically replaced with environment variable
+# values when the agent is loaded.
+#
+# Usage:
+#   export USER=alice
+#   export PROJECT_NAME=myproject
+#   export ENVIRONMENT=production
+#   
+#   cagent run env_placeholders.yaml -c greet
+#   cagent run env_placeholders.yaml -c analyze
+#   cagent run env_placeholders.yaml -c status
+#
+# Note: Undefined environment variables expand to empty strings without causing errors,
+# allowing you to only define the variables needed for the commands you actually use.
+
+agents:
+  root:
+    model: anthropic/claude-sonnet-4-0
+    description: "Agent demonstrating environment variable placeholder expansion"
+    instruction: |
+      You are a helpful assistant that responds to user requests.
+      Provide clear, concise, and actionable responses.
+    
+    commands:
+      greet: "Say hello to $USER and ask how their day is going"
+      analyze: "Analyze the project named $PROJECT_NAME in the $ENVIRONMENT environment and provide insights"
+      status: "Check the status of the service ${SERVICE_NAME} and report any issues"
+      report: "Generate a comprehensive report for project $PROJECT_NAME owned by $OWNER deployed in $LOCATION"
+      inspect: "Inspect the contents of the directory at $WORKING_DIR and summarize what you find"
+      help: "Explain what you can do and how to use environment variable placeholders in commands"
+    
+    toolsets:
+      - type: filesystem
+      - type: shell

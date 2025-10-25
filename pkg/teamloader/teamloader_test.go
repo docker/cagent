@@ -1,6 +1,7 @@
 package teamloader
 
 import (
+	"context"
 	"io/fs"
 	"path/filepath"
 	"testing"
@@ -105,4 +106,76 @@ func TestOverrideModel(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestExpandCommandPlaceholders tests that $placeholders in commands are expanded with env var values
+func TestExpandCommandPlaceholders(t *testing.T) {
+	tests := []struct {
+		name        string
+		commands    map[string]string
+		envVars     map[string]string
+		expected    map[string]string
+		expectError bool
+	}{
+		{
+			name:     "single placeholder",
+			commands: map[string]string{"greet": "Say hello to $USER"},
+			envVars:  map[string]string{"USER": "alice"},
+			expected: map[string]string{"greet": "Say hello to alice"},
+		},
+		{
+			name:     "multiple placeholders",
+			commands: map[string]string{"analyze": "Analyze $PROJECT_NAME in $ENVIRONMENT"},
+			envVars:  map[string]string{"PROJECT_NAME": "myproject", "ENVIRONMENT": "production"},
+			expected: map[string]string{"analyze": "Analyze myproject in production"},
+		},
+		{
+			name:     "no placeholders",
+			commands: map[string]string{"simple": "List all files"},
+			envVars:  map[string]string{},
+			expected: map[string]string{"simple": "List all files"},
+		},
+		{
+			name:     "placeholder with curly braces",
+			commands: map[string]string{"check": "Check ${SERVICE_NAME} status"},
+			envVars:  map[string]string{"SERVICE_NAME": "api-server"},
+			expected: map[string]string{"check": "Check api-server status"},
+		},
+		{
+			name:     "missing env var expands to empty string",
+			commands: map[string]string{"test": "Check $MISSING_VAR status"},
+			envVars:  map[string]string{},
+			expected: map[string]string{"test": "Check  status"},
+		},
+		{
+			name:     "empty commands",
+			commands: map[string]string{},
+			envVars:  map[string]string{},
+			expected: map[string]string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a test environment provider
+			env := &testEnvProvider{vars: tt.envVars}
+
+			// Expand the commands
+			result := expandCommandPlaceholders(t.Context(), tt.commands, env)
+
+			if tt.expectError {
+				t.Fatal("expectError field is no longer supported")
+			}
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// testEnvProvider is a simple environment provider for testing
+type testEnvProvider struct {
+	vars map[string]string
+}
+
+func (p *testEnvProvider) Get(_ context.Context, name string) string {
+	return p.vars[name]
 }

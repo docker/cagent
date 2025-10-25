@@ -119,18 +119,22 @@ agents:
 ### Running with named commands
 
 - Use `--command` (or `-c`) to send a predefined prompt from the agent config as the first message.
+- Commands support environment variable placeholders using `$VARIABLE_NAME` or `${VARIABLE_NAME}` syntax.
 - Example YAML forms supported:
 
 ```yaml
 commands:
   df: "check how much free space i have on my disk"
   ls: "list the files in the current directory"
+  greet: "Say hello to $USER and ask how their day is going"
+  analyze: "Analyze the project named $PROJECT_NAME in the $ENVIRONMENT environment"
 ```
 
 ```yaml
 commands:
   - df: "check how much free space i have on my disk"
   - ls: "list the files in the current directory"
+  - greet: "Say hello to $USER and ask how their day is going"
 ```
 
 Run:
@@ -138,7 +142,20 @@ Run:
 ```bash
 cagent run ./agent.yaml -c df
 cagent run ./agent.yaml --command ls
+
+# With environment variables
+export USER=alice
+export PROJECT_NAME=myproject
+export ENVIRONMENT=production
+cagent run ./agent.yaml -c greet
+cagent run ./agent.yaml -c analyze
 ```
+
+**Environment Variable Expansion:**
+- Placeholders are expanded during agent loading using available environment variables
+- Undefined variables expand to empty strings (no error is thrown)
+- Both `$VAR` and `${VAR}` syntax are supported
+- This allows dynamic command configuration without manual string interpolation
 
 ### Model Properties
 
