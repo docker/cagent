@@ -1,7 +1,6 @@
 package config
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,7 +11,6 @@ import (
 	v0 "github.com/docker/cagent/pkg/config/v0"
 	v1 "github.com/docker/cagent/pkg/config/v1"
 	latest "github.com/docker/cagent/pkg/config/v2"
-	"github.com/docker/cagent/pkg/environment"
 	"github.com/docker/cagent/pkg/filesystem"
 )
 
@@ -55,24 +53,6 @@ func LoadConfig(path string, fs filesystem.FS) (*latest.Config, error) {
 	}
 
 	return &config, nil
-}
-
-// CheckRequiredEnvVars checks which environment variables are required by the models and tools.
-//
-// This allows exiting early with a proper error message instead of failing later when trying to use a model or tool.
-func CheckRequiredEnvVars(ctx context.Context, cfg *latest.Config, env environment.Provider, runtimeConfig RuntimeConfig) error {
-	requiredEnv, err := GatherMissingEnvVars(ctx, cfg, env, runtimeConfig)
-	if err != nil {
-		return fmt.Errorf("gathering required environment variables: %w", err)
-	}
-
-	if len(requiredEnv) == 0 {
-		return nil
-	}
-
-	return &environment.RequiredEnvError{
-		Missing: requiredEnv,
-	}
 }
 
 func parseCurrentVersion(dir string, data []byte, version any) (any, error) {
