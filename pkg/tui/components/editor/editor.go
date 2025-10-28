@@ -31,6 +31,9 @@ type editor struct {
 	width    int
 	height   int
 	working  bool
+	history           []string // Stores sent messages
+	historyIdx        int      // Current position in history (-1 when not navigating)
+	navigatingHistory bool     // Whether we're navigating history
 }
 
 // New creates a new editor component
@@ -48,6 +51,8 @@ func New() Editor {
 
 	return &editor{
 		textarea: ta,
+		history:    make([]string, 0),
+		historyIdx: -1,
 	}
 }
 
@@ -70,8 +75,53 @@ func (e *editor) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			value := e.textarea.Value()
 			if value != "" && !e.working {
+				// Save to history
+				e.addToHistory(value)
+				e.navigatingHistory = false
+				e.historyIdx = -1
 				e.textarea.Reset()
 				return e, core.CmdHandler(SendMsg{Content: value})
+			}
+			return e, nil
+		case "up":
+			if !e.textarea.Focused() {
+				return e, nil
+			}
+			// Navigate history backwards
+			if len(e.history) > 0 {
+				if e.navigatingHistory {
+					if e.historyIdx > 0 {
+						e.historyIdx--
+					}
+				} else {
+					// Start navigating from the most recent message
+					e.historyIdx = len(e.history) - 1
+					e.navigatingHistory = true
+				}
+				// Load history item into textarea
+				e.textarea.SetValue(e.history[e.historyIdx])
+				// Move cursor to end
+				e.textarea.CursorEnd()
+			}
+			return e, nil
+		case "down":
+			if !e.textarea.Focused() {
+				return e, nil
+			}
+			// Navigate history forwards - only if already navigating
+			if e.navigatingHistory && len(e.history) > 0 && e.historyIdx >= 0 {
+				if e.historyIdx < len(e.history)-1 {
+					e.historyIdx++
+					// Load history item into textarea
+					e.textarea.SetValue(e.history[e.historyIdx])
+					// Move cursor to end
+					e.textarea.CursorEnd()
+				} else {
+					// Reached the end, reset to empty
+					e.navigatingHistory = false
+					e.historyIdx = -1
+					e.textarea.Reset()
+				}
 			}
 			return e, nil
 		case "ctrl+c":
@@ -81,6 +131,18 @@ func (e *editor) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	e.textarea, cmd = e.textarea.Update(msg)
+
+	// Detect when user starts editing a history item by checking if the value changed
+	// This happens after the textarea processes the input event
+	if e.navigatingHistory && e.historyIdx >= 0 && e.historyIdx < len(e.history) {
+		currentValue := e.textarea.Value()
+		if currentValue != e.history[e.historyIdx] {
+			// User has edited the history item, exit navigation mode
+			e.navigatingHistory = false
+			e.historyIdx = -1
+		}
+	}
+
 	return e, cmd
 }
 
@@ -127,6 +189,14 @@ func (e *editor) Bindings() []key.Binding {
 			key.WithKeys("enter"),
 			key.WithHelp("enter", "send"),
 		),
+		key.NewBinding(
+			key.WithKeys("up"),
+			key.WithHelp("↑", "previous message"),
+		),
+		key.NewBinding(
+			key.WithKeys("down"),
+			key.WithHelp("↓", "next message"),
+		),
 	}
 }
 
@@ -138,4 +208,20 @@ func (e *editor) Help() help.KeyMap {
 func (e *editor) SetWorking(working bool) tea.Cmd {
 	e.working = working
 	return nil
+}
+
+// addToHistory adds a message to the history, avoiding duplicates from consecutive messages
+func (e *editor) addToHistory(value string) {
+	// Don't add empty messages
+	if value == "" {
+		return
+	}
+
+	// Don't add if it's the same as the last message
+	if len(e.history) > 0 && e.history[len(e.history)-1] == value {
+		return
+	}
+
+	// Add to history
+	e.history = append(e.history, value)
 }
