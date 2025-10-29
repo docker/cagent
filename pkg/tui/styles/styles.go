@@ -1,97 +1,263 @@
 package styles
 
 import (
-	"image/color"
-
 	"github.com/charmbracelet/bubbles/v2/textarea"
 	"github.com/charmbracelet/lipgloss/v2"
 )
 
-// Color scheme - centralized color palette
+// Tokyo Night-inspired Color Palette
 var (
-	Background = lipgloss.Color("#1f1c28")
+	// Background colors
+	Background    = lipgloss.Color("#1a1b26") // Dark blue-black
+	BackgroundAlt = lipgloss.Color("#24283b") // Slightly lighter background
 
-	// Primary colors
-	highlight = lipgloss.Color("#1D63ED") // Docker blue for headers and focus
+	// Primary accent colors
+	Accent    = lipgloss.Color("#7aa2f7") // Soft blue
+	AccentDim = lipgloss.Color("#565f89") // Dimmed blue
 
-	// Status colors
-	success    = lipgloss.Color("#00FF00") // Green for success/completed
-	errorColor = lipgloss.Color("#E06C75") // Red for errors
-	warning    = lipgloss.Color("#FFFF00") // Yellow for warnings/confirmation
-	active     = lipgloss.Color("#00ff00") // Green for active/working states
+	// Status colors - softer, more professional
+	Success = lipgloss.Color("#9ece6a") // Soft green
+	Error   = lipgloss.Color("#f7768e") // Soft red
+	Warning = lipgloss.Color("#e0af68") // Soft yellow
+	Info    = lipgloss.Color("#7dcfff") // Soft cyan
 
-	// Text colors
-	primary   = lipgloss.Color("#869395") // ~White for primary text
-	muted     = lipgloss.Color("#808080") // Grey for muted text
-	subtle    = lipgloss.Color("#C0C0C0") // Light grey for subtle text
-	secondary = lipgloss.Color("#606060") // Darker grey for secondary text
+	// Text hierarchy
+	TextPrimary   = lipgloss.Color("#c0caf5") // Light blue-white
+	TextSecondary = lipgloss.Color("#9aa5ce") // Medium blue-grey
+	TextMuted     = lipgloss.Color("#565f89") // Dark blue-grey
+	TextSubtle    = lipgloss.Color("#414868") // Very dark blue-grey
 
 	// Border colors
-	borderPrimary = lipgloss.Color("#FFA500") // Orange for primary borders
+	BorderPrimary   = lipgloss.Color("#7aa2f7") // Soft blue
+	BorderSecondary = lipgloss.Color("#414868") // Dark blue-grey
+	BorderMuted     = lipgloss.Color("#24283b") // Very dark blue
+	BorderWarning   = lipgloss.Color("#e0af68") // Soft yellow for warnings
+	BorderError     = lipgloss.Color("#f7768e") // Soft red for errors
 
-	// State colors
-	pending    = lipgloss.Color("#FFFFFF") // White for pending states
-	inProgress = lipgloss.Color("#FFA500") // Orange for in-progress states
+	// Diff colors (matching glamour/markdown "dark" theme)
+	DiffAddBg    = lipgloss.Color("#20303b") // Dark blue-green
+	DiffRemoveBg = lipgloss.Color("#3c2a2a") // Dark red-brown
+	DiffAddFg    = lipgloss.Color("#9ece6a") // Soft green
+	DiffRemoveFg = lipgloss.Color("#f7768e") // Soft red
+
+	// Interactive element colors
+	Selected         = lipgloss.Color("#364a82") // Dark blue for selected items
+	SelectedFg       = lipgloss.Color("#c0caf5") // Light text on selected
+	Hover            = lipgloss.Color("#2d3f5f") // Slightly lighter than selected
+	PlaceholderColor = lipgloss.Color("#565f89") // Muted for placeholders
 )
 
-func darken(c color.Color, percent float64) color.Color {
-	r, g, b, a := c.RGBA()
-	factor := 1.0 - percent/100.0
-	return color.RGBA{
-		R: uint8(float64(r>>8) * factor),
-		G: uint8(float64(g>>8) * factor),
-		B: uint8(float64(b>>8) * factor),
-		A: uint8(a >> 8),
-	}
-}
-
+// Base Styles
 var (
-	BaseStyle = lipgloss.NewStyle().Foreground(primary)
+	BaseStyle = lipgloss.NewStyle().Foreground(TextPrimary)
 	AppStyle  = BaseStyle.Padding(0, 1, 0, 1)
+)
 
-	// Text styles
-	HighlightStyle    = BaseStyle.Foreground(highlight)
-	MutedStyle        = BaseStyle.Foreground(muted)
-	ToolCallArgs      = BaseStyle.PaddingLeft(1).BorderLeft(true).BorderStyle(lipgloss.RoundedBorder())
-	ToolCallArgKey    = BaseStyle.Bold(true)
-	ToolCallResultKey = BaseStyle.Bold(true)
-	ToolCallResult    = BaseStyle.PaddingLeft(1).BorderLeft(true).BorderStyle(lipgloss.RoundedBorder())
-	SubtleStyle       = BaseStyle.Foreground(subtle)
-	SecondaryStyle    = BaseStyle.Foreground(secondary)
+// Text Styles
+var (
+	HighlightStyle = BaseStyle.Foreground(Accent)
+	MutedStyle     = BaseStyle.Foreground(TextMuted)
+	SubtleStyle    = BaseStyle.Foreground(TextSubtle)
+	SecondaryStyle = BaseStyle.Foreground(TextSecondary)
+	BoldStyle      = BaseStyle.Bold(true)
+	ItalicStyle    = BaseStyle.Italic(true)
+)
 
-	// Status styles
-	SuccessStyle    = BaseStyle.Foreground(success)
-	ErrorStyle      = BaseStyle.Foreground(errorColor)
-	WarningStyle    = BaseStyle.Foreground(warning)
-	ActiveStyle     = BaseStyle.Foreground(active)
-	InProgressStyle = BaseStyle.Foreground(inProgress)
-	PendingStyle    = BaseStyle.Foreground(pending)
+// Status Styles
+var (
+	SuccessStyle    = BaseStyle.Foreground(Success)
+	ErrorStyle      = BaseStyle.Foreground(Error)
+	WarningStyle    = BaseStyle.Foreground(Warning)
+	InfoStyle       = BaseStyle.Foreground(Info)
+	ActiveStyle     = BaseStyle.Foreground(Success)
+	InProgressStyle = BaseStyle.Foreground(Warning)
+	PendingStyle    = BaseStyle.Foreground(TextSecondary)
+)
 
-	// Layout styles
-	HeaderStyle = BaseStyle.Foreground(highlight).Padding(0, 0, 1, 0)
-	BorderStyle = BaseStyle.Border(lipgloss.RoundedBorder()).BorderForeground(borderPrimary)
+// Layout Styles
+var (
+	HeaderStyle        = BaseStyle.Foreground(Accent).Padding(0, 0, 1, 0)
+	PaddedContentStyle = BaseStyle.Padding(1, 2)
+	CenterStyle        = BaseStyle.Align(lipgloss.Center, lipgloss.Center)
+)
 
-	// Input styles
+// Border Styles
+var (
+	BorderStyle = BaseStyle.
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(BorderPrimary)
+
+	BorderedBoxStyle = BaseStyle.
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(BorderSecondary).
+				Padding(0, 1)
+
+	BorderedBoxFocusedStyle = BaseStyle.
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(BorderPrimary).
+				Padding(0, 1)
+
+	UserMessageBorderStyle = BaseStyle.
+				PaddingLeft(1).
+				BorderLeft(true).
+				BorderStyle(lipgloss.ThickBorder()).
+				BorderForeground(BorderPrimary)
+)
+
+// Dialog Styles
+var (
+	DialogStyle = BaseStyle.
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(BorderSecondary).
+			Foreground(TextPrimary).
+			Padding(1, 2).
+			Align(lipgloss.Left)
+
+	DialogWarningStyle = BaseStyle.
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(BorderWarning).
+				Foreground(TextPrimary).
+				Padding(1, 2).
+				Align(lipgloss.Left)
+
+	DialogTitleStyle = BaseStyle.
+				Bold(true).
+				Foreground(TextSecondary).
+				Align(lipgloss.Center)
+
+	DialogTitleWarningStyle = BaseStyle.
+				Bold(true).
+				Foreground(Warning).
+				Align(lipgloss.Center)
+
+	DialogTitleInfoStyle = BaseStyle.
+				Bold(true).
+				Foreground(Info).
+				Align(lipgloss.Center)
+
+	DialogContentStyle = BaseStyle.
+				Foreground(TextPrimary)
+
+	DialogSeparatorStyle = BaseStyle.
+				Foreground(BorderMuted)
+
+	DialogLabelStyle = BaseStyle.
+				Bold(true).
+				Foreground(TextMuted)
+
+	DialogValueStyle = BaseStyle.
+				Bold(true).
+				Foreground(TextSecondary)
+
+	DialogQuestionStyle = BaseStyle.
+				Bold(true).
+				Foreground(TextPrimary).
+				Align(lipgloss.Center)
+
+	DialogOptionsStyle = BaseStyle.
+				Foreground(TextMuted).
+				Align(lipgloss.Center)
+
+	DialogHelpStyle = BaseStyle.
+			Foreground(TextMuted).
+			Italic(true)
+)
+
+// Command Palette Styles
+var (
+	PaletteSelectedStyle = BaseStyle.
+				Background(Selected).
+				Foreground(SelectedFg).
+				Padding(0, 1)
+
+	PaletteUnselectedStyle = BaseStyle.
+				Foreground(TextPrimary).
+				Padding(0, 1)
+
+	PaletteCategoryStyle = BaseStyle.
+				Bold(true).
+				Foreground(TextMuted).
+				MarginTop(1)
+
+	PaletteDescStyle = BaseStyle.
+				Foreground(TextMuted)
+)
+
+// Diff Styles (matching glamour markdown theme)
+var (
+	DiffAddStyle = BaseStyle.
+			Background(DiffAddBg).
+			Foreground(DiffAddFg)
+
+	DiffRemoveStyle = BaseStyle.
+			Background(DiffRemoveBg).
+			Foreground(DiffRemoveFg)
+
+	DiffUnchangedStyle = lipgloss.NewStyle()
+
+	DiffContextStyle = BaseStyle
+)
+
+// Tool Call Styles
+var (
+	ToolCallArgs = BaseStyle.
+			PaddingLeft(1).
+			BorderLeft(true).
+			BorderStyle(lipgloss.RoundedBorder()).
+			BorderForeground(BorderSecondary)
+
+	ToolCallArgKey = BaseStyle.Bold(true).Foreground(TextSecondary)
+
+	ToolCallResult = BaseStyle.
+			PaddingLeft(1).
+			BorderLeft(true).
+			BorderStyle(lipgloss.RoundedBorder()).
+			BorderForeground(BorderSecondary)
+
+	ToolCallResultKey = BaseStyle.Bold(true).Foreground(TextSecondary)
+)
+
+// Input Styles
+var (
 	InputStyle = textarea.Styles{
 		Focused: textarea.StyleState{
 			Base:        BaseStyle,
-			Placeholder: BaseStyle.Foreground(darken(primary, 40)),
+			Placeholder: BaseStyle.Foreground(PlaceholderColor),
 		},
 		Blurred: textarea.StyleState{
 			Base:        BaseStyle,
-			Placeholder: BaseStyle.Foreground(darken(primary, 40)),
+			Placeholder: BaseStyle.Foreground(PlaceholderColor),
 		},
 		Cursor: textarea.CursorStyle{
-			Color: highlight,
+			Color: Accent,
 		},
 	}
 	EditorStyle = BaseStyle.Padding(2, 0, 0, 0)
+)
 
-	// Layout helpers
-	CenterStyle = BaseStyle.Align(lipgloss.Center, lipgloss.Center)
+// Notification Styles
+var (
+	NotificationStyle = BaseStyle.
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(Success).
+				Padding(0, 1)
 
-	// Deprecated styles (kept for backward compatibility)
+	NotificationInfoStyle = BaseStyle.
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(Info).
+				Padding(0, 1)
+)
+
+// Deprecated styles (kept for backward compatibility)
+var (
 	StatusStyle = MutedStyle
 	ActionStyle = SecondaryStyle
 	ChatStyle   = BaseStyle
+)
+
+// Selection Styles
+var (
+	SelectionStyle = BaseStyle.
+		Background(Selected).
+		Foreground(SelectedFg)
 )

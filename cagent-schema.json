@@ -332,6 +332,10 @@
           "type": "string",
           "description": "Additional instruction on how to use this toolset"
         },
+        "toon": {
+          "type": "string",
+          "description": "A comma-delimited list of regular expressions of tools to toonify"
+        },
         "ref": {
           "type": "string",
           "description": "Reference to external tool (e.g., docker:context7)",

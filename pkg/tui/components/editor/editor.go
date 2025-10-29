@@ -37,7 +37,7 @@ type editor struct {
 }
 
 // New creates a new editor component
-func New() Editor {
+func New(resolver func(string) string) Editor {
 	ta := textarea.New()
 	ta.SetStyles(styles.InputStyle)
 	ta.Placeholder = "Type your message here..."
@@ -97,6 +97,10 @@ func (e *editor) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				e.navigatingHistory = false
 				e.textarea.Reset()
+				// Resolve command before sending
+				if e.resolver != nil {
+					value = e.resolver(value)
+				}
 				return e, core.CmdHandler(SendMsg{Content: value})
 			}
 			return e, nil

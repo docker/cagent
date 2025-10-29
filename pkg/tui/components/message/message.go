@@ -7,7 +7,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/v2/spinner"
 	tea "github.com/charmbracelet/bubbletea/v2"
-	"github.com/charmbracelet/lipgloss/v2"
 
 	"github.com/docker/cagent/pkg/tui/components/markdown"
 	"github.com/docker/cagent/pkg/tui/core/layout"
@@ -79,9 +78,8 @@ func (mv *messageModel) Render(width int) string {
 	case types.MessageTypeSpinner:
 		return mv.spinner.View()
 	case types.MessageTypeUser:
-		s := lipgloss.NewStyle().PaddingLeft(1).BorderLeft(true).BorderStyle(lipgloss.ThickBorder())
-		if rendered, err := markdown.NewRenderer(width - len(s.Render(""))).Render(msg.Content); err == nil {
-			return s.Render(strings.TrimRight(rendered, "\n\r\t "))
+		if rendered, err := markdown.NewRenderer(width - len(styles.UserMessageBorderStyle.Render(""))).Render(msg.Content); err == nil {
+			return styles.UserMessageBorderStyle.Render(strings.TrimRight(rendered, "\n\r\t "))
 		}
 
 		return msg.Content

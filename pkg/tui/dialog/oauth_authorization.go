@@ -9,6 +9,7 @@ import (
 
 	"github.com/docker/cagent/pkg/app"
 	"github.com/docker/cagent/pkg/tui/core"
+	"github.com/docker/cagent/pkg/tui/styles"
 )
 
 // oauthAuthorizationDialog implements DialogModel for OAuth authorization confirmation
@@ -132,43 +133,30 @@ func (d *oauthAuthorizationDialog) View() string {
 	frameHorizontal := (padX * 2) + 2
 	contentWidth := max(10, dialogWidth-frameHorizontal)
 
-	dialogStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#f59e0b")).
-		Foreground(lipgloss.Color("#d1d5db")).
+	dialogStyle := styles.DialogWarningStyle.
 		Padding(padY, padX).
-		Width(dialogWidth).
-		Align(lipgloss.Left)
+		Width(dialogWidth)
 
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#3b82f6")).
+	title := styles.DialogTitleInfoStyle.
+		Width(contentWidth).
+		Render("🔐 OAuth Authorization Required")
+
+	serverInfo := styles.InfoStyle.
+		Width(contentWidth).
+		Render(fmt.Sprintf("Server: %s (remote)", d.serverURL))
+
+	description := styles.DialogContentStyle.
+		Width(contentWidth).
+		Render("This server requires OAuth authentication to access its tools. Your browser will open automatically to complete the authorization process.")
+
+	instructions := styles.DialogHelpStyle.
+		Width(contentWidth).
+		Render("After authorizing in your browser, return here and the agent will continue automatically.")
+
+	options := styles.SuccessStyle.
 		Align(lipgloss.Center).
-		Width(contentWidth)
-
-	messageStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#d1d5db")).
-		Width(contentWidth)
-
-	serverInfoStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#3b82f6")).
-		Width(contentWidth)
-
-	instructionsStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#6b7280")).
-		Width(contentWidth)
-
-	optionsStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#10b981")).
-		Align(lipgloss.Center).
-		Width(contentWidth)
-
-	// Content
-	title := titleStyle.Render("🔐 OAuth Authorization Required")
-	serverInfo := serverInfoStyle.Render(fmt.Sprintf("Server: %s (remote)", d.serverURL))
-	description := messageStyle.Render("This server requires OAuth authentication to access its tools. Your browser will open automatically to complete the authorization process.")
-	instructions := instructionsStyle.Render("After authorizing in your browser, return here and the agent will continue automatically.")
-	options := optionsStyle.Render("Y - Authorize  |  N - Decline")
+		Width(contentWidth).
+		Render("Y - Authorize  |  N - Decline")
 
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,

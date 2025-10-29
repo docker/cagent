@@ -13,8 +13,8 @@ import (
 
 	"github.com/docker/cagent/pkg/chat"
 	latest "github.com/docker/cagent/pkg/config/v2"
-	"github.com/docker/cagent/pkg/desktop"
 	"github.com/docker/cagent/pkg/environment"
+	"github.com/docker/cagent/pkg/httpclient"
 	"github.com/docker/cagent/pkg/model/provider/base"
 	"github.com/docker/cagent/pkg/model/provider/options"
 	"github.com/docker/cagent/pkg/tools"
@@ -24,11 +24,7 @@ import (
 // It implements the provider.Provider interface
 type Client struct {
 	base.Config
-	client *genai.Client
-	// When using the Docker AI Gateway, tokens are short-lived. We rebuild
-	// the client per request when in gateway mode.
-	useGateway     bool
-	gatewayBaseURL string
+	clientFn func(context.Context) (*genai.Client, error)
 }
 
 // NewClient creates a new Gemini client from the provided configuration
@@ -46,64 +42,70 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 		opt(&modelOptions)
 	}
 
-	var apiKey string
-	var httpOptions genai.HTTPOptions
-	useGateway := false
-	gatewayBaseURL := ""
+	var clientFn func(context.Context) (*genai.Client, error)
 	if gateway := modelOptions.Gateway(); gateway == "" {
-		apiKey = env.Get(ctx, "GOOGLE_API_KEY")
+		apiKey := env.Get(ctx, "GOOGLE_API_KEY")
 		if apiKey == "" {
 			return nil, errors.New("GOOGLE_API_KEY environment variable is required")
 		}
+
+		client, err := genai.NewClient(ctx, &genai.ClientConfig{
+			APIKey:     apiKey,
+			Backend:    genai.BackendGeminiAPI,
+			HTTPClient: httpclient.NewHTTPClient(),
+			HTTPOptions: genai.HTTPOptions{
+				BaseURL: cfg.BaseURL,
+			},
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		clientFn = func(context.Context) (*genai.Client, error) {
+			return client, nil
+		}
 	} else {
-		// genai client requires a non-empty API key
-		apiKey = desktop.GetToken(ctx)
-		if apiKey == "" {
+		// Fail fast if Docker Desktop's auth token isn't available
+		if env.Get(ctx, environment.DockerDesktopTokenEnv) == "" {
+			slog.Error("Gemini client creation failed", "error", "failed to get Docker Desktop's authentication token")
 			return nil, errors.New("sorry, you first need to sign in Docker Desktop to use the Docker AI Gateway")
 		}
-		httpOptions.BaseURL = gateway
-		httpOptions.Headers = make(http.Header)
-		httpOptions.Headers.Set("Authorization", "Bearer "+apiKey)
-		useGateway = true
-		gatewayBaseURL = gateway
+
+		// When using a Gateway, tokens are short-lived.
+		clientFn = func(ctx context.Context) (*genai.Client, error) {
+			// Query a fresh auth token each time the client is used
+			authToken := env.Get(ctx, environment.DockerDesktopTokenEnv)
+			if authToken == "" {
+				return nil, errors.New("failed to get Docker Desktop token for Gateway")
+			}
+
+			return genai.NewClient(ctx, &genai.ClientConfig{
+				APIKey:  authToken,
+				Backend: genai.BackendGeminiAPI,
+				HTTPClient: httpclient.NewHTTPClient(
+					httpclient.WithProxiedBaseURL(defaultsTo(cfg.BaseURL, "https://generativelanguage.googleapis.com/")),
+					httpclient.WithProvider(cfg.Provider),
+					httpclient.WithModel(cfg.Model),
+				),
+				HTTPOptions: genai.HTTPOptions{
+					BaseURL: gateway,
+					Headers: http.Header{
+						"Authorization": []string{"Bearer " + authToken},
+					},
+				},
+			})
+		}
 	}
 
-	client, err := genai.NewClient(ctx, &genai.ClientConfig{
-		APIKey:      apiKey,
-		Backend:     genai.BackendGeminiAPI,
-		HTTPOptions: httpOptions,
-	})
-	if err != nil {
-		return nil, err
-	}
+	slog.Debug("Gemini client created successfully", "model", cfg.Model)
 
 	return &Client{
 		Config: base.Config{
 			ModelConfig:  cfg,
 			ModelOptions: modelOptions,
 		},
-		client:         client,
-		useGateway:     useGateway,
-		gatewayBaseURL: gatewayBaseURL,
+		clientFn: clientFn,
 	}, nil
-}
-
-// newGatewayClient builds a new Gemini client using a fresh Docker Desktop token.
-func (c *Client) newGatewayClient(ctx context.Context) (*genai.Client, error) {
-	token := desktop.GetToken(ctx)
-	if token == "" {
-		return nil, errors.New("failed to get Docker Desktop token for gateway")
-	}
-	httpOptions := genai.HTTPOptions{
-		BaseURL: c.gatewayBaseURL,
-		Headers: make(http.Header),
-	}
-	httpOptions.Headers.Set("Authorization", "Bearer "+token)
-	return genai.NewClient(ctx, &genai.ClientConfig{
-		APIKey:      token,
-		Backend:     genai.BackendGeminiAPI,
-		HTTPOptions: httpOptions,
-	})
 }
 
 // convertMessagesToGemini converts chat.Messages into Gemini Contents
@@ -338,16 +340,20 @@ func (c *Client) CreateChatCompletionStream(
 		slog.Debug("Message", "index", i, "role", content.Role)
 	}
 
-	// Build a fresh client per request when using the gateway
-	var iter func(func(*genai.GenerateContentResponse, error) bool)
-	if c.useGateway {
-		if gwClient, err := c.newGatewayClient(ctx); err == nil {
-			iter = gwClient.Models.GenerateContentStream(ctx, c.ModelConfig.Model, contents, config)
-		} else {
-			iter = c.client.Models.GenerateContentStream(ctx, c.ModelConfig.Model, contents, config)
-		}
-	} else {
-		iter = c.client.Models.GenerateContentStream(ctx, c.ModelConfig.Model, contents, config)
+	client, err := c.clientFn(ctx)
+	if err != nil {
+		slog.Error("Failed to create Gemini client", "error", err)
+		return nil, err
 	}
+
+	// Build a fresh client per request when using the gateway
+	iter := client.Models.GenerateContentStream(ctx, c.ModelConfig.Model, contents, config)
 	return NewStreamAdapter(iter, c.ModelConfig.Model), nil
+}
+
+func defaultsTo(value, defaultValue string) string {
+	if value != "" {
+		return value
+	}
+	return defaultValue
 }

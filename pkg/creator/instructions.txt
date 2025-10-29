@@ -178,6 +178,6 @@ version: "2"
 models:
 model_name:
     provider: string # Provider: openai, anthropic, dmr
-    model: string # Model name: gpt-4o, claude-3-5-sonnet-latest
+    model: string # Model name: gpt-4o, claude-3-7-sonnet-latest
     max_tokens: integer # Response length limit
 ```

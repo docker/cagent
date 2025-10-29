@@ -3,20 +3,26 @@ package messages
 import (
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/v2/help"
 	"github.com/charmbracelet/bubbles/v2/key"
 	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/mattn/go-runewidth"
 
 	"github.com/docker/cagent/pkg/app"
 	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/tools"
 	"github.com/docker/cagent/pkg/tui/components/markdown"
 	"github.com/docker/cagent/pkg/tui/components/message"
+	"github.com/docker/cagent/pkg/tui/components/notification"
 	"github.com/docker/cagent/pkg/tui/components/tool"
 	"github.com/docker/cagent/pkg/tui/core"
 	"github.com/docker/cagent/pkg/tui/core/layout"
+	"github.com/docker/cagent/pkg/tui/styles"
 	"github.com/docker/cagent/pkg/tui/types"
 )
 
@@ -27,6 +33,11 @@ type StreamCancelledMsg struct {
 
 type EvalSavedMsg struct {
 	File string
+}
+
+// AutoScrollTickMsg triggers auto-scroll during selection
+type AutoScrollTickMsg struct {
+	Direction int // -1 for up, 1 for down
 }
 
 // Model represents a chat message list component
@@ -54,10 +65,39 @@ type Model interface {
 
 // renderedItem represents a cached rendered message with position information
 type renderedItem struct {
-	id     int    // Message ID or index as int
 	view   string // Cached rendered content
 	height int    // Height in lines
-	end    int    // Ending line position in complete content
+}
+
+// selectionState encapsulates all state related to text selection
+type selectionState struct {
+	active          bool
+	startLine       int
+	startCol        int
+	endLine         int
+	endCol          int
+	mouseButtonDown bool
+}
+
+// start initializes a new selection at the given position
+func (s *selectionState) start(line, col int) {
+	s.active = true
+	s.mouseButtonDown = true
+	s.startLine = line
+	s.startCol = col
+	s.endLine = line
+	s.endCol = col
+}
+
+// update updates the end position of the selection
+func (s *selectionState) update(line, col int) {
+	s.endLine = line
+	s.endCol = col
+}
+
+// end finalizes the selection and stops mouse tracking
+func (s *selectionState) end() {
+	s.mouseButtonDown = false
 }
 
 // model implements Model
@@ -73,6 +113,8 @@ type model struct {
 	rendered      string               // Complete rendered content string
 	renderedItems map[int]renderedItem // Cache of rendered items with positions
 	totalHeight   int                  // Total height of all content in lines
+
+	selection selectionState
 }
 
 // New creates a new message list component
@@ -119,6 +161,36 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
+	case tea.MouseClickMsg:
+		if msg.Button == tea.MouseLeft {
+			line, col := m.mouseToLineCol(msg.X, msg.Y)
+			m.selection.start(line, col)
+		}
+		return m, nil
+
+	case tea.MouseMotionMsg:
+		if m.selection.mouseButtonDown && m.selection.active {
+			line, col := m.mouseToLineCol(msg.X, msg.Y)
+			m.selection.update(line, col)
+
+			cmd := m.autoScroll()
+			return m, cmd
+		}
+		return m, nil
+
+	case tea.MouseReleaseMsg:
+		if msg.Button == tea.MouseLeft && m.selection.mouseButtonDown {
+			if m.selection.active {
+				line, col := m.mouseToLineCol(msg.X, msg.Y)
+				m.selection.update(line, col)
+				m.selection.end()
+				cmd := m.copySelectionToClipboard()
+				return m, cmd
+			}
+			m.selection.end()
+		}
+		return m, nil
+
 	case tea.MouseWheelMsg:
 		const mouseScrollAmount = 3
 		buttonStr := msg.Button.String()
@@ -145,8 +217,18 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case AutoScrollTickMsg:
+		if m.selection.mouseButtonDown && m.selection.active {
+			cmd := m.autoScroll()
+			return m, cmd
+		}
+		return m, nil
+
 	case tea.KeyPressMsg:
 		switch msg.String() {
+		case "esc":
+			m.clearSelection()
+			return m, nil
 		case "up", "k":
 			m.scrollUp()
 			return m, nil
@@ -211,18 +293,19 @@ func (m *model) View() string {
 		return ""
 	}
 
-	return strings.Join(lines[startLine:endLine], "\n")
+	visibleLines := lines[startLine:endLine]
+
+	if m.selection.active {
+		visibleLines = m.applySelectionHighlight(visibleLines, startLine)
+	}
+
+	return strings.Join(visibleLines, "\n")
 }
 
 // SetSize sets the dimensions of the component
 func (m *model) SetSize(width, height int) tea.Cmd {
 	m.width = width
 	m.height = height
-
-	// Ensure minimum width
-	if width < 10 {
-		width = 10
-	}
 
 	// Update all views with new size
 	for _, view := range m.views {
@@ -341,7 +424,6 @@ func (m *model) renderItem(index int, view layout.Model) renderedItem {
 	}
 
 	item := renderedItem{
-		id:     index,
 		view:   rendered,
 		height: height,
 	}
@@ -362,31 +444,21 @@ func (m *model) ensureAllItemsRendered() {
 		return
 	}
 
-	// Render all items and calculate their positions
+	// Render all items and build the full content
 	var allLines []string
-	currentPosition := 0
 
 	for i, view := range m.views {
 		item := m.renderItem(i, view)
-
-		// Update position information
-		if item.height > 0 {
-			item.end = currentPosition + item.height - 1
-		} else {
-			item.end = currentPosition
-		}
 
 		// Add content to complete rendered string
 		if item.view != "" {
 			lines := strings.Split(item.view, "\n")
 			allLines = append(allLines, lines...)
-			currentPosition += len(lines)
 		}
 
 		// Add separator between messages (but not after last message)
 		if i < len(m.views)-1 && item.view != "" {
 			allLines = append(allLines, "")
-			currentPosition += 1
 		}
 	}
 
@@ -470,7 +542,10 @@ func (m *model) AddAssistantMessage() tea.Cmd {
 }
 
 func (m *model) addMessage(msg *types.Message) tea.Cmd {
+	m.clearSelection()
+
 	wasAtBottom := m.isAtBottom()
+
 	m.messages = append(m.messages, *msg)
 
 	view := m.createMessageView(msg)
@@ -751,4 +826,228 @@ func toolResultLabel(msg types.Message) string {
 		return "Tool Result"
 	}
 	return fmt.Sprintf("Tool Result (%s)", name)
+}
+
+// mouseToLineCol converts mouse position to line/column in rendered content
+func (m *model) mouseToLineCol(x, y int) (line, col int) {
+	// Adjust for header (2 lines: text + bottom padding)
+	adjustedY := max(0, y-2)
+	line = m.scrollOffset + adjustedY
+
+	// Adjust for left padding (1 column from AppStyle)
+	adjustedX := max(0, x-1)
+	col = adjustedX
+
+	return line, col
+}
+
+func (m *model) extractSelectedText() string {
+	if !m.selection.active {
+		return ""
+	}
+
+	lines := strings.Split(m.rendered, "\n")
+
+	// Normalize selection direction
+	startLine, startCol := m.selection.startLine, m.selection.startCol
+	endLine, endCol := m.selection.endLine, m.selection.endCol
+
+	if startLine > endLine || (startLine == endLine && startCol > endCol) {
+		startLine, endLine = endLine, startLine
+		startCol, endCol = endCol, startCol
+	}
+
+	if startLine < 0 || startLine >= len(lines) {
+		return ""
+	}
+	if endLine >= len(lines) {
+		endLine = len(lines) - 1
+	}
+
+	// Single line selection
+	if startLine == endLine {
+		if startLine < len(lines) {
+			line := ansi.Strip(lines[startLine])
+			// Convert display width to rune indices
+			startIdx := displayWidthToRuneIndex(line, startCol)
+			endIdx := displayWidthToRuneIndex(line, endCol)
+			runes := []rune(line)
+			if startIdx < len(runes) && startIdx < endIdx {
+				if endIdx > len(runes) {
+					endIdx = len(runes)
+				}
+				return string(runes[startIdx:endIdx])
+			}
+		}
+		return ""
+	}
+
+	// Multi-line selection
+	var result strings.Builder
+	for i := startLine; i <= endLine && i < len(lines); i++ {
+		line := ansi.Strip(lines[i])
+		runes := []rune(line)
+
+		switch i {
+		case startLine:
+			// First line: from startCol to end
+			startIdx := displayWidthToRuneIndex(line, startCol)
+			if startIdx < len(runes) {
+				result.WriteString(string(runes[startIdx:]))
+			}
+		case endLine:
+			// Last line: from start to endCol
+			endIdx := min(displayWidthToRuneIndex(line, endCol), len(runes))
+			result.WriteString(string(runes[:endIdx]))
+		default:
+			// Middle lines: entire line
+			result.WriteString(line)
+		}
+
+		// Add newline except for last line
+		if i < endLine {
+			result.WriteString("\n")
+		}
+	}
+
+	return result.String()
+}
+
+func (m *model) copySelectionToClipboard() tea.Cmd {
+	if !m.selection.active {
+		return nil
+	}
+
+	selectedText := m.extractSelectedText()
+	if selectedText == "" {
+		return nil
+	}
+
+	if err := clipboard.WriteAll(selectedText); err != nil {
+		return core.CmdHandler(notification.ShowMsg{Text: "Failed to copy: " + err.Error()})
+	}
+
+	return core.CmdHandler(notification.ShowMsg{Text: "Text copied to clipboard"})
+}
+
+func (m *model) clearSelection() {
+	m.selection = selectionState{}
+}
+
+func (m *model) applySelectionHighlight(lines []string, viewportStartLine int) []string {
+	// Normalize selection bounds
+	startLine, startCol := m.selection.startLine, m.selection.startCol
+	endLine, endCol := m.selection.endLine, m.selection.endCol
+
+	if startLine > endLine || (startLine == endLine && startCol > endCol) {
+		startLine, endLine = endLine, startLine
+		startCol, endCol = endCol, startCol
+	}
+
+	highlighted := make([]string, len(lines))
+
+	for i, line := range lines {
+		absoluteLine := viewportStartLine + i
+
+		if absoluteLine < startLine || absoluteLine > endLine {
+			highlighted[i] = line
+			continue
+		}
+
+		switch {
+		case startLine == endLine && absoluteLine == startLine:
+			// Single line selection
+			highlighted[i] = m.highlightLine(line, startCol, endCol)
+		case absoluteLine == startLine:
+			// Start of multi-line selection
+			plainLine := ansi.Strip(line)
+			lineWidth := runewidth.StringWidth(plainLine)
+			highlighted[i] = m.highlightLine(line, startCol, lineWidth)
+		case absoluteLine == endLine:
+			// End of multi-line selection
+			highlighted[i] = m.highlightLine(line, 0, endCol)
+		default:
+			// Middle of multi-line selection
+			plainLine := ansi.Strip(line)
+			lineWidth := runewidth.StringWidth(plainLine)
+			highlighted[i] = m.highlightLine(line, 0, lineWidth)
+		}
+	}
+
+	return highlighted
+}
+
+func (m *model) highlightLine(line string, startCol, endCol int) string {
+	plainLine := ansi.Strip(line)
+
+	startRuneIdx := displayWidthToRuneIndex(plainLine, startCol)
+	endRuneIdx := displayWidthToRuneIndex(plainLine, endCol)
+
+	if startRuneIdx >= len([]rune(plainLine)) {
+		return line
+	}
+	if startRuneIdx >= endRuneIdx {
+		return line
+	}
+
+	runes := []rune(plainLine)
+	before := string(runes[:startRuneIdx])
+	selected := styles.SelectionStyle.Render(string(runes[startRuneIdx:endRuneIdx]))
+	after := ""
+	if endRuneIdx < len(runes) {
+		after = string(runes[endRuneIdx:])
+	}
+
+	return before + selected + after
+}
+
+func displayWidthToRuneIndex(s string, targetWidth int) int {
+	if targetWidth <= 0 {
+		return 0
+	}
+
+	runes := []rune(s)
+	currentWidth := 0
+
+	for i, r := range runes {
+		if currentWidth >= targetWidth {
+			return i
+		}
+		currentWidth += runewidth.RuneWidth(r)
+	}
+
+	return len(runes)
+}
+
+func (m *model) autoScroll() tea.Cmd {
+	const scrollThreshold = 2
+	direction := 0
+
+	if m.selection.endCol < scrollThreshold && m.scrollOffset > 0 {
+		// Scroll up
+		direction = -1
+		m.scrollUp()
+		if m.selection.endLine > 0 {
+			m.selection.endLine--
+		}
+	} else if m.selection.endCol >= m.height-scrollThreshold {
+		// Scroll down
+		maxScrollOffset := max(0, m.totalHeight-m.height)
+		if m.scrollOffset < maxScrollOffset {
+			direction = 1
+			m.scrollDown()
+			lines := strings.Split(m.rendered, "\n")
+			if m.selection.endLine < len(lines)-1 {
+				m.selection.endLine++
+			}
+		}
+	}
+
+	if direction == 0 {
+		return nil
+	}
+
+	return tea.Tick(20*time.Millisecond, func(time.Time) tea.Msg {
+		return AutoScrollTickMsg{Direction: direction}
+	})
 }

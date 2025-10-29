@@ -128,3 +128,18 @@ func TestOverrideModel(t *testing.T) {
 		})
 	}
 }
+
+func TestToolsetInstructions(t *testing.T) {
+	team, err := Load(t.Context(), "testdata/tool-instruction.yaml", config.RuntimeConfig{})
+	require.NoError(t, err)
+
+	agent, err := team.Agent("root")
+	require.NoError(t, err)
+
+	toolsets := agent.ToolSets()
+	require.Len(t, toolsets, 1)
+
+	instructions := toolsets[0].Instructions()
+	expected := "Dummy fetch tool instruction"
+	require.Equal(t, expected, instructions)
+}

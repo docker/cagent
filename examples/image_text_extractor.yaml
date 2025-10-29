@@ -8,11 +8,11 @@ models:
 
   claude:
     provider: anthropic
-    model: claude-3-5-sonnet-latest
+    model: claude-3-7-sonnet-latest
     max_tokens: 1000
 
   gemini:
-    provider: gemini
+    provider: google
     model: gemini-2.5-flash
     max_tokens: 8000
 

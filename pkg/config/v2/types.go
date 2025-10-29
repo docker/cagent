@@ -98,6 +98,7 @@ type Toolset struct {
 	Type        string   `json:"type,omitempty"`
 	Tools       []string `json:"tools,omitempty"`
 	Instruction string   `json:"instruction,omitempty"`
+	Toon        string   `json:"toon,omitempty"`
 
 	// For the `mcp` tool
 	Command string   `json:"command,omitempty"`

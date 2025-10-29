@@ -57,7 +57,7 @@ agents:
 models:
   claude:
     provider: anthropic
-    model: claude-3-5-sonnet-latest
+    model: claude-3-7-sonnet-latest
 
   gpt-4o:
     provider: openai

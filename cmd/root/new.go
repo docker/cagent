@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/docker/cagent/pkg/creator"
+	"github.com/docker/cagent/pkg/input"
 	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/telemetry"
 )
@@ -83,7 +84,7 @@ func NewNewCmd() *cobra.Command {
 				fmt.Print(blue("> "))
 
 				var err error
-				prompt, err = readLine(ctx, os.Stdin)
+				prompt, err = input.ReadLine(ctx, os.Stdin)
 				if err != nil {
 					return fmt.Errorf("failed to read purpose: %w", err)
 				}

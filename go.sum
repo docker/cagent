@@ -22,6 +22,8 @@ github.com/alecthomas/chroma/v2 v2.20.0 h1:sfIHpxPyR07/Oylvmcai3X/exDlE8+FA820NT
 github.com/alecthomas/chroma/v2 v2.20.0/go.mod h1:e7tViK0xh/Nf4BYHl00ycY6rV7b8iXBksI9E359yNmA=
 github.com/alecthomas/repr v0.5.1 h1:E3G4t2QbHTSNpPKBgMTln5KLkZHLOcU7r37J4pXBuIg=
 github.com/alecthomas/repr v0.5.1/go.mod h1:Fr0507jx4eOXV7AlPV6AVZLYrLIuIeSOWtW57eE/O/4=
+github.com/alpkeskin/gotoon v0.1.0 h1:qtKx9kqpTYycxEolgHctyOmu2L5CUNwEeXfMizscO/k=
+github.com/alpkeskin/gotoon v0.1.0/go.mod h1:eCkjhBz/wmCoXAWKERuhPSb3+jW7ajluruYIgsfbriU=
 github.com/anthropics/anthropic-sdk-go v1.14.0 h1:EzNQvnZlaDHe2UPkoUySDz3ixRgNbwKdH8KtFpv7pi4=
 github.com/anthropics/anthropic-sdk-go v1.14.0/go.mod h1:WTz31rIUHUHqai2UslPpw5CwXrQP3geYBioRV4WOLvE=
 github.com/atotto/clipboard v0.1.4 h1:EH0zSVneZPSuFR11BlR9YppQTVDbh5+16AmcJi4g1z4=

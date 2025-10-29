@@ -6,6 +6,6 @@ agents:
     description: An agent that talks like a pirate
     instruction: Always answer by talking like a pirate.
     model: openai/gpt-4o
-    # model: anthropic/claude-3-5-sonnet-latest
+    # model: anthropic/claude-3-7-sonnet-latest
     # model: google/gemini-2.5-flash
     # model: dmr/ai/llama3.2

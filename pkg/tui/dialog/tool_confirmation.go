@@ -14,6 +14,7 @@ import (
 	"github.com/docker/cagent/pkg/tools"
 	"github.com/docker/cagent/pkg/tui/components/todo"
 	"github.com/docker/cagent/pkg/tui/core"
+	"github.com/docker/cagent/pkg/tui/styles"
 )
 
 // ToolConfirmationResponse represents the user's response to tool confirmation
@@ -164,42 +165,22 @@ func (d *toolConfirmationDialog) View() string {
 	// Content width (accounting for padding and borders)
 	contentWidth := dialogWidth - 6
 
-	// Dialog styling
-	dialogStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#6b7280")).
-		Foreground(lipgloss.Color("#d1d5db")).
-		Padding(2, 3).
-		Width(dialogWidth).
-		Align(lipgloss.Left)
+	dialogStyle := styles.DialogStyle.Width(dialogWidth)
 
 	// Title
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#9ca3af")).
-		Align(lipgloss.Center).
-		Width(contentWidth)
+	titleStyle := styles.DialogTitleStyle.Width(contentWidth)
 	title := titleStyle.Render("Tool Confirmation")
 
-	// Separator - make it shorter and more subtle
+	// Separator
 	separatorWidth := max(contentWidth-10, 20)
-	separator := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#4b5563")).
+	separator := styles.DialogSeparatorStyle.
 		Align(lipgloss.Center).
 		Width(contentWidth).
 		Render(strings.Repeat("─", separatorWidth))
 
 	// Tool name
-	toolLabel := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#6b7280")).
-		Render("Tool: ")
-
-	toolName := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#9ca3af")).
-		Render(d.toolCall.Function.Name)
-
+	toolLabel := styles.DialogLabelStyle.Render("Tool: ")
+	toolName := styles.DialogValueStyle.Render(d.toolCall.Function.Name)
 	toolInfo := lipgloss.JoinHorizontal(lipgloss.Left, toolLabel, toolName)
 
 	// Arguments section
@@ -210,21 +191,8 @@ func (d *toolConfirmationDialog) View() string {
 		argumentsSection = d.renderArguments(contentWidth)
 	}
 
-	// Question
-	questionStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#d1d5db")).
-		Align(lipgloss.Center).
-		Width(contentWidth)
-	question := questionStyle.Render("Do you want to allow this tool call?")
-
-	// Options - make them more visually appealing
-	optionStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#9ca3af")).
-		Align(lipgloss.Center).
-		Width(contentWidth)
-
-	options := optionStyle.Render("[Y]es    [N]o    [A]ll (approve all tools this session)")
+	question := styles.DialogQuestionStyle.Width(contentWidth).Render("Do you want to allow this tool call?")
+	options := styles.DialogOptionsStyle.Width(contentWidth).Render("[Y]es    [N]o    [A]ll (approve all tools this session)")
 
 	// Combine all parts with proper spacing
 	parts := []string{title, separator, toolInfo}
@@ -255,10 +223,7 @@ func (d *toolConfirmationDialog) renderArguments(contentWidth int) string {
 		return ""
 	}
 
-	argumentsHeader := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#6b7280")).
-		Render("Arguments:")
+	argumentsHeader := styles.DialogLabelStyle.Render("Arguments:")
 
 	var arguments map[string]any
 	if err := json.Unmarshal([]byte(d.toolCall.Function.Arguments), &arguments); err != nil {
@@ -268,9 +233,7 @@ func (d *toolConfirmationDialog) renderArguments(contentWidth int) string {
 			rawArgs = rawArgs[:150] + "..."
 		}
 
-		formattedArgs := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#6b7280")).
-			Render("  " + wrapText(rawArgs, contentWidth-2))
+		formattedArgs := styles.DialogContentStyle.Render("  " + wrapText(rawArgs, contentWidth-2))
 		return lipgloss.JoinVertical(lipgloss.Left, argumentsHeader, "", formattedArgs)
 	}
 
@@ -286,10 +249,7 @@ func (d *toolConfirmationDialog) renderArguments(contentWidth int) string {
 		v := arguments[k]
 
 		// Format key
-		keyStyle := lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#9ca3af"))
-		formattedKey := keyStyle.Render(k + ":")
+		formattedKey := styles.DialogValueStyle.Render(k + ":")
 
 		// Format value
 		var valueStr string
@@ -332,9 +292,7 @@ func (d *toolConfirmationDialog) renderArguments(contentWidth int) string {
 			wrappedValue = strings.Join(valueLines, "\n")
 		}
 
-		valueStyled := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#6b7280")).
-			Render(wrappedValue)
+		valueStyled := styles.DialogContentStyle.Render(wrappedValue)
 
 		argLines = append(argLines, fmt.Sprintf("  %s %s", formattedKey, valueStyled))
 	}

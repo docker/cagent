@@ -10,6 +10,7 @@ import (
 
 	"github.com/docker/cagent/pkg/app"
 	"github.com/docker/cagent/pkg/tui/core"
+	"github.com/docker/cagent/pkg/tui/styles"
 )
 
 // maxIterationsDialog implements DialogModel for max iterations confirmation
@@ -133,40 +134,16 @@ func (d *maxIterationsDialog) View() string {
 	frameHorizontal := (padX * 2) + 2
 	contentWidth := max(10, dialogWidth-frameHorizontal)
 
-	dialogStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#f59e0b")).
-		Foreground(lipgloss.Color("#d1d5db")).
+	dialogStyle := styles.DialogWarningStyle.
 		Padding(padY, padX).
-		Width(dialogWidth).
-		Align(lipgloss.Left)
+		Width(dialogWidth)
 
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#f59e0b")).
-		Align(lipgloss.Center).
-		Width(contentWidth)
-
-	messageStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#d1d5db")).
-		Width(contentWidth)
-
-	questionStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#d1d5db")).
-		Align(lipgloss.Center).
-		Width(contentWidth)
-
-	optionsStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#9ca3af")).
-		Align(lipgloss.Center).
-		Width(contentWidth)
-
-	title := titleStyle.Render("Maximum Iterations Reached")
+	title := styles.DialogTitleWarningStyle.
+		Width(contentWidth).
+		Render("Maximum Iterations Reached")
 
 	separatorWidth := max(1, contentWidth)
-	separator := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#4b5563")).
+	separator := styles.DialogSeparatorStyle.
 		Align(lipgloss.Center).
 		Width(contentWidth).
 		Render(strings.Repeat("─", separatorWidth))
@@ -174,18 +151,20 @@ func (d *maxIterationsDialog) View() string {
 	// Info section
 	infoText := fmt.Sprintf("Max Iterations: %d", d.maxIterations)
 	infoWrapped := wrapDisplayText(infoText, contentWidth)
-	infoSection := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#d1d5db")).
-		Render(infoWrapped)
+	infoSection := styles.DialogContentStyle.Render(infoWrapped)
 
 	// Message section
-	message := messageStyle.Render(wrapDisplayText("The agent may be stuck in a loop. This can happen with smaller or less capable models.", contentWidth))
+	message := styles.DialogContentStyle.Render(wrapDisplayText("The agent may be stuck in a loop. This can happen with smaller or less capable models.", contentWidth))
 
 	// Question section
-	question := questionStyle.Render(wrapDisplayText("Do you want to continue for 10 more iterations?", contentWidth))
+	question := styles.DialogQuestionStyle.
+		Width(contentWidth).
+		Render(wrapDisplayText("Do you want to continue for 10 more iterations?", contentWidth))
 
 	// Options section
-	options := optionsStyle.Render(wrapDisplayText("[Y]es    [N]o", contentWidth))
+	options := styles.DialogOptionsStyle.
+		Width(contentWidth).
+		Render(wrapDisplayText("[Y]es    [N]o", contentWidth))
 
 	// Combine all parts with proper spacing
 	parts := []string{title, separator, infoSection, "", message, "", question, "", options}

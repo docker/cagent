@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/docker/cagent/pkg/agent"
 	"github.com/docker/cagent/pkg/api"
 	"github.com/docker/cagent/pkg/chat"
 	"github.com/docker/cagent/pkg/session"
@@ -58,11 +57,9 @@ func NewRemoteRuntime(client *Client, opts ...RemoteRuntimeOption) (*RemoteRunti
 	return r, nil
 }
 
-// CurrentAgent returns the currently active agent
-func (r *RemoteRuntime) CurrentAgent() *agent.Agent {
-	// For remote runtime, we create a minimal agent representation
-	// In a full implementation, this could fetch agent details from the remote API
-	return agent.New(r.currentAgent, fmt.Sprintf("Remote agent: %s", r.currentAgent))
+// CurrentAgentName returns the name of the currently active agent
+func (r *RemoteRuntime) CurrentAgentName() string {
+	return r.currentAgent
 }
 
 // RunStream starts the agent's interaction loop and returns a channel of events

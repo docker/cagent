@@ -160,7 +160,7 @@ cagent run ./agent.yaml --command ls
 models:
   model_name:
     provider: string # Provider: openai, anthropic, google, dmr
-    model: string # Model name: gpt-4o, claude-3-5-sonnet-latest, gemini-2.5-flash, qwen3:4B, ...
+    model: string # Model name: gpt-4o, claude-3-7-sonnet-latest, gemini-2.5-flash, qwen3:4B, ...
     temperature: float # Randomness (0.0-1.0)
     max_tokens: integer # Response length limit
     top_p: float # Nucleus sampling (0.0-1.0)

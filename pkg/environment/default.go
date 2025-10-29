@@ -15,5 +15,8 @@ func NewDefaultProvider() Provider {
 		providers = append(providers, keychainProvider)
 	}
 
+	// Append Docker Desktop provider last
+	providers = append(providers, NewDockerDesktopProvider())
+
 	return NewMultiProvider(providers...)
 }

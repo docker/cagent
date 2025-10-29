@@ -5,10 +5,12 @@ import (
 
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/lexers"
-	"github.com/alecthomas/chroma/v2/styles"
+	chromastyles "github.com/alecthomas/chroma/v2/styles"
 	"github.com/aymanbagabas/go-udiff"
 	"github.com/charmbracelet/lipgloss/v2"
 	"github.com/mattn/go-runewidth"
+
+	"github.com/docker/cagent/pkg/tui/styles"
 )
 
 // syntaxHighlight applies syntax highlighting to code and returns styled text
@@ -19,9 +21,9 @@ func syntaxHighlight(code, filePath string) []chromaToken {
 	}
 	lexer = chroma.Coalesce(lexer)
 
-	style := styles.Get("monokai")
+	style := chromastyles.Get("monokai")
 	if style == nil {
-		style = styles.Fallback
+		style = chromastyles.Fallback
 	}
 
 	iterator, err := lexer.Tokenise(nil, code)
@@ -84,21 +86,17 @@ func renderDiffWithSyntaxHighlight(diff []*udiff.Hunk, filePath string, width in
 	const tabWidth = 4
 	var output strings.Builder
 
-	removeStyle := lipgloss.NewStyle().Background(lipgloss.Color("#553333"))
-	addStyle := lipgloss.NewStyle().Background(lipgloss.Color("#2E402E"))
-	unchangedStyle := lipgloss.NewStyle()
-
 	for _, hunk := range diff {
 		for _, line := range hunk.Lines {
 			var lineStyle lipgloss.Style
 
 			switch line.Kind {
 			case udiff.Delete:
-				lineStyle = removeStyle
+				lineStyle = styles.DiffRemoveStyle
 			case udiff.Insert:
-				lineStyle = addStyle
+				lineStyle = styles.DiffAddStyle
 			case udiff.Equal:
-				lineStyle = unchangedStyle
+				lineStyle = styles.DiffUnchangedStyle
 			}
 
 			expandedContent := strings.ReplaceAll(line.Content, "\t", strings.Repeat(" ", tabWidth))

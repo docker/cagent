@@ -610,11 +610,11 @@ func TestGetTools_WarningHandling(t *testing.T) {
 			sessionSpan := trace.SpanFromContext(t.Context())
 
 			// First call
-			tools1, err := rt.(*runtime).getTools(t.Context(), root, sessionSpan, events)
+			tools1, err := rt.getTools(t.Context(), root, sessionSpan, events)
 			require.NoError(t, err)
 			require.Len(t, tools1, tt.wantToolCount)
 
-			rt.(*runtime).emitAgentWarnings(root, events)
+			rt.emitAgentWarnings(root, events)
 			evs := collectEvents(events)
 			require.Equal(t, tt.wantWarning, hasWarningEvent(evs), "warning event mismatch on first call")
 		})
@@ -639,6 +639,39 @@ func TestNewRuntime_InvalidCurrentAgentError(t *testing.T) {
 	require.Contains(t, err.Error(), "agent not found: other (available agents: root)")
 }
 
+func TestSummarize_EmptySession(t *testing.T) {
+	// Create a runtime with a simple agent
+	prov := &mockProvider{id: "test/mock-model", stream: &mockStream{}}
+	root := agent.New("root", "You are a test agent", agent.WithModel(prov))
+	tm := team.New(team.WithAgents(root))
+
+	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	require.NoError(t, err)
+
+	// Create an empty session (no messages)
+	sess := session.New()
+	sess.Title = "Empty Session Test"
+
+	// Try to summarize the empty session
+	events := make(chan Event, 10)
+	rt.Summarize(t.Context(), sess, events)
+	close(events)
+
+	// Collect events
+	var warningFound bool
+	var warningMsg string
+	for ev := range events {
+		if warningEvent, ok := ev.(*WarningEvent); ok {
+			warningFound = true
+			warningMsg = warningEvent.Message
+		}
+	}
+
+	// Should have received a warning event about empty session
+	require.True(t, warningFound, "expected a warning event for empty session")
+	require.Contains(t, warningMsg, "empty", "warning message should mention empty session")
+}
+
 func TestProcessToolCalls_UnknownTool_NoToolResultMessage(t *testing.T) {
 	// Build a runtime with a simple agent but no tools registered matching the call
 	root := agent.New("root", "You are a test agent")
@@ -648,7 +681,7 @@ func TestProcessToolCalls_UnknownTool_NoToolResultMessage(t *testing.T) {
 	require.NoError(t, err)
 
 	// Register default tools (contains only transfer_task) to ensure unknown tool isn't matched
-	rt.(*runtime).registerDefaultTools()
+	rt.registerDefaultTools()
 
 	sess := session.New(session.WithUserMessage("", "Start"))
 
@@ -662,7 +695,7 @@ func TestProcessToolCalls_UnknownTool_NoToolResultMessage(t *testing.T) {
 	events := make(chan Event, 10)
 
 	// No agentTools provided and runtime toolMap doesn't have this tool name
-	rt.(*runtime).processToolCalls(t.Context(), sess, calls, nil, events)
+	rt.processToolCalls(t.Context(), sess, calls, nil, events)
 
 	// Drain events channel
 	close(events)

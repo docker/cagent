@@ -240,5 +240,6 @@ func StreamCreateAgent(ctx context.Context, baseDir, prompt string, runConfig co
 	)
 	sess.ToolsApproved = true
 
-	return rt.RunStream(ctx, sess), rt, nil
+	events := rt.RunStream(ctx, sess)
+	return events, rt, nil
 }

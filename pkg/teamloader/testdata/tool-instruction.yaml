@@ -1,0 +1,9 @@
+version: "2"
+
+agents:
+  root:
+    model: dmr/agi:1.0
+    instruction: Be good
+    toolsets:
+      - type: fetch
+        instruction: Dummy fetch tool instruction

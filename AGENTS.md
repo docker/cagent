@@ -174,7 +174,7 @@ models:
 ```yaml
 models:
   gemini:
-    provider: gemini
+    provider: google
     model: gemini-2.0-flash
     temperature: 0.5
 ```

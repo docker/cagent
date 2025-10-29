@@ -3,7 +3,7 @@ version: "2"
 
 agents:
   root:
-    model: anthropic/claude-4-0
+    model: anthropic/claude-sonnet-4-0
     description: Expert developer specialized in log analysis and diagnostics
     instruction: |
       You are a diagnostic expert focused on analyzing log files and identifying issues. Your primary responsibilities are:

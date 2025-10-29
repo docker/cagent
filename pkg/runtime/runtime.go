@@ -63,8 +63,8 @@ type ElicitationRequestHandler func(ctx context.Context, message string, schema 
 
 // Runtime defines the contract for runtime execution
 type Runtime interface {
-	// CurrentAgent returns the currently active agent
-	CurrentAgent() *agent.Agent
+	// CurrentAgentName returns the name of the currently active agent
+	CurrentAgentName() string
 	// RunStream starts the agent's interaction loop and returns a channel of events
 	RunStream(ctx context.Context, sess *session.Session) <-chan Event
 	// Run starts the agent's interaction loop and returns the final messages
@@ -77,8 +77,8 @@ type Runtime interface {
 	ResumeElicitation(_ context.Context, action string, content map[string]any) error
 }
 
-// runtime manages the execution of agents
-type runtime struct {
+// LocalRuntime manages the execution of agents
+type LocalRuntime struct {
 	toolMap                     map[string]ToolHandler
 	team                        *team.Team
 	currentAgent                string
@@ -101,53 +101,53 @@ type streamResult struct {
 	Stopped           bool
 }
 
-type Opt func(*runtime)
+type Opt func(*LocalRuntime)
 
 func WithCurrentAgent(agentName string) Opt {
-	return func(r *runtime) {
+	return func(r *LocalRuntime) {
 		r.currentAgent = agentName
 	}
 }
 
 func WithManagedOAuth(managed bool) Opt {
-	return func(r *runtime) {
+	return func(r *LocalRuntime) {
 		r.managedOAuth = managed
 	}
 }
 
 func WithRootSessionID(sessionID string) Opt {
-	return func(r *runtime) {
+	return func(r *LocalRuntime) {
 		r.rootSessionID = sessionID
 	}
 }
 
 // WithTracer sets a custom OpenTelemetry tracer; if not provided, tracing is disabled (no-op).
 func WithTracer(t trace.Tracer) Opt {
-	return func(r *runtime) {
+	return func(r *LocalRuntime) {
 		r.tracer = t
 	}
 }
 
 func WithSessionCompaction(sessionCompaction bool) Opt {
-	return func(r *runtime) {
+	return func(r *LocalRuntime) {
 		r.sessionCompaction = sessionCompaction
 	}
 }
 
 func WithModelStore(store modelStore) Opt {
-	return func(r *runtime) {
+	return func(r *LocalRuntime) {
 		r.modelsStore = store
 	}
 }
 
 // New creates a new runtime for an agent and its team
-func New(agents *team.Team, opts ...Opt) (Runtime, error) {
+func New(agents *team.Team, opts ...Opt) (*LocalRuntime, error) {
 	modelsStore, err := modelsdev.NewStore()
 	if err != nil {
 		return nil, err
 	}
 
-	r := &runtime{
+	r := &LocalRuntime{
 		toolMap:              make(map[string]ToolHandler),
 		team:                 agents,
 		currentAgent:         "root",
@@ -172,20 +172,25 @@ func New(agents *team.Team, opts ...Opt) (Runtime, error) {
 	return r, nil
 }
 
-func (r *runtime) CurrentAgent() *agent.Agent {
+func (r *LocalRuntime) CurrentAgentName() string {
+	return r.currentAgent
+}
+
+// CurrentAgent returns the current agent
+func (r *LocalRuntime) CurrentAgent() *agent.Agent {
 	// We validated already that the agent exists
 	current, _ := r.team.Agent(r.currentAgent)
 	return current
 }
 
 // registerDefaultTools registers the default tool handlers
-func (r *runtime) registerDefaultTools() {
+func (r *LocalRuntime) registerDefaultTools() {
 	slog.Debug("Registering default tools")
 	r.toolMap["transfer_task"] = r.handleTaskTransfer
 	slog.Debug("Registered default tools", "count", len(r.toolMap))
 }
 
-func (r *runtime) finalizeEventChannel(ctx context.Context, sess *session.Session, events chan Event) {
+func (r *LocalRuntime) finalizeEventChannel(ctx context.Context, sess *session.Session, events chan Event) {
 	defer close(events)
 
 	events <- StreamStopped(sess.ID, r.currentAgent)
@@ -198,7 +203,7 @@ func (r *runtime) finalizeEventChannel(ctx context.Context, sess *session.Sessio
 }
 
 // RunStream starts the agent's interaction loop and returns a channel of events
-func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan Event {
+func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-chan Event {
 	slog.Debug("Starting runtime stream", "agent", r.currentAgent, "session_id", sess.ID)
 	events := make(chan Event, 128)
 
@@ -402,7 +407,7 @@ func (r *runtime) RunStream(ctx context.Context, sess *session.Session) <-chan E
 }
 
 // getTools executes tool retrieval with automatic OAuth handling
-func (r *runtime) getTools(ctx context.Context, a *agent.Agent, sessionSpan trace.Span, events chan Event) ([]tools.Tool, error) {
+func (r *LocalRuntime) getTools(ctx context.Context, a *agent.Agent, sessionSpan trace.Span, events chan Event) ([]tools.Tool, error) {
 	shouldEmitMCPInit := events != nil && len(a.ToolSets()) > 0
 	if shouldEmitMCPInit {
 		events <- MCPInitStarted(a.Name())
@@ -426,7 +431,7 @@ func (r *runtime) getTools(ctx context.Context, a *agent.Agent, sessionSpan trac
 	return agentTools, nil
 }
 
-func (r *runtime) emitAgentWarnings(a *agent.Agent, events chan Event) {
+func (r *LocalRuntime) emitAgentWarnings(a *agent.Agent, events chan Event) {
 	warnings := a.DrainWarnings()
 	if len(warnings) == 0 {
 		return
@@ -452,7 +457,7 @@ func formatToolWarning(a *agent.Agent, warnings []string) string {
 	return strings.TrimSuffix(builder.String(), "\n")
 }
 
-func (r *runtime) Resume(_ context.Context, confirmationType string) {
+func (r *LocalRuntime) Resume(_ context.Context, confirmationType string) {
 	slog.Debug("Resuming runtime", "agent", r.currentAgent, "confirmation_type", confirmationType)
 
 	cType := ResumeTypeApproveSession
@@ -472,7 +477,7 @@ func (r *runtime) Resume(_ context.Context, confirmationType string) {
 }
 
 // ResumeElicitation sends an elicitation response back to a waiting elicitation request
-func (r *runtime) ResumeElicitation(ctx context.Context, action string, content map[string]any) error {
+func (r *LocalRuntime) ResumeElicitation(ctx context.Context, action string, content map[string]any) error {
 	slog.Debug("Resuming runtime with elicitation response", "agent", r.currentAgent, "action", action)
 
 	result := ElicitationResult{
@@ -494,7 +499,7 @@ func (r *runtime) ResumeElicitation(ctx context.Context, action string, content 
 }
 
 // Run starts the agent's interaction loop
-func (r *runtime) Run(ctx context.Context, sess *session.Session) ([]session.Message, error) {
+func (r *LocalRuntime) Run(ctx context.Context, sess *session.Session) ([]session.Message, error) {
 	eventsChan := r.RunStream(ctx, sess)
 
 	for event := range eventsChan {
@@ -506,7 +511,7 @@ func (r *runtime) Run(ctx context.Context, sess *session.Session) ([]session.Mes
 	return sess.GetAllMessages(), nil
 }
 
-func (r *runtime) handleStream(ctx context.Context, stream chat.MessageStream, a *agent.Agent, agentTools []tools.Tool, sess *session.Session, m *modelsdev.Model, events chan Event) (streamResult, error) {
+func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStream, a *agent.Agent, agentTools []tools.Tool, sess *session.Session, m *modelsdev.Model, events chan Event) (streamResult, error) {
 	defer stream.Close()
 
 	var fullContent strings.Builder
@@ -647,7 +652,7 @@ func (r *runtime) handleStream(ctx context.Context, stream chat.MessageStream, a
 }
 
 // processToolCalls handles the execution of tool calls for an agent
-func (r *runtime) processToolCalls(ctx context.Context, sess *session.Session, calls []tools.ToolCall, agentTools []tools.Tool, events chan Event) {
+func (r *LocalRuntime) processToolCalls(ctx context.Context, sess *session.Session, calls []tools.ToolCall, agentTools []tools.Tool, events chan Event) {
 	a := r.CurrentAgent()
 	slog.Debug("Processing tool calls", "agent", a.Name(), "call_count", len(calls))
 
@@ -759,7 +764,7 @@ func (r *runtime) processToolCalls(ctx context.Context, sess *session.Session, c
 // runTool executes agent tools from toolsets (MCP, filesystem, etc.).
 // Tool execution may require OAuth authorization, so the handler call is wrapped
 // with ExecuteWithOAuth to automatically handle authorization flows and retries.
-func (r *runtime) runTool(ctx context.Context, tool tools.Tool, toolCall tools.ToolCall, events chan Event, sess *session.Session, a *agent.Agent) {
+func (r *LocalRuntime) runTool(ctx context.Context, tool tools.Tool, toolCall tools.ToolCall, events chan Event, sess *session.Session, a *agent.Agent) {
 	// Start a child span for the actual tool handler execution
 	ctx, span := r.startSpan(ctx, "runtime.tool.handler", trace.WithAttributes(
 		attribute.String("tool.name", toolCall.Function.Name),
@@ -815,7 +820,7 @@ func (r *runtime) runTool(ctx context.Context, tool tools.Tool, toolCall tools.T
 	sess.AddMessage(session.NewAgentMessage(a, &toolResponseMsg))
 }
 
-func (r *runtime) runAgentTool(ctx context.Context, handler ToolHandler, sess *session.Session, toolCall tools.ToolCall, tool tools.Tool, events chan Event, a *agent.Agent) {
+func (r *LocalRuntime) runAgentTool(ctx context.Context, handler ToolHandler, sess *session.Session, toolCall tools.ToolCall, tool tools.Tool, events chan Event, a *agent.Agent) {
 	// Start a child span for runtime-provided tool handler execution
 	ctx, span := r.startSpan(ctx, "runtime.tool.handler.runtime", trace.WithAttributes(
 		attribute.String("tool.name", toolCall.Function.Name),
@@ -868,7 +873,7 @@ func (r *runtime) runAgentTool(ctx context.Context, handler ToolHandler, sess *s
 	sess.AddMessage(session.NewAgentMessage(a, &toolResponseMsg))
 }
 
-func (r *runtime) addToolRejectedResponse(sess *session.Session, toolCall tools.ToolCall, tool tools.Tool, events chan Event) {
+func (r *LocalRuntime) addToolRejectedResponse(sess *session.Session, toolCall tools.ToolCall, tool tools.Tool, events chan Event) {
 	a := r.CurrentAgent()
 
 	result := "The user rejected the tool call."
@@ -884,7 +889,7 @@ func (r *runtime) addToolRejectedResponse(sess *session.Session, toolCall tools.
 	sess.AddMessage(session.NewAgentMessage(a, &toolResponseMsg))
 }
 
-func (r *runtime) addToolCancelledResponse(sess *session.Session, toolCall tools.ToolCall, tool tools.Tool, events chan Event) {
+func (r *LocalRuntime) addToolCancelledResponse(sess *session.Session, toolCall tools.ToolCall, tool tools.Tool, events chan Event) {
 	a := r.CurrentAgent()
 
 	result := "The tool call was canceled by the user."
@@ -901,14 +906,14 @@ func (r *runtime) addToolCancelledResponse(sess *session.Session, toolCall tools
 }
 
 // startSpan wraps tracer.Start, returning a no-op span if the tracer is nil.
-func (r *runtime) startSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
+func (r *LocalRuntime) startSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
 	if r.tracer == nil {
 		return ctx, trace.SpanFromContext(ctx)
 	}
 	return r.tracer.Start(ctx, name, opts...)
 }
 
-func (r *runtime) handleTaskTransfer(ctx context.Context, sess *session.Session, toolCall tools.ToolCall, evts chan Event) (*tools.ToolCallResult, error) {
+func (r *LocalRuntime) handleTaskTransfer(ctx context.Context, sess *session.Session, toolCall tools.ToolCall, evts chan Event) (*tools.ToolCallResult, error) {
 	var params struct {
 		Agent          string `json:"agent"`
 		Task           string `json:"task"`
@@ -980,7 +985,7 @@ func (r *runtime) handleTaskTransfer(ctx context.Context, sess *session.Session,
 }
 
 // generateSessionTitle generates a title for the session based on the conversation history
-func (r *runtime) generateSessionTitle(ctx context.Context, sess *session.Session, events chan Event) {
+func (r *LocalRuntime) generateSessionTitle(ctx context.Context, sess *session.Session, events chan Event) {
 	slog.Debug("Generating title for session", "session_id", sess.ID)
 
 	// Create conversation history summary
@@ -1035,7 +1040,7 @@ func (r *runtime) generateSessionTitle(ctx context.Context, sess *session.Sessio
 }
 
 // Summarize generates a summary for the session based on the conversation history
-func (r *runtime) Summarize(ctx context.Context, sess *session.Session, events chan Event) {
+func (r *LocalRuntime) Summarize(ctx context.Context, sess *session.Session, events chan Event) {
 	slog.Debug("Generating summary for session", "session_id", sess.ID)
 
 	events <- SessionCompaction(sess.ID, "started", r.currentAgent)
@@ -1046,6 +1051,13 @@ func (r *runtime) Summarize(ctx context.Context, sess *session.Session, events c
 	// Create conversation history for summarization
 	var conversationHistory strings.Builder
 	messages := sess.GetAllMessages()
+
+	// Check if session is empty
+	if len(messages) == 0 {
+		slog.Debug("Session is empty, nothing to summarize", "session_id", sess.ID)
+		events <- &WarningEvent{Message: "Session is empty. Start a conversation before compacting."}
+		return
+	}
 	for i := range messages {
 		role := "Unknown"
 		switch messages[i].Message.Role {
@@ -1096,14 +1108,14 @@ func (r *runtime) Summarize(ctx context.Context, sess *session.Session, events c
 }
 
 // setElicitationEventsChannel sets the current events channel for elicitation requests
-func (r *runtime) setElicitationEventsChannel(events chan Event) {
+func (r *LocalRuntime) setElicitationEventsChannel(events chan Event) {
 	r.elicitationEventsChannelMux.Lock()
 	defer r.elicitationEventsChannelMux.Unlock()
 	r.elicitationEventsChannel = events
 }
 
 // clearElicitationEventsChannel clears the current events channel
-func (r *runtime) clearElicitationEventsChannel() {
+func (r *LocalRuntime) clearElicitationEventsChannel() {
 	r.elicitationEventsChannelMux.Lock()
 	defer r.elicitationEventsChannelMux.Unlock()
 	r.elicitationEventsChannel = nil
@@ -1111,7 +1123,7 @@ func (r *runtime) clearElicitationEventsChannel() {
 
 // elicitationHandler creates an elicitation handler that can be used by MCP clients
 // This handler propagates elicitation requests to the runtime's client via events
-func (r *runtime) elicitationHandler(ctx context.Context, req *mcp.ElicitParams) (tools.ElicitationResult, error) {
+func (r *LocalRuntime) elicitationHandler(ctx context.Context, req *mcp.ElicitParams) (tools.ElicitationResult, error) {
 	slog.Debug("Elicitation request received from MCP server", "message", req.Message)
 
 	// Get the current events channel

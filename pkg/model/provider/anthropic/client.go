@@ -13,8 +13,8 @@ import (
 
 	"github.com/docker/cagent/pkg/chat"
 	latest "github.com/docker/cagent/pkg/config/v2"
-	"github.com/docker/cagent/pkg/desktop"
 	"github.com/docker/cagent/pkg/environment"
+	"github.com/docker/cagent/pkg/httpclient"
 	"github.com/docker/cagent/pkg/model/provider/base"
 	"github.com/docker/cagent/pkg/model/provider/options"
 	"github.com/docker/cagent/pkg/tools"
@@ -24,11 +24,7 @@ import (
 // It holds the anthropic client and model config
 type Client struct {
 	base.Config
-	client anthropic.Client
-	// When using the Docker AI Gateway, tokens are short-lived. We rebuild
-	// the client per request when in gateway mode.
-	useGateway     bool
-	gatewayBaseURL string
+	clientFn func(context.Context) (anthropic.Client, error)
 }
 
 // interleavedThinkingEnabled returns false unless explicitly enabled via
@@ -76,9 +72,7 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 		opt(&globalOptions)
 	}
 
-	var requestOptions []option.RequestOption
-	useGateway := false
-	gatewayBaseURL := ""
+	var clientFn func(context.Context) (anthropic.Client, error)
 	if gateway := globalOptions.Gateway(); gateway == "" {
 		authToken := env.Get(ctx, "ANTHROPIC_API_KEY")
 		if authToken == "" {
@@ -86,30 +80,45 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 		}
 
 		slog.Debug("Anthropic API key found, creating client")
-		requestOptions = append(requestOptions,
+		requestOptions := []option.RequestOption{
 			option.WithAPIKey(authToken),
-		)
+			option.WithHTTPClient(httpclient.NewHTTPClient()),
+		}
 		if cfg.BaseURL != "" {
 			requestOptions = append(requestOptions, option.WithBaseURL(cfg.BaseURL))
 		}
+		client := anthropic.NewClient(requestOptions...)
+		clientFn = func(context.Context) (anthropic.Client, error) {
+			return client, nil
+		}
 	} else {
-		authToken := desktop.GetToken(ctx)
-		if authToken == "" {
+		// Fail fast if Docker Desktop's auth token isn't available
+		if env.Get(ctx, environment.DockerDesktopTokenEnv) == "" {
 			slog.Error("Anthropic client creation failed", "error", "failed to get Docker Desktop's authentication token")
 			return nil, errors.New("sorry, you first need to sign in Docker Desktop to use the Docker AI Gateway")
 		}
 
-		slog.Debug("Docker Desktop's authentication token found, creating client")
-		requestOptions = append(requestOptions,
-			option.WithAuthToken(authToken),
-			option.WithAPIKey(authToken),
-			option.WithBaseURL(gateway),
-		)
-		useGateway = true
-		gatewayBaseURL = gateway
+		// When using a Gateway, tokens are short-lived.
+		clientFn = func(ctx context.Context) (anthropic.Client, error) {
+			// Query a fresh auth token each time the client is used
+			authToken := env.Get(ctx, environment.DockerDesktopTokenEnv)
+			if authToken == "" {
+				return anthropic.Client{}, errors.New("failed to get Docker Desktop token for Gateway")
+			}
+
+			return anthropic.NewClient(
+				option.WithAuthToken(authToken),
+				option.WithAPIKey(authToken),
+				option.WithBaseURL(gateway),
+				option.WithHTTPClient(httpclient.NewHTTPClient(
+					httpclient.WithProxiedBaseURL(defaultsTo(cfg.BaseURL, "https://api.anthropic.com/")),
+					httpclient.WithProvider(cfg.Provider),
+					httpclient.WithModel(cfg.Model),
+				)),
+			), nil
+		}
 	}
 
-	client := anthropic.NewClient(requestOptions...)
 	slog.Debug("Anthropic client created successfully", "model", cfg.Model)
 
 	if globalOptions.StructuredOutput != nil {
@@ -121,23 +130,8 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 			ModelConfig:  cfg,
 			ModelOptions: globalOptions,
 		},
-		client:         client,
-		useGateway:     useGateway,
-		gatewayBaseURL: gatewayBaseURL,
+		clientFn: clientFn,
 	}, nil
-}
-
-// newGatewayClient builds a new Anthropic client using a fresh Docker Desktop token.
-func (c *Client) newGatewayClient(ctx context.Context) anthropic.Client {
-	authToken := desktop.GetToken(ctx)
-	opts := []option.RequestOption{
-		option.WithAuthToken(authToken),
-		option.WithAPIKey(authToken),
-	}
-	if c.gatewayBaseURL != "" {
-		opts = append(opts, option.WithBaseURL(c.gatewayBaseURL))
-	}
-	return anthropic.NewClient(opts...)
 }
 
 // CreateChatCompletionStream creates a streaming chat completion request
@@ -155,10 +149,11 @@ func (c *Client) CreateChatCompletionStream(
 	if maxTokens == 0 {
 		maxTokens = 8192 // Default output budget when not specified
 	}
-	// Build a fresh client per request when using the gateway
-	client := c.client
-	if c.useGateway {
-		client = c.newGatewayClient(ctx)
+
+	client, err := c.clientFn(ctx)
+	if err != nil {
+		slog.Error("Failed to create Anthropic client", "error", err)
+		return nil, err
 	}
 
 	// Use Beta API with interleaved thinking only when enabled
@@ -665,4 +660,11 @@ func countAnthropicTokens(
 		return 0, err
 	}
 	return result.InputTokens, nil
+}
+
+func defaultsTo(value, defaultValue string) string {
+	if value != "" {
+		return value
+	}
+	return defaultValue
 }

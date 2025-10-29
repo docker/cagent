@@ -39,6 +39,7 @@ type Page interface {
 	layout.Help
 	CompactSession() tea.Cmd
 	CopySessionToClipboard() tea.Cmd
+	ExecuteCommand(commandText string) tea.Cmd
 	Cleanup()
 }
 
@@ -95,7 +96,7 @@ func New(a *app.App) Page {
 		title:        a.Title(),
 		sidebar:      sidebar.New(),
 		messages:     messages.New(a),
-		editor:       editor.New(),
+		editor:       editor.New(a.ResolveCommand),
 		focusedPanel: PanelEditor,
 		app:          a,
 		keyMap:       defaultKeyMap(),
@@ -172,7 +173,7 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return p, nil
 
-	case tea.MouseWheelMsg:
+	case tea.MouseWheelMsg, tea.MouseClickMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
 		// Always forward mouse wheel events to the chat component for scrolling
 		model, cmd := p.messages.Update(msg)
 		p.messages = model.(messages.Model)
@@ -509,6 +510,13 @@ func (p *chatPage) CompactSession() tea.Cmd {
 	p.app.CompactSession()
 
 	return p.messages.ScrollToBottom()
+}
+
+// ExecuteCommand sends a command text as a message (used by command palette)
+func (p *chatPage) ExecuteCommand(commandText string) tea.Cmd {
+	return func() tea.Msg {
+		return editor.SendMsg{Content: commandText}
+	}
 }
 
 func (p *chatPage) Cleanup() {

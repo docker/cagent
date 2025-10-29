@@ -24,6 +24,7 @@ import (
 	"github.com/docker/cagent/pkg/config"
 	"github.com/docker/cagent/pkg/content"
 	"github.com/docker/cagent/pkg/evaluation"
+	"github.com/docker/cagent/pkg/input"
 	"github.com/docker/cagent/pkg/remote"
 	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/session"
@@ -279,7 +280,7 @@ func doRunCommand(ctx context.Context, args []string, exec bool) error {
 		}
 
 		remoteRt, err := runtime.NewRemoteRuntime(remoteClient,
-			runtime.WithRemoteCurrentAgent("root"),
+			runtime.WithRemoteCurrentAgent(agentName),
 			runtime.WithRemoteAgentFilename(args[0]),
 		)
 		if err != nil {
@@ -417,7 +418,7 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt runtime.Runtime
 		sess.AddMessage(createUserMessageWithAttachment(agentFilename, messageText, finalAttachPath))
 
 		firstLoop := true
-		lastAgent := rt.CurrentAgent().Name()
+		lastAgent := rt.CurrentAgentName()
 		llmIsTyping := false
 		reasoningStarted := false // Track if we've printed "Thinking:" prefix
 		var lastConfirmedToolCallID string
@@ -594,7 +595,7 @@ func runWithoutTUI(ctx context.Context, agentFilename string, rt runtime.Runtime
 			fmt.Print(blue("> "))
 			firstQuestion = false
 
-			line, err := readLine(ctx, os.Stdin)
+			line, err := input.ReadLine(ctx, os.Stdin)
 			if err != nil {
 				return err
 			}
@@ -645,15 +646,20 @@ func runUserCommand(userInput string, sess *session.Session, rt runtime.Runtime,
 		// Process events and show the summary
 		close(events)
 		summaryGenerated := false
+		hasWarning := false
 		for event := range events {
-			if summaryEvent, ok := event.(*runtime.SessionSummaryEvent); ok {
+			switch e := event.(type) {
+			case *runtime.SessionSummaryEvent:
 				fmt.Printf("%s\n", yellow("Summary generated and added to session"))
-				fmt.Printf("Summary: %s\n", summaryEvent.Summary)
+				fmt.Printf("Summary: %s\n", e.Summary)
 				summaryGenerated = true
+			case *runtime.WarningEvent:
+				fmt.Printf("%s\n", yellow("Warning: "+e.Message))
+				hasWarning = true
 			}
 		}
 
-		if !summaryGenerated {
+		if !summaryGenerated && !hasWarning {
 			fmt.Printf("%s\n", yellow("No summary generated"))
 		}
 
@@ -665,8 +671,8 @@ func runUserCommand(userInput string, sess *session.Session, rt runtime.Runtime,
 
 // parseAttachCommand parses user input for /attach commands
 // Returns the message text (with /attach commands removed) and the attachment path
-func parseAttachCommand(input string) (messageText, attachPath string) {
-	lines := strings.Split(input, "\n")
+func parseAttachCommand(userInput string) (messageText, attachPath string) {
+	lines := strings.Split(userInput, "\n")
 	var messageLines []string
 
 	for _, line := range lines {

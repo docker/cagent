@@ -1,0 +1,12 @@
+#!/usr/bin/env cagent run
+version: "2"
+
+agents:
+  root:
+    model: anthropic/claude-sonnet-4-0
+    description: GitHub Agent - Help with GitHub using MCP tools
+    instruction: You are a helpful assistant that can help with all things GitHub
+    toolsets:
+      - type: mcp
+        ref: docker:github-official
+        toon: ".*" # toonify all the tools

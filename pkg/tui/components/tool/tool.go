@@ -3,7 +3,6 @@ package tool
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/v2/spinner"
@@ -96,8 +95,6 @@ func (mv *toolModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (mv *toolModel) View() string {
 	msg := mv.message
 
-	slog.Debug("Rendering tool message", "status", msg.ToolStatus, "content", msg.Content, "args", msg.ToolCall.Function.Arguments)
-	slog.Debug("Tool definition", "name", msg.ToolDefinition.Name, "title", msg.ToolDefinition.Annotations.Title)
 	displayName := msg.ToolDefinition.DisplayName()
 
 	content := fmt.Sprintf("%s %s", icon(msg.ToolStatus), styles.HighlightStyle.Render(displayName))

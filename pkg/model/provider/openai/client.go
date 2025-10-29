@@ -13,8 +13,8 @@ import (
 
 	"github.com/docker/cagent/pkg/chat"
 	latest "github.com/docker/cagent/pkg/config/v2"
-	"github.com/docker/cagent/pkg/desktop"
 	"github.com/docker/cagent/pkg/environment"
+	"github.com/docker/cagent/pkg/httpclient"
 	"github.com/docker/cagent/pkg/model/provider/base"
 	"github.com/docker/cagent/pkg/model/provider/options"
 	"github.com/docker/cagent/pkg/tools"
@@ -24,11 +24,7 @@ import (
 // It implements the provider.Provider interface
 type Client struct {
 	base.Config
-	client *openai.Client
-	// When using the Docker AI Gateway, tokens are short-lived. We rebuild
-	// the client per request using these fields.
-	useGateway     bool
-	gatewayBaseURL string
+	clientFn func(context.Context) (*openai.Client, error)
 }
 
 // NewClient creates a new OpenAI client from the provided configuration
@@ -43,7 +39,7 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 		opt(&globalOptions)
 	}
 
-	var openaiConfig openai.ClientConfig
+	var clientFn func(context.Context) (*openai.Client, error)
 	if gateway := globalOptions.Gateway(); gateway == "" {
 		key := cfg.TokenKey
 		if key == "" {
@@ -54,6 +50,7 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 			return nil, fmt.Errorf("%s environment variable is required", key)
 		}
 
+		var openaiConfig openai.ClientConfig
 		if cfg.Provider == "azure" {
 			openaiConfig = openai.DefaultAzureConfig(authToken, cfg.BaseURL)
 			openaiConfig.AzureModelMapperFunc = func(model string) string {
@@ -75,6 +72,8 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 			openaiConfig.BaseURL = cfg.BaseURL
 		}
 
+		openaiConfig.HTTPClient = httpclient.NewHTTPClient()
+
 		// TODO: Move this logic to ProviderAliases as a config function
 		if cfg.ProviderOpts != nil {
 			switch cfg.Provider { //nolint:gocritic
@@ -87,30 +86,39 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 				}
 			}
 		}
+
+		slog.Debug("OpenAI API key found, creating client")
+		client := openai.NewClientWithConfig(openaiConfig)
+		clientFn = func(context.Context) (*openai.Client, error) {
+			return client, nil
+		}
 	} else {
-		authToken := desktop.GetToken(ctx)
-		if authToken == "" {
+		// Fail fast if Docker Desktop's auth token isn't available
+		if env.Get(ctx, environment.DockerDesktopTokenEnv) == "" {
 			slog.Error("OpenAI client creation failed", "error", "failed to get Docker Desktop's authentication token")
 			return nil, errors.New("sorry, you first need to sign in Docker Desktop to use the Docker AI Gateway")
 		}
 
-		openaiConfig = openai.DefaultConfig(authToken)
-		openaiConfig.BaseURL = gateway + "/v1"
-		// mark gateway usage for per-request token refresh
-		// we persist the base URL to rebuild clients on demand
-		// even though we also create an initial client here
-		// so the first request works immediately
+		// When using a Gateway, tokens are short-lived.
+		clientFn = func(ctx context.Context) (*openai.Client, error) {
+			// Query a fresh auth token each time the client is used
+			authToken := env.Get(ctx, environment.DockerDesktopTokenEnv)
+			if authToken == "" {
+				return nil, errors.New("failed to get Docker Desktop token for Gateway")
+			}
+
+			openaiConfig := openai.DefaultConfig(authToken)
+			openaiConfig.BaseURL = gateway + "/v1"
+			openaiConfig.HTTPClient = httpclient.NewHTTPClient(
+				httpclient.WithProxiedBaseURL(defaultsTo(cfg.BaseURL, "https://api.openai.com/v1")),
+				httpclient.WithProvider(cfg.Provider),
+				httpclient.WithModel(cfg.Model),
+			)
+
+			return openai.NewClientWithConfig(openaiConfig), nil
+		}
 	}
 
-	useGateway := false
-	gatewayBaseURL := ""
-	if globalOptions.Gateway() != "" {
-		useGateway = true
-		gatewayBaseURL = globalOptions.Gateway() + "/v1"
-	}
-
-	slog.Debug("OpenAI API key found, creating client")
-	client := openai.NewClientWithConfig(openaiConfig)
 	slog.Debug("OpenAI client created successfully", "model", cfg.Model)
 
 	return &Client{
@@ -118,18 +126,8 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 			ModelConfig:  cfg,
 			ModelOptions: globalOptions,
 		},
-		client:         client,
-		useGateway:     useGateway,
-		gatewayBaseURL: gatewayBaseURL,
+		clientFn: clientFn,
 	}, nil
-}
-
-// newGatewayClient builds a new OpenAI client using a fresh Docker Desktop token.
-func (c *Client) newGatewayClient(ctx context.Context) *openai.Client {
-	authToken := desktop.GetToken(ctx)
-	cfg := openai.DefaultConfig(authToken)
-	cfg.BaseURL = c.gatewayBaseURL
-	return openai.NewClientWithConfig(cfg)
 }
 
 func convertMultiContent(multiContent []chat.MessagePart) []openai.ChatMessagePart {
@@ -305,11 +303,12 @@ func (c *Client) CreateChatCompletionStream(
 		slog.Error("Failed to marshal OpenAI request to JSON", "error", err)
 	}
 
-	// Build a fresh client per request when using the gateway
-	client := c.client
-	if c.useGateway {
-		client = c.newGatewayClient(ctx)
+	client, err := c.clientFn(ctx)
+	if err != nil {
+		slog.Error("Failed to create OpenAI client", "error", err)
+		return nil, err
 	}
+
 	stream, err := client.CreateChatCompletionStream(ctx, request)
 	if err != nil {
 		// Fallback for future models: retry without max_tokens if server complains
@@ -397,4 +396,11 @@ type jsonSchema map[string]any
 
 func (j jsonSchema) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]any(j))
+}
+
+func defaultsTo(value, defaultValue string) string {
+	if value != "" {
+		return value
+	}
+	return defaultValue
 }

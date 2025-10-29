@@ -12,6 +12,7 @@ import (
 	"github.com/xeipuuv/gojsonschema"
 
 	"github.com/docker/cagent/pkg/filesystem"
+	"github.com/docker/cagent/pkg/modelsdev"
 )
 
 func collectExamples(t *testing.T) []string {
@@ -34,6 +35,9 @@ func collectExamples(t *testing.T) []string {
 }
 
 func TestParseExamples(t *testing.T) {
+	modelsStore, err := modelsdev.NewStore()
+	require.NoError(t, err)
+
 	for _, file := range collectExamples(t) {
 		t.Run(file, func(t *testing.T) {
 			t.Parallel()
@@ -44,6 +48,22 @@ func TestParseExamples(t *testing.T) {
 			require.Equal(t, "2", cfg.Version, "Version should be 2 in %s", file)
 			require.NotEmpty(t, cfg.Agents["root"].Description, "Description should not be empty in %s", file)
 			require.NotEmpty(t, cfg.Agents["root"].Instruction, "Instruction should not be empty in %s", file)
+
+			for _, agent := range cfg.Agents {
+				require.NotEmpty(t, agent.Model)
+			}
+
+			for _, model := range cfg.Models {
+				require.NotEmpty(t, model.Provider)
+				require.NotEmpty(t, model.Model)
+				if model.Provider == "dmr" {
+					continue
+				}
+
+				model, err := modelsStore.GetModel(t.Context(), model.Provider+"/"+model.Model)
+				require.NoError(t, err)
+				require.NotNil(t, model)
+			}
 		})
 	}
 }
