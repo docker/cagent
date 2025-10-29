@@ -6,6 +6,7 @@ import (
 	"github.com/charmbracelet/bubbles/v2/textarea"
 	tea "github.com/charmbracelet/bubbletea/v2"
 
+	"github.com/docker/cagent/pkg/history"
 	"github.com/docker/cagent/pkg/tui/core"
 	"github.com/docker/cagent/pkg/tui/core/layout"
 	"github.com/docker/cagent/pkg/tui/styles"
@@ -27,13 +28,12 @@ type Editor interface {
 
 // editor implements Editor
 type editor struct {
-	textarea *textarea.Model
-	width    int
-	height   int
-	working  bool
-	history           []string // Stores sent messages
-	historyIdx        int      // Current position in history (-1 when not navigating)
-	navigatingHistory bool     // Whether we're navigating history
+	textarea          *textarea.Model
+	width             int
+	height            int
+	working           bool
+	history           *history.History // Persistent message history
+	navigatingHistory bool             // Whether we're navigating history
 }
 
 // New creates a new editor component
@@ -49,10 +49,16 @@ func New() Editor {
 	ta.ShowLineNumbers = false
 	ta.KeyMap.InsertNewline.SetEnabled(true) // Enable newline insertion
 
+	h, err := history.New()
+	if err != nil {
+		// If history initialization fails, we'll use nil and skip persistence
+		// This allows the editor to still work without history
+		h = nil
+	}
+
 	return &editor{
 		textarea: ta,
-		history:    make([]string, 0),
-		historyIdx: -1,
+		history:  h,
 	}
 }
 
@@ -75,10 +81,21 @@ func (e *editor) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			value := e.textarea.Value()
 			if value != "" && !e.working {
-				// Save to history
-				e.addToHistory(value)
+				// Save to history (automatically persists)
+				// Avoid adding consecutive duplicate messages
+				if e.history != nil {
+					shouldAdd := true
+					if len(e.history.Messages) > 0 {
+						// Don't add if it's the same as the last message
+						if e.history.Messages[len(e.history.Messages)-1] == value {
+							shouldAdd = false
+						}
+					}
+					if shouldAdd {
+						_ = e.history.Add(value) // Ignore errors, history is optional
+					}
+				}
 				e.navigatingHistory = false
-				e.historyIdx = -1
 				e.textarea.Reset()
 				return e, core.CmdHandler(SendMsg{Content: value})
 			}
@@ -87,21 +104,18 @@ func (e *editor) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !e.textarea.Focused() {
 				return e, nil
 			}
-			// Navigate history backwards
-			if len(e.history) > 0 {
-				if e.navigatingHistory {
-					if e.historyIdx > 0 {
-						e.historyIdx--
-					}
-				} else {
-					// Start navigating from the most recent message
-					e.historyIdx = len(e.history) - 1
+			// Navigate history backwards using persistent history
+			if e.history != nil && len(e.history.Messages) > 0 {
+				if !e.navigatingHistory {
 					e.navigatingHistory = true
 				}
-				// Load history item into textarea
-				e.textarea.SetValue(e.history[e.historyIdx])
-				// Move cursor to end
-				e.textarea.CursorEnd()
+				// Use history.Previous() which handles navigation internally
+				prevMsg := e.history.Previous()
+				if prevMsg != "" {
+					e.textarea.SetValue(prevMsg)
+					// Move cursor to end
+					e.textarea.CursorEnd()
+				}
 			}
 			return e, nil
 		case "down":
@@ -109,17 +123,15 @@ func (e *editor) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return e, nil
 			}
 			// Navigate history forwards - only if already navigating
-			if e.navigatingHistory && len(e.history) > 0 && e.historyIdx >= 0 {
-				if e.historyIdx < len(e.history)-1 {
-					e.historyIdx++
-					// Load history item into textarea
-					e.textarea.SetValue(e.history[e.historyIdx])
+			if e.navigatingHistory && e.history != nil && len(e.history.Messages) > 0 {
+				nextMsg := e.history.Next()
+				if nextMsg != "" {
+					e.textarea.SetValue(nextMsg)
 					// Move cursor to end
 					e.textarea.CursorEnd()
 				} else {
 					// Reached the end, reset to empty
 					e.navigatingHistory = false
-					e.historyIdx = -1
 					e.textarea.Reset()
 				}
 			}
@@ -131,17 +143,6 @@ func (e *editor) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	e.textarea, cmd = e.textarea.Update(msg)
-
-	// Detect when user starts editing a history item by checking if the value changed
-	// This happens after the textarea processes the input event
-	if e.navigatingHistory && e.historyIdx >= 0 && e.historyIdx < len(e.history) {
-		currentValue := e.textarea.Value()
-		if currentValue != e.history[e.historyIdx] {
-			// User has edited the history item, exit navigation mode
-			e.navigatingHistory = false
-			e.historyIdx = -1
-		}
-	}
 
 	return e, cmd
 }
@@ -208,20 +209,4 @@ func (e *editor) Help() help.KeyMap {
 func (e *editor) SetWorking(working bool) tea.Cmd {
 	e.working = working
 	return nil
-}
-
-// addToHistory adds a message to the history, avoiding duplicates from consecutive messages
-func (e *editor) addToHistory(value string) {
-	// Don't add empty messages
-	if value == "" {
-		return
-	}
-
-	// Don't add if it's the same as the last message
-	if len(e.history) > 0 && e.history[len(e.history)-1] == value {
-		return
-	}
-
-	// Add to history
-	e.history = append(e.history, value)
 }
