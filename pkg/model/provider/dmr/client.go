@@ -92,14 +92,14 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, opts ...options.Opt
 	}
 
 	// Build runtime flags from ModelConfig and engine
-	contextSize, providerRuntimeFlags := parseDMRProviderOpts(cfg)
+	contextSize, providerRuntimeFlags, specOpts := parseDMRProviderOpts(cfg)
 	configFlags := buildRuntimeFlagsFromModelConfig(engine, cfg)
 	finalFlags, warnings := mergeRuntimeFlagsPreferUser(configFlags, providerRuntimeFlags)
 	for _, w := range warnings {
 		slog.Warn(w)
 	}
-	slog.Debug("DMR provider_opts parsed", "model", cfg.Model, "context_size", contextSize, "runtime_flags", finalFlags, "engine", engine)
-	if err := configureDockerModel(ctx, cfg.Model, contextSize, finalFlags); err != nil {
+	slog.Debug("DMR provider_opts parsed", "model", cfg.Model, "context_size", contextSize, "runtime_flags", finalFlags, "speculative_opts", specOpts, "engine", engine)
+	if err := configureDockerModel(ctx, cfg.Model, contextSize, finalFlags, specOpts); err != nil {
 		slog.Debug("docker model configure skipped or failed", "error", err)
 	}
 
@@ -412,9 +412,15 @@ func ConvertParametersToSchema(params any) (any, error) {
 	return tools.SchemaToMap(params)
 }
 
-func parseDMRProviderOpts(cfg *latest.ModelConfig) (contextSize int, runtimeFlags []string) {
+type speculativeDecodingOpts struct {
+	draftModel     string
+	numTokens      int
+	acceptanceRate float64
+}
+
+func parseDMRProviderOpts(cfg *latest.ModelConfig) (contextSize int, runtimeFlags []string, specOpts *speculativeDecodingOpts) {
 	if cfg == nil {
-		return 0, nil
+		return 0, nil, nil
 	}
 
 	// Context length is now sourced from the standard max_tokens field
@@ -434,9 +440,53 @@ func parseDMRProviderOpts(cfg *latest.ModelConfig) (contextSize int, runtimeFlag
 				runtimeFlags = append(runtimeFlags, parts...)
 			}
 		}
+
+		// Parse speculative decoding options
+		var hasDraftModel, hasNumTokens, hasAcceptanceRate bool
+		var draftModel string
+		var numTokens int
+		var acceptanceRate float64
+
+		if v, ok := cfg.ProviderOpts["speculative_draft_model"]; ok {
+			if s, ok := v.(string); ok && s != "" {
+				draftModel = s
+				hasDraftModel = true
+			}
+		}
+
+		if v, ok := cfg.ProviderOpts["speculative_num_tokens"]; ok {
+			switch t := v.(type) {
+			case int:
+				numTokens = t
+				hasNumTokens = true
+			case float64:
+				numTokens = int(t)
+				hasNumTokens = true
+			}
+		}
+
+		if v, ok := cfg.ProviderOpts["speculative_acceptance_rate"]; ok {
+			switch t := v.(type) {
+			case float64:
+				acceptanceRate = t
+				hasAcceptanceRate = true
+			case int:
+				acceptanceRate = float64(t)
+				hasAcceptanceRate = true
+			}
+		}
+
+		// Only create specOpts if at least one field is set
+		if hasDraftModel || hasNumTokens || hasAcceptanceRate {
+			specOpts = &speculativeDecodingOpts{
+				draftModel:     draftModel,
+				numTokens:      numTokens,
+				acceptanceRate: acceptanceRate,
+			}
+		}
 	}
 
-	return contextSize, runtimeFlags
+	return contextSize, runtimeFlags, specOpts
 }
 
 func pullDockerModelIfNeeded(ctx context.Context, model string) error {
@@ -494,8 +544,8 @@ func modelExists(ctx context.Context, model string) bool {
 	return true
 }
 
-func configureDockerModel(ctx context.Context, model string, contextSize int, runtimeFlags []string) error {
-	args := buildDockerModelConfigureArgs(model, contextSize, runtimeFlags)
+func configureDockerModel(ctx context.Context, model string, contextSize int, runtimeFlags []string, specOpts *speculativeDecodingOpts) error {
+	args := buildDockerModelConfigureArgs(model, contextSize, runtimeFlags, specOpts)
 
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	slog.Debug("Running docker model configure", "model", model, "args", args)
@@ -510,11 +560,22 @@ func configureDockerModel(ctx context.Context, model string, contextSize int, ru
 }
 
 // buildDockerModelConfigureArgs returns the argument vector passed to `docker` for model configuration.
-// It formats context size and runtime flags consistently with the CLI contract.
-func buildDockerModelConfigureArgs(model string, contextSize int, runtimeFlags []string) []string {
+// It formats context size, speculative decoding options, and runtime flags consistently with the CLI contract.
+func buildDockerModelConfigureArgs(model string, contextSize int, runtimeFlags []string, specOpts *speculativeDecodingOpts) []string {
 	args := []string{"model", "configure"}
 	if contextSize > 0 {
 		args = append(args, "--context-size="+strconv.Itoa(contextSize))
+	}
+	if specOpts != nil {
+		if specOpts.draftModel != "" {
+			args = append(args, "--speculative-draft-model="+specOpts.draftModel)
+		}
+		if specOpts.numTokens > 0 {
+			args = append(args, "--speculative-num-tokens="+strconv.Itoa(specOpts.numTokens))
+		}
+		if specOpts.acceptanceRate > 0 {
+			args = append(args, "--speculative-acceptance-rate="+strconv.FormatFloat(specOpts.acceptanceRate, 'f', -1, 64))
+		}
 	}
 	args = append(args, model)
 	if len(runtimeFlags) > 0 {

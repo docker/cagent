@@ -383,7 +383,30 @@ models:
       runtime_flags: "--ngl=33 --repeat-penalty=1.2"  # string accepted as well
 ```
 
-Troubleshooting:
+##### Speculative Decoding
+
+DMR supports speculative decoding for faster inference by using a smaller draft model to predict tokens ahead. Configure speculative decoding using `provider_opts`:
+
+```yaml
+models:
+  qwen-with-speculative:
+    provider: dmr
+    model: ai/qwen3:14B
+    max_tokens: 8192
+    provider_opts:
+      speculative_draft_model: ai/qwen3:0.6B-F16     # Draft model for predictions
+      speculative_num_tokens: 16                # Number of tokens to generate speculatively
+      speculative_acceptance_rate: 0.8         # Acceptance rate threshold
+```
+
+All three speculative decoding options are passed to `docker model configure` as flags:
+- `speculative_draft_model` → `--speculative-draft-model`
+- `speculative_num_tokens` → `--speculative-num-tokens`
+- `speculative_acceptance_rate` → `--speculative-acceptance-rate`
+
+These options work alongside `max_tokens` (which sets `--context-size`) and `runtime_flags`.
+
+##### Troubleshooting:
 
 - Plugin not found: cagent will log a debug message and use the default base URL
 - Endpoint empty in status: ensure the Model Runner is running, or set `base_url` manually

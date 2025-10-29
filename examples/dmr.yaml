@@ -4,8 +4,11 @@ version: "2"
 agents:
   root:
     model: qwen
+    # model: qwen_speculative
     description: "Pirate-themed AI assistant"
     instruction: Talk like a pirate
+    commands:
+      demo: "Hey tell me a story about docker containers"
 
 models:
   qwen:
@@ -13,3 +16,13 @@ models:
     model: ai/qwen3
     # base_url defaults to http://localhost:12434/engines/llama.cpp/v1
     # use http://model-runner.docker.internal/engines/v1 if you run cagent from a container
+  
+  # try this model for faster inference if you have enough memory
+  qwen_speculative:
+    provider: dmr
+    model: ai/qwen3:14B-Q6_K
+    # The draft model should be a smaller, faster variant of the main model with low latency
+    provider_opts:
+      speculative_draft_model: ai/qwen3:0.6B-F16
+      speculative_num_tokens: 16 # (this is the llama.cpp default if omitted)
+      speculative_acceptance_rate: 0.8 # (this is the llama.cpp default if omitted)
