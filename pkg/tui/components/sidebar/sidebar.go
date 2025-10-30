@@ -1,19 +1,19 @@
 package sidebar
 
 import (
-	"fmt"
-	"os"
-	"strings"
+    "fmt"
+    "os"
+    "strings"
 
-	"github.com/charmbracelet/bubbles/v2/spinner"
-	tea "github.com/charmbracelet/bubbletea/v2"
-	"github.com/charmbracelet/lipgloss/v2"
+    "github.com/charmbracelet/bubbles/v2/spinner"
+    tea "github.com/charmbracelet/bubbletea/v2"
+    "github.com/charmbracelet/lipgloss/v2"
 
-	"github.com/docker/cagent/pkg/runtime"
-	"github.com/docker/cagent/pkg/tools"
-	"github.com/docker/cagent/pkg/tui/components/todo"
-	"github.com/docker/cagent/pkg/tui/core/layout"
-	"github.com/docker/cagent/pkg/tui/styles"
+    "github.com/docker/cagent/pkg/runtime"
+    "github.com/docker/cagent/pkg/tools"
+    "github.com/docker/cagent/pkg/tui/components/todo"
+    "github.com/docker/cagent/pkg/tui/core/layout"
+    "github.com/docker/cagent/pkg/tui/styles"
 )
 
 // Model represents a sidebar component
@@ -78,11 +78,11 @@ func (m *model) SetWorking(working bool) tea.Cmd {
 
 // SetMCPInitializing toggles the MCP initialization spinner state
 func (m *model) SetMCPInitializing(initializing bool) tea.Cmd {
-	m.mcpInit = initializing
-	if initializing {
-		return m.spinner.Tick
-	}
-	return nil
+    m.mcpInit = initializing
+    if initializing {
+        return m.spinner.Tick
+    }
+    return nil
 }
 
 // formatTokenCount formats a token count with K/M suffixes for readability
@@ -144,22 +144,20 @@ func (m *model) View() string {
 		usagePercent = (float64(m.usage.ContextLength) / float64(m.usage.ContextLimit)) * 100
 	}
 
-	// Use predefined styles for the usage display
-
-	// Build top content (title + pwd + token usage)
-	topContent := ""
+    // Build top content (cwd + usage summary)
+    topContent := ""
 
 	// Add current working directory in grey
 	if pwd := getCurrentWorkingDirectory(); pwd != "" {
 		topContent += styles.MutedStyle.Render(pwd) + "\n\n"
 	}
 
-	// Format each part with its respective color
-	percentageText := styles.MutedStyle.Render(fmt.Sprintf("%.0f%%", usagePercent))
-	totalTokensText := styles.SubtleStyle.Render(fmt.Sprintf("(%s)", formatTokenCount(totalTokens)))
-	costText := styles.MutedStyle.Render(fmt.Sprintf("$%.2f", m.usage.Cost))
-
-	topContent += fmt.Sprintf("%s %s %s", percentageText, totalTokensText, costText)
+    // Professional, compact usage summary
+    usageHeader := styles.HighlightStyle.Render("Usage")
+    ctxPart := styles.MutedStyle.Render(fmt.Sprintf("%d/%d (%.0f%%)", m.usage.ContextLength, m.usage.ContextLimit, usagePercent))
+    totalPart := styles.SubtleStyle.Render(fmt.Sprintf("Total %s", formatTokenCount(totalTokens)))
+    costPart := styles.MutedStyle.Render(formatCost(m.usage.Cost))
+    topContent += fmt.Sprintf("%s\n%s  •  %s  •  %s", usageHeader, ctxPart, totalPart, costPart)
 	// Add working/initializing indicator if active
 	if m.mcpInit || m.working {
 		label := "Working..."
@@ -175,39 +173,41 @@ func (m *model) View() string {
 	todoContent := m.todoComp.Render()
 
 	// Build per-session breakdown if available
-	var sessionsContent string
-	if len(m.usage.Breakdown) > 0 {
-		active := make(map[string]struct{}, len(m.usage.ActiveSessions))
-		for _, id := range m.usage.ActiveSessions {
-			active[id] = struct{}{}
-		}
+    var sessionsContent string
+    if len(m.usage.Breakdown) > 0 {
+        active := make(map[string]struct{}, len(m.usage.ActiveSessions))
+        for _, id := range m.usage.ActiveSessions {
+            active[id] = struct{}{}
+        }
 
-		var builder strings.Builder
-		builder.WriteString(styles.HighlightStyle.Render("Sessions"))
-		for _, row := range m.usage.Breakdown {
-			total := row.InputTokens + row.OutputTokens
-			name := row.AgentName
-			if name == "" {
-				name = row.SessionID
-			}
-			if row.Title != "" {
-				name = fmt.Sprintf("%s — %s", name, row.Title)
-			}
-			line := fmt.Sprintf("%s%s • %s • %s",
-				strings.Repeat("  ", row.Depth),
-				name,
-				formatTokenCount(total),
-				formatCost(row.Cost),
-			)
-
-			if _, ok := active[row.SessionID]; ok {
-				builder.WriteString("\n" + styles.ActiveStyle.Render(line))
-			} else {
-				builder.WriteString("\n" + styles.BaseStyle.Render(line))
-			}
-		}
-		sessionsContent = builder.String()
-	}
+        var builder strings.Builder
+        builder.WriteString(styles.HighlightStyle.Render("Sessions"))
+        tokenCol := lipgloss.NewStyle().Width(8).Align(lipgloss.Right)
+        costCol := lipgloss.NewStyle().Width(9).Align(lipgloss.Right)
+        for _, row := range m.usage.Breakdown {
+            total := row.InputTokens + row.OutputTokens
+            name := row.AgentName
+            if name == "" {
+                name = row.SessionID
+            }
+            if row.Title != "" {
+                name = fmt.Sprintf("%s — %s", name, row.Title)
+            }
+            prefix := strings.Repeat("  ", row.Depth)
+            line := fmt.Sprintf("%s%s %s %s",
+                prefix,
+                name,
+                tokenCol.Render(formatTokenCount(total)),
+                costCol.Render(formatCost(row.Cost)),
+            )
+            if _, ok := active[row.SessionID]; ok {
+                builder.WriteString("\n" + styles.ActiveStyle.Render(line))
+            } else {
+                builder.WriteString("\n" + styles.BaseStyle.Render(line))
+            }
+        }
+        sessionsContent = builder.String()
+    }
 
 	if sessionsContent != "" {
 		topContent += "\n\n" + sessionsContent
