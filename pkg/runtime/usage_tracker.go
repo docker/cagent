@@ -7,31 +7,31 @@ import (
 
 // usageTracker maintains per-session usage metrics for runtime streams.
 type usageTracker struct {
-    mu              sync.RWMutex
-    rows            map[string]*usageRow
-    activeSessions  map[string]struct{}
-    maxContextLimit int
-    nextCreateOrder int
+	mu              sync.RWMutex         // Guards concurrent access to the tracker.
+	rows            map[string]*usageRow // Recorded usage rows keyed by session ID.
+	activeSessions  map[string]struct{}  // Set of currently active session IDs.
+	maxContextLimit int                  // Highest context limit seen across sessions.
+	nextCreateOrder int                  // Incrementing value preserving creation order.
 }
 
 type usageRow struct {
-    SessionID       string
-    AgentName       string
-    ParentSessionID string
-    Title           string
+	SessionID       string
+	AgentName       string
+	ParentSessionID string
+	Title           string
 
-    // Provider metadata
-    ContextLimit int
+	// Provider metadata
+	ContextLimit int
 
-    // Usage totals scoped to this session only (excludes child totals).
-    InputTokens  int
-    OutputTokens int
-    Cost         float64
+	// Usage totals scoped to this session only (excludes child totals).
+	InputTokens  int
+	OutputTokens int
+	Cost         float64
 
-    Active bool
+	Active bool
 
-    // Monotonic creation order to support stable, user-friendly sorting
-    createdOrder int
+	// Monotonic creation order to support stable, user-friendly sorting
+	createdOrder int
 }
 
 func newUsageTracker() *usageTracker {
@@ -50,12 +50,13 @@ func (t *usageTracker) registerSession(sessID, agentName, parentID, title string
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-    row, ok := t.rows[sessID]
-    if !ok {
-        row = &usageRow{SessionID: sessID, createdOrder: t.nextCreateOrder}
-        t.nextCreateOrder++
-        t.rows[sessID] = row
-    }
+	row, ok := t.rows[sessID]
+	if !ok {
+		// Seed a new row so later deltas have somewhere to land.
+		row = &usageRow{SessionID: sessID, createdOrder: t.nextCreateOrder}
+		t.nextCreateOrder++
+		t.rows[sessID] = row
+	}
 
 	if agentName != "" {
 		row.AgentName = agentName
@@ -84,6 +85,7 @@ func (t *usageTracker) addDelta(sessID string, inputDelta, outputDelta int, cost
 
 	row, ok := t.rows[sessID]
 	if !ok {
+		// Lazily create a row when usage arrives before metadata.
 		row = &usageRow{SessionID: sessID}
 		t.rows[sessID] = row
 	}
@@ -103,6 +105,7 @@ func (t *usageTracker) markActive(sessID string, active bool) {
 
 	row, ok := t.rows[sessID]
 	if !ok {
+		// Ensure unknown sessions still toggle active state safely.
 		row = &usageRow{SessionID: sessID}
 		t.rows[sessID] = row
 	}
@@ -116,12 +119,12 @@ func (t *usageTracker) markActive(sessID string, active bool) {
 }
 
 type usageSnapshot struct {
-	Rows           []*SessionUsage
-	TotalInput     int
-	TotalOutput    int
-	TotalCost      float64
-	ActiveSessions []string
-	ContextLimit   int
+	Rows           []*SessionUsage // Flattened session hierarchy for UI rendering.
+	TotalInput     int             // Aggregate input tokens across all sessions.
+	TotalOutput    int             // Aggregate output tokens across all sessions.
+	TotalCost      float64         // Aggregate cost across all sessions.
+	ActiveSessions []string        // Sorted list of active session IDs.
+	ContextLimit   int             // Default context limit when none of the rows specify one.
 }
 
 func (t *usageTracker) snapshot(defaultContextLimit int) usageSnapshot {
@@ -134,6 +137,7 @@ func (t *usageTracker) snapshot(defaultContextLimit int) usageSnapshot {
 		}
 	}
 
+	// Build adjacency lists so we can walk parent/child relationships deterministically.
 	children := make(map[string][]*usageRow, len(t.rows))
 	roots := make([]*usageRow, 0, len(t.rows))
 	for _, row := range t.rows {
@@ -145,16 +149,16 @@ func (t *usageTracker) snapshot(defaultContextLimit int) usageSnapshot {
 		children[parentID] = append(children[parentID], row)
 	}
 
-    sort.SliceStable(roots, func(i, j int) bool {
-        return roots[i].createdOrder < roots[j].createdOrder
-    })
-    for parentID := range children {
-        kids := children[parentID]
-        sort.SliceStable(kids, func(i, j int) bool {
-            return kids[i].createdOrder < kids[j].createdOrder
-        })
-        children[parentID] = kids
-    }
+	sort.SliceStable(roots, func(i, j int) bool {
+		return roots[i].createdOrder < roots[j].createdOrder
+	})
+	for parentID := range children {
+		kids := children[parentID]
+		sort.SliceStable(kids, func(i, j int) bool {
+			return kids[i].createdOrder < kids[j].createdOrder
+		})
+		children[parentID] = kids
+	}
 
 	var (
 		result      []*SessionUsage
@@ -164,6 +168,7 @@ func (t *usageTracker) snapshot(defaultContextLimit int) usageSnapshot {
 		visited     = make(map[string]bool, len(t.rows))
 	)
 
+	// Depth-first traversal builds a flattened list while preserving hierarchy depth.
 	var traverse func(row *usageRow, depth int)
 	traverse = func(row *usageRow, depth int) {
 		if row == nil {
@@ -200,6 +205,7 @@ func (t *usageTracker) snapshot(defaultContextLimit int) usageSnapshot {
 		traverse(root, 0)
 	}
 	for _, row := range t.rows {
+		// Include any sessions whose parents vanished (defensive against data races).
 		if !visited[row.SessionID] {
 			traverse(row, 0)
 		}
@@ -209,8 +215,9 @@ func (t *usageTracker) snapshot(defaultContextLimit int) usageSnapshot {
 	for id := range t.activeSessions {
 		active = append(active, id)
 	}
-	sort.Strings(active)
+	sort.Strings(active) // Sort active sessions for deterministic output.
 
+	// Fall back to the largest known context limit unless the caller overrides it.
 	contextLimit := t.maxContextLimit
 	if contextLimit == 0 {
 		contextLimit = defaultContextLimit

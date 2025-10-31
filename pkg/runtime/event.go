@@ -194,10 +194,11 @@ type Usage struct {
 	ContextLength  int             `json:"context_length"`
 	ContextLimit   int             `json:"context_limit"`
 	Cost           float64         `json:"cost"`
-	Breakdown      []*SessionUsage `json:"breakdown,omitempty"`
-	ActiveSessions []string        `json:"active_sessions,omitempty"`
+	Breakdown      []*SessionUsage `json:"breakdown,omitempty"`       // Per-session usage rows for hierarchical displays.
+	ActiveSessions []string        `json:"active_sessions,omitempty"` // IDs of sessions currently streaming tokens.
 }
 
+// SessionUsage captures token and cost totals for a specific session (and its place in the hierarchy).
 type SessionUsage struct {
 	SessionID       string  `json:"session_id"`
 	AgentName       string  `json:"agent_name"`

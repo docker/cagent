@@ -200,6 +200,7 @@ func hasEventType(t *testing.T, events []Event, target Event) bool {
 	return false
 }
 
+// assertTokenUsageEvent validates richer token usage payloads emitted by the runtime.
 func assertTokenUsageEvent(t *testing.T, ev Event, sess *session.Session, input, output int) {
 	t.Helper()
 
