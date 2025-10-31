@@ -55,6 +55,10 @@ func (m *model) Init() tea.Cmd {
 }
 
 func (m *model) SetTokenUsage(usage *runtime.Usage) {
+	if usage == nil {
+		m.usage = &runtime.Usage{}
+		return
+	}
 	m.usage = usage
 }
 
@@ -89,6 +93,34 @@ func formatTokenCount(count int) string {
 		return fmt.Sprintf("%.1fK", float64(count)/1000)
 	}
 	return fmt.Sprintf("%d", count)
+}
+
+// formatCost renders small currency values with enough precision for tiny spends.
+func formatCost(cost float64) string {
+	if cost < 0.01 && cost > 0 {
+		return fmt.Sprintf("$%.4f", cost)
+	}
+	return fmt.Sprintf("$%.2f", cost)
+}
+
+// ellipsize shortens a string to max characters, adding … if trimmed
+func ellipsize(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	if max <= 1 {
+		return string(r[:1])
+	}
+	return string(r[:max-1]) + "…"
+}
+
+// visualWidth returns rune length for simple width calculations
+func visualWidth(s string) int {
+	return len([]rune(s))
 }
 
 // getCurrentWorkingDirectory returns the current working directory with home directory replaced by ~/
@@ -128,14 +160,34 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *model) View() string {
 	// Calculate token usage metrics
 	totalTokens := m.usage.InputTokens + m.usage.OutputTokens
+	costValue := m.usage.Cost
+	// Compute percentage based on the single active session if available
 	var usagePercent float64
-	if m.usage.ContextLimit > 0 {
-		usagePercent = (float64(m.usage.ContextLength) / float64(m.usage.ContextLimit)) * 100
+	percentLabel := "—"
+	var activeRow *runtime.SessionUsage
+	if len(m.usage.ActiveSessions) == 1 && len(m.usage.Breakdown) > 0 {
+		activeID := m.usage.ActiveSessions[0]
+		for _, row := range m.usage.Breakdown {
+			if row.SessionID == activeID {
+				activeRow = row
+				if row.ContextLimit > 0 {
+					// Derive the active session's percentage so the sidebar stays accurate.
+					denom := float64(row.ContextLimit)
+					numer := float64(row.InputTokens + row.OutputTokens)
+					usagePercent = (numer / denom) * 100
+					percentLabel = fmt.Sprintf("%.0f%%", usagePercent)
+				}
+				break
+			}
+		}
+	}
+	if activeRow != nil {
+		// When only one session is active, summarize using that row's numbers.
+		totalTokens = activeRow.InputTokens + activeRow.OutputTokens
+		costValue = activeRow.Cost
 	}
 
-	// Use predefined styles for the usage display
-
-	// Build top content (title + pwd + token usage)
+	// Build top content (cwd + usage summary)
 	topContent := ""
 
 	// Add current working directory in grey
@@ -143,11 +195,10 @@ func (m *model) View() string {
 		topContent += styles.MutedStyle.Render(pwd) + "\n\n"
 	}
 
-	// Format each part with its respective color
-	percentageText := styles.MutedStyle.Render(fmt.Sprintf("%.0f%%", usagePercent))
+	// Minimalist summary: percent (single active) or "—" when ambiguous
+	percentageText := styles.MutedStyle.Render(percentLabel)
 	totalTokensText := styles.SubtleStyle.Render(fmt.Sprintf("(%s)", formatTokenCount(totalTokens)))
-	costText := styles.MutedStyle.Render(fmt.Sprintf("$%.2f", m.usage.Cost))
-
+	costText := styles.MutedStyle.Render(formatCost(costValue))
 	topContent += fmt.Sprintf("%s %s %s", percentageText, totalTokensText, costText)
 	// Add working/initializing indicator if active
 	if m.mcpInit || m.working {
@@ -162,6 +213,67 @@ func (m *model) View() string {
 	// Get todo content (if any)
 	m.todoComp.SetSize(m.width)
 	todoContent := m.todoComp.Render()
+
+	// Build per-session breakdown if available
+	var sessionsContent string
+	if len(m.usage.Breakdown) > 0 {
+		active := make(map[string]struct{}, len(m.usage.ActiveSessions))
+		for _, id := range m.usage.ActiveSessions {
+			active[id] = struct{}{}
+		}
+
+		var builder strings.Builder
+		builder.WriteString(styles.HighlightStyle.Render("Sessions"))
+		for _, row := range m.usage.Breakdown {
+			total := row.InputTokens + row.OutputTokens
+			name := row.AgentName
+			if name == "" {
+				name = row.SessionID
+			}
+			if row.Title != "" {
+				name = fmt.Sprintf("%s — %s", name, row.Title)
+			}
+			prefix := strings.Repeat("  ", row.Depth)
+			// Active/inactive indicator
+			icon := styles.MutedStyle.Render("○")
+			if _, ok := active[row.SessionID]; ok {
+				icon = styles.ActiveStyle.Render("●")
+			}
+			// First line: icon + name, ellipsized to fit the row width
+			nameAvail := m.width - visualWidth(prefix) - 2 // icon + space
+			if nameAvail < 8 {
+				nameAvail = 8
+			}
+			nameLine := fmt.Sprintf("%s%s %s", prefix, icon, ellipsize(name, nameAvail))
+
+			// Second line: tokens and cost right-aligned in the available width
+			tokensPlain := formatTokenCount(total)
+			costPlain := formatCost(row.Cost)
+			avail := m.width - visualWidth(prefix) - 2 // two extra spaces after prefix
+			if avail < 0 {
+				avail = 0
+			}
+			rightLen := visualWidth(tokensPlain) + 2 + visualWidth(costPlain)
+			pad := avail - rightLen
+			if pad < 1 {
+				pad = 1
+			}
+			secondLine := fmt.Sprintf("%s  %s%s  %s",
+				prefix,
+				strings.Repeat(" ", pad),
+				styles.SubtleStyle.Render(tokensPlain),
+				styles.MutedStyle.Render(costPlain),
+			)
+
+			builder.WriteString("\n" + styles.BaseStyle.Render(nameLine))
+			builder.WriteString("\n" + styles.BaseStyle.Render(secondLine))
+		}
+		sessionsContent = builder.String()
+	}
+
+	if sessionsContent != "" {
+		topContent += "\n\n" + sessionsContent
+	}
 
 	// If we have todos, create a layout with todos at the bottom
 	if todoContent != "" {
