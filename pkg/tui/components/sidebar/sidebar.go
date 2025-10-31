@@ -157,12 +157,32 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View renders the component
 func (m *model) View() string {
-	// Calculate token usage metrics
-	totalTokens := m.usage.InputTokens + m.usage.OutputTokens
-	var usagePercent float64
-	if m.usage.ContextLimit > 0 {
-		usagePercent = (float64(m.usage.ContextLength) / float64(m.usage.ContextLimit)) * 100
-	}
+    // Calculate token usage metrics
+    totalTokens := m.usage.InputTokens + m.usage.OutputTokens
+    costValue := m.usage.Cost
+    // Compute percentage based on the single active session if available
+    var usagePercent float64
+    percentLabel := "—"
+    var activeRow *runtime.SessionUsage
+    if len(m.usage.ActiveSessions) == 1 && len(m.usage.Breakdown) > 0 {
+        activeID := m.usage.ActiveSessions[0]
+        for _, row := range m.usage.Breakdown {
+            if row.SessionID == activeID {
+                activeRow = row
+                if row.ContextLimit > 0 {
+                    denom := float64(row.ContextLimit)
+                    numer := float64(row.InputTokens + row.OutputTokens)
+                    usagePercent = (numer / denom) * 100
+                    percentLabel = fmt.Sprintf("%.0f%%", usagePercent)
+                }
+                break
+            }
+        }
+    }
+    if activeRow != nil {
+        totalTokens = activeRow.InputTokens + activeRow.OutputTokens
+        costValue = activeRow.Cost
+    }
 
     // Build top content (cwd + usage summary)
     topContent := ""
@@ -172,10 +192,10 @@ func (m *model) View() string {
 		topContent += styles.MutedStyle.Render(pwd) + "\n\n"
 	}
 
-    // Minimalist summary: "3% (4.3K) $0.04"
-    percentageText := styles.MutedStyle.Render(fmt.Sprintf("%.0f%%", usagePercent))
+    // Minimalist summary: percent (single active) or "—" when ambiguous
+    percentageText := styles.MutedStyle.Render(percentLabel)
     totalTokensText := styles.SubtleStyle.Render(fmt.Sprintf("(%s)", formatTokenCount(totalTokens)))
-    costText := styles.MutedStyle.Render(formatCost(m.usage.Cost))
+    costText := styles.MutedStyle.Render(formatCost(costValue))
     topContent += fmt.Sprintf("%s %s %s", percentageText, totalTokensText, costText)
 	// Add working/initializing indicator if active
 	if m.mcpInit || m.working {

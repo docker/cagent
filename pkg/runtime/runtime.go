@@ -227,22 +227,40 @@ func (r *LocalRuntime) emitUsageEvent(sess *session.Session, contextLimit int, e
 		Cost:          sess.TotalCost,
 	}
 
-	if r.usageTracker != nil {
-		summary := r.usageTracker.snapshot(contextLimit)
-		usage.InputTokens = summary.TotalInput
-		usage.OutputTokens = summary.TotalOutput
-		usage.Cost = summary.TotalCost
-		usage.ContextLength = summary.TotalInput + summary.TotalOutput
-		if len(summary.Rows) > 0 {
-			usage.Breakdown = summary.Rows
-		}
-		if len(summary.ActiveSessions) > 0 {
-			usage.ActiveSessions = summary.ActiveSessions
-		}
-		if summary.ContextLimit > 0 {
-			usage.ContextLimit = summary.ContextLimit
-		}
-	}
+    if r.usageTracker != nil {
+        summary := r.usageTracker.snapshot(contextLimit)
+        usage.InputTokens = summary.TotalInput
+        usage.OutputTokens = summary.TotalOutput
+        usage.Cost = summary.TotalCost
+        usage.ContextLength = summary.TotalInput + summary.TotalOutput
+        if len(summary.Rows) > 0 {
+            usage.Breakdown = summary.Rows
+        }
+        if len(summary.ActiveSessions) > 0 {
+            usage.ActiveSessions = summary.ActiveSessions
+        }
+        // ContextLimit semantics:
+        // - If exactly one session is active, prefer that session's context limit.
+        // - If multiple (or zero) active sessions, set to 0 to avoid misleading percentages.
+        if len(summary.ActiveSessions) == 1 {
+            activeID := summary.ActiveSessions[0]
+            limit := 0
+            for _, row := range summary.Rows {
+                if row.SessionID == activeID && row.ContextLimit > 0 {
+                    limit = row.ContextLimit
+                    break
+                }
+            }
+            if limit > 0 {
+                usage.ContextLimit = limit
+            } else if summary.ContextLimit > 0 {
+                usage.ContextLimit = summary.ContextLimit
+            }
+        } else {
+            // Ambiguous across multiple sessions; signal UI to suppress percent
+            usage.ContextLimit = 0
+        }
+    }
 
 	events <- &TokenUsageEvent{
 		Type:  "token_usage",
