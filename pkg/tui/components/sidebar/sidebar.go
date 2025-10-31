@@ -102,6 +102,26 @@ func formatCost(cost float64) string {
 	return fmt.Sprintf("$%.2f", cost)
 }
 
+// ellipsize shortens a string to max characters, adding … if trimmed
+func ellipsize(s string, max int) string {
+    if max <= 0 {
+        return ""
+    }
+    r := []rune(s)
+    if len(r) <= max {
+        return s
+    }
+    if max <= 1 {
+        return string(r[:1])
+    }
+    return string(r[:max-1]) + "…"
+}
+
+// visualWidth returns rune length for simple width calculations
+func visualWidth(s string) int {
+    return len([]rune(s))
+}
+
 // getCurrentWorkingDirectory returns the current working directory with home directory replaced by ~/
 func getCurrentWorkingDirectory() string {
 	pwd, err := os.Getwd()
@@ -152,12 +172,11 @@ func (m *model) View() string {
 		topContent += styles.MutedStyle.Render(pwd) + "\n\n"
 	}
 
-    // Professional, compact usage summary
-    usageHeader := styles.HighlightStyle.Render("Usage")
-    ctxPart := styles.MutedStyle.Render(fmt.Sprintf("%d/%d (%.0f%%)", m.usage.ContextLength, m.usage.ContextLimit, usagePercent))
-    totalPart := styles.SubtleStyle.Render(fmt.Sprintf("Total %s", formatTokenCount(totalTokens)))
-    costPart := styles.MutedStyle.Render(formatCost(m.usage.Cost))
-    topContent += fmt.Sprintf("%s\n%s  •  %s  •  %s", usageHeader, ctxPart, totalPart, costPart)
+    // Minimalist summary: "3% (4.3K) $0.04"
+    percentageText := styles.MutedStyle.Render(fmt.Sprintf("%.0f%%", usagePercent))
+    totalTokensText := styles.SubtleStyle.Render(fmt.Sprintf("(%s)", formatTokenCount(totalTokens)))
+    costText := styles.MutedStyle.Render(formatCost(m.usage.Cost))
+    topContent += fmt.Sprintf("%s %s %s", percentageText, totalTokensText, costText)
 	// Add working/initializing indicator if active
 	if m.mcpInit || m.working {
 		label := "Working..."
@@ -182,8 +201,6 @@ func (m *model) View() string {
 
         var builder strings.Builder
         builder.WriteString(styles.HighlightStyle.Render("Sessions"))
-        tokenCol := lipgloss.NewStyle().Width(8).Align(lipgloss.Right)
-        costCol := lipgloss.NewStyle().Width(9).Align(lipgloss.Right)
         for _, row := range m.usage.Breakdown {
             total := row.InputTokens + row.OutputTokens
             name := row.AgentName
@@ -194,17 +211,39 @@ func (m *model) View() string {
                 name = fmt.Sprintf("%s — %s", name, row.Title)
             }
             prefix := strings.Repeat("  ", row.Depth)
-            line := fmt.Sprintf("%s%s %s %s",
-                prefix,
-                name,
-                tokenCol.Render(formatTokenCount(total)),
-                costCol.Render(formatCost(row.Cost)),
-            )
+            // Active/inactive indicator
+            icon := styles.MutedStyle.Render("○")
             if _, ok := active[row.SessionID]; ok {
-                builder.WriteString("\n" + styles.ActiveStyle.Render(line))
-            } else {
-                builder.WriteString("\n" + styles.BaseStyle.Render(line))
+                icon = styles.ActiveStyle.Render("●")
             }
+            // First line: icon + name, ellipsized to fit the row width
+            nameAvail := m.width - visualWidth(prefix) - 2 // icon + space
+            if nameAvail < 8 {
+                nameAvail = 8
+            }
+            nameLine := fmt.Sprintf("%s%s %s", prefix, icon, ellipsize(name, nameAvail))
+
+            // Second line: tokens and cost right-aligned in the available width
+            tokensPlain := formatTokenCount(total)
+            costPlain := formatCost(row.Cost)
+            avail := m.width - visualWidth(prefix) - 2 // two extra spaces after prefix
+            if avail < 0 {
+                avail = 0
+            }
+            rightLen := visualWidth(tokensPlain) + 2 + visualWidth(costPlain)
+            pad := avail - rightLen
+            if pad < 1 {
+                pad = 1
+            }
+            secondLine := fmt.Sprintf("%s  %s%s  %s",
+                prefix,
+                strings.Repeat(" ", pad),
+                styles.SubtleStyle.Render(tokensPlain),
+                styles.MutedStyle.Render(costPlain),
+            )
+
+            builder.WriteString("\n" + styles.BaseStyle.Render(nameLine))
+            builder.WriteString("\n" + styles.BaseStyle.Render(secondLine))
         }
         sessionsContent = builder.String()
     }
