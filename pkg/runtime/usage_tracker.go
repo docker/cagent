@@ -7,27 +7,31 @@ import (
 
 // usageTracker maintains per-session usage metrics for runtime streams.
 type usageTracker struct {
-	mu              sync.RWMutex
-	rows            map[string]*usageRow
-	activeSessions  map[string]struct{}
-	maxContextLimit int
+    mu              sync.RWMutex
+    rows            map[string]*usageRow
+    activeSessions  map[string]struct{}
+    maxContextLimit int
+    nextCreateOrder int
 }
 
 type usageRow struct {
-	SessionID       string
-	AgentName       string
-	ParentSessionID string
-	Title           string
+    SessionID       string
+    AgentName       string
+    ParentSessionID string
+    Title           string
 
-	// Provider metadata
-	ContextLimit int
+    // Provider metadata
+    ContextLimit int
 
-	// Usage totals scoped to this session only (excludes child totals).
-	InputTokens  int
-	OutputTokens int
-	Cost         float64
+    // Usage totals scoped to this session only (excludes child totals).
+    InputTokens  int
+    OutputTokens int
+    Cost         float64
 
-	Active bool
+    Active bool
+
+    // Monotonic creation order to support stable, user-friendly sorting
+    createdOrder int
 }
 
 func newUsageTracker() *usageTracker {
@@ -46,11 +50,12 @@ func (t *usageTracker) registerSession(sessID, agentName, parentID, title string
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	row, ok := t.rows[sessID]
-	if !ok {
-		row = &usageRow{SessionID: sessID}
-		t.rows[sessID] = row
-	}
+    row, ok := t.rows[sessID]
+    if !ok {
+        row = &usageRow{SessionID: sessID, createdOrder: t.nextCreateOrder}
+        t.nextCreateOrder++
+        t.rows[sessID] = row
+    }
 
 	if agentName != "" {
 		row.AgentName = agentName
@@ -140,16 +145,16 @@ func (t *usageTracker) snapshot(defaultContextLimit int) usageSnapshot {
 		children[parentID] = append(children[parentID], row)
 	}
 
-	sort.SliceStable(roots, func(i, j int) bool {
-		return roots[i].SessionID < roots[j].SessionID
-	})
-	for parentID := range children {
-		kids := children[parentID]
-		sort.SliceStable(kids, func(i, j int) bool {
-			return kids[i].SessionID < kids[j].SessionID
-		})
-		children[parentID] = kids
-	}
+    sort.SliceStable(roots, func(i, j int) bool {
+        return roots[i].createdOrder < roots[j].createdOrder
+    })
+    for parentID := range children {
+        kids := children[parentID]
+        sort.SliceStable(kids, func(i, j int) bool {
+            return kids[i].createdOrder < kids[j].createdOrder
+        })
+        children[parentID] = kids
+    }
 
 	var (
 		result      []*SessionUsage
