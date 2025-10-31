@@ -214,7 +214,7 @@ func (r *LocalRuntime) finalizeEventChannel(ctx context.Context, sess *session.S
 	}
 }
 
-func (r *runtime) emitUsageEvent(sess *session.Session, contextLimit int, events chan Event) {
+func (r *LocalRuntime) emitUsageEvent(sess *session.Session, contextLimit int, events chan Event) {
 	if sess == nil || events == nil {
 		return
 	}
@@ -569,21 +569,26 @@ func (r *LocalRuntime) Run(ctx context.Context, sess *session.Session) ([]sessio
 }
 
 func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStream, a *agent.Agent, agentTools []tools.Tool, sess *session.Session, m *modelsdev.Model, events chan Event) (streamResult, error) {
-	defer stream.Close()
+    defer stream.Close()
 
-	sess.ResetUsageTracking()
+    sess.ResetUsageTracking()
 
-	var fullContent strings.Builder
-	var fullReasoningContent strings.Builder
-	var thinkingSignature string
-	var toolCalls []tools.ToolCall
-	// Track which tool call indices we've already emitted partial events for
-	emittedPartialEvents := make(map[string]bool)
+    var fullContent strings.Builder
+    var fullReasoningContent strings.Builder
+    var thinkingSignature string
+    var toolCalls []tools.ToolCall
+    // Track which tool call indices we've already emitted partial events for
+    emittedPartialEvents := make(map[string]bool)
 
-	var lastPromptTokens int
-	var lastCompletionTokens int
-	var lastCachedInputTokens int
-	var lastCachedOutputTokens int
+    var lastPromptTokens int
+    var lastCompletionTokens int
+    var lastCachedInputTokens int
+    var lastCachedOutputTokens int
+
+    // Accumulate telemetry totals for this model call; emit once on completion
+    var telemetryIn int
+    var telemetryOut int
+    var telemetryCost float64
 
 	for {
 		response, err := stream.Recv()
@@ -594,11 +599,11 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 			return streamResult{Stopped: true}, fmt.Errorf("error receiving from stream: %w", err)
 		}
 
-		if response.Usage != nil {
-			promptTokensAbs := response.Usage.InputTokens
-			completionTokensAbs := response.Usage.OutputTokens + response.Usage.ReasoningTokens
-			cachedInputTokensAbs := response.Usage.CachedInputTokens
-			cachedOutputTokensAbs := response.Usage.CachedOutputTokens
+        if response.Usage != nil {
+            promptTokensAbs := response.Usage.InputTokens
+            completionTokensAbs := response.Usage.OutputTokens + response.Usage.ReasoningTokens
+            cachedInputTokensAbs := response.Usage.CachedInputTokens
+            cachedOutputTokensAbs := response.Usage.CachedOutputTokens
 
 			inputTokensAbs := promptTokensAbs + cachedInputTokensAbs
 			outputTokensAbs := completionTokensAbs + cachedOutputTokensAbs
@@ -642,33 +647,39 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 					float64(cachedOutputDelta)*m.Cost.CacheWrite) / 1e6
 			}
 
-			if inputDelta > 0 || outputDelta > 0 || costDelta > 0 {
-				sess.AddUsageDelta(inputDelta, outputDelta, costDelta)
-				if r.usageTracker != nil {
-					r.usageTracker.addDelta(sess.ID, inputDelta, outputDelta, costDelta)
-				}
-
-				modelName := "unknown"
-				if m != nil {
-					modelName = m.Name
-				}
-				telemetry.RecordTokenUsage(ctx, modelName, int64(inputDelta), int64(outputDelta), costDelta)
-			}
-		}
+            if inputDelta > 0 || outputDelta > 0 || costDelta > 0 {
+                sess.AddUsageDelta(inputDelta, outputDelta, costDelta)
+                if r.usageTracker != nil {
+                    r.usageTracker.addDelta(sess.ID, inputDelta, outputDelta, costDelta)
+                }
+                // Accumulate totals for a single end-of-call telemetry event
+                telemetryIn += inputDelta
+                telemetryOut += outputDelta
+                telemetryCost += costDelta
+            }
+        }
 
 		if len(response.Choices) == 0 {
 			continue
 		}
 		choice := response.Choices[0]
-		if choice.FinishReason == chat.FinishReasonStop || choice.FinishReason == chat.FinishReasonLength {
-			return streamResult{
-				Calls:             toolCalls,
-				Content:           fullContent.String(),
-				ReasoningContent:  fullReasoningContent.String(),
-				ThinkingSignature: thinkingSignature,
-				Stopped:           true,
-			}, nil
-		}
+        if choice.FinishReason == chat.FinishReasonStop || choice.FinishReason == chat.FinishReasonLength {
+            // Emit a single telemetry record for this model call, if any usage was recorded
+            if telemetryIn > 0 || telemetryOut > 0 || telemetryCost > 0 {
+                modelName := "unknown"
+                if m != nil {
+                    modelName = m.Name
+                }
+                telemetry.RecordTokenUsage(ctx, modelName, int64(telemetryIn), int64(telemetryOut), telemetryCost)
+            }
+            return streamResult{
+                Calls:             toolCalls,
+                Content:           fullContent.String(),
+                ReasoningContent:  fullReasoningContent.String(),
+                ThinkingSignature: thinkingSignature,
+                Stopped:           true,
+            }, nil
+        }
 
 		// Handle tool calls
 		if len(choice.Delta.ToolCalls) > 0 {
@@ -749,14 +760,23 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 
 	// If the stream completed without producing any content or tool calls, likely because of a token limit, stop to avoid breaking the request loop
 	// NOTE(krissetto): this can likely be removed once compaction works properly with all providers (aka dmr)
-	stoppedDueToNoOutput := fullContent.Len() == 0 && len(toolCalls) == 0
-	return streamResult{
-		Calls:             toolCalls,
-		Content:           fullContent.String(),
-		ReasoningContent:  fullReasoningContent.String(),
-		ThinkingSignature: thinkingSignature,
-		Stopped:           stoppedDueToNoOutput,
-	}, nil
+    stoppedDueToNoOutput := fullContent.Len() == 0 && len(toolCalls) == 0
+
+    // Stream completed without an explicit finish reason; emit telemetry once if usage was recorded
+    if telemetryIn > 0 || telemetryOut > 0 || telemetryCost > 0 {
+        modelName := "unknown"
+        if m != nil {
+            modelName = m.Name
+        }
+        telemetry.RecordTokenUsage(ctx, modelName, int64(telemetryIn), int64(telemetryOut), telemetryCost)
+    }
+    return streamResult{
+        Calls:             toolCalls,
+        Content:           fullContent.String(),
+        ReasoningContent:  fullReasoningContent.String(),
+        ThinkingSignature: thinkingSignature,
+        Stopped:           stoppedDueToNoOutput,
+    }, nil
 }
 
 // processToolCalls handles the execution of tool calls for an agent
