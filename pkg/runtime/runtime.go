@@ -1121,9 +1121,10 @@ func (r *LocalRuntime) handleTaskTransfer(ctx context.Context, sess *session.Ses
 		}
 	}
 
-	sess.ToolsApproved = s.ToolsApproved
-	sess.Cost += s.Cost
-	sess.MergeChildUsage(s)
+    sess.ToolsApproved = s.ToolsApproved
+    // Do not add child's per-call cost into parent's per-call cost to avoid double-counting.
+    // Totals are aggregated via MergeChildUsage(s) below.
+    sess.MergeChildUsage(s)
 
 	contextLimit := 0
 	if parentAgent, _ := r.team.Agent(ca); parentAgent != nil {
