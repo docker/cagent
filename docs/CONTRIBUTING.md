@@ -6,22 +6,19 @@
 
 #### Build from source
 
-If you're hacking on `cagent`, or just want to be on the bleeding edge, then building from source is a must.
+If you're hacking on `cagent`, or just want to be on the bleeding edge, then
+building from source is a must.
 
 ##### Prerequisites
 
-- Go 1.25 or higher
+- Docker
 - API key(s) for your chosen AI provider (OpenAI, Anthropic, Gemini, etc.)
-- [Task 3.44 or higher](https://taskfile.dev/installation/)
-- [`golangci-lint`](https://golangci-lint.run/docs/welcome/install/#binaries`)
 
 ##### Build commands
 
 ```bash
-# Clone and build
-git clone https://github.com/docker/cagent.git
-cd cagent
-task build
+# Build using the remote bake definition that will output the binary to ./bin/build/cagent
+docker buildx bake https://github.com/docker/cagent.git
 
 # Set keys for remote inference services
 export OPENAI_API_KEY=your_api_key_here    # For OpenAI models
@@ -29,25 +26,13 @@ export ANTHROPIC_API_KEY=your_api_key_here # For Anthopic models
 export GOOGLE_API_KEY=your_api_key_here    # For Gemini models
 
 # Run with a sample configuration
-./bin/cagent run examples/code.yaml
+./bin/build/cagent run examples/code.yaml
 
 # or specify a different agent from the config
-./bin/cagent run examples/code.yaml -a root
+./bin/build/cagent run examples/code.yaml -a root
 
 # or run directly from an image reference
-./bin/cagent run agentcatalog/pirate
-```
-
-### Building with Docker
-
-Binary builds can also be made using `docker` itself. 
-
-Start a build via docker using `task build-local` (for only your local architecture), or use `task cross` to build for all supported platforms.  
-
-Builds done via `docker` will the placed in the `./dist` directory
-
-```sh
-$ task build-local
+./bin/build/cagent run agentcatalog/pirate
 ```
 
 ### 🎯 Core `cagent` Concepts
