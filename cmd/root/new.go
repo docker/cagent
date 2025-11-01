@@ -5,13 +5,16 @@ import (
 	"os"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/spf13/cobra"
 
+	"github.com/docker/cagent/pkg/app"
 	"github.com/docker/cagent/pkg/cli"
 	"github.com/docker/cagent/pkg/creator"
-	"github.com/docker/cagent/pkg/input"
 	"github.com/docker/cagent/pkg/runtime"
+	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/telemetry"
+	"github.com/docker/cagent/pkg/tui"
 )
 
 var (
@@ -75,79 +78,49 @@ func NewNewCmd() *cobra.Command {
 				}
 			}
 
-			prompt := ""
-			if len(args) > 0 {
-				prompt = strings.Join(args, " ")
-			} else {
-				fmt.Printf("%s\n", cli.Blue("------- Welcome to %s! -------", cli.Bold(AppName)))
-				fmt.Printf("%s\n\n", cli.White("         (Ctrl+C to exit)"))
-				fmt.Printf("%s\n\n", cli.Blue("What should your agent/agent team do? (describe its purpose)"))
-				fmt.Print(cli.Blue("> "))
-
-				var err error
-				prompt, err = input.ReadLine(ctx, os.Stdin)
-				if err != nil {
-					return fmt.Errorf("failed to read purpose: %w", err)
-				}
-				prompt = strings.TrimSpace(prompt)
-				fmt.Println()
+			t, err := creator.Agent(ctx, ".", runConfig, modelProvider, maxTokensParam, model)
+			if err != nil {
+				return err
 			}
-
-			out, rt, err := creator.StreamCreateAgent(ctx, ".", prompt, runConfig, modelProvider, model, maxTokensParam, maxIterationsParam)
+			rt, err := runtime.New(t)
 			if err != nil {
 				return err
 			}
 
-			llmIsTyping := false
-
-			for event := range out {
-				switch e := event.(type) {
-				case *runtime.AgentChoiceEvent:
-					if !llmIsTyping {
-						fmt.Println()
-						llmIsTyping = true
-					}
-					fmt.Printf("%s", e.Content)
-				case *runtime.ToolCallEvent:
-					if llmIsTyping {
-						fmt.Println()
-						llmIsTyping = false
-					}
-					cli.PrintToolCall(e.ToolCall)
-				case *runtime.ToolCallResponseEvent:
-					if llmIsTyping {
-						fmt.Println()
-						llmIsTyping = false
-					}
-					cli.PrintToolCallResponse(e.ToolCall, e.Response)
-				case *runtime.ErrorEvent:
-					if llmIsTyping {
-						fmt.Println()
-						llmIsTyping = false
-					}
-					cli.PrintError(fmt.Errorf("%s", e.Error))
-				case *runtime.MaxIterationsReachedEvent:
-					if llmIsTyping {
-						fmt.Println()
-						llmIsTyping = false
-					}
-
-					result := cli.PromptMaxIterationsContinue(ctx, e.MaxIterations)
-					switch result {
-					case cli.ConfirmationApprove:
-						rt.Resume(ctx, runtime.ResumeTypeApprove)
-					case cli.ConfirmationReject:
-						rt.Resume(ctx, runtime.ResumeTypeReject)
-						return nil
-					case cli.ConfirmationAbort:
-						rt.Resume(ctx, runtime.ResumeTypeReject)
-					}
-				}
+			var prompt *string
+			opts := []session.Opt{
+				session.WithTitle("New agent"),
+				session.WithMaxIterations(maxIterationsParam),
+				session.WithToolsApproved(true),
 			}
-			fmt.Print("\n\n")
-			return nil
+			if len(args) > 0 {
+				arg := strings.Join(args, " ")
+				opts = append(opts, session.WithUserMessage("", arg))
+				prompt = &arg
+			}
+
+			sess := session.New(opts...)
+
+			a := app.New("cagent", "", rt, t, sess, prompt)
+			m := tui.New(a)
+
+			progOpts := []tea.ProgramOption{
+				tea.WithAltScreen(),
+				tea.WithContext(ctx),
+				tea.WithFilter(tui.MouseEventFilter),
+				tea.WithMouseCellMotion(),
+				tea.WithMouseAllMotion(),
+			}
+
+			p := tea.NewProgram(m, progOpts...)
+
+			go a.Subscribe(ctx, p)
+
+			_, err = p.Run()
+			return err
 		},
 	}
+
 	addGatewayFlags(cmd)
 	cmd.PersistentFlags().StringVar(&modelParam, "model", "", "Model to use, optionally as provider/model where provider is one of: anthropic, openai, google, dmr. If omitted, provider is auto-selected based on available credentials or gateway")
 	cmd.PersistentFlags().IntVar(&maxTokensParam, "max-tokens", 0, "Override max_tokens for the selected model (0 = default)")
