@@ -32,7 +32,7 @@ func TestNewClientWithWrongType(t *testing.T) {
 }
 
 func TestBuildDockerConfigureArgs(t *testing.T) {
-	args := buildDockerModelConfigureArgs("ai/qwen3:14B-Q6_K", 8192, []string{"--temp", "0.7", "--top-p", "0.9"})
+	args := buildDockerModelConfigureArgs("ai/qwen3:14B-Q6_K", 8192, []string{"--temp", "0.7", "--top-p", "0.9"}, nil)
 
 	assert.Equal(t, []string{"model", "configure", "--context-size=8192", "ai/qwen3:14B-Q6_K", "--", "--temp", "0.7", "--top-p", "0.9"}, args)
 }
@@ -62,7 +62,7 @@ func TestIntegrateFlagsWithProviderOptsOrder(t *testing.T) {
 	// provider opts should be appended after derived flags so they can override by order
 	merged := append(derived, []string{"--threads", "6"}...)
 
-	args := buildDockerModelConfigureArgs("ai/qwen3:14B-Q6_K", cfg.MaxTokens, merged)
+	args := buildDockerModelConfigureArgs("ai/qwen3:14B-Q6_K", cfg.MaxTokens, merged, nil)
 	assert.Equal(t, []string{"model", "configure", "--context-size=4096", "ai/qwen3:14B-Q6_K", "--", "--temp", "0.6", "--top-p", "0.9", "--threads", "6"}, args)
 }
 
@@ -78,4 +78,76 @@ func TestMergeRuntimeFlagsPreferUser_WarnsAndPrefersUser(t *testing.T) {
 
 	// Derived conflicting flags should be dropped, user ones kept and appended
 	assert.Equal(t, []string{"--top-p", "0.8", "--temp", "0.7", "--threads", "8"}, merged)
+}
+
+func TestBuildDockerConfigureArgsWithSpeculativeDecoding(t *testing.T) {
+	specOpts := &speculativeDecodingOpts{
+		draftModel:     "ai/qwen3:1B",
+		numTokens:      5,
+		acceptanceRate: 0.8,
+	}
+	args := buildDockerModelConfigureArgs("ai/qwen3:14B-Q6_K", 8192, []string{"--temp", "0.7"}, specOpts)
+
+	assert.Equal(t, []string{
+		"model", "configure",
+		"--context-size=8192",
+		"--speculative-draft-model=ai/qwen3:1B",
+		"--speculative-num-tokens=5",
+		"--speculative-acceptance-rate=0.8",
+		"ai/qwen3:14B-Q6_K",
+		"--",
+		"--temp", "0.7",
+	}, args)
+}
+
+func TestBuildDockerConfigureArgsWithPartialSpeculativeDecoding(t *testing.T) {
+	specOpts := &speculativeDecodingOpts{
+		draftModel: "ai/qwen3:1B",
+		numTokens:  5,
+		// acceptanceRate not set (0 value)
+	}
+	args := buildDockerModelConfigureArgs("ai/qwen3:14B-Q6_K", 0, nil, specOpts)
+
+	assert.Equal(t, []string{
+		"model", "configure",
+		"--speculative-draft-model=ai/qwen3:1B",
+		"--speculative-num-tokens=5",
+		"ai/qwen3:14B-Q6_K",
+	}, args)
+}
+
+func TestParseDMRProviderOptsWithSpeculativeDecoding(t *testing.T) {
+	cfg := &latest.ModelConfig{
+		MaxTokens: 4096,
+		ProviderOpts: map[string]any{
+			"speculative_draft_model":     "ai/qwen3:1B",
+			"speculative_num_tokens":      5,
+			"speculative_acceptance_rate": 0.75,
+			"runtime_flags":               []string{"--threads", "8"},
+		},
+	}
+
+	contextSize, runtimeFlags, specOpts := parseDMRProviderOpts(cfg)
+
+	assert.Equal(t, 4096, contextSize)
+	assert.Equal(t, []string{"--threads", "8"}, runtimeFlags)
+	require.NotNil(t, specOpts)
+	assert.Equal(t, "ai/qwen3:1B", specOpts.draftModel)
+	assert.Equal(t, 5, specOpts.numTokens)
+	assert.InEpsilon(t, 0.75, specOpts.acceptanceRate, 0.001)
+}
+
+func TestParseDMRProviderOptsWithoutSpeculativeDecoding(t *testing.T) {
+	cfg := &latest.ModelConfig{
+		MaxTokens: 4096,
+		ProviderOpts: map[string]any{
+			"runtime_flags": []string{"--threads", "8"},
+		},
+	}
+
+	contextSize, runtimeFlags, specOpts := parseDMRProviderOpts(cfg)
+
+	assert.Equal(t, 4096, contextSize)
+	assert.Equal(t, []string{"--threads", "8"}, runtimeFlags)
+	assert.Nil(t, specOpts)
 }
