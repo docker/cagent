@@ -1,9 +1,12 @@
 package config
 
+import "github.com/docker/cagent/pkg/environment"
+
 type RuntimeConfig struct {
-	EnvFiles       []string
-	ModelsGateway  string
-	RedirectURI    string
-	GlobalCodeMode bool
-	WorkingDir     string
+	DefaultEnvProvider environment.Provider
+	EnvFiles           []string
+	ModelsGateway      string
+	RedirectURI        string
+	GlobalCodeMode     bool
+	WorkingDir         string
 }

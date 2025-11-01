@@ -310,10 +310,11 @@ func Load(ctx context.Context, p string, runtimeConfig config.RuntimeConfig, opt
 		return nil, fmt.Errorf("failed to read env files: %w", err)
 	}
 
-	env := environment.NewMultiProvider(
-		envFilesProviders,
-		environment.NewDefaultProvider(),
-	)
+	defaultEnvProvider := runtimeConfig.DefaultEnvProvider
+	if defaultEnvProvider == nil {
+		defaultEnvProvider = environment.NewDefaultProvider()
+	}
+	env := environment.NewMultiProvider(envFilesProviders, defaultEnvProvider)
 
 	// Load the agent's configuration
 	cfg, err := config.LoadConfigSecureDeprecated(fileName, parentDir)
