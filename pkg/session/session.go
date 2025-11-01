@@ -235,6 +235,12 @@ func WithTitle(title string) Opt {
 	}
 }
 
+func WithToolsApproved(approved bool) Opt {
+	return func(s *Session) {
+		s.ToolsApproved = approved
+	}
+}
+
 // New creates a new agent session
 func New(opts ...Opt) *Session {
 	sessionID := uuid.New().String()
