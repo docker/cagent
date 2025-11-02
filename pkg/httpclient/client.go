@@ -10,14 +10,16 @@ import (
 )
 
 type HTTPOptions struct {
-	Header http.Header
+	Header    http.Header
+	Transport http.RoundTripper
 }
 
 type Opt func(*HTTPOptions)
 
 func NewHTTPClient(opts ...Opt) *http.Client {
 	httpOptions := HTTPOptions{
-		Header: make(http.Header),
+		Header:    make(http.Header),
+		Transport: http.DefaultTransport,
 	}
 
 	for _, opt := range opts {
@@ -30,8 +32,14 @@ func NewHTTPClient(opts ...Opt) *http.Client {
 	return &http.Client{
 		Transport: &userAgentTransport{
 			httpOptions: httpOptions,
-			rt:          http.DefaultTransport,
+			rt:          httpOptions.Transport,
 		},
+	}
+}
+
+func WithRoundTripper(rt http.RoundTripper) Opt {
+	return func(o *HTTPOptions) {
+		o.Transport = rt
 	}
 }
 
@@ -74,6 +82,7 @@ type userAgentTransport struct {
 func (u *userAgentTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	r2 := req.Clone(req.Context())
 	maps.Copy(r2.Header, u.httpOptions.Header)
+	fmt.Println(u.rt)
 	return u.rt.RoundTrip(r2)
 }
 

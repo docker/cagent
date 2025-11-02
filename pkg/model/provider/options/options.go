@@ -1,12 +1,15 @@
 package options
 
 import (
+	"net/http"
+
 	latest "github.com/docker/cagent/pkg/config/v2"
 )
 
 type ModelOptions struct {
 	gateway          string
 	structuredOutput *latest.StructuredOutput
+	transport        http.RoundTripper
 }
 
 func (c *ModelOptions) Gateway() string {
@@ -15,6 +18,10 @@ func (c *ModelOptions) Gateway() string {
 
 func (c *ModelOptions) StructuredOutput() *latest.StructuredOutput {
 	return c.structuredOutput
+}
+
+func (c *ModelOptions) Transport() http.RoundTripper {
+	return c.transport
 }
 
 type Opt func(*ModelOptions)
@@ -31,6 +38,12 @@ func WithStructuredOutput(structuredOutput *latest.StructuredOutput) Opt {
 	}
 }
 
+func WithTransport(t http.RoundTripper) Opt {
+	return func(cfg *ModelOptions) {
+		cfg.transport = t
+	}
+}
+
 // FromModelOptions converts a concrete ModelOptions value into a slice of
 // Opt configuration functions. Later Opts override earlier ones when applied.
 func FromModelOptions(m ModelOptions) []Opt {
@@ -40,6 +53,9 @@ func FromModelOptions(m ModelOptions) []Opt {
 	}
 	if m.structuredOutput != nil {
 		out = append(out, WithStructuredOutput(m.structuredOutput))
+	}
+	if m.transport != nil {
+		out = append(out, WithTransport(m.transport))
 	}
 	return out
 }

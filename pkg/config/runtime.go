@@ -1,6 +1,10 @@
 package config
 
-import "github.com/docker/cagent/pkg/environment"
+import (
+	"net/http"
+
+	"github.com/docker/cagent/pkg/environment"
+)
 
 type RuntimeConfig struct {
 	DefaultEnvProvider environment.Provider
@@ -9,4 +13,5 @@ type RuntimeConfig struct {
 	RedirectURI        string
 	GlobalCodeMode     bool
 	WorkingDir         string
+	HTTPClient         http.RoundTripper
 }

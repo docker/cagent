@@ -41,6 +41,7 @@ require (
 	golang.org/x/sys v0.37.0
 	golang.org/x/term v0.36.0
 	google.golang.org/genai v1.33.0
+	gopkg.in/dnaeon/go-vcr.v4 v4.0.5
 	modernc.org/sqlite v1.39.1
 )
 

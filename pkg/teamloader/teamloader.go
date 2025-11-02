@@ -409,6 +409,9 @@ func getModelsForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentC
 			opts = append(opts, options.WithStructuredOutput(a.StructuredOutput))
 		}
 
+		if runtimeConfig.HTTPClient != nil {
+			opts = append(opts, options.WithTransport(runtimeConfig.HTTPClient))
+		}
 		model, err := provider.New(ctx, &modelCfg, env, opts...)
 		if err != nil {
 			return nil, err

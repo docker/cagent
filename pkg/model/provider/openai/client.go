@@ -72,7 +72,7 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 			openaiConfig.BaseURL = cfg.BaseURL
 		}
 
-		openaiConfig.HTTPClient = httpclient.NewHTTPClient()
+		openaiConfig.HTTPClient = httpclient.NewHTTPClient(httpclient.WithRoundTripper(globalOptions.Transport()))
 
 		// TODO: Move this logic to ProviderAliases as a config function
 		if cfg.ProviderOpts != nil {
