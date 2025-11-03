@@ -206,17 +206,15 @@ func setupLogging(cmd *cobra.Command) error {
 		if path == "" {
 			dataDir := paths.GetDataDir()
 			path = filepath.Join(dataDir, "cagent.debug.log")
-		} else {
-			if path == "~" || strings.HasPrefix(path, "~/") {
-				homeDir, err := os.UserHomeDir()
-				if err == nil {
-					path = filepath.Join(homeDir, strings.TrimPrefix(path, "~/"))
-				}
-			} else if strings.HasPrefix(path, "~\\") { // Windows-style path expansion
-				homeDir, err := os.UserHomeDir()
-				if err == nil {
-					path = filepath.Join(homeDir, strings.TrimPrefix(path, "~\\"))
-				}
+		} else if path == "~" || strings.HasPrefix(path, "~/") {
+			homeDir, err := os.UserHomeDir()
+			if err == nil {
+				path = filepath.Join(homeDir, strings.TrimPrefix(path, "~/"))
+			}
+		} else if strings.HasPrefix(path, "~\\") { // Windows-style path expansion
+			homeDir, err := os.UserHomeDir()
+			if err == nil {
+				path = filepath.Join(homeDir, strings.TrimPrefix(path, "~\\"))
 			}
 		}
 
