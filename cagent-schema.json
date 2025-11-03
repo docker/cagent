@@ -397,6 +397,13 @@
           "items": {
             "$ref": "#/definitions/PostEditConfig"
           }
+        },
+        "allowed_directories": {
+          "type": "array",
+          "description": "List of allowed directories for filesystem tool",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "additionalProperties": false,

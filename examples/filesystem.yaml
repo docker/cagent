@@ -5,5 +5,9 @@ agents:
     model: openai/gpt-4o
     description: Simple agent with filesystem access
     instruction: Use the tools to help the user with filesystem operations.
+    commands:
+      list-tmp: List all the files in the /tmp directory.
     toolsets:
       - type: filesystem
+        allowed_directories:
+          - /tmp

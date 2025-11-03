@@ -9,6 +9,7 @@ import (
 	"github.com/docker/cagent/pkg/environment"
 	"github.com/docker/cagent/pkg/teamloader"
 	"github.com/docker/cagent/pkg/tools"
+	"github.com/docker/cagent/pkg/tools/builtin"
 )
 
 // createToolsetRegistry creates a custom toolset registry with ACP-specific filesystem toolset
@@ -25,7 +26,13 @@ func createToolsetRegistry(agent *Agent) *teamloader.ToolsetRegistry {
 			}
 		}
 
-		return NewFilesystemToolset(agent, wd), nil
+		var opts []builtin.FileSystemOpt
+		allowedDirectories := []string{wd}
+		if len(toolset.AllowedDirectories) > 0 {
+			opts = append(opts, builtin.WithAllowedDirectories(append(allowedDirectories, toolset.AllowedDirectories...)))
+		}
+
+		return NewFilesystemToolset(agent, opts...), nil
 	})
 
 	return registry

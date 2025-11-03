@@ -93,7 +93,7 @@ func CreateAgent(ctx context.Context, baseDir, prompt string, runConfig config.R
 
 	fmt.Println("Generating agent configuration....")
 
-	fsToolset := fsToolset{inner: builtin.NewFilesystemTool([]string{baseDir})}
+	fsToolset := fsToolset{inner: builtin.NewFilesystemTool(builtin.WithAllowedDirectories([]string{baseDir}))}
 	fileName := filepath.Base(fsToolset.path)
 	newTeam := team.New(
 		team.WithID(fileName),
@@ -198,7 +198,7 @@ func StreamCreateAgent(ctx context.Context, baseDir, prompt string, runConfig co
 
 	fmt.Println("Generating agent configuration....")
 
-	fsToolset := fsToolset{inner: builtin.NewFilesystemTool([]string{baseDir})}
+	fsToolset := fsToolset{inner: builtin.NewFilesystemTool(builtin.WithAllowedDirectories([]string{baseDir}))}
 	fileName := filepath.Base(fsToolset.path)
 
 	// Provide soft guidance to prefer the selected providers
