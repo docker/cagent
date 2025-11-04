@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"strings"
@@ -17,12 +18,29 @@ import (
 )
 
 func LoadConfigSecureDeprecated(path, allowedDir string) (*latest.Config, error) {
-	fs, err := os.OpenRoot(allowedDir)
+	root, err := os.OpenRoot(allowedDir)
 	if err != nil {
 		return nil, fmt.Errorf("opening filesystem %s: %w", allowedDir, err)
 	}
+	defer root.Close()
 
+	// Wrap os.Root to implement filesystem.FS
+	fs := &rootFS{root: root}
 	return LoadConfig(path, fs)
+}
+
+// rootFS wraps os.Root to implement filesystem.FS
+type rootFS struct {
+	root *os.Root
+}
+
+func (r *rootFS) ReadFile(name string) ([]byte, error) {
+	file, err := r.root.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	return io.ReadAll(file)
 }
 
 func LoadConfig(path string, fs filesystem.FS) (*latest.Config, error) {

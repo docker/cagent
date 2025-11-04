@@ -94,6 +94,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.AddCommand(newBuildCmd())
 	cmd.AddCommand(newPrintCmd())
 	cmd.AddCommand(newAliasCmd())
+	cmd.AddCommand(newUsersCmd())
 
 	return cmd
 }

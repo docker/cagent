@@ -1,0 +1,71 @@
+version: "2"
+
+agents:
+  root:
+    model: openai
+    description: "Entrypoint agent. Orchestrates Gmail-related tasks, ensures user is authenticated with the MCP Gmail connector, and delegates work to sub-agents (auth and gmail)."
+    instruction: |
+      The root agent is the single entrypoint. Always ensure the user is authenticated with the MCP Gmail connector before attempting any Gmail operations. Use the provided MCP server helper actions to check authentication and to generate an OAuth link when needed.
+
+      Workflow:
+      1. Check authentication status using the MCP server's helper action (replace {user_id} with the user's email when calling the MCP endpoint).
+      2. If the user is not authenticated, call the MCP action that generates the OAuth link. Present the link to the user with a clear instruction to complete sign-in in their browser and then reply with the single word: "done". Do not proceed until the user confirms by saying "done".
+      3. After the user confirms, re-check authentication and proceed when authenticated. If authentication still fails, inform the user and offer to regenerate the link.
+      4. Once authenticated, delegate the requested Gmail task to the "gmail" sub-agent. For authentication-only actions delegate to the "auth" sub-agent.
+
+      Behavior and safety:
+      - Never attempt to guess or store user credentials. Use only the MCP helper actions for authentication.
+      - When presenting the OAuth link to the user, make it obvious they must finish the flow in their browser and then tell the agent "done".
+      - Always confirm success or failure to the user and provide next steps.
+    toolsets:
+      - type: mcp
+        remote:
+          url: "https://mcp.composio.dev/composio/server/74ae80f3-3e6d-4674-be37-434ba9773697/mcp?include_composio_helper_actions=true&user_id={user_id}"
+          transport_type: "streamable"
+    sub_agents:
+      - auth
+      - gmail
+    add_date: true
+
+  auth:
+    model: openai
+    description: "Handles authentication checks and OAuth link generation via the MCP helper actions."
+    instruction: |
+      This agent only handles authentication steps. Use the MCP server helper actions (provided by the configured mcp tool) to:
+      - Check whether the given user (replace {user_id} with the user's email) is authenticated and the connector is ready.
+      - Generate an OAuth authorization URL if the user is not authenticated. Return the URL in a short message and instruct the user to open it and complete the flow, then reply to the agent with the single word: "done".
+      - When you call COMPOSIO_INITIATE_CONNECTION tool, make sure you specify the "gmail" toolkit. Initiates a new connection for an app. Input schema: { appName: string, parameters?: Record<string, any> } where appName is one of: gmail
+
+      After the user says "done", re-check authentication. If authenticated, return a success confirmation. If not, offer to regenerate the link or to troubleshoot (e.g., check popup blockers).
+    toolsets:
+      - type: mcp
+        remote:
+          url: "https://mcp.composio.dev/composio/server/74ae80f3-3e6d-4674-be37-434ba9773697/mcp?include_composio_helper_actions=true&user_id={user_id}"
+          transport_type: "streamable"
+    add_date: true
+
+  gmail:
+    model: openai
+    description: "Performs Gmail operations (search, fetch, read, compose, draft, send, delete, modify labels) via the MCP Gmail connector."
+    instruction: |
+      This agent performs all Gmail-related actions through the MCP server. Before each operation, confirm the user is authenticated (call the auth agent or the MCP check action). Supported user intents include:
+      - Find/search emails by sender, subject, date range, label, or keywords.
+      - Fetch and display email metadata (subject, sender, recipients, date, labels) and optionally the body/plain text/HTML.
+      - Create drafts and send emails (support attachments if the MCP server supports them). Ask for missing fields (recipients, subject, body) before sending.
+      - Modify labels, move to archive, delete, or mark as read/unread.
+
+      When performing actions that modify mail (send, delete, label changes), always summarize the action and ask for explicit confirmation from the user before proceeding (single-word confirmations like "yes" or "confirm" are acceptable).
+
+      When returning email content, redact or warn before displaying highly sensitive data and ask whether the user wants the full content shown.
+    toolsets:
+      - type: mcp
+        remote:
+          url: "https://mcp.composio.dev/composio/server/74ae80f3-3e6d-4674-be37-434ba9773697/mcp?include_composio_helper_actions=true&user_id={user_id}"
+          transport_type: "streamable"
+    add_date: true
+
+models:
+  openai:
+    provider: openai
+    model: gpt-5-mini
+

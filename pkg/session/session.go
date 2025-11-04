@@ -43,6 +43,9 @@ type Session struct {
 	// ID is the unique identifier for the session
 	ID string `json:"id"`
 
+	// UserID is the ID of the user who owns this session
+	UserID string `json:"user_id,omitempty"`
+
 	// Title is the title of the session, set by the runtime
 	Title string `json:"title"`
 

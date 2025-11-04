@@ -24,6 +24,8 @@ type apiFlags struct {
 	sessionDB        string
 	pullIntervalMins int
 	runConfig        config.RuntimeConfig
+	jwtSecret        string
+	disableAuth      bool
 }
 
 func newAPICmd() *cobra.Command {
@@ -40,6 +42,8 @@ func newAPICmd() *cobra.Command {
 	cmd.PersistentFlags().StringVarP(&flags.listenAddr, "listen", "l", ":8080", "Address to listen on")
 	cmd.PersistentFlags().StringVarP(&flags.sessionDB, "session-db", "s", "session.db", "Path to the session database")
 	cmd.PersistentFlags().IntVar(&flags.pullIntervalMins, "pull-interval", 0, "Auto-pull OCI reference every N minutes (0 = disabled)")
+	cmd.PersistentFlags().StringVar(&flags.jwtSecret, "jwt-secret", os.Getenv("CAGENT_JWT_SECRET"), "JWT secret for authentication (defaults to CAGENT_JWT_SECRET env var)")
+	cmd.PersistentFlags().BoolVar(&flags.disableAuth, "disable-auth", false, "Disable authentication (backward compatibility mode)")
 	addRuntimeConfigFlags(cmd, &flags.runConfig)
 
 	return cmd
@@ -113,6 +117,10 @@ func (f *apiFlags) runAPICommand(cmd *cobra.Command, args []string) error {
 			}
 		}
 	}()
+
+	// Add authentication configuration
+	opts = append(opts, server.WithJWTSecret(f.jwtSecret))
+	opts = append(opts, server.WithAuthDisabled(f.disableAuth))
 
 	s, err := server.New(sessionStore, f.runConfig, teams, opts...)
 	if err != nil {

@@ -30,9 +30,13 @@ type Store interface {
 	AddSession(ctx context.Context, session *Session) error
 	GetSession(ctx context.Context, id string) (*Session, error)
 	GetSessions(ctx context.Context) ([]*Session, error)
+	GetSessionsByUser(ctx context.Context, userID string) ([]*Session, error)
 	GetSessionsByAgent(ctx context.Context, agentFilename string) ([]*Session, error)
+	GetSessionsByUserAndAgent(ctx context.Context, userID, agentFilename string) ([]*Session, error)
 	DeleteSession(ctx context.Context, id string) error
 	UpdateSession(ctx context.Context, session *Session) error
+	// New method to check if a user owns a session
+	IsSessionOwnedByUser(ctx context.Context, sessionID, userID string) (bool, error)
 }
 
 // SQLiteSessionStore implements Store using SQLite
@@ -89,8 +93,8 @@ func (s *SQLiteSessionStore) AddSession(ctx context.Context, session *Session) e
 	}
 
 	_, err = s.db.ExecContext(ctx,
-		"INSERT INTO sessions (id, messages, tools_approved, input_tokens, output_tokens, title, send_user_message, max_iterations, working_dir, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		session.ID, string(itemsJSON), session.ToolsApproved, session.InputTokens, session.OutputTokens, session.Title, session.SendUserMessage, session.MaxIterations, session.WorkingDir, session.CreatedAt.Format(time.RFC3339))
+		"INSERT INTO sessions (id, user_id, messages, tools_approved, input_tokens, output_tokens, title, send_user_message, max_iterations, working_dir, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		session.ID, session.UserID, string(itemsJSON), session.ToolsApproved, session.InputTokens, session.OutputTokens, session.Title, session.SendUserMessage, session.MaxIterations, session.WorkingDir, session.CreatedAt.Format(time.RFC3339))
 	return err
 }
 
@@ -101,13 +105,13 @@ func (s *SQLiteSessionStore) GetSession(ctx context.Context, id string) (*Sessio
 	}
 
 	row := s.db.QueryRowContext(ctx,
-		"SELECT id, messages, tools_approved, input_tokens, output_tokens, title, cost, send_user_message, max_iterations, working_dir, created_at FROM sessions WHERE id = ?", id)
+		"SELECT id, user_id, messages, tools_approved, input_tokens, output_tokens, title, cost, send_user_message, max_iterations, working_dir, created_at FROM sessions WHERE id = ?", id)
 
-	var messagesJSON, toolsApprovedStr, inputTokensStr, outputTokensStr, titleStr, costStr, sendUserMessageStr, maxIterationsStr, createdAtStr string
+	var messagesJSON, toolsApprovedStr, inputTokensStr, outputTokensStr, titleStr, costStr, sendUserMessageStr, maxIterationsStr, createdAtStr, userID string
 	var sessionID string
 	var workingDir sql.NullString
 
-	err := row.Scan(&sessionID, &messagesJSON, &toolsApprovedStr, &inputTokensStr, &outputTokensStr, &titleStr, &costStr, &sendUserMessageStr, &maxIterationsStr, &workingDir, &createdAtStr)
+	err := row.Scan(&sessionID, &userID, &messagesJSON, &toolsApprovedStr, &inputTokensStr, &outputTokensStr, &titleStr, &costStr, &sendUserMessageStr, &maxIterationsStr, &workingDir, &createdAtStr)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -169,6 +173,7 @@ func (s *SQLiteSessionStore) GetSession(ctx context.Context, id string) (*Sessio
 
 	return &Session{
 		ID:              sessionID,
+		UserID:          userID,
 		Title:           titleStr,
 		Messages:        items,
 		ToolsApproved:   toolsApproved,
@@ -351,6 +356,110 @@ func (s *SQLiteSessionStore) UpdateSession(ctx context.Context, session *Session
 	}
 
 	return nil
+}
+
+// GetSessionsByUser retrieves all sessions for a specific user
+func (s *SQLiteSessionStore) GetSessionsByUser(ctx context.Context, userID string) ([]*Session, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT id, user_id, messages, tools_approved, input_tokens, output_tokens, title, cost, send_user_message, max_iterations, working_dir, created_at FROM sessions WHERE user_id = ? ORDER BY created_at DESC", userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var sessions []*Session
+	for rows.Next() {
+		var messagesJSON, toolsApprovedStr, inputTokensStr, outputTokensStr, titleStr, costStr, sendUserMessageStr, maxIterationsStr, createdAtStr, sessionUserID string
+		var sessionID string
+		var workingDir sql.NullString
+
+		err := rows.Scan(&sessionID, &sessionUserID, &messagesJSON, &toolsApprovedStr, &inputTokensStr, &outputTokensStr, &titleStr, &costStr, &sendUserMessageStr, &maxIterationsStr, &workingDir, &createdAtStr)
+		if err != nil {
+			return nil, err
+		}
+
+		// Parse messages
+		var items []Item
+		var messages []Message
+		if err := json.Unmarshal([]byte(messagesJSON), &messages); err != nil {
+			return nil, err
+		}
+		if len(messages) > 0 && messages[0].AgentFilename == "" {
+			if err := json.Unmarshal([]byte(messagesJSON), &items); err != nil {
+				return nil, err
+			}
+		} else {
+			items = convertMessagesToItems(messages)
+		}
+
+		toolsApproved, _ := strconv.ParseBool(toolsApprovedStr)
+		inputTokens, _ := strconv.Atoi(inputTokensStr)
+		outputTokens, _ := strconv.Atoi(outputTokensStr)
+		cost, _ := strconv.ParseFloat(costStr, 64)
+		sendUserMessage, _ := strconv.ParseBool(sendUserMessageStr)
+		maxIterations, _ := strconv.Atoi(maxIterationsStr)
+		createdAt, _ := time.Parse(time.RFC3339, createdAtStr)
+
+		session := &Session{
+			ID:              sessionID,
+			UserID:          sessionUserID,
+			Title:           titleStr,
+			Messages:        items,
+			ToolsApproved:   toolsApproved,
+			InputTokens:     inputTokens,
+			OutputTokens:    outputTokens,
+			Cost:            cost,
+			SendUserMessage: sendUserMessage,
+			MaxIterations:   maxIterations,
+			CreatedAt:       createdAt,
+			WorkingDir:      workingDir.String,
+		}
+
+		sessions = append(sessions, session)
+	}
+
+	return sessions, nil
+}
+
+// GetSessionsByUserAndAgent retrieves sessions for a specific user and agent
+func (s *SQLiteSessionStore) GetSessionsByUserAndAgent(ctx context.Context, userID, agentFilename string) ([]*Session, error) {
+	userSessions, err := s.GetSessionsByUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	var filteredSessions []*Session
+	for _, session := range userSessions {
+		// Check if any message in this session belongs to the specified agent
+		hasAgentMessage := false
+		for _, item := range session.Messages {
+			if item.Message != nil && item.Message.AgentFilename == agentFilename {
+				hasAgentMessage = true
+				break
+			}
+		}
+
+		if hasAgentMessage {
+			filteredSessions = append(filteredSessions, session)
+		}
+	}
+
+	return filteredSessions, nil
+}
+
+// IsSessionOwnedByUser checks if a session belongs to a specific user
+func (s *SQLiteSessionStore) IsSessionOwnedByUser(ctx context.Context, sessionID, userID string) (bool, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sessions WHERE id = ? AND user_id = ?", sessionID, userID).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// GetDB returns the underlying database connection
+func (s *SQLiteSessionStore) GetDB() *sql.DB {
+	return s.db
 }
 
 // Close closes the database connection

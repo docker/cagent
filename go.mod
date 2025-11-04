@@ -1,13 +1,14 @@
 module github.com/docker/cagent
 
-go 1.25.3
+go 1.24.2
+
+toolchain go1.24.9
 
 require (
 	dario.cat/mergo v1.0.2
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.4.0
 	github.com/Microsoft/go-winio v0.6.2
 	github.com/alecthomas/chroma/v2 v2.20.0
-	github.com/alpkeskin/gotoon v0.1.0
 	github.com/anthropics/anthropic-sdk-go v1.16.0
 	github.com/atotto/clipboard v0.1.4
 	github.com/aymanbagabas/go-udiff v0.3.1
@@ -20,6 +21,7 @@ require (
 	github.com/dop251/goja v0.0.0-20251008123653-cf18d89f3cf6
 	github.com/fatih/color v1.18.0
 	github.com/goccy/go-yaml v1.18.0
+	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/google/go-containerregistry v0.20.6
 	github.com/google/jsonschema-go v0.3.0
 	github.com/google/uuid v1.6.0
@@ -37,6 +39,7 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.38.0
 	go.opentelemetry.io/otel/sdk v1.38.0
 	go.opentelemetry.io/otel/trace v1.38.0
+	golang.org/x/crypto v0.43.0
 	golang.org/x/oauth2 v0.32.0
 	golang.org/x/sys v0.37.0
 	golang.org/x/term v0.36.0
@@ -117,7 +120,6 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.38.0 // indirect
 	go.opentelemetry.io/otel/metric v1.38.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.7.1 // indirect
-	golang.org/x/crypto v0.43.0 // indirect
 	golang.org/x/exp v0.0.0-20250819193227-8b4c13bb791b // indirect
 	golang.org/x/net v0.46.0 // indirect
 	golang.org/x/sync v0.17.0 // indirect

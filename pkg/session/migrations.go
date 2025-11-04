@@ -207,6 +207,35 @@ func getAllMigrations() []Migration {
 			UpSQL:       `ALTER TABLE sessions ADD COLUMN working_dir TEXT DEFAULT ''`,
 			DownSQL:     `ALTER TABLE sessions DROP COLUMN working_dir`,
 		},
+		{
+			ID:          9,
+			Name:        "009_create_users_table",
+			Description: "Create users table for authentication",
+			UpSQL: `CREATE TABLE IF NOT EXISTS users (
+				id TEXT PRIMARY KEY,
+				email TEXT UNIQUE NOT NULL,
+				name TEXT NOT NULL,
+				password TEXT NOT NULL,
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				is_admin BOOLEAN DEFAULT 0
+			)`,
+			DownSQL: `DROP TABLE IF EXISTS users`,
+		},
+		{
+			ID:          10,
+			Name:        "010_add_user_id_to_sessions",
+			Description: "Add user_id column to sessions table for user isolation",
+			UpSQL:       `ALTER TABLE sessions ADD COLUMN user_id TEXT DEFAULT ''`,
+			DownSQL:     `ALTER TABLE sessions DROP COLUMN user_id`,
+		},
+		{
+			ID:          11,
+			Name:        "011_add_index_on_user_id",
+			Description: "Add index on user_id for better query performance",
+			UpSQL:       `CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)`,
+			DownSQL:     `DROP INDEX IF EXISTS idx_sessions_user_id`,
+		},
 		// Add more migrations here as needed
 	}
 }

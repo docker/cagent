@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -24,11 +25,13 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 
 	"github.com/docker/cagent/pkg/api"
+	"github.com/docker/cagent/pkg/auth"
 	"github.com/docker/cagent/pkg/config"
 	latest "github.com/docker/cagent/pkg/config/v2"
 	"github.com/docker/cagent/pkg/content"
 	"github.com/docker/cagent/pkg/creator"
 	"github.com/docker/cagent/pkg/desktop"
+	"github.com/docker/cagent/pkg/filesystem"
 	"github.com/docker/cagent/pkg/oci"
 	"github.com/docker/cagent/pkg/path"
 	"github.com/docker/cagent/pkg/remote"
@@ -49,6 +52,10 @@ type Server struct {
 	teamsMu        sync.RWMutex
 	agentsDir      string
 	rootFS         *os.Root
+	fs             filesystem.FS
+	authManager    *auth.Manager
+	authDisabled   bool
+	userStore      auth.UserStore
 }
 
 type Opt func(*Server) error
@@ -62,6 +69,23 @@ func WithAgentsDir(dir string) Opt {
 
 		s.agentsDir = dir
 		s.rootFS = rootFs
+		s.fs = &serverRootFS{root: rootFs}
+		return nil
+	}
+}
+
+func WithJWTSecret(secret string) Opt {
+	return func(s *Server) error {
+		if s.userStore != nil {
+			s.authManager = auth.NewManager(secret, s.userStore)
+		}
+		return nil
+	}
+}
+
+func WithAuthDisabled(disabled bool) Opt {
+	return func(s *Server) error {
+		s.authDisabled = disabled
 		return nil
 	}
 }
@@ -75,6 +99,12 @@ func New(sessionStore session.Store, runConfig config.RuntimeConfig, teams map[s
 		teams = make(map[string]*team.Team)
 	}
 
+	// Get database connection from session store if it's SQLite
+	var db *sql.DB
+	if sqliteStore, ok := sessionStore.(*session.SQLiteSessionStore); ok {
+		db = sqliteStore.GetDB()
+	}
+
 	s := &Server{
 		e:              e,
 		runtimes:       make(map[string]runtime.Runtime),
@@ -82,6 +112,12 @@ func New(sessionStore session.Store, runConfig config.RuntimeConfig, teams map[s
 		sessionStore:   sessionStore,
 		runConfig:      runConfig,
 		teams:          teams,
+		authDisabled:   false, // Auth enabled by default
+	}
+
+	// Initialize user store if we have a database
+	if db != nil {
+		s.userStore = auth.NewSQLiteUserStore(db)
 	}
 
 	for _, opt := range opts {
@@ -90,9 +126,21 @@ func New(sessionStore session.Store, runConfig config.RuntimeConfig, teams map[s
 		}
 	}
 
+	// Set up authentication endpoints (always available)
+	authGroup := e.Group("/api/auth")
+	authGroup.POST("/register", s.register)
+	authGroup.POST("/login", s.login)
+	authGroup.GET("/me", s.getCurrentUser, auth.Middleware(s.authManager, s.authDisabled))
+
+	// Main API group with optional authentication
 	group := e.Group("/api")
 
-	// Health check endpoint
+	// Apply authentication middleware to protected routes if auth is enabled
+	if !s.authDisabled && s.authManager != nil {
+		group.Use(auth.Middleware(s.authManager, s.authDisabled))
+	}
+
+	// Health check endpoint (always public)
 	group.GET("/ping", s.ping)
 	// List all available agents
 	group.GET("/agents", s.getAgents)
@@ -229,7 +277,7 @@ func (s *Server) getAgentConfig(c echo.Context) error {
 	agentID := c.Param("id")
 	p := addYamlExt(agentID)
 
-	cfg, err := config.LoadConfig(p, s.rootFS)
+	cfg, err := config.LoadConfig(p, s.fs)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, "agent not found")
 	}
@@ -248,7 +296,7 @@ func (s *Server) getAgentConfigYAML(c echo.Context) error {
 	}
 
 	// Read the YAML file
-	yamlContent, err := s.rootFS.ReadFile(p)
+	yamlContent, err := s.fs.ReadFile(p)
 	if err != nil {
 		slog.Error("Failed to read agent YAML file", "path", p, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to read agent file")
@@ -290,7 +338,7 @@ func (s *Server) editAgentConfigYAML(c echo.Context) error {
 	}
 
 	// Write the YAML content to the file
-	if err := s.rootFS.WriteFile(p, []byte(yamlContent), 0o644); err != nil {
+	if err := s.writeFile(p, []byte(yamlContent)); err != nil {
 		slog.Error("Failed to write agent YAML file", "path", p, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to write agent file")
 	}
@@ -322,7 +370,7 @@ func (s *Server) editAgentConfig(c echo.Context) error {
 	p := addYamlExt(req.Filename)
 
 	// Load the target file content
-	currentConfig, err := config.LoadConfig(p, s.rootFS)
+	currentConfig, err := config.LoadConfig(p, s.fs)
 	if err != nil {
 		slog.Error("Failed to load current config", "path", p, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to load current configuration")
@@ -336,7 +384,7 @@ func (s *Server) editAgentConfig(c echo.Context) error {
 	mergedConfig := *currentConfig
 
 	// Read current file to preserve shebang and metadata structure
-	currentContent, err := s.rootFS.ReadFile(p)
+	currentContent, err := s.fs.ReadFile(p)
 	if err != nil {
 		slog.Error("Failed to read agent file", "path", p, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to read agent file")
@@ -369,7 +417,7 @@ func (s *Server) editAgentConfig(c echo.Context) error {
 	}
 
 	// Write the updated configuration back to the file
-	if err := s.rootFS.WriteFile(p, []byte(finalContent), 0o644); err != nil {
+	if err := s.writeFile(p, []byte(finalContent)); err != nil {
 		slog.Error("Failed to write agent file", "path", p, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to write agent file")
 	}
@@ -952,7 +1000,21 @@ func (s *Server) ReloadTeams(ctx context.Context, agentPath string) error {
 }
 
 func (s *Server) getSessions(c echo.Context) error {
-	sessions, err := s.sessionStore.GetSessions(c.Request().Context())
+	var sessions []*session.Session
+	var err error
+
+	// If auth is enabled, filter sessions by user
+	if !s.authDisabled {
+		if user, ok := c.Get("user").(*auth.User); ok && user != nil {
+			sessions, err = s.sessionStore.GetSessionsByUser(c.Request().Context(), user.ID)
+		} else {
+			return echo.NewHTTPError(http.StatusUnauthorized, "authentication required")
+		}
+	} else {
+		// Auth disabled, get all sessions (backward compatibility)
+		sessions, err = s.sessionStore.GetSessions(c.Request().Context())
+	}
+
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get sessions")
 	}
@@ -1032,6 +1094,13 @@ func (s *Server) createSession(c echo.Context) error {
 
 	sess := session.New(opts...)
 
+	// Set user ID if authentication is enabled
+	if !s.authDisabled {
+		if user, ok := c.Get("user").(*auth.User); ok && user != nil {
+			sess.UserID = user.ID
+		}
+	}
+
 	if err := s.sessionStore.AddSession(c.Request().Context(), sess); err != nil {
 		slog.Error("Failed to persist session", "session_id", sess.ID, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to create session")
@@ -1041,9 +1110,21 @@ func (s *Server) createSession(c echo.Context) error {
 }
 
 func (s *Server) getSession(c echo.Context) error {
-	sess, err := s.sessionStore.GetSession(c.Request().Context(), c.Param("id"))
+	sessionID := c.Param("id")
+	sess, err := s.sessionStore.GetSession(c.Request().Context(), sessionID)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, "session not found")
+	}
+
+	// Check ownership if auth is enabled
+	if !s.authDisabled {
+		if user, ok := c.Get("user").(*auth.User); ok && user != nil {
+			if sess.UserID != user.ID && !user.IsAdmin {
+				return echo.NewHTTPError(http.StatusForbidden, "access denied")
+			}
+		} else {
+			return echo.NewHTTPError(http.StatusUnauthorized, "authentication required")
+		}
 	}
 
 	params := api.PaginationParams{
@@ -1300,4 +1381,32 @@ func (s *Server) elicitation(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, nil)
+}
+
+// serverRootFS wraps os.Root to implement filesystem.FS
+type serverRootFS struct {
+	root *os.Root
+}
+
+func (s *serverRootFS) ReadFile(name string) ([]byte, error) {
+	file, err := s.root.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	return io.ReadAll(file)
+}
+
+// writeFile writes a file using os.Root
+func (s *Server) writeFile(name string, data []byte) error {
+	if s.rootFS == nil {
+		return fmt.Errorf("root filesystem not initialized")
+	}
+	file, err := s.rootFS.Create(name)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	_, err = file.Write(data)
+	return err
 }

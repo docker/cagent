@@ -10,6 +10,7 @@ import (
 
 	latest "github.com/docker/cagent/pkg/config/v2"
 	"github.com/docker/cagent/pkg/environment"
+	"github.com/docker/cagent/pkg/filesystem"
 )
 
 func TestAutoRegisterModels(t *testing.T) {
@@ -183,14 +184,14 @@ func TestMigrate_v1(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func openRoot(t *testing.T, dir string) *os.Root {
+func openRoot(t *testing.T, dir string) filesystem.FS {
 	t.Helper()
 
 	root, err := os.OpenRoot(dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { root.Close() })
 
-	return root
+	return &rootFS{root: root}
 }
 
 type noEnvProvider struct{}
