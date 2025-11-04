@@ -98,6 +98,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          fetch-depth: 0
 
       - name: Hub login
         if: github.event_name != 'pull_request'
@@ -129,6 +131,3 @@ jobs:
           provenance: mode=max
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            GIT_TAG=${{ github.ref_name }}
-            GIT_COMMIT=${{ github.sha }}
