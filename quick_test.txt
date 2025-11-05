@@ -1,0 +1,19 @@
+# Quick Cagent API Test Commands
+
+## 1. Simple health check:
+curl -s https://cagent-api-950783879036.us-central1.run.app/api/ping | jq
+
+## 2. List all available agents:
+curl -s https://cagent-api-950783879036.us-central1.run.app/api/agents | jq
+
+## 3. One-liner to create session and chat with pirate agent:
+SESSION_ID=$(curl -s -X POST https://cagent-api-950783879036.us-central1.run.app/api/sessions -H "Content-Type: application/json" -d '{"title": "Quick Test"}' | jq -r '.id') && curl -X POST "https://cagent-api-950783879036.us-central1.run.app/api/sessions/$SESSION_ID/agent/pirate" -H "Content-Type: application/json" -d '[{"content": "Ahoy! Tell me about treasure hunting"}]' 2>/dev/null | head -15
+
+## 4. Chat with the haiku agent:
+SESSION_ID=$(curl -s -X POST https://cagent-api-950783879036.us-central1.run.app/api/sessions -H "Content-Type: application/json" -d '{"title": "Haiku Test"}' | jq -r '.id') && curl -X POST "https://cagent-api-950783879036.us-central1.run.app/api/sessions/$SESSION_ID/agent/haiku" -H "Content-Type: application/json" -d '[{"content": "Write a haiku about clouds"}]' 2>/dev/null | head -15
+
+## 5. Test the code agent:
+SESSION_ID=$(curl -s -X POST https://cagent-api-950783879036.us-central1.run.app/api/sessions -H "Content-Type: application/json" -d '{"title": "Code Test"}' | jq -r '.id') && curl -X POST "https://cagent-api-950783879036.us-central1.run.app/api/sessions/$SESSION_ID/agent/code" -H "Content-Type: application/json" -d '[{"content": "Write a Python fibonacci function"}]' 2>/dev/null | head -20
+
+## 6. Ultra-simple test (no jq required):
+curl https://cagent-api-950783879036.us-central1.run.app/api/ping

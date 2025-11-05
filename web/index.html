@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cagent Chat</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Authentication Section -->
+        <div id="auth-container" class="container">
+            <div class="auth-box">
+                <h1>Cagent Chat</h1>
+                <div id="login-form" class="auth-form">
+                    <h2>Login</h2>
+                    <input type="email" id="login-email" placeholder="Email" required>
+                    <input type="password" id="login-password" placeholder="Password" required>
+                    <button onclick="login()">Login</button>
+                    <p>Don't have an account? <a href="#" onclick="showRegister()">Register</a></p>
+                </div>
+                <div id="register-form" class="auth-form" style="display: none;">
+                    <h2>Register</h2>
+                    <input type="text" id="register-name" placeholder="Name" required>
+                    <input type="email" id="register-email" placeholder="Email" required>
+                    <input type="password" id="register-password" placeholder="Password" required>
+                    <button onclick="register()">Register</button>
+                    <p>Already have an account? <a href="#" onclick="showLogin()">Login</a></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Chat Interface -->
+        <div id="main-container" class="container" style="display: none;">
+            <!-- Header -->
+            <header>
+                <div class="header-content">
+                    <h1>Cagent Chat</h1>
+                    <div class="header-controls">
+                        <span id="user-info"></span>
+                        <button onclick="logout()" class="btn-secondary">Logout</button>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Main Content Area -->
+            <div class="main-content">
+                <!-- Sidebar -->
+                <aside class="sidebar">
+                    <!-- Agent Selection -->
+                    <div class="agent-selection">
+                        <label for="agent-select">Select Agent:</label>
+                        <select id="agent-select" onchange="onAgentChange()">
+                            <option value="">Loading agents...</option>
+                        </select>
+                    </div>
+
+                    <!-- Session Controls -->
+                    <div class="session-controls">
+                        <button onclick="createNewSession()" class="btn-primary">New Session</button>
+                    </div>
+
+                    <!-- Sessions List -->
+                    <div class="sessions-list">
+                        <h3>Sessions</h3>
+                        <div id="sessions-container">
+                            <p class="info-text">Select an agent to view sessions</p>
+                        </div>
+                    </div>
+                </aside>
+
+                <!-- Chat Area -->
+                <main class="chat-area">
+                    <div id="welcome-screen" class="welcome">
+                        <h2>Welcome to Cagent Chat</h2>
+                        <p>Select an agent and start a new session or continue an existing one</p>
+                    </div>
+
+                    <div id="chat-interface" style="display: none;">
+                        <!-- Session Info Bar -->
+                        <div class="session-info">
+                            <span id="session-title">New Session</span>
+                            <div class="session-stats">
+                                <span id="token-count">Tokens: 0</span>
+                                <button onclick="deleteCurrentSession()" class="btn-danger">Delete Session</button>
+                            </div>
+                        </div>
+
+                        <!-- Messages Container -->
+                        <div id="messages-container" class="messages-container">
+                            <div id="messages-list"></div>
+                            <div id="typing-indicator" class="typing-indicator" style="display: none;">
+                                <span></span>
+                                <span></span>
+                                <span></span>
+                            </div>
+                        </div>
+
+                        <!-- Input Area -->
+                        <div class="input-area">
+                            <textarea 
+                                id="message-input" 
+                                placeholder="Type your message..." 
+                                rows="3"
+                                onkeydown="handleInputKeydown(event)"
+                            ></textarea>
+                            <button onclick="sendMessage()" id="send-button" class="btn-primary">Send</button>
+                        </div>
+                    </div>
+                </main>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toast-container"></div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay" style="display: none;">
+        <div class="spinner"></div>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="auth.js"></script>
+    <script src="api.js"></script>
+    <script src="chat.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

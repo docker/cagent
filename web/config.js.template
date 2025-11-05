@@ -1,0 +1,25 @@
+// Configuration for the Cagent Chat Application
+// This file is processed at build time to inject environment variables
+const Config = {
+    // API base URL - replaced at build time with CAGENT_API_URL env var
+    API_BASE_URL: '__CAGENT_API_URL__',
+    
+    // Application settings
+    MESSAGE_BATCH_SIZE: 50,
+    SESSION_REFRESH_INTERVAL: 30000, // 30 seconds
+    TOKEN_STORAGE_KEY: 'cagent_auth_token',
+    USER_STORAGE_KEY: 'cagent_user',
+    
+    // Get full API URL
+    getApiUrl(endpoint) {
+        return `${this.API_BASE_URL}${endpoint}`;
+    },
+    
+    // Check if running in development mode
+    isDevelopment() {
+        return window.location.hostname === 'localhost' || 
+               window.location.hostname === '127.0.0.1';
+    }
+};
+
+console.log('API Base URL:', Config.API_BASE_URL);

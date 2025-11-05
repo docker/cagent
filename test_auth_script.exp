@@ -1,0 +1,43 @@
+#!/usr/bin/expect -f
+
+set timeout 30
+spawn python3 AuthAgentChat.py pirate.yaml --verbose
+
+# Wait for authentication prompt
+expect "Choice (1-3):"
+send "1\n"
+
+# Login flow
+expect "Email:"
+send "test@example.com\n"
+
+expect "Password:"
+send "testpass123\n"
+
+# Wait for successful login
+expect "Login successful"
+
+# Wait for agent verification
+expect "Agent 'pirate.yaml' verified"
+
+# Wait for session creation
+expect "Session created"
+
+# Wait for chat prompt
+expect "You:"
+send "Ahoy! Tell me a pirate joke!\n"
+
+# Wait for response
+expect {
+    "Agent:" { 
+        exp_continue 
+    }
+    "You:" {
+        send "/exit\n"
+    }
+    timeout {
+        send "/exit\n"
+    }
+}
+
+expect "Goodbye"

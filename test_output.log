@@ -1,0 +1,31 @@
+✅ Authenticated as newuser@example.com
+✅ Agent 'gmail_agent.yaml' verified
+
+✅ Session created: 96272eee-5918-4b02-8d58-0aae09d02210
+
+==================================================
+Chat with gmail_agent.yaml
+User: newuser@example.com
+==================================================
+
+Commands:
+  /exit    - Exit the chat
+  /history - Show session history
+  /summary - Show session summary
+  /logout  - Logout and clear credentials
+
+==================================================
+
+🧑 You: What was the last email from support?
+
+🤖 Agent: 
+==================================================
+Agent Response:
+==================================================
+
+
+🔧 [Calling tool: unknown]
+
+🔧 [Calling tool: unknown]
+
+✓ [Tool unknown completed]
