@@ -183,5 +183,21 @@ const API = {
                 onError(error);
             }
         }
+    },
+    
+    // Upload an agent YAML
+    async uploadAgent(filename, content, toUserDir) {
+        const response = await fetch(Config.getApiUrl('/api/agents/upload'), {
+            method: 'POST',
+            headers: this.getHeaders(),
+            body: JSON.stringify({
+                filename: filename,
+                content: content,
+                to_user_dir: toUserDir
+            })
+        });
+        
+        await this.handleResponse(response);
+        return response.json();
     }
 };

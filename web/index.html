@@ -63,6 +63,7 @@
                         <select id="agent-select" onchange="onAgentChange()">
                             <option value="">Loading agents...</option>
                         </select>
+                        <button onclick="showUploadDialog()" class="btn-secondary" style="margin-top: 10px; width: 100%;">Upload Agent</button>
                     </div>
 
                     <!-- Session Controls -->
@@ -132,6 +133,46 @@
     <!-- Loading Overlay -->
     <div id="loading-overlay" class="loading-overlay" style="display: none;">
         <div class="spinner"></div>
+    </div>
+
+    <!-- Upload Agent Dialog -->
+    <div id="upload-dialog" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Upload Agent YAML</h2>
+                <button class="close-button" onclick="closeUploadDialog()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="upload-filename">Agent Name:</label>
+                    <input type="text" id="upload-filename" placeholder="my-agent" required>
+                    <small>The filename for your agent (without .yaml extension)</small>
+                </div>
+                
+                <div class="form-group" id="upload-location-group" style="display: none;">
+                    <label>Upload Location:</label>
+                    <div class="radio-group">
+                        <label>
+                            <input type="radio" name="upload-location" value="shared" checked>
+                            Shared (all users can access)
+                        </label>
+                        <label>
+                            <input type="radio" name="upload-location" value="user">
+                            Private (only you can access)
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="upload-content">YAML Content:</label>
+                    <textarea id="upload-content" rows="15" placeholder="Paste your agent YAML content here..." required></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button onclick="closeUploadDialog()" class="btn-secondary">Cancel</button>
+                <button onclick="uploadAgent()" class="btn-primary">Upload</button>
+            </div>
+        </div>
     </div>
 
     <script src="config.js"></script>

@@ -113,6 +113,20 @@ type DeleteAgentResponse struct {
 	FilePath string `json:"filePath"`
 }
 
+// UploadAgentRequest represents a request to upload an agent YAML
+type UploadAgentRequest struct {
+	Filename   string `json:"filename"`    // The filename (without .yaml extension)
+	Content    string `json:"content"`     // The YAML content
+	ToUserDir  bool   `json:"to_user_dir"` // Whether to upload to user directory (true) or root (false)
+}
+
+// UploadAgentResponse represents the response from uploading an agent
+type UploadAgentResponse struct {
+	FilePath string `json:"filepath"`
+	Filename string `json:"filename"`
+	Location string `json:"location"` // "shared" or "user"
+}
+
 // SessionsResponse represents a session in the sessions list
 type SessionsResponse struct {
 	ID                         string `json:"id"`

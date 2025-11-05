@@ -612,3 +612,77 @@ async function handleApproval(decision) {
     
     pendingApproval = null;
 }
+
+// Show upload dialog
+async function showUploadDialog() {
+    const dialog = document.getElementById('upload-dialog');
+    const locationGroup = document.getElementById('upload-location-group');
+    
+    // Check if user is admin
+    const user = Auth.getUser();
+    if (user && user.is_admin) {
+        locationGroup.style.display = 'block';
+    } else {
+        locationGroup.style.display = 'none';
+    }
+    
+    // Reset form
+    document.getElementById('upload-filename').value = '';
+    document.getElementById('upload-content').value = '';
+    if (user && user.is_admin) {
+        document.querySelector('input[name="upload-location"][value="shared"]').checked = true;
+    }
+    
+    dialog.style.display = 'flex';
+}
+
+// Close upload dialog
+function closeUploadDialog() {
+    document.getElementById('upload-dialog').style.display = 'none';
+}
+
+// Upload agent
+async function uploadAgent() {
+    const filename = document.getElementById('upload-filename').value.trim();
+    const content = document.getElementById('upload-content').value.trim();
+    const user = Auth.getUser();
+    
+    if (!filename) {
+        showToast('Please enter a filename', 'error');
+        return;
+    }
+    
+    if (!content) {
+        showToast('Please enter YAML content', 'error');
+        return;
+    }
+    
+    // Determine upload location
+    let toUserDir = true;  // Default to user directory
+    if (user && user.is_admin) {
+        const locationRadio = document.querySelector('input[name="upload-location"]:checked');
+        toUserDir = locationRadio && locationRadio.value === 'user';
+    }
+    
+    try {
+        showLoading();
+        const result = await API.uploadAgent(filename, content, toUserDir);
+        
+        showToast(`Agent uploaded successfully: ${result.filename} (${result.location})`, 'success');
+        closeUploadDialog();
+        
+        // Refresh agents list
+        await loadAgents();
+        
+        // Select the newly uploaded agent
+        const agentSelect = document.getElementById('agent-select');
+        const agentName = result.filename.replace(/\.yaml$|\.yml$/i, '');
+        agentSelect.value = agentName;
+        await onAgentChange();
+        
+    } catch (error) {
+        showToast(`Upload failed: ${error.message}`, 'error');
+    } finally {
+        hideLoading();
+    }
+}

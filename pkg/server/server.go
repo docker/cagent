@@ -166,6 +166,8 @@ func New(sessionStore session.Store, runConfig config.RuntimeConfig, teams map[s
 	group.POST("/agents/push", s.pushAgent)
 	// Delete an agent by file path
 	group.DELETE("/agents", s.deleteAgent)
+	// Upload an agent YAML file
+	group.POST("/agents/upload", s.uploadAgent)
 	// List all sessions
 	group.GET("/sessions", s.getSessions)
 	// Get sessions by agent filename
@@ -911,6 +913,129 @@ func (s *Server) deleteAgent(c echo.Context) error {
 	slog.Info("Agent deleted successfully", "filePath", req.FilePath, "agentKey", agentFilename)
 	return c.JSON(http.StatusOK, map[string]string{
 		"filePath": req.FilePath,
+	})
+}
+
+func (s *Server) uploadAgent(c echo.Context) error {
+	var req api.UploadAgentRequest
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid request body")
+	}
+
+	// Validate required fields
+	if req.Filename == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "filename is required")
+	}
+	if req.Content == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "content is required")
+	}
+
+	// Ensure filename has .yaml extension
+	filename := req.Filename
+	if !strings.HasSuffix(filename, ".yaml") && !strings.HasSuffix(filename, ".yml") {
+		filename = filename + ".yaml"
+	}
+
+	// Validate the YAML content
+	var tmpConfig latest.Config
+	if err := yaml.UnmarshalWithOptions([]byte(req.Content), &tmpConfig, yaml.Strict()); err != nil {
+		slog.Error("Invalid YAML content", "error", err)
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid YAML content: "+err.Error())
+	}
+
+	// Get user information if auth is enabled
+	var userEmail string
+	var isAdmin bool
+	if !s.authDisabled {
+		if user, ok := c.Get("user").(*auth.User); ok && user != nil {
+			userEmail = user.Email
+			isAdmin = user.IsAdmin
+		} else {
+			return echo.NewHTTPError(http.StatusUnauthorized, "authentication required")
+		}
+	}
+
+	// Determine target directory
+	var targetDir string
+	var location string
+	
+	if req.ToUserDir || (!isAdmin && userEmail != "") {
+		// Upload to user directory (forced for non-admin users)
+		if userEmail == "" {
+			return echo.NewHTTPError(http.StatusBadRequest, "cannot upload to user directory without authentication")
+		}
+		targetDir = filepath.Join(s.agentsDir, userEmail)
+		location = "user"
+		
+		// Create user directory if it doesn't exist
+		if err := os.MkdirAll(targetDir, 0755); err != nil {
+			slog.Error("Failed to create user directory", "dir", targetDir, "error", err)
+			return echo.NewHTTPError(http.StatusInternalServerError, "failed to create user directory")
+		}
+	} else {
+		// Upload to root directory (admin only)
+		if !isAdmin && !s.authDisabled {
+			return echo.NewHTTPError(http.StatusForbidden, "only admins can upload to shared directory")
+		}
+		targetDir = s.agentsDir
+		location = "shared"
+	}
+
+	// Full path to the target file
+	targetPath := filepath.Join(targetDir, filename)
+
+	// Check if file already exists
+	if _, err := os.Stat(targetPath); err == nil {
+		// File exists, generate alternative name
+		baseName := strings.TrimSuffix(filename, filepath.Ext(filename))
+		ext := filepath.Ext(filename)
+		counter := 1
+		for {
+			filename = fmt.Sprintf("%s_%d%s", baseName, counter, ext)
+			targetPath = filepath.Join(targetDir, filename)
+			if _, err := os.Stat(targetPath); os.IsNotExist(err) {
+				break
+			}
+			counter++
+		}
+	}
+
+	// Write the file
+	if err := os.WriteFile(targetPath, []byte(req.Content), 0644); err != nil {
+		slog.Error("Failed to write agent file", "path", targetPath, "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to write agent file")
+	}
+
+	// Load the agent to validate and register it
+	t, err := teamloader.Load(c.Request().Context(), targetPath, s.runConfig)
+	if err != nil {
+		// Clean up the file if loading fails
+		os.Remove(targetPath)
+		slog.Error("Failed to load uploaded agent", "path", targetPath, "error", err)
+		return echo.NewHTTPError(http.StatusBadRequest, "agent validation failed: "+err.Error())
+	}
+
+	// Register the team if it's in the root directory
+	if location == "shared" {
+		agentKey := filepath.Base(targetPath)
+		if oldTeam, exists := s.setTeam(agentKey, t); exists {
+			// Stop old team's toolsets
+			if err := oldTeam.StopToolSets(c.Request().Context()); err != nil {
+				slog.Error("Failed to stop old team toolsets", "agentKey", agentKey, "error", err)
+			}
+		}
+	}
+
+	slog.Info("Agent uploaded successfully", 
+		"filepath", targetPath, 
+		"filename", filename, 
+		"location", location,
+		"user", userEmail)
+	
+	return c.JSON(http.StatusOK, api.UploadAgentResponse{
+		FilePath: targetPath,
+		Filename: filename,
+		Location: location,
 	})
 }
 
