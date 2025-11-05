@@ -111,16 +111,25 @@ function renderSessions() {
         const tokens = session.input_tokens + session.output_tokens;
         
         sessionEl.innerHTML = `
-            <div class="session-item-title">${escapeHtml(title)}</div>
-            <div class="session-item-info">
-                ID: ${session.id}
+            <div class="session-item-content" onclick="loadSession('${session.id}')">
+                <div class="session-item-title">${escapeHtml(title)}</div>
+                <div class="session-item-info">
+                    ID: ${session.id}
+                </div>
+                <div class="session-item-info">
+                    ${date} • ${session.num_messages} messages • ${tokens} tokens
+                </div>
             </div>
-            <div class="session-item-info">
-                ${date} • ${session.num_messages} messages • ${tokens} tokens
-            </div>
+            <button class="session-delete-btn" onclick="event.stopPropagation(); deleteSession('${session.id}')" title="Delete session">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    <line x1="10" y1="11" x2="10" y2="17"></line>
+                    <line x1="14" y1="11" x2="14" y2="17"></line>
+                </svg>
+            </button>
         `;
         
-        sessionEl.onclick = () => loadSession(session.id);
         container.appendChild(sessionEl);
     });
 }
@@ -176,24 +185,30 @@ async function loadSession(sessionId) {
     }
 }
 
-// Delete current session
-async function deleteCurrentSession() {
-    if (!currentSession) return;
+// Delete any session from the list
+async function deleteSession(sessionId) {
+    const sessionToDelete = sessions.find(s => s.id === sessionId);
+    if (!sessionToDelete) return;
     
-    if (!confirm('Are you sure you want to delete this session? This cannot be undone.')) {
+    const title = sessionToDelete.title || `Session ${sessionId.substring(0, 8)}`;
+    if (!confirm(`Delete session "${title}"?\n\nThis action cannot be undone.`)) {
         return;
     }
     
     try {
         showLoading(true);
-        await API.deleteSession(currentSession.id);
+        await API.deleteSession(sessionId);
         
         // Remove from sessions list
-        sessions = sessions.filter(s => s.id !== currentSession.id);
-        currentSession = null;
+        sessions = sessions.filter(s => s.id !== sessionId);
+        
+        // If deleted the current session, clear the chat interface
+        if (currentSession && currentSession.id === sessionId) {
+            currentSession = null;
+            hideChatInterface();
+        }
         
         renderSessions();
-        hideChatInterface();
         showToast('Session deleted', 'success');
     } catch (error) {
         console.error('Failed to delete session:', error);
@@ -201,6 +216,12 @@ async function deleteCurrentSession() {
     } finally {
         showLoading(false);
     }
+}
+
+// Delete current session (for the button in chat interface)
+async function deleteCurrentSession() {
+    if (!currentSession) return;
+    await deleteSession(currentSession.id);
 }
 
 // Show chat interface

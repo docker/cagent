@@ -199,12 +199,13 @@ header {
 }
 
 .session-item {
-    padding: 0.75rem;
     margin-bottom: 0.5rem;
     background: var(--background);
     border-radius: 6px;
-    cursor: pointer;
     transition: background-color 0.2s;
+    position: relative;
+    display: flex;
+    align-items: center;
 }
 
 .session-item:hover {
@@ -216,6 +217,12 @@ header {
     border-left: 3px solid var(--primary-color);
 }
 
+.session-item-content {
+    flex: 1;
+    padding: 0.75rem;
+    cursor: pointer;
+}
+
 .session-item-title {
     font-weight: 600;
     margin-bottom: 0.25rem;
@@ -225,6 +232,33 @@ header {
 .session-item-info {
     font-size: 0.75rem;
     color: var(--text-secondary);
+}
+
+.session-delete-btn {
+    padding: 0.5rem;
+    margin-right: 0.5rem;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.2s;
+    opacity: 0;
+    visibility: hidden;
+}
+
+.session-item:hover .session-delete-btn {
+    opacity: 1;
+    visibility: visible;
+}
+
+.session-delete-btn:hover {
+    background: #fee2e2;
+    color: #dc2626;
+}
+
+.session-delete-btn svg {
+    display: block;
 }
 
 /* Chat Area */
