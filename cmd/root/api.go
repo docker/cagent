@@ -120,7 +120,9 @@ func (f *apiFlags) runAPICommand(cmd *cobra.Command, args []string) error {
 
 	// Add authentication configuration
 	opts = append(opts, server.WithJWTSecret(f.jwtSecret))
-	opts = append(opts, server.WithAuthDisabled(f.disableAuth))
+	if f.disableAuth {
+		opts = append(opts, server.WithAuthDisabled(true))
+	}
 
 	s, err := server.New(sessionStore, f.runConfig, teams, opts...)
 	if err != nil {

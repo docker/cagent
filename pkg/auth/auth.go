@@ -173,13 +173,13 @@ func (m *Manager) GetUser(ctx context.Context, userID string) (*User, error) {
 
 func generateUserID() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	_, _ = rand.Read(b)
 	return base64.URLEncoding.EncodeToString(b)
 }
 
 func generateRandomSecret() string {
 	b := make([]byte, 32)
-	rand.Read(b)
+	_, _ = rand.Read(b)
 	return base64.StdEncoding.EncodeToString(b)
 }
 

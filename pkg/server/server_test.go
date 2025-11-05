@@ -637,7 +637,7 @@ func startServer(t *testing.T, ctx context.Context, agentsDir string) string {
 	var store mockStore
 	var runConfig config.RuntimeConfig
 
-	srv, err := New(store, runConfig, nil, WithAgentsDir(agentsDir))
+	srv, err := New(store, runConfig, nil, WithAgentsDir(agentsDir), WithAuthDisabled(true))
 	require.NoError(t, err)
 
 	socketPath := "unix://" + filepath.Join(t.TempDir(), "sock")

@@ -42,7 +42,7 @@ func (s *SQLiteUserStore) GetUserByID(ctx context.Context, id string) (*User, er
 		FROM users
 		WHERE id = ?
 	`
-	
+
 	var user User
 	var createdAt, updatedAt string
 	
@@ -76,7 +76,7 @@ func (s *SQLiteUserStore) GetUserByEmail(ctx context.Context, email string) (*Us
 		FROM users
 		WHERE email = ?
 	`
-	
+
 	var user User
 	var createdAt, updatedAt string
 	

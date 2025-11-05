@@ -50,13 +50,13 @@ func newCreateUserCmd(flags *usersFlags) *cobra.Command {
 			var email, name, password string
 
 			fmt.Print("Email: ")
-			fmt.Scanln(&email)
+			_, _ = fmt.Scanln(&email)
 
 			fmt.Print("Name: ")
-			fmt.Scanln(&name)
+			_, _ = fmt.Scanln(&name)
 
 			fmt.Print("Password: ")
-			passwordBytes, err := term.ReadPassword(int(syscall.Stdin))
+			passwordBytes, err := term.ReadPassword(syscall.Stdin)
 			if err != nil {
 				return fmt.Errorf("failed to read password: %w", err)
 			}
@@ -65,7 +65,7 @@ func newCreateUserCmd(flags *usersFlags) *cobra.Command {
 
 			// Confirm password
 			fmt.Print("Confirm Password: ")
-			confirmBytes, err := term.ReadPassword(int(syscall.Stdin))
+			confirmBytes, err := term.ReadPassword(syscall.Stdin)
 			if err != nil {
 				return fmt.Errorf("failed to read password confirmation: %w", err)
 			}
@@ -186,7 +186,7 @@ func newDeleteUserCmd(flags *usersFlags) *cobra.Command {
 			// Confirm deletion
 			fmt.Printf("Are you sure you want to delete user %s (%s)? [y/N]: ", user.Email, user.Name)
 			var confirm string
-			fmt.Scanln(&confirm)
+			_, _ = fmt.Scanln(&confirm)
 			if confirm != "y" && confirm != "Y" {
 				fmt.Println("Deletion cancelled")
 				return nil
@@ -265,7 +265,7 @@ func openStores(sessionDB string) (session.Store, auth.UserStore, error) {
 // Helper function to create a string of repeated characters
 func String(n int, char string) string {
 	result := ""
-	for i := 0; i < n; i++ {
+	for range n {
 		result += char
 	}
 	return result

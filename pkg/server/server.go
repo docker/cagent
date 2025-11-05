@@ -933,7 +933,7 @@ func (s *Server) uploadAgent(c echo.Context) error {
 	// Ensure filename has .yaml extension
 	filename := req.Filename
 	if !strings.HasSuffix(filename, ".yaml") && !strings.HasSuffix(filename, ".yml") {
-		filename = filename + ".yaml"
+		filename += ".yaml"
 	}
 
 	// Validate the YAML content
@@ -968,7 +968,7 @@ func (s *Server) uploadAgent(c echo.Context) error {
 		location = "user"
 		
 		// Create user directory if it doesn't exist
-		if err := os.MkdirAll(targetDir, 0755); err != nil {
+		if err := os.MkdirAll(targetDir, 0o755); err != nil {
 			slog.Error("Failed to create user directory", "dir", targetDir, "error", err)
 			return echo.NewHTTPError(http.StatusInternalServerError, "failed to create user directory")
 		}
@@ -1001,7 +1001,7 @@ func (s *Server) uploadAgent(c echo.Context) error {
 	}
 
 	// Write the file
-	if err := os.WriteFile(targetPath, []byte(req.Content), 0644); err != nil {
+	if err := os.WriteFile(targetPath, []byte(req.Content), 0o644); err != nil {
 		slog.Error("Failed to write agent file", "path", targetPath, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to write agent file")
 	}
