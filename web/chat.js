@@ -5,6 +5,30 @@ let sessions = [];
 let agents = [];
 let isStreaming = false;
 
+// Format agent name for display
+function formatAgentName(name) {
+    // Remove .yaml extension if present
+    let displayName = name.replace(/\.yaml$/, '');
+    
+    // Convert underscores to spaces
+    displayName = displayName.replace(/_/g, ' ');
+    
+    // Capitalize first letter of each word
+    displayName = displayName.replace(/\b\w/g, char => char.toUpperCase());
+    
+    // Special cases for common agent names
+    const nameMap = {
+        'Basic Agent': 'Basic Assistant',
+        'Pirate': 'Pirate Assistant',
+        'Gmail Agent': 'Gmail Manager',
+        'Mcp Orchestrator': 'MCP Orchestrator',
+        'Travel Agent': 'Travel Planner',
+        'Test Agent': 'Test Assistant'
+    };
+    
+    return nameMap[displayName] || displayName;
+}
+
 // Load agents
 async function loadAgents() {
     try {
@@ -14,9 +38,12 @@ async function loadAgents() {
         agentSelect.innerHTML = '<option value="">Select an agent...</option>';
         agents.forEach(agent => {
             const option = document.createElement('option');
-            option.value = agent.name;
-            option.textContent = `${agent.name}${agent.multi ? ' (Multi-agent)' : ''}`;
-            option.title = agent.description || '';
+            option.value = agent.name;  // Keep the actual name for API calls
+            
+            // Format the display name
+            const displayName = formatAgentName(agent.name);
+            option.textContent = `${displayName}${agent.multi ? ' (Multi-agent)' : ''}`;
+            option.title = agent.description || `${displayName} - ${agent.name}`;
             agentSelect.appendChild(option);
         });
         
