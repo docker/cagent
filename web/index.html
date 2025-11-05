@@ -144,6 +144,12 @@
             </div>
             <div class="modal-body">
                 <div class="form-group">
+                    <label for="upload-file">Upload YAML File:</label>
+                    <input type="file" id="upload-file" accept=".yaml,.yml" onchange="handleFileSelect(event)">
+                    <small>Select a .yaml or .yml file to upload</small>
+                </div>
+                
+                <div class="form-group">
                     <label for="upload-filename">Agent Name:</label>
                     <input type="text" id="upload-filename" placeholder="my-agent" required>
                     <small>The filename for your agent (without .yaml extension)</small>

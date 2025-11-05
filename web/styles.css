@@ -624,6 +624,7 @@ header {
 }
 
 .form-group input[type="text"],
+.form-group input[type="file"],
 .form-group textarea {
     width: 100%;
     padding: 0.75rem;
@@ -631,6 +632,15 @@ header {
     border-radius: 6px;
     font-family: inherit;
     font-size: 1rem;
+}
+
+.form-group input[type="file"] {
+    background: var(--surface);
+    cursor: pointer;
+}
+
+.form-group input[type="file"]:hover {
+    background: var(--background);
 }
 
 .form-group textarea {

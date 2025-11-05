@@ -627,6 +627,7 @@ async function showUploadDialog() {
     }
     
     // Reset form
+    document.getElementById('upload-file').value = '';
     document.getElementById('upload-filename').value = '';
     document.getElementById('upload-content').value = '';
     if (user && user.is_admin) {
@@ -634,6 +635,26 @@ async function showUploadDialog() {
     }
     
     dialog.style.display = 'flex';
+}
+
+// Handle file selection
+async function handleFileSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    // Extract filename without extension for the agent name
+    const filename = file.name.replace(/\.(yaml|yml)$/i, '');
+    document.getElementById('upload-filename').value = filename;
+    
+    // Read file content
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        document.getElementById('upload-content').value = e.target.result;
+    };
+    reader.onerror = () => {
+        showToast('Failed to read file', 'error');
+    };
+    reader.readAsText(file);
 }
 
 // Close upload dialog
