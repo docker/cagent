@@ -7,10 +7,10 @@ Cagent has been successfully deployed to Google Cloud Run with API mode exposed 
 
 ### Service Information
 - **Service Name:** cagent-api
-- **GCP Project:** chkp-gcp-prd-kenobi-box
-- **Region:** us-central1
-- **Public API URL:** https://cagent-api-950783879036.us-central1.run.app
-- **Authentication:** Unauthenticated (public access allowed)
+- **GCP Project:** `chkp-gcp-prd-kenobi-box`
+- **Region:** `us-central1` (e.g., us-central1)
+- **Public API URL:** `https://cagent-api-950783879036.us-central1.run.app`
+- **Authentication:** Application-level JWT authentication
 
 ### Infrastructure Components
 1. **Container Image:** `us-central1-docker.pkg.dev/chkp-gcp-prd-kenobi-box/cagent-repo/cagent:latest`
@@ -35,13 +35,15 @@ curl https://cagent-api-950783879036.us-central1.run.app/api/ping
 
 ### List Available Agents
 ```bash
-curl https://cagent-api-950783879036.us-central1.run.app/api/agents
+curl https://cagent-api-950783879036.us-central1.run.app/api/agents \
+  -H "Authorization: Bearer YOUR-JWT-TOKEN"
 ```
 
 ### Create a Session
 ```bash
 curl -X POST https://cagent-api-950783879036.us-central1.run.app/api/sessions \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR-JWT-TOKEN" \
   -d '{"title": "My Session", "workingDir": "/work"}'
 ```
 
@@ -52,6 +54,7 @@ AGENT_NAME="pirate.yaml"  # or any agent from the list
 
 curl -X POST "https://cagent-api-950783879036.us-central1.run.app/api/sessions/$SESSION_ID/agent/$AGENT_NAME" \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR-JWT-TOKEN" \
   -d '[{"content": "Your message here"}]'
 ```
 
@@ -138,6 +141,58 @@ gcloud run services update cagent-api --region us-central1 --image us-central1-d
 1. Verify secrets are properly configured: `gcloud secrets list`
 2. Check if the service account has access to secrets
 3. Ensure API keys are valid and not expired
+
+## Web Frontend Configuration
+
+### IMPORTANT: Production API Usage
+
+**The web frontend MUST use the PRODUCTION API with authentication enabled.**
+- The test API (`cagent-api-test`) is ONLY for automated testing, NOT for the web frontend
+- The production API (`cagent-api`) handles authentication at the application level using JWT tokens
+
+### Environment Variables
+
+**IMPORTANT**: When deploying the cagent-web service, you MUST:
+
+1. Use the correct environment variable name: `CAGENT_API_URL` (not `API_URL` or any other variant)
+2. Point it to the PRODUCTION API: `https://cagent-api-950783879036.us-central1.run.app`
+3. NEVER point the web frontend to the test API
+
+### Example Web Deployment
+
+```bash
+# Deploy or update cagent-web with PRODUCTION API URL
+gcloud run services update cagent-web \
+  --region us-central1 \
+  --update-env-vars "CAGENT_API_URL=https://cagent-api-950783879036.us-central1.run.app"
+```
+
+### CORS Configuration
+
+The API server is configured to allow CORS requests from:
+- https://cagent-web-950783879036.us-central1.run.app
+- `http://localhost:8000` (local development)
+- `http://localhost:8080` (Docker local)
+
+When deploying, update the CORS configuration in `pkg/server/server.go` to include your actual web frontend URL.
+
+## Deployment Environments
+
+### Production Environment (FOR WEB FRONTEND)
+- **API Service**: `cagent-api`
+  - URL: `https://cagent-api-950783879036.us-central1.run.app`
+  - Cloud Run Access: Public (required for CORS preflight requests)
+  - Application Authentication: **ENABLED** - JWT tokens required
+  - Configuration: No `--disable-auth` flag
+  - **USAGE**: This is the ONLY API the web frontend should connect to
+
+### Test Environment (FOR AUTOMATED TESTING ONLY)
+- **API Service**: `cagent-api-test`
+  - URL: `https://cagent-api-test-950783879036.us-central1.run.app`
+  - Cloud Run Access: Public
+  - Application Authentication: **DISABLED** (for automated testing)
+  - Configuration: Uses `--disable-auth` flag
+  - **WARNING**: Only use for automated testing, NEVER for the web frontend or production data
 
 ## Future Enhancements
 

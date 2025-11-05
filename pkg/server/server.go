@@ -92,7 +92,18 @@ func WithAuthDisabled(disabled bool) Opt {
 
 func New(sessionStore session.Store, runConfig config.RuntimeConfig, teams map[string]*team.Team, opts ...Opt) (*Server, error) {
 	e := echo.New()
-	e.Use(middleware.CORS())
+	
+	// Configure CORS to allow requests from web frontend
+	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+		AllowOrigins: []string{
+			"https://cagent-web-950783879036.us-central1.run.app",
+			"http://localhost:8000",
+			"http://localhost:8080",
+		},
+		AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions},
+		AllowHeaders: []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization},
+		AllowCredentials: true,
+	}))
 	e.Use(middleware.Logger())
 
 	if teams == nil {
