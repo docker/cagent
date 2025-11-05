@@ -75,14 +75,20 @@ const API = {
     },
     
     // Create a new session
-    async createSession(workingDir = '') {
+    async createSession(workingDir = '', toolsApproved = null) {
+        // Check toggle state if not explicitly set
+        if (toolsApproved === null) {
+            const toggle = document.getElementById('auto-approve-tools');
+            toolsApproved = toggle ? toggle.checked : false;
+        }
+        
         const response = await fetch(Config.getApiUrl('/api/sessions'), {
             method: 'POST',
             headers: this.getHeaders(),
             body: JSON.stringify({
-                working_dir: workingDir,
-                tools_approved: false,
-                max_iterations: 0
+                working_dir: workingDir || '/tmp',  // Default to /tmp for shell agent
+                tools_approved: toolsApproved,  // Use preference from toggle
+                max_iterations: 10  // Allow multiple iterations for complex tasks
             })
         });
         

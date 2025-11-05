@@ -4,6 +4,7 @@ let currentAgent = null;
 let sessions = [];
 let agents = [];
 let isStreaming = false;
+let pendingApproval = null;  // Store pending approval request
 
 // Format agent name for display
 function formatAgentName(name) {
@@ -375,6 +376,69 @@ async function sendMessage() {
                     
                     assistantMessage.content += chunk.content || '';
                     updateLastMessage(assistantMessage.content);
+                } else if (chunk.type === 'agent_choice') {
+                    // Handle agent response content
+                    if (!messageAdded) {
+                        showTypingIndicator(false);
+                        addMessageToUI(assistantMessage);
+                        messageAdded = true;
+                    }
+                    
+                    assistantMessage.content += chunk.content || '';
+                    updateLastMessage(assistantMessage.content);
+                } else if (chunk.type === 'tool_call') {
+                    // Show tool being called - handle different field names
+                    const toolName = chunk.tool_call?.name || chunk.name || chunk.tool || 'unknown';
+                    const toolArgs = chunk.tool_call?.arguments || chunk.arguments || {};
+                    const toolInfo = `\n🔧 Using tool: ${toolName}\n`;
+                    if (!messageAdded) {
+                        showTypingIndicator(false);
+                        assistantMessage.content = toolInfo;
+                        addMessageToUI(assistantMessage);
+                        messageAdded = true;
+                    } else {
+                        assistantMessage.content += toolInfo;
+                        updateLastMessage(assistantMessage.content);
+                    }
+                } else if (chunk.type === 'tool_response') {
+                    // Show tool response
+                    const toolResult = `✓ Tool completed\n`;
+                    assistantMessage.content += toolResult;
+                    updateLastMessage(assistantMessage.content);
+                } else if (chunk.type === 'approval_required' || chunk.type === 'tool_approval_required') {
+                    // Handle approval request
+                    showTypingIndicator(false);
+                    
+                    // Extract tool name and arguments
+                    const toolName = chunk.tool_name || chunk.tool || chunk.name || 'unknown';
+                    const toolArgs = chunk.arguments || chunk.args || {};
+                    
+                    // Store pending approval
+                    pendingApproval = {
+                        sessionId: currentSession.id,
+                        toolName: toolName,
+                        arguments: toolArgs
+                    };
+                    
+                    // Show approval dialog
+                    showApprovalDialog(toolName, toolArgs);
+                    
+                    if (!messageAdded) {
+                        assistantMessage.content = `⚠️ Tool approval required: ${toolName}\n`;
+                        addMessageToUI(assistantMessage);
+                        messageAdded = true;
+                    } else {
+                        assistantMessage.content += `\n⚠️ Tool approval required: ${toolName}\n`;
+                        updateLastMessage(assistantMessage.content);
+                    }
+                } else if (chunk.type === 'agent_choice_reasoning') {
+                    // Show reasoning if available
+                    if (chunk.content && !messageAdded) {
+                        showTypingIndicator(false);
+                        assistantMessage.content = `💭 Thinking: ${chunk.content}\n\n`;
+                        addMessageToUI(assistantMessage);
+                        messageAdded = true;
+                    }
                 } else if (chunk.type === 'token_usage') {
                     // Update token count
                     currentSession.input_tokens += chunk.input_tokens || 0;
@@ -383,6 +447,12 @@ async function sendMessage() {
                     document.getElementById('token-count').textContent = `Tokens: ${tokens}`;
                 } else if (chunk.type === 'error') {
                     showToast(chunk.message || 'An error occurred', 'error');
+                    if (!messageAdded) {
+                        showTypingIndicator(false);
+                        assistantMessage.content = `❌ Error: ${chunk.message || 'An error occurred'}`;
+                        addMessageToUI(assistantMessage);
+                        messageAdded = true;
+                    }
                 }
                 
                 // Auto-scroll
@@ -450,4 +520,88 @@ function escapeHtml(text) {
         "'": '&#039;'
     };
     return text.replace(/[&<>"']/g, m => map[m]);
+}
+
+// Show approval dialog
+function showApprovalDialog(toolName, args) {
+    // Create approval dialog element
+    const dialog = document.createElement('div');
+    dialog.id = 'approval-dialog';
+    dialog.className = 'approval-dialog';
+    
+    const argsDisplay = Object.entries(args || {})
+        .map(([k, v]) => `<li><strong>${escapeHtml(k)}:</strong> ${escapeHtml(String(v).substring(0, 100))}...</li>`)
+        .join('');
+    
+    dialog.innerHTML = `
+        <div class="approval-dialog-content">
+            <h3>Tool Approval Required</h3>
+            <p>The agent wants to use the following tool:</p>
+            <div class="tool-info">
+                <strong>Tool:</strong> ${escapeHtml(toolName)}<br>
+                ${argsDisplay ? `<strong>Arguments:</strong><ul>${argsDisplay}</ul>` : ''}
+            </div>
+            <div class="approval-buttons">
+                <button onclick="handleApproval('yes')" class="btn-primary">Approve Once</button>
+                <button onclick="handleApproval('always')" class="btn-secondary">Always Allow</button>
+                <button onclick="handleApproval('no')" class="btn-danger">Deny</button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(dialog);
+}
+
+// Handle approval decision
+async function handleApproval(decision) {
+    const dialog = document.getElementById('approval-dialog');
+    if (dialog) {
+        dialog.remove();
+    }
+    
+    if (!pendingApproval) return;
+    
+    const { sessionId, toolName, arguments: args } = pendingApproval;
+    
+    if (decision === 'yes' || decision === 'always') {
+        // Send approval to API
+        try {
+            const response = await fetch(Config.getApiUrl(`/api/sessions/${sessionId}/approve`), {
+                method: 'POST',
+                headers: API.getHeaders(),
+                body: JSON.stringify({
+                    tool: toolName,
+                    approved: true,
+                    always: decision === 'always'
+                })
+            });
+            
+            if (response.ok) {
+                showToast(`Tool ${decision === 'always' ? 'always allowed' : 'approved'}`, 'success');
+            }
+        } catch (error) {
+            console.error('Failed to send approval:', error);
+            showToast('Failed to send approval', 'error');
+        }
+    } else {
+        // Send denial
+        try {
+            const response = await fetch(Config.getApiUrl(`/api/sessions/${sessionId}/approve`), {
+                method: 'POST',
+                headers: API.getHeaders(),
+                body: JSON.stringify({
+                    tool: toolName,
+                    approved: false
+                })
+            });
+            
+            if (response.ok) {
+                showToast('Tool denied', 'info');
+            }
+        } catch (error) {
+            console.error('Failed to send denial:', error);
+        }
+    }
+    
+    pendingApproval = null;
 }

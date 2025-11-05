@@ -738,3 +738,108 @@ header {
         min-height: 44px;
     }
 }
+
+/* Approval Dialog */
+.approval-dialog {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 10000;
+    animation: fadeIn 0.2s ease;
+}
+
+.approval-dialog-content {
+    background: var(--surface);
+    border-radius: 12px;
+    padding: 2rem;
+    max-width: 500px;
+    width: 90%;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    animation: slideUp 0.3s ease;
+}
+
+.approval-dialog h3 {
+    margin-bottom: 1rem;
+    color: var(--primary-color);
+}
+
+.approval-dialog .tool-info {
+    background: var(--background);
+    padding: 1rem;
+    border-radius: 6px;
+    margin: 1rem 0;
+    font-family: monospace;
+}
+
+.approval-dialog .tool-info ul {
+    margin-top: 0.5rem;
+    padding-left: 1.5rem;
+}
+
+.approval-dialog .tool-info li {
+    margin: 0.25rem 0;
+    word-break: break-all;
+}
+
+.approval-buttons {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1.5rem;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.approval-buttons button {
+    min-width: 120px;
+}
+
+/* Auto-approve toggle */
+.auto-approve-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: var(--background);
+    border-radius: 6px;
+}
+
+.auto-approve-toggle input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.auto-approve-toggle label {
+    cursor: pointer;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateY(20px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
