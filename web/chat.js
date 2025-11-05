@@ -392,8 +392,9 @@ async function sendMessage() {
                     updateLastMessage(assistantMessage.content);
                 } else if (chunk.type === 'tool_call') {
                     // Show tool being called - extract from correct structure
-                    const toolName = chunk.tool_call?.function?.name || 
-                                   chunk.tool_definition?.name || 
+                    // The actual structure is: tool_definition.name for the tool name
+                    const toolName = chunk.tool_definition?.name || 
+                                   chunk.tool_call?.function?.name || 
                                    chunk.tool_call?.name || 
                                    'unknown';
                     const agentName = chunk.agent_name || chunk.agentName || '';
@@ -418,7 +419,10 @@ async function sendMessage() {
                     showTypingIndicator(false);
                     
                     // Extract tool name and arguments from the event structure
-                    const toolName = chunk.tool_call?.function?.name || chunk.tool_definition?.name || 'unknown';
+                    // The actual structure is: tool_definition.name for the tool name
+                    const toolName = chunk.tool_definition?.name || 
+                                   chunk.tool_call?.function?.name || 
+                                   'unknown';
                     const toolArgs = chunk.tool_call?.function?.arguments ? 
                         JSON.parse(chunk.tool_call.function.arguments) : {};
                     
