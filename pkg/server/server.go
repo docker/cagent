@@ -277,7 +277,25 @@ func (s *Server) getAgentConfig(c echo.Context) error {
 	agentID := c.Param("id")
 	p := addYamlExt(agentID)
 
+	// Get the current user's email if auth is enabled
+	var userEmail string
+	if !s.authDisabled {
+		if user, ok := c.Get("user").(*auth.User); ok && user != nil {
+			userEmail = user.Email
+		}
+	}
+
+	// Try to load from root directory first
 	cfg, err := config.LoadConfig(p, s.fs)
+	
+	// If not found and we have a user, try user-specific directory
+	if err != nil && userEmail != "" && s.agentsDir != "" {
+		userAgentPath := filepath.Join(userEmail, p)
+		if _, statErr := s.rootFS.Stat(userAgentPath); statErr == nil {
+			cfg, err = config.LoadConfig(userAgentPath, s.fs)
+		}
+	}
+	
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, "agent not found")
 	}
@@ -897,6 +915,14 @@ func (s *Server) deleteAgent(c echo.Context) error {
 }
 
 func (s *Server) getAgents(c echo.Context) error {
+	// Get the current user's email if auth is enabled
+	var userEmail string
+	if !s.authDisabled {
+		if user, ok := c.Get("user").(*auth.User); ok && user != nil {
+			userEmail = user.Email
+		}
+	}
+
 	// Refresh agents from disk to get the latest configurations
 	if err := s.refreshAgentsFromDisk(c.Request().Context()); err != nil {
 		slog.Error("Failed to refresh agents from disk", "error", err)
@@ -905,42 +931,93 @@ func (s *Server) getAgents(c echo.Context) error {
 	// DO NOT, under any circumstance, replace this with "var agents []api.Agent",
 	// we want to return an empty slice if there are no agents, not nil.
 	agents := []api.Agent{}
+	agentMap := make(map[string]api.Agent) // Use map to handle duplicates
 
-	// Manually lock the mutex to safely iterate over teams
+	// First, add shared agents from root directory
 	s.teamsMu.RLock()
 	for id, t := range s.teams {
 		a, err := t.Agent("root")
 		if err != nil {
 			switch {
 			case t.Size() > 1:
-				agents = append(agents, api.Agent{
+				agentMap[id] = api.Agent{
 					Name:  id,
 					Multi: true,
-				})
+				}
 			case t.Size() == 1:
 				a, err = t.Agent(t.AgentNames()[0])
 				if err != nil {
 					s.teamsMu.RUnlock()
 					return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("failed to get agent for team %s: %v", id, err))
 				}
-				agents = append(agents, api.Agent{
+				agentMap[id] = api.Agent{
 					Name:        id,
 					Description: a.Description(),
 					Multi:       false,
-				})
+				}
 			default:
 				slog.Warn("Team has no agents", "team", id)
 				continue
 			}
 		} else {
-			agents = append(agents, api.Agent{
+			agentMap[id] = api.Agent{
 				Name:        id,
 				Description: a.Description(),
 				Multi:       a.HasSubAgents(),
-			})
+			}
 		}
 	}
 	s.teamsMu.RUnlock()
+
+	// Then, add or override with user-specific agents
+	if userEmail != "" && s.agentsDir != "" {
+		userDir := filepath.Join(s.agentsDir, userEmail)
+		if _, err := os.Stat(userDir); err == nil {
+			// User directory exists, load agents from it
+			slog.Debug("Loading user-specific agents", "userEmail", userEmail, "userDir", userDir)
+			userTeams, err := teamloader.LoadTeams(c.Request().Context(), userDir, s.runConfig)
+			if err != nil {
+				slog.Error("Failed to load user teams", "userEmail", userEmail, "error", err)
+			} else {
+				for id, t := range userTeams {
+					a, err := t.Agent("root")
+					if err != nil {
+						switch {
+						case t.Size() > 1:
+							// Mark user-specific agent with a special indicator
+							agentMap[id] = api.Agent{
+								Name:  id,
+								Multi: true,
+							}
+						case t.Size() == 1:
+							a, err = t.Agent(t.AgentNames()[0])
+							if err != nil {
+								continue
+							}
+							agentMap[id] = api.Agent{
+								Name:        id,
+								Description: a.Description(),
+								Multi:       false,
+							}
+						default:
+							continue
+						}
+					} else {
+						agentMap[id] = api.Agent{
+							Name:        id,
+							Description: a.Description(),
+							Multi:       a.HasSubAgents(),
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Convert map to slice
+	for _, agent := range agentMap {
+		agents = append(agents, agent)
+	}
 
 	// Sort agents by name
 	sort.Slice(agents, func(i, j int) bool {
@@ -1221,13 +1298,35 @@ func (s *Server) runAgent(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, "session not found")
 	}
 
+	// Check ownership if auth is enabled
+	var userEmail string
+	if !s.authDisabled {
+		if user, ok := c.Get("user").(*auth.User); ok && user != nil {
+			if sess.UserID != user.ID && !user.IsAdmin {
+				return echo.NewHTTPError(http.StatusForbidden, "access denied")
+			}
+			userEmail = user.Email
+		}
+	}
+
 	p := addYamlExt(agentFilename)
 
 	// Copy runConfig and inject per-session working dir override
 	rc := s.runConfig
 	rc.WorkingDir = sess.WorkingDir
 
-	t, err := teamloader.Load(c.Request().Context(), filepath.Join(s.agentsDir, p), rc)
+	// Try to load from root directory first
+	agentPath := filepath.Join(s.agentsDir, p)
+	t, err := teamloader.Load(c.Request().Context(), agentPath, rc)
+	
+	// If not found and we have a user, try user-specific directory
+	if err != nil && userEmail != "" {
+		userAgentPath := filepath.Join(s.agentsDir, userEmail, p)
+		if _, statErr := os.Stat(userAgentPath); statErr == nil {
+			t, err = teamloader.Load(c.Request().Context(), userAgentPath, rc)
+		}
+	}
+	
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to load agent for session")
 	}
