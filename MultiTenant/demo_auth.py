@@ -22,7 +22,7 @@ def demo():
     # Create the chat client
     print("\n➜ Creating chat client...")
     chat = AuthAgentChat(
-        'https://cagent-api-950783879036.us-central1.run.app',
+        'https://YOUR-API-URL',
         'pirate.yaml',
         verbose=False
     )

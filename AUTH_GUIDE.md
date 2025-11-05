@@ -214,7 +214,7 @@ class CagentClient:
 
 # Usage
 client = CagentClient(
-    "https://cagent-api-950783879036.us-central1.run.app",
+    "https://YOUR-API-URL",
     "user@example.com",
     "password"
 )

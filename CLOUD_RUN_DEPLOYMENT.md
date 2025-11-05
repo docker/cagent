@@ -7,14 +7,14 @@ Cagent has been successfully deployed to Google Cloud Run with API mode exposed 
 
 ### Service Information
 - **Service Name:** cagent-api
-- **GCP Project:** `chkp-gcp-prd-kenobi-box`
-- **Region:** `us-central1` (e.g., us-central1)
-- **Public API URL:** `https://cagent-api-950783879036.us-central1.run.app`
+- **GCP Project:** `YOUR-PROJECT-ID`
+- **Region:** `YOUR-REGION` (e.g., us-central1)
+- **Public API URL:** `https://cagent-api-XXXXX.YOUR-REGION.run.app`
 - **Authentication:** Application-level JWT authentication
 
 ### Infrastructure Components
-1. **Container Image:** `us-central1-docker.pkg.dev/chkp-gcp-prd-kenobi-box/cagent-repo/cagent:latest`
-2. **GCS Bucket:** `gs://eravecagent` (mounted at `/work` in the container)
+1. **Container Image:** `YOUR-REGION-docker.pkg.dev/YOUR-PROJECT-ID/YOUR-REPO/cagent:latest`
+2. **GCS Bucket:** `gs://YOUR-BUCKET-NAME` (mounted at `/work` in the container)
    - Stores YAML agent configurations
    - Stores SQLite session database (`sessions.db`)
 3. **Secret Manager:** 
@@ -30,18 +30,18 @@ Cagent has been successfully deployed to Google Cloud Run with API mode exposed 
 
 ### Health Check
 ```bash
-curl https://cagent-api-950783879036.us-central1.run.app/api/ping
+curl https://YOUR-API-URL/api/ping
 ```
 
 ### List Available Agents
 ```bash
-curl https://cagent-api-950783879036.us-central1.run.app/api/agents \
+curl https://YOUR-API-URL/api/agents \
   -H "Authorization: Bearer YOUR-JWT-TOKEN"
 ```
 
 ### Create a Session
 ```bash
-curl -X POST https://cagent-api-950783879036.us-central1.run.app/api/sessions \
+curl -X POST https://YOUR-API-URL/api/sessions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR-JWT-TOKEN" \
   -d '{"title": "My Session", "workingDir": "/work"}'
@@ -52,7 +52,7 @@ curl -X POST https://cagent-api-950783879036.us-central1.run.app/api/sessions \
 SESSION_ID="<session-id-from-create>"
 AGENT_NAME="pirate.yaml"  # or any agent from the list
 
-curl -X POST "https://cagent-api-950783879036.us-central1.run.app/api/sessions/$SESSION_ID/agent/$AGENT_NAME" \
+curl -X POST "https://YOUR-API-URL/api/sessions/$SESSION_ID/agent/$AGENT_NAME" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR-JWT-TOKEN" \
   -d '[{"content": "Your message here"}]'
@@ -63,23 +63,23 @@ curl -X POST "https://cagent-api-950783879036.us-central1.run.app/api/sessions/$
 ### Upload New Agent
 ```bash
 # Upload a YAML file to the GCS bucket
-gcloud storage cp my-agent.yaml gs://eravecagent/
+gcloud storage cp my-agent.yaml gs://YOUR-BUCKET-NAME/
 ```
 
 ### List Agents in Bucket
 ```bash
-gcloud storage ls gs://eravecagent/
+gcloud storage ls gs://YOUR-BUCKET-NAME/
 ```
 
 ### Update Agent Configuration
 ```bash
 # Replace existing agent
-gcloud storage cp my-updated-agent.yaml gs://eravecagent/my-agent.yaml
+gcloud storage cp my-updated-agent.yaml gs://YOUR-BUCKET-NAME/my-agent.yaml
 ```
 
 ### Remove Agent
 ```bash
-gcloud storage rm gs://eravecagent/my-agent.yaml
+gcloud storage rm gs://YOUR-BUCKET-NAME/my-agent.yaml
 ```
 
 ## Monitoring and Maintenance
@@ -100,10 +100,10 @@ gcloud run services describe cagent-api --region us-central1
 ### Update Service
 ```bash
 # To redeploy with new image
-docker buildx build --platform linux/amd64 -t us-central1-docker.pkg.dev/chkp-gcp-prd-kenobi-box/cagent-repo/cagent:latest --push .
+docker buildx build --platform linux/amd64 -t YOUR-REGION-docker.pkg.dev/YOUR-PROJECT-ID/YOUR-REPO/cagent:latest --push .
 
 # Redeploy service (will use latest image)
-gcloud run services update cagent-api --region us-central1 --image us-central1-docker.pkg.dev/chkp-gcp-prd-kenobi-box/cagent-repo/cagent:latest
+gcloud run services update cagent-api --region YOUR-REGION --image YOUR-REGION-docker.pkg.dev/YOUR-PROJECT-ID/YOUR-REPO/cagent:latest
 ```
 
 ## Key Features
@@ -133,7 +133,7 @@ gcloud run services update cagent-api --region us-central1 --image us-central1-d
 3. Check if the GCS bucket is accessible
 
 ### Agents Not Loading
-1. Verify YAML files exist in the bucket: `gcloud storage ls gs://eravecagent/`
+1. Verify YAML files exist in the bucket: `gcloud storage ls gs://YOUR-BUCKET-NAME/`
 2. Check file permissions and format
 3. Review service logs for parsing errors
 
@@ -155,7 +155,7 @@ gcloud run services update cagent-api --region us-central1 --image us-central1-d
 **IMPORTANT**: When deploying the cagent-web service, you MUST:
 
 1. Use the correct environment variable name: `CAGENT_API_URL` (not `API_URL` or any other variant)
-2. Point it to the PRODUCTION API: `https://cagent-api-950783879036.us-central1.run.app`
+2. Point it to the PRODUCTION API: `https://YOUR-PRODUCTION-API-URL`
 3. NEVER point the web frontend to the test API
 
 ### Example Web Deployment
@@ -163,14 +163,14 @@ gcloud run services update cagent-api --region us-central1 --image us-central1-d
 ```bash
 # Deploy or update cagent-web with PRODUCTION API URL
 gcloud run services update cagent-web \
-  --region us-central1 \
-  --update-env-vars "CAGENT_API_URL=https://cagent-api-950783879036.us-central1.run.app"
+  --region YOUR-REGION \
+  --update-env-vars "CAGENT_API_URL=https://YOUR-PRODUCTION-API-URL"
 ```
 
 ### CORS Configuration
 
 The API server is configured to allow CORS requests from:
-- https://cagent-web-950783879036.us-central1.run.app
+- Your production web frontend URL
 - `http://localhost:8000` (local development)
 - `http://localhost:8080` (Docker local)
 
@@ -180,7 +180,7 @@ When deploying, update the CORS configuration in `pkg/server/server.go` to inclu
 
 ### Production Environment (FOR WEB FRONTEND)
 - **API Service**: `cagent-api`
-  - URL: `https://cagent-api-950783879036.us-central1.run.app`
+  - URL: `https://YOUR-PRODUCTION-API-URL`
   - Cloud Run Access: Public (required for CORS preflight requests)
   - Application Authentication: **ENABLED** - JWT tokens required
   - Configuration: No `--disable-auth` flag
@@ -188,7 +188,7 @@ When deploying, update the CORS configuration in `pkg/server/server.go` to inclu
 
 ### Test Environment (FOR AUTOMATED TESTING ONLY)
 - **API Service**: `cagent-api-test`
-  - URL: `https://cagent-api-test-950783879036.us-central1.run.app`
+  - URL: `https://YOUR-TEST-API-URL`
   - Cloud Run Access: Public
   - Application Authentication: **DISABLED** (for automated testing)
   - Configuration: Uses `--disable-auth` flag

@@ -94,9 +94,10 @@ func New(sessionStore session.Store, runConfig config.RuntimeConfig, teams map[s
 	e := echo.New()
 	
 	// Configure CORS to allow requests from web frontend
+	// TODO: Update AllowOrigins with your actual deployment URLs
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins: []string{
-			"https://cagent-web-950783879036.us-central1.run.app",
+			// "https://YOUR-WEB-FRONTEND-URL", // Add your production web URL here
 			"http://localhost:8000",
 			"http://localhost:8080",
 		},

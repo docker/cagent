@@ -24,7 +24,8 @@ class Colors:
     BOLD = '\033[1m'
     DIM = '\033[2m'
 
-API_URL = "https://cagent-api-950783879036.us-central1.run.app"
+# Update this to your API URL
+API_URL = "https://YOUR-API-URL"  # e.g., "https://cagent-api-XXXXX.REGION.run.app"
 
 class CagentChatClient:
     def __init__(self, agent_name: str):

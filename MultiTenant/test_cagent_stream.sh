@@ -2,7 +2,7 @@
 
 # Test cagent API with proper SSE streaming
 
-API_URL="https://cagent-api-950783879036.us-central1.run.app"
+API_URL="https://YOUR-API-URL"
 
 echo "Creating a new session..."
 SESSION_RESPONSE=$(curl -s -X POST "$API_URL/api/sessions" \

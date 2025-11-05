@@ -8,7 +8,7 @@ import json
 import sys
 from datetime import datetime
 
-API_URL = "https://cagent-api-950783879036.us-central1.run.app"
+API_URL = "https://YOUR-API-URL"
 
 def test_auth_flow():
     print("=" * 50)

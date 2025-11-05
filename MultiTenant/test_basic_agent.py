@@ -7,7 +7,7 @@ import json
 import requests
 import sys
 
-API_URL = "https://cagent-api-950783879036.us-central1.run.app"
+API_URL = "https://YOUR-API-URL"
 
 def main():
     print("🚀 Testing cagent API with basic_agent...")

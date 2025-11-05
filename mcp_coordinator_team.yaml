@@ -1,0 +1,118 @@
+version: "2"
+
+models:
+  openai:
+    provider: openai
+    model: gpt-5
+
+agents:
+  root:
+    model: openai
+    description: "Root coordinator. Plans work, delegates tasks to specialized sub-agents, tracks progress using a shared todo list, and uses a think tool for deliberation. Aggregates results and returns a final report to the user."
+    instruction: |
+      You are the root coordinator for a team of service-specific agents. Your responsibilities:
+      - Use the think tool to carefully plan, break down the user's request into concrete tasks, and update the shared todo list.
+      - Assign tasks to the appropriate sub-agent(s) by creating clear, unambiguous work orders.
+      - Monitor sub-agent progress by reading and updating the shared todo items. Reassign or escalate tasks if needed.
+      - Validate and aggregate responses from sub-agents, enforce policy and consistency, and produce the final deliverable for the user.
+      - Only the root may produce the final user-facing summary; sub-agents return structured results for aggregation.
+      When interacting with the MCP server, ensure all requests use the provided Bearer token in headers.
+    toolsets:
+      - type: todo
+        shared: true
+      - type: think
+      - type: mcp
+        remote:
+          url: "https://mcp.zapier.com/api/mcp/s/MDFjMmYzMTMtOGYyMy00MTQxLThiZmMtYmEzNGU1YTgwMjY3OjA2MjM2NzI2LTk0ZGEtNDI5My05NGE0LWY1OWM2NTM2Mjk2OA==/mcp"
+          transport_type: "streamable"
+    sub_agents: [gmail, google_calendar, peopledata, google_drive, google_docs, google_sheets, linkedin, tavily]
+    add_date: true
+    add_environment_info: true
+
+  gmail:
+    model: openai
+    description: "Performs Gmail actions via the MCP Gmail tool. Only use the gmail tool on the configured MCP server."
+    instruction: |
+      Only use the Gmail tool exposed by the MCP server at https://rube.app/mcp. Do not attempt to use other tools or external APIs. When given a task, perform the action and return a concise structured JSON-like result with fields: success (bool), details (string), items (array) where relevant (e.g., messageIds).
+    toolsets:
+      - type: mcp
+        remote:
+          url: "https://mcp.zapier.com/api/mcp/s/MDFjMmYzMTMtOGYyMy00MTQxLThiZmMtYmEzNGU1YTgwMjY3OjA2MjM2NzI2LTk0ZGEtNDI5My05NGE0LWY1OWM2NTM2Mjk2OA==/mcp"
+          transport_type: "streamable"
+
+  google_calendar:
+    model: openai
+    description: "Handles scheduling and calendar manipulations using the Google Calendar tool on the MCP server."
+    instruction: |
+      Only use the Google Calendar tool from the MCP server. When scheduling or reading events, return structured results with fields: success, details, events (array).
+    toolsets:
+      - type: mcp
+        remote:
+          url: "https://mcp.zapier.com/api/mcp/s/MDFjMmYzMTMtOGYyMy00MTQxLThiZmMtYmEzNGU1YTgwMjY3OjA2MjM2NzI2LTk0ZGEtNDI5My05NGE0LWY1OWM2NTM2Mjk2OA==/mcp"
+          transport_type: "streamable"
+
+  peopledata:
+    model: openai
+    description: "Uses PeopleDataLabs (People Data) via the MCP server to enrich person/company data."
+    instruction: |
+      Only use the PeopleDataLabs tool provided by the MCP server. Return structured enrichment results: success, details, records (array).
+    toolsets:
+      - type: mcp
+        remote:
+          url: "https://mcp.zapier.com/api/mcp/s/MDFjMmYzMTMtOGYyMy00MTQxLThiZmMtYmEzNGU1YTgwMjY3OjA2MjM2NzI2LTk0ZGEtNDI5My05NGE0LWY1OWM2NTM2Mjk2OA==/mcp"
+          transport_type: "streamable"
+
+  google_drive:
+    model: openai
+    description: "Access and manipulate files on Google Drive via the MCP server Drive tool."
+    instruction: |
+      Only use the Google Drive tool from the MCP server. Return structured responses: success, details, fileRefs (array).
+    toolsets:
+      - type: mcp
+        remote:
+          url: "https://mcp.zapier.com/api/mcp/s/MDFjMmYzMTMtOGYyMy00MTQxLThiZmMtYmEzNGU1YTgwMjY3OjA2MjM2NzI2LTk0ZGEtNDI5My05NGE0LWY1OWM2NTM2Mjk2OA==/mcp"
+          transport_type: "streamable"
+
+  google_docs:
+    model: openai
+    description: "Create and edit Google Docs via the MCP Docs tool."
+    instruction: |
+      Only use the Google Docs tool on the MCP server. For edits return: success, details, docId, changes (summary).
+    toolsets:
+      - type: mcp
+        remote:
+          url: "https://mcp.zapier.com/api/mcp/s/MDFjMmYzMTMtOGYyMy00MTQxLThiZmMtYmEzNGU1YTgwMjY3OjA2MjM2NzI2LTk0ZGEtNDI5My05NGE0LWY1OWM2NTM2Mjk2OA==/mcp"
+          transport_type: "streamable"
+
+  google_sheets:
+    model: openai
+    description: "Read and write Google Sheets through the MCP server Sheets tool."
+    instruction: |
+      Only use the Google Sheets tool provided by the MCP server. Return structured results: success, details, sheetId, rangesUpdated.
+    toolsets:
+      - type: mcp
+        remote:
+          url: "https://mcp.zapier.com/api/mcp/s/MDFjMmYzMTMtOGYyMy00MTQxLThiZmMtYmEzNGU1YTgwMjY3OjA2MjM2NzI2LTk0ZGEtNDI5My05NGE0LWY1OWM2NTM2Mjk2OA==/mcp"
+          transport_type: "streamable"
+
+  linkedin:
+    model: openai
+    description: "Performs LinkedIn operations via the MCP server LinkedIn tool."
+    instruction: |
+      Only use the LinkedIn tool available on the MCP server. Return structured outputs: success, details, items (array of profile/action results).
+    toolsets:
+      - type: mcp
+        remote:
+          url: "https://mcp.zapier.com/api/mcp/s/MDFjMmYzMTMtOGYyMy00MTQxLThiZmMtYmEzNGU1YTgwMjY3OjA2MjM2NzI2LTk0ZGEtNDI5My05NGE0LWY1OWM2NTM2Mjk2OA==/mcp"
+          transport_type: "streamable"
+
+  tavily:
+    model: openai
+    description: "Interacts with Tavily tools through the MCP server for candidate discovery and outreach."
+    instruction: |
+      Only use the Tavily tool on the MCP server. Provide structured results: success, details, candidates (array) or action receipts.
+    toolsets:
+      - type: mcp
+        remote:
+          url: "https://mcp.zapier.com/api/mcp/s/MDFjMmYzMTMtOGYyMy00MTQxLThiZmMtYmEzNGU1YTgwMjY3OjA2MjM2NzI2LTk0ZGEtNDI5My05NGE0LWY1OWM2NTM2Mjk2OA==/mcp"
+          transport_type: "streamable"

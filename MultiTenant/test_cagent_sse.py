@@ -8,7 +8,7 @@ import requests
 import sys
 from typing import Iterator
 
-API_URL = "https://cagent-api-950783879036.us-central1.run.app"
+API_URL = "https://YOUR-API-URL"
 
 def parse_sse_stream(response_text: str) -> Iterator[dict]:
     """Parse SSE stream data"""

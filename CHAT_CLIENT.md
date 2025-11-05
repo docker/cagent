@@ -112,7 +112,7 @@ EOF
 ## API Endpoint
 
 The client connects to the cagent API at:
-`https://cagent-api-950783879036.us-central1.run.app`
+`https://YOUR-API-URL`
 
 ## Troubleshooting
 

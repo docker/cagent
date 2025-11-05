@@ -609,7 +609,7 @@ Credentials are saved locally for future use.
     )
     parser.add_argument(
         '--url',
-        default='https://cagent-api-950783879036.us-central1.run.app',
+        default='https://YOUR-API-URL',
         help='Cagent API URL (default: Cloud Run deployment)'
     )
     

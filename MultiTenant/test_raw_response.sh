@@ -1,6 +1,6 @@
 #!/bin/bash
 
-API_URL="https://cagent-api-950783879036.us-central1.run.app"
+API_URL="https://YOUR-API-URL"
 
 echo "Creating session..."
 SESSION_ID=$(curl -s -X POST "$API_URL/api/sessions" \

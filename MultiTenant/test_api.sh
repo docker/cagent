@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Cagent Cloud Run API Test Script
-API_URL="https://cagent-api-950783879036.us-central1.run.app"
+API_URL="https://YOUR-API-URL"
 
 echo "🚀 Testing Cagent API at $API_URL"
 echo "=" 
