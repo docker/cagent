@@ -380,6 +380,10 @@ async function sendMessage() {
                     // Handle agent response content
                     if (!messageAdded) {
                         showTypingIndicator(false);
+                        const agentName = chunk.agent_name || chunk.agentName || '';
+                        if (agentName && assistantMessage.content === '') {
+                            assistantMessage.content = `[${agentName}]: `;
+                        }
                         addMessageToUI(assistantMessage);
                         messageAdded = true;
                     }
@@ -387,10 +391,14 @@ async function sendMessage() {
                     assistantMessage.content += chunk.content || '';
                     updateLastMessage(assistantMessage.content);
                 } else if (chunk.type === 'tool_call') {
-                    // Show tool being called - handle different field names
-                    const toolName = chunk.tool_call?.name || chunk.name || chunk.tool || 'unknown';
-                    const toolArgs = chunk.tool_call?.arguments || chunk.arguments || {};
-                    const toolInfo = `\n🔧 Using tool: ${toolName}\n`;
+                    // Show tool being called - extract from correct structure
+                    const toolName = chunk.tool_call?.function?.name || 
+                                   chunk.tool_definition?.name || 
+                                   chunk.tool_call?.name || 
+                                   'unknown';
+                    const agentName = chunk.agent_name || chunk.agentName || '';
+                    const toolArgs = chunk.tool_call?.function?.arguments || chunk.arguments || {};
+                    const toolInfo = `\n🔧 Using tool: ${toolName}${agentName ? ` (Agent: ${agentName})` : ''}\n`;
                     if (!messageAdded) {
                         showTypingIndicator(false);
                         assistantMessage.content = toolInfo;
@@ -436,7 +444,8 @@ async function sendMessage() {
                     // Show reasoning if available
                     if (chunk.content && !messageAdded) {
                         showTypingIndicator(false);
-                        assistantMessage.content = `💭 Thinking: ${chunk.content}\n\n`;
+                        const agentName = chunk.agent_name || chunk.agentName || '';
+                        assistantMessage.content = `💭 ${agentName ? `[${agentName}] ` : ''}Thinking: ${chunk.content}\n\n`;
                         addMessageToUI(assistantMessage);
                         messageAdded = true;
                     }
