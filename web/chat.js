@@ -405,13 +405,14 @@ async function sendMessage() {
                     const toolResult = `✓ Tool completed\n`;
                     assistantMessage.content += toolResult;
                     updateLastMessage(assistantMessage.content);
-                } else if (chunk.type === 'approval_required' || chunk.type === 'tool_approval_required') {
-                    // Handle approval request
+                } else if (chunk.type === 'tool_call_confirmation') {
+                    // Handle approval request from cagent API
                     showTypingIndicator(false);
                     
-                    // Extract tool name and arguments
-                    const toolName = chunk.tool_name || chunk.tool || chunk.name || 'unknown';
-                    const toolArgs = chunk.arguments || chunk.args || {};
+                    // Extract tool name and arguments from the event structure
+                    const toolName = chunk.tool_call?.function?.name || chunk.tool_definition?.name || 'unknown';
+                    const toolArgs = chunk.tool_call?.function?.arguments ? 
+                        JSON.parse(chunk.tool_call.function.arguments) : {};
                     
                     // Store pending approval
                     pendingApproval = {
@@ -563,44 +564,37 @@ async function handleApproval(decision) {
     
     const { sessionId, toolName, arguments: args } = pendingApproval;
     
-    if (decision === 'yes' || decision === 'always') {
-        // Send approval to API
-        try {
-            const response = await fetch(Config.getApiUrl(`/api/sessions/${sessionId}/approve`), {
-                method: 'POST',
-                headers: API.getHeaders(),
-                body: JSON.stringify({
-                    tool: toolName,
-                    approved: true,
-                    always: decision === 'always'
-                })
-            });
-            
-            if (response.ok) {
+    // The cagent API uses resume endpoint for approvals
+    let confirmation = 'deny';  // default
+    if (decision === 'yes') {
+        confirmation = 'approve';
+    } else if (decision === 'always') {
+        confirmation = 'always';
+    }
+    
+    try {
+        const response = await fetch(Config.getApiUrl(`/api/sessions/${sessionId}/resume`), {
+            method: 'POST',
+            headers: API.getHeaders(),
+            body: JSON.stringify({
+                confirmation: confirmation
+            })
+        });
+        
+        if (response.ok) {
+            if (decision === 'yes' || decision === 'always') {
                 showToast(`Tool ${decision === 'always' ? 'always allowed' : 'approved'}`, 'success');
-            }
-        } catch (error) {
-            console.error('Failed to send approval:', error);
-            showToast('Failed to send approval', 'error');
-        }
-    } else {
-        // Send denial
-        try {
-            const response = await fetch(Config.getApiUrl(`/api/sessions/${sessionId}/approve`), {
-                method: 'POST',
-                headers: API.getHeaders(),
-                body: JSON.stringify({
-                    tool: toolName,
-                    approved: false
-                })
-            });
-            
-            if (response.ok) {
+            } else {
                 showToast('Tool denied', 'info');
             }
-        } catch (error) {
-            console.error('Failed to send denial:', error);
+        } else {
+            const error = await response.text();
+            console.error('Resume failed:', error);
+            showToast('Failed to send decision', 'error');
         }
+    } catch (error) {
+        console.error('Failed to send decision:', error);
+        showToast('Failed to send decision', 'error');
     }
     
     pendingApproval = null;
