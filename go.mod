@@ -2,8 +2,6 @@ module github.com/docker/cagent
 
 go 1.24.2
 
-toolchain go1.24.9
-
 require (
 	dario.cat/mergo v1.0.2
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.4.0
