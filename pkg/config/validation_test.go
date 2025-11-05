@@ -9,7 +9,7 @@ import (
 )
 
 func TestLoadConfig_InvalidPath(t *testing.T) {
-	tmp := openRoot(t, t.TempDir())
+	tmpDir := t.TempDir()
 
 	validConfig := `version: 1
 agents:
@@ -17,8 +17,10 @@ agents:
     model: "openai/gpt-4"
 `
 
-	err := tmp.WriteFile("valid.yaml", []byte(validConfig), 0o644)
+	err := os.WriteFile(filepath.Join(tmpDir, "valid.yaml"), []byte(validConfig), 0o644)
 	require.NoError(t, err)
+
+	tmp := openRoot(t, tmpDir)
 
 	cfg, err := LoadConfig("valid.yaml", tmp)
 	require.NoError(t, err)
