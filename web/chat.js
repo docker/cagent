@@ -158,6 +158,7 @@ async function createNewSession() {
         
         renderSessions();
         showChatInterface();
+        handleMobileMenuClose();  // Close mobile menu
         showToast('New session created', 'success');
     } catch (error) {
         console.error('Failed to create session:', error);
@@ -174,6 +175,7 @@ async function loadSession(sessionId) {
         currentSession = await API.getSession(sessionId);
         showChatInterface();
         renderMessages();
+        handleMobileMenuClose();  // Close mobile menu
         
         // Update sessions list to show active session
         renderSessions();

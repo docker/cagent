@@ -95,3 +95,35 @@ style.textContent = `
     }
 `;
 document.head.appendChild(style);
+
+// Mobile menu functions
+function toggleMobileMenu() {
+    const sidebar = document.getElementById('sidebar');
+    const backdrop = document.getElementById('mobile-backdrop');
+    
+    sidebar.classList.toggle('mobile-open');
+    backdrop.classList.toggle('active');
+}
+
+function closeMobileMenu() {
+    const sidebar = document.getElementById('sidebar');
+    const backdrop = document.getElementById('mobile-backdrop');
+    
+    sidebar.classList.remove('mobile-open');
+    backdrop.classList.remove('active');
+}
+
+// Close mobile menu when selecting a session or creating new
+function handleMobileMenuClose() {
+    if (window.innerWidth <= 768) {
+        closeMobileMenu();
+    }
+}
+
+// Add resize listener to handle orientation changes
+window.addEventListener('resize', function() {
+    if (window.innerWidth > 768) {
+        // Ensure menu is closed on desktop
+        closeMobileMenu();
+    }
+});

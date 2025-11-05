@@ -555,24 +555,186 @@ header {
     }
 }
 
+/* Mobile Menu Toggle */
+.mobile-menu-toggle {
+    display: none;
+    background: transparent;
+    border: none;
+    padding: 0.5rem;
+    cursor: pointer;
+    color: var(--text-primary);
+}
+
+.mobile-menu-toggle svg {
+    width: 24px;
+    height: 24px;
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
-    .main-content {
-        flex-direction: column;
+    /* Show mobile menu toggle */
+    .mobile-menu-toggle {
+        display: block;
     }
     
+    /* Header adjustments */
+    header {
+        padding: 0.75rem 1rem;
+    }
+    
+    .header-content h1 {
+        font-size: 1.1rem;
+    }
+    
+    #user-info {
+        display: none;
+    }
+    
+    /* Main layout */
+    .main-content {
+        position: relative;
+        height: calc(100vh - 60px);
+    }
+    
+    /* Sidebar as overlay */
     .sidebar {
+        position: fixed;
+        top: 60px;
+        left: -100%;
+        width: 85%;
+        max-width: 320px;
+        height: calc(100vh - 60px);
+        z-index: 100;
+        transition: left 0.3s ease;
+        box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+    }
+    
+    .sidebar.mobile-open {
+        left: 0;
+    }
+    
+    /* Overlay backdrop */
+    .mobile-backdrop {
+        display: none;
+        position: fixed;
+        top: 60px;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0,0,0,0.5);
+        z-index: 99;
+    }
+    
+    .mobile-backdrop.active {
+        display: block;
+    }
+    
+    /* Chat area takes full width */
+    .chat-area {
         width: 100%;
-        height: auto;
-        border-right: none;
-        border-bottom: 1px solid var(--border);
+    }
+    
+    /* Session item adjustments */
+    .session-delete-btn {
+        opacity: 1;
+        visibility: visible;
+    }
+    
+    .session-item-info {
+        font-size: 0.7rem;
+    }
+    
+    /* Message adjustments */
+    .messages-container {
+        padding: 0.75rem;
+    }
+    
+    .message {
+        margin-bottom: 0.75rem;
     }
     
     .message-content {
         max-width: 85%;
+        font-size: 0.95rem;
     }
     
-    .header-content h1 {
+    .message-avatar {
+        width: 30px;
+        height: 30px;
+        font-size: 0.75rem;
+    }
+    
+    /* Input area adjustments */
+    .input-area {
+        padding: 0.75rem;
+        gap: 0.75rem;
+    }
+    
+    #message-input {
+        font-size: 16px; /* Prevents zoom on iOS */
+        padding: 0.625rem;
+    }
+    
+    /* Session info adjustments */
+    .session-info {
+        padding: 0.75rem;
+        flex-wrap: wrap;
+    }
+    
+    #session-title {
+        font-size: 0.9rem;
+        word-break: break-all;
+    }
+    
+    #token-count {
+        font-size: 0.75rem;
+    }
+    
+    /* Button adjustments */
+    .btn-primary, .btn-secondary, .btn-danger {
+        padding: 0.625rem 0.875rem;
+        font-size: 0.9rem;
+    }
+    
+    /* Welcome screen */
+    .welcome {
+        padding: 1rem;
+    }
+    
+    .welcome h2 {
         font-size: 1.25rem;
+    }
+    
+    /* Auth box adjustments */
+    .auth-box {
+        padding: 1.5rem;
+        margin: 1rem;
+    }
+}
+
+/* Small mobile devices */
+@media (max-width: 480px) {
+    .header-content h1 {
+        font-size: 1rem;
+    }
+    
+    .sidebar {
+        width: 90%;
+    }
+    
+    .message-content {
+        max-width: 90%;
+        padding: 0.625rem 0.875rem;
+    }
+    
+    .session-info {
+        padding: 0.5rem;
+    }
+    
+    /* Ensure delete button is touch-friendly */
+    .session-delete-btn {
+        padding: 0.625rem;
+        min-width: 44px;
+        min-height: 44px;
     }
 }
