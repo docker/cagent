@@ -84,6 +84,18 @@ During CLI sessions, you can use special commands:
 | `/eval`    | Save current conversation for evaluation    |
 | `/compact` | Compact conversation to lower context usage |
 
+#### TUI Bang Commands
+
+When `enable_bang_commands: true` is set for an agent, you can execute shell commands directly in the TUI by prefixing them with `!`:
+
+```
+!ls -la
+!pwd
+!echo "Hello from shell"
+```
+
+**⚠️ Security Note**: Bang commands are disabled by default. Only enable them for trusted agents in secure environments, as they execute arbitrary shell commands with the same permissions as the cagent process.
+
 ## 🔧 Configuration Reference
 
 ### Agent Properties
@@ -100,6 +112,7 @@ During CLI sessions, you can use special commands:
 | `add_environment_info` | boolean      | Add information about the environment (working dir, OS, git...) | ✗        |
 | `max_iterations`       | int          | Specifies how many times the agent can loop when using tools    | ✗        |
 | `commands`             | object/array | Named prompts for /commands                                     | ✗        |
+| `enable_bang_commands` | boolean      | Allow shell commands via `!` prefix in TUI (default: false)     | ✗        |
 
 #### Example
 
@@ -114,6 +127,7 @@ agents:
     add_date: boolean # Add current date to context (optional)
     add_environment_info: boolean # Add information about the environment (working dir, OS, git...) (optional)
     max_iterations: int # How many times this agent can loop when calling tools (optional, default = unlimited)
+    enable_bang_commands: boolean # Allow shell commands via ! prefix in TUI (optional, default: false)
     commands: # Either mapping or list of singleton maps
       df: "check how much free space i have on my disk"
       ls: "list the files in the current directory"
