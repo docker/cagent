@@ -68,6 +68,8 @@ type Runtime interface {
 	CurrentAgentName() string
 	// CurrentAgentCommands returns the commands for the active agent
 	CurrentAgentCommands(ctx context.Context) map[string]string
+	// CurrentAgentEnableBangCommands returns whether bang commands are enabled for the current agent
+	CurrentAgentEnableBangCommands() bool
 	// RunStream starts the agent's interaction loop and returns a channel of events
 	RunStream(ctx context.Context, sess *session.Session) <-chan Event
 	// Run starts the agent's interaction loop and returns the final messages
@@ -181,6 +183,11 @@ func (r *LocalRuntime) CurrentAgentName() string {
 
 func (r *LocalRuntime) CurrentAgentCommands(context.Context) map[string]string {
 	return r.CurrentAgent().Commands()
+}
+
+// CurrentAgentEnableBangCommands returns whether bang commands are enabled for the current agent
+func (r *LocalRuntime) CurrentAgentEnableBangCommands() bool {
+	return r.CurrentAgent().EnableBangCommands()
 }
 
 // CurrentAgent returns the current agent

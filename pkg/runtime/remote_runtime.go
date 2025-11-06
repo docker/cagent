@@ -77,6 +77,21 @@ func (r *RemoteRuntime) CurrentAgentCommands(ctx context.Context) map[string]str
 	return map[string]string{}
 }
 
+func (r *RemoteRuntime) CurrentAgentEnableBangCommands() bool {
+	cfg, err := r.client.GetAgent(context.Background(), r.agentFilename)
+	if err != nil {
+		return false
+	}
+
+	for agentName, agent := range cfg.Agents {
+		if agentName == r.currentAgent {
+			return agent.EnableBangCommands
+		}
+	}
+
+	return false
+}
+
 // RunStream starts the agent's interaction loop and returns a channel of events
 func (r *RemoteRuntime) RunStream(ctx context.Context, sess *session.Session) <-chan Event {
 	slog.Debug("Starting remote runtime stream", "agent", r.currentAgent, "session_id", r.sessionID)

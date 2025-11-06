@@ -26,6 +26,7 @@ type Agent struct {
 	addPromptFiles     []string
 	tools              []tools.Tool
 	commands           map[string]string
+	enableBangCommands bool
 	pendingWarnings    []string
 }
 
@@ -100,6 +101,11 @@ func (a *Agent) Model() provider.Provider {
 // Commands returns the named commands configured for this agent.
 func (a *Agent) Commands() map[string]string {
 	return a.commands
+}
+
+// EnableBangCommands returns whether bang commands (!) are enabled for this agent
+func (a *Agent) EnableBangCommands() bool {
+	return a.enableBangCommands
 }
 
 // Tools returns the tools available to this agent

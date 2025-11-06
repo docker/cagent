@@ -346,6 +346,7 @@ func Load(ctx context.Context, p string, runtimeConfig config.RuntimeConfig, opt
 			agent.WithMaxIterations(agentConfig.MaxIterations),
 			agent.WithNumHistoryItems(agentConfig.NumHistoryItems),
 			agent.WithCommands(js.Expand(ctx, agentConfig.Commands, env)),
+			agent.WithEnableBangCommands(agentConfig.EnableBangCommands),
 		}
 
 		models, err := getModelsForAgent(ctx, cfg, &agentConfig, env, runtimeConfig)

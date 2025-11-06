@@ -26,6 +26,7 @@ type AgentConfig struct {
 	NumHistoryItems    int               `json:"num_history_items,omitempty"`
 	AddPromptFiles     []string          `json:"add_prompt_files,omitempty" yaml:"add_prompt_files,omitempty"`
 	Commands           types.Commands    `json:"commands,omitempty"`
+	EnableBangCommands bool              `json:"enable_bang_commands,omitempty"`
 	StructuredOutput   *StructuredOutput `json:"structured_output,omitempty"`
 }
 

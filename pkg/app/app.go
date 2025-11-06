@@ -46,6 +46,11 @@ func (a *App) ResolveCommand(ctx context.Context, userInput string) string {
 	return runtime.ResolveCommand(ctx, a.runtime, userInput)
 }
 
+// IsBangCommandsEnabled returns whether bang commands are enabled for the current agent
+func (a *App) IsBangCommandsEnabled() bool {
+	return a.runtime.CurrentAgentEnableBangCommands()
+}
+
 // Run one agent loop
 func (a *App) Run(ctx context.Context, cancel context.CancelFunc, message string) {
 	a.cancel = cancel

@@ -1,0 +1,23 @@
+#!/usr/bin/env cagent run
+version: "2"
+
+metadata:
+  readme: |
+    This is a demonstration of the enable_bang_commands configuration option.
+    
+    This agent has enable_bang_commands set to false (or omitted, which is the default).
+    When users try to use ! commands, they will see an error message explaining that
+    bang commands are not enabled.
+    
+    This is the recommended configuration for most agents, as it prevents users from
+    accidentally executing shell commands they didn't intend to run.
+
+agents:
+  root:
+    model: openai/gpt-4o
+    description: "Example agent with bang commands disabled (default)"
+    instruction: |
+      You are a helpful assistant focused on providing information and assistance.
+    enable_bang_commands: false
+    toolsets:
+      - type: think

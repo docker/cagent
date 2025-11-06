@@ -1,0 +1,25 @@
+#!/usr/bin/env cagent run
+version: "2"
+
+metadata:
+  readme: |
+    This is a demonstration of the enable_bang_commands configuration option.
+    Bang commands (!) allow users to execute shell commands directly from the TUI
+    without going through the agent.
+    
+    This agent has enable_bang_commands: true, so you can use commands like:
+    - !ls
+    - !pwd
+    - !echo "Hello World"
+
+agents:
+  root:
+    model: openai/gpt-4o
+    description: "Example agent with bang commands enabled"
+    instruction: |
+      You are a helpful assistant. Users can also execute shell commands directly 
+      using the ! prefix (e.g., !ls, !pwd). This is handled separately from your
+      agent capabilities.
+    enable_bang_commands: true
+    toolsets:
+      - type: think

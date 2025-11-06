@@ -97,6 +97,12 @@ func WithCommands(commands map[string]string) Opt {
 	}
 }
 
+func WithEnableBangCommands(enable bool) Opt {
+	return func(a *Agent) {
+		a.enableBangCommands = enable
+	}
+}
+
 func WithLoadTimeWarnings(warnings []string) Opt {
 	return func(a *Agent) {
 		for _, w := range warnings {

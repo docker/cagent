@@ -491,7 +491,13 @@ func (p *chatPage) processMessage(content string) tea.Cmd {
 	ctx, p.msgCancel = context.WithCancel(context.Background())
 
 	if strings.HasPrefix(content, "!") {
-		p.app.RunBangCommand(ctx, content[1:])
+		if p.app.IsBangCommandsEnabled() {
+			p.app.RunBangCommand(ctx, content[1:])
+		} else {
+			// Add an error message if bang commands are not enabled
+			cmd := p.messages.AddErrorMessage("Bang commands are not enabled for this agent. Set 'enable_bang_commands: true' in your agent configuration.")
+			return tea.Batch(cmd, p.messages.ScrollToBottom())
+		}
 		return p.messages.ScrollToBottom()
 	}
 
