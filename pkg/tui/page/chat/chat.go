@@ -36,6 +36,9 @@ const (
 	sidebarWidth = 40
 	// Hide sidebar if window width is less than this
 	minWindowWidth = 120
+
+	// Error message shown when bang commands are disabled
+	bangCommandsDisabledMsg = "Bang commands are not enabled for this agent. Set 'enable_bang_commands: true' in your agent configuration."
 )
 
 // Page represents the main chat page
@@ -493,12 +496,11 @@ func (p *chatPage) processMessage(content string) tea.Cmd {
 	if strings.HasPrefix(content, "!") {
 		if p.app.IsBangCommandsEnabled() {
 			p.app.RunBangCommand(ctx, content[1:])
-		} else {
-			// Add an error message if bang commands are not enabled
-			cmd := p.messages.AddErrorMessage("Bang commands are not enabled for this agent. Set 'enable_bang_commands: true' in your agent configuration.")
-			return tea.Batch(cmd, p.messages.ScrollToBottom())
+			return p.messages.ScrollToBottom()
 		}
-		return p.messages.ScrollToBottom()
+		// Add an error message if bang commands are not enabled
+		cmd := p.messages.AddErrorMessage(bangCommandsDisabledMsg)
+		return tea.Batch(cmd, p.messages.ScrollToBottom())
 	}
 
 	// Persist to history
