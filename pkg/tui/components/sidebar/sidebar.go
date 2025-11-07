@@ -3,6 +3,7 @@ package sidebar
 import (
 	"fmt"
 	"os"
+	"sort" // ensure deterministic breakdown ordering
 	"strings"
 
 	"charm.land/bubbles/v2/spinner"
@@ -51,6 +52,7 @@ type model struct { // tea model for sidebar component
 
 type usageState struct { // holds all token usage snapshots for sidebar
 	sessions        map[string]*runtime.Usage // per-session self usage snapshots
+	sessionAgents   map[string]string         // optional agent name mapping per session
 	rootInclusive   *runtime.Usage            // inclusive usage snapshot emitted by root
 	rootSessionID   string                    // session ID associated with root agent
 	rootAgentName   string                    // resolved root agent name for comparisons
@@ -62,7 +64,8 @@ func New(manager *service.TodoManager) Model {
 		width:  20, // default width matches initial layout
 		height: 24, // default height matches initial layout
 		usageState: usageState{ // initialize usage tracking containers
-			sessions: make(map[string]*runtime.Usage), // allocate map to avoid nil lookups
+			sessions:      make(map[string]*runtime.Usage), // allocate map to avoid nil lookups
+			sessionAgents: make(map[string]string),         // track agent names per session
 		},
 		todoComp:     todotool.NewSidebarComponent(manager),                           // instantiate todo component
 		spinner:      spinner.New(spinner.WithSpinner(spinner.Dot)), // configure spinner visuals
@@ -89,6 +92,10 @@ func (m *model) SetTokenUsage(event *runtime.TokenUsageEvent) { // updates usage
 
 	if event.SelfUsage != nil && event.SessionID != "" { // store self snapshot per session
 		m.usageState.sessions[event.SessionID] = cloneUsage(event.SelfUsage) // clone to avoid aliasing runtime memory
+	}
+
+	if event.AgentContext.AgentName != "" && event.SessionID != "" { // map session ID to agent name for breakdown rows
+		m.usageState.sessionAgents[event.SessionID] = event.AgentContext.AgentName // remember descriptive label for later rendering
 	}
 
 	if event.AgentContext.AgentName == m.usageState.rootAgentName && event.InclusiveUsage != nil { // update root inclusive snapshot when orchestrator reports
@@ -228,7 +235,7 @@ func (m *model) workingIndicator() string {
 	return ""
 }
 
-func (m *model) tokenUsage() string { // renders aggregate usage summary line
+func (m *model) tokenUsage() string { // renders aggregate usage summary line + breakdown
 	label, totals := m.renderTotals()                       // get friendly label plus computed totals
 	totalTokens := totals.InputTokens + totals.OutputTokens // sum user + assistant tokens for display
 	var usagePercent float64                                // default to zero percent until both limits/length available
@@ -240,7 +247,15 @@ func (m *model) tokenUsage() string { // renders aggregate usage summary line
 	totalTokensText := styles.SubtleStyle.Render(fmt.Sprintf("(%s)", formatTokenCount(totalTokens))) // show compact token count
 	costText := styles.MutedStyle.Render(fmt.Sprintf("$%.2f", totals.Cost))                          // render cumulative cost
 
-	return fmt.Sprintf("%s %s %s %s", label, percentageText, totalTokensText, costText) // final combined line with prefix
+	var builder strings.Builder                                                                       // assemble multiline output
+	builder.WriteString(fmt.Sprintf("%s %s %s %s", label, percentageText, totalTokensText, costText)) // first line shows team totals
+
+	if breakdown := m.sessionBreakdownLines(); len(breakdown) > 0 { // append breakdown when data available
+		builder.WriteString("\n")                          // separate sections with newline
+		builder.WriteString(strings.Join(breakdown, "\n")) // add each session line
+	}
+
+	return builder.String() // return composed view
 }
 
 // SetSize sets the dimensions of the component
@@ -322,4 +337,40 @@ func mergeUsageTotals(base, delta *runtime.Usage) *runtime.Usage { // adds token
 	}
 	base.Cost += delta.Cost // accumulate cost for overall spend
 	return base             // return augmented total
+}
+
+func (m *model) sessionBreakdownLines() []string { // renders per-session self usage rows
+	if len(m.usageState.sessions) == 0 { // nothing to render when map empty
+		return nil // keep caller logic simple
+	}
+
+	ids := make([]string, 0, len(m.usageState.sessions)) // gather session IDs for deterministic ordering
+	for id := range m.usageState.sessions {              // iterate known sessions
+		ids = append(ids, id) // record id for sorting
+	}
+	sort.Strings(ids) // ensure stable ordering regardless of map iteration
+
+	lines := make([]string, 0, len(ids)) // preallocate slice for resulting lines
+	for _, id := range ids {             // build row for each session
+		usage := m.usageState.sessions[id] // fetch stored snapshot
+		if usage == nil {                  // skip if snapshot missing
+			continue // nothing to render for this id
+		}
+		agentName := m.usageState.sessionAgents[id] // resolve display name
+		if agentName == "" {                        // fallback when agent name unknown
+			agentName = id // show session ID as identifier
+		}
+
+		tokens := usage.InputTokens + usage.OutputTokens                                                                                                                           // compute per-session tokens
+		cost := usage.Cost                                                                                                                                                         // read per-session cost
+		line := fmt.Sprintf("%s %s %s", agentName, styles.SubtleStyle.Render(fmt.Sprintf("(%s)", formatTokenCount(tokens))), styles.MutedStyle.Render(fmt.Sprintf("$%.2f", cost))) // compose line with token + cost info
+
+		if id == m.usageState.activeSessionID { // highlight active agent row
+			line = styles.ActiveStyle.Render(line) // reuse active style for emphasis
+		}
+
+		lines = append(lines, line) // add row to breakdown list
+	}
+
+	return lines // return composed rows
 }
