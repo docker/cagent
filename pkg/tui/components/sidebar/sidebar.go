@@ -229,11 +229,7 @@ func (m *model) workingIndicator() string {
 }
 
 func (m *model) tokenUsage() string { // renders aggregate usage summary line
-	totals := m.computeTeamTotals() // derive totals considering root inclusive + active child
-	if totals == nil {              // ensure we always have a struct to read from
-		totals = &runtime.Usage{} // fall back to zeroed usage snapshot
-	}
-
+	label, totals := m.renderTotals()                       // get friendly label plus computed totals
 	totalTokens := totals.InputTokens + totals.OutputTokens // sum user + assistant tokens for display
 	var usagePercent float64                                // default to zero percent until both limits/length available
 	if totals.ContextLimit > 0 {                            // avoid divide-by-zero if limit unknown
@@ -244,7 +240,7 @@ func (m *model) tokenUsage() string { // renders aggregate usage summary line
 	totalTokensText := styles.SubtleStyle.Render(fmt.Sprintf("(%s)", formatTokenCount(totalTokens))) // show compact token count
 	costText := styles.MutedStyle.Render(fmt.Sprintf("$%.2f", totals.Cost))                          // render cumulative cost
 
-	return fmt.Sprintf("%s %s %s", percentageText, totalTokensText, costText) // final combined line
+	return fmt.Sprintf("%s %s %s %s", label, percentageText, totalTokensText, costText) // final combined line with prefix
 }
 
 // SetSize sets the dimensions of the component
@@ -270,6 +266,23 @@ func cloneUsage(u *runtime.Usage) *runtime.Usage { // helper to copy runtime usa
 	}
 	clone := *u   // copy by value to detach from original pointer
 	return &clone // return pointer to independent copy
+}
+
+func (m *model) renderTotals() (string, *runtime.Usage) { // resolves label + totals for display
+	totals := m.computeTeamTotals() // compute aggregate usage first
+	if totals == nil {              // ensure downstream code always receives a struct
+		totals = &runtime.Usage{} // fall back to zero snapshot
+	}
+
+	label := styles.SubtleStyle.Render("Session Total") // default label when only one session present
+	if m.usageState.rootInclusive != nil {              // when root inclusive exists we can show team wording
+		label = styles.SubtleStyle.Render("Team Total")                                                       // highlight that totals represent the whole team
+		if m.usageState.activeSessionID != "" && m.usageState.activeSessionID != m.usageState.rootSessionID { // active child contributes live usage
+			label = styles.SubtleStyle.Render("Team Total (incl. active child)") // clarify that active child is included
+		}
+	}
+
+	return label, totals // return computed label with totals
 }
 
 func (m *model) computeTeamTotals() *runtime.Usage { // derives aggregate totals for the team line
