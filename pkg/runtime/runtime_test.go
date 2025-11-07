@@ -200,6 +200,16 @@ func hasEventType(t *testing.T, events []Event, target Event) bool {
 	return false
 }
 
+func makeUsageSnapshot(input, output, contextLimit int) *Usage {
+	return &Usage{
+		InputTokens:   input,
+		OutputTokens:  output,
+		ContextLength: input + output,
+		ContextLimit:  contextLimit,
+		Cost:          0,
+	}
+}
+
 func TestSimple(t *testing.T) {
 	stream := newStreamBuilder().
 		AddContent("Hello").
@@ -210,11 +220,12 @@ func TestSimple(t *testing.T) {
 
 	events := runSession(t, sess, stream)
 
+	snapshot := makeUsageSnapshot(3, 2, 0)
 	expectedEvents := []Event{
 		UserMessage("Hi"),
 		StreamStarted(sess.ID, "root"),
 		AgentChoice("root", "Hello"),
-		TokenUsage(3, 2, 5, 0, 0),
+		TokenUsage(sess.ID, "root", snapshot, snapshot),
 		StreamStopped(sess.ID, "root"),
 	}
 
@@ -235,6 +246,7 @@ func TestMultipleContentChunks(t *testing.T) {
 
 	events := runSession(t, sess, stream)
 
+	snapshot := makeUsageSnapshot(8, 12, 0)
 	expectedEvents := []Event{
 		UserMessage("Please greet me"),
 		StreamStarted(sess.ID, "root"),
@@ -243,7 +255,7 @@ func TestMultipleContentChunks(t *testing.T) {
 		AgentChoice("root", "how "),
 		AgentChoice("root", "are "),
 		AgentChoice("root", "you?"),
-		TokenUsage(8, 12, 20, 0, 0),
+		TokenUsage(sess.ID, "root", snapshot, snapshot),
 		StreamStopped(sess.ID, "root"),
 	}
 
@@ -262,13 +274,14 @@ func TestWithReasoning(t *testing.T) {
 
 	events := runSession(t, sess, stream)
 
+	snapshot := makeUsageSnapshot(10, 15, 0)
 	expectedEvents := []Event{
 		UserMessage("Hi"),
 		StreamStarted(sess.ID, "root"),
 		AgentChoiceReasoning("root", "Let me think about this..."),
 		AgentChoiceReasoning("root", " I should respond politely."),
 		AgentChoice("root", "Hello, how can I help you?"),
-		TokenUsage(10, 15, 25, 0, 0),
+		TokenUsage(sess.ID, "root", snapshot, snapshot),
 		StreamStopped(sess.ID, "root"),
 	}
 
@@ -288,6 +301,7 @@ func TestMixedContentAndReasoning(t *testing.T) {
 
 	events := runSession(t, sess, stream)
 
+	snapshot := makeUsageSnapshot(15, 20, 0)
 	expectedEvents := []Event{
 		UserMessage("Hi there"),
 		StreamStarted(sess.ID, "root"),
@@ -295,7 +309,7 @@ func TestMixedContentAndReasoning(t *testing.T) {
 		AgentChoice("root", "Hello!"),
 		AgentChoiceReasoning("root", " I should be friendly"),
 		AgentChoice("root", " How can I help you today?"),
-		TokenUsage(15, 20, 35, 0, 0),
+		TokenUsage(sess.ID, "root", snapshot, snapshot),
 		StreamStopped(sess.ID, "root"),
 	}
 
