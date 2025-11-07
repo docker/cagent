@@ -1027,6 +1027,10 @@ func (r *LocalRuntime) handleTaskTransfer(ctx context.Context, sess *session.Ses
 
 	sess.AddSubSession(s)
 
+	// Emit an updated token usage snapshot so the UI sees the merged totals immediately.
+	usageSnapshot := buildUsageSnapshot(sess, 0)
+	evts <- TokenUsage(sess.ID, a.Name(), usageSnapshot, usageSnapshot)
+
 	slog.Debug("Task transfer completed", "agent", params.Agent, "task", params.Task)
 
 	span.SetStatus(codes.Ok, "task transfer completed")
