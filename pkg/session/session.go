@@ -68,6 +68,10 @@ type Session struct {
 	InputTokens  int     `json:"input_tokens"`
 	OutputTokens int     `json:"output_tokens"`
 	Cost         float64 `json:"cost"`
+	// Self* fields track the most recent provider-reported usage for this session only (no children).
+	SelfInputTokens  int     `json:"self_input_tokens"`
+	SelfOutputTokens int     `json:"self_output_tokens"`
+	SelfCost         float64 `json:"self_cost"`
 }
 
 // Message is a message from an agent

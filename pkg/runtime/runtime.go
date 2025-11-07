@@ -382,8 +382,9 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 				contextLimit = m.Limit.Context
 			}
 			// Emit a snapshot that downstream components can use for both self and inclusive totals.
-			usageSnapshot := buildUsageSnapshot(sess, contextLimit)
-			events <- TokenUsage(sess.ID, a.Name(), usageSnapshot, usageSnapshot)
+				inclusiveUsage := buildInclusiveUsageSnapshot(sess, contextLimit)
+				selfUsage := buildSelfUsageSnapshot(sess, contextLimit)
+				events <- TokenUsage(sess.ID, a.Name(), selfUsage, inclusiveUsage)
 
 			if m != nil && r.sessionCompaction {
 				if sess.InputTokens+sess.OutputTokens > int(float64(contextLimit)*0.9) {
@@ -393,8 +394,9 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 						events <- SessionCompaction(sess.ID, "start", r.currentAgent)
 						r.Summarize(ctx, sess, events)
 						// Refresh usage after compaction since token counts may have changed.
-						usageSnapshot := buildUsageSnapshot(sess, contextLimit)
-						events <- TokenUsage(sess.ID, a.Name(), usageSnapshot, usageSnapshot)
+							inclusiveUsage := buildInclusiveUsageSnapshot(sess, contextLimit)
+							selfUsage := buildSelfUsageSnapshot(sess, contextLimit)
+							events <- TokenUsage(sess.ID, a.Name(), selfUsage, inclusiveUsage)
 						events <- SessionCompaction(sess.ID, "completed", r.currentAgent)
 					}
 				}
@@ -409,8 +411,9 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 					events <- SessionCompaction(sess.ID, "start", r.currentAgent)
 					r.Summarize(ctx, sess, events)
 					// Emit the post-compaction snapshot as well for consistency.
-					usageSnapshot := buildUsageSnapshot(sess, contextLimit)
-					events <- TokenUsage(sess.ID, a.Name(), usageSnapshot, usageSnapshot)
+						inclusiveUsage := buildInclusiveUsageSnapshot(sess, contextLimit)
+						selfUsage := buildSelfUsageSnapshot(sess, contextLimit)
+						events <- TokenUsage(sess.ID, a.Name(), selfUsage, inclusiveUsage)
 					events <- SessionCompaction(sess.ID, "completed", r.currentAgent)
 				}
 			}
@@ -550,15 +553,25 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 		}
 
 		if response.Usage != nil {
+			childInputTotal, childOutputTotal := childTokenTotals(sess)
+
+			selfInput := response.Usage.InputTokens + response.Usage.CachedInputTokens
+			selfOutput := response.Usage.OutputTokens + response.Usage.CachedOutputTokens + response.Usage.ReasoningTokens
+
+			var callCost float64
 			if m != nil {
-				sess.Cost += (float64(response.Usage.InputTokens)*m.Cost.Input +
+				callCost = (float64(response.Usage.InputTokens)*m.Cost.Input +
 					float64(response.Usage.OutputTokens+response.Usage.ReasoningTokens)*m.Cost.Output +
 					float64(response.Usage.CachedInputTokens)*m.Cost.CacheRead +
 					float64(response.Usage.CachedOutputTokens)*m.Cost.CacheWrite) / 1e6
+				sess.Cost += callCost
 			}
 
-			sess.InputTokens = response.Usage.InputTokens + response.Usage.CachedInputTokens
-			sess.OutputTokens = response.Usage.OutputTokens + response.Usage.CachedOutputTokens + response.Usage.ReasoningTokens
+			sess.SelfCost = callCost
+			sess.SelfInputTokens = selfInput
+			sess.SelfOutputTokens = selfOutput
+			sess.InputTokens = childInputTotal + selfInput
+			sess.OutputTokens = childOutputTotal + selfOutput
 
 			modelName := "unknown"
 			if m != nil {
@@ -670,8 +683,8 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 	}, nil
 }
 
-// buildUsageSnapshot captures the session's current usage in the shared event format.
-func buildUsageSnapshot(sess *session.Session, contextLimit int) *Usage {
+// buildInclusiveUsageSnapshot captures the session's current inclusive usage in the shared event format.
+func buildInclusiveUsageSnapshot(sess *session.Session, contextLimit int) *Usage {
 	return &Usage{
 		ContextLength: sess.InputTokens + sess.OutputTokens,
 		ContextLimit:  contextLimit,
@@ -679,6 +692,28 @@ func buildUsageSnapshot(sess *session.Session, contextLimit int) *Usage {
 		OutputTokens:  sess.OutputTokens,
 		Cost:          sess.Cost,
 	}
+}
+
+func buildSelfUsageSnapshot(sess *session.Session, contextLimit int) *Usage {
+	return &Usage{
+		ContextLength: sess.SelfInputTokens + sess.SelfOutputTokens,
+		ContextLimit:  contextLimit,
+		InputTokens:   sess.SelfInputTokens,
+		OutputTokens:  sess.SelfOutputTokens,
+		Cost:          sess.SelfCost,
+	}
+}
+
+func childTokenTotals(sess *session.Session) (int, int) {
+	childInput := sess.InputTokens - sess.SelfInputTokens
+	if childInput < 0 {
+		childInput = 0
+	}
+	childOutput := sess.OutputTokens - sess.SelfOutputTokens
+	if childOutput < 0 {
+		childOutput = 0
+	}
+	return childInput, childOutput
 }
 
 // processToolCalls handles the execution of tool calls for an agent
@@ -1008,8 +1043,11 @@ func (r *LocalRuntime) handleTaskTransfer(ctx context.Context, sess *session.Ses
 
 	sess.Cost += s.Cost
 	// Mirror cost behavior: once the child finishes, fold its token usage into the parent totals.
-	sess.InputTokens += s.InputTokens
-	sess.OutputTokens += s.OutputTokens
+	childInputTotal, childOutputTotal := childTokenTotals(sess)
+	childInputTotal += s.InputTokens
+	childOutputTotal += s.OutputTokens
+	sess.InputTokens = childInputTotal + sess.SelfInputTokens
+	sess.OutputTokens = childOutputTotal + sess.SelfOutputTokens
 
 	slog.Debug("Merged sub-session usage into parent",
 		"parent_session_id", sess.ID,
@@ -1028,8 +1066,10 @@ func (r *LocalRuntime) handleTaskTransfer(ctx context.Context, sess *session.Ses
 	sess.AddSubSession(s)
 
 	// Emit an updated token usage snapshot so the UI sees the merged totals immediately.
-	usageSnapshot := buildUsageSnapshot(sess, 0)
-	evts <- TokenUsage(sess.ID, a.Name(), usageSnapshot, usageSnapshot)
+	inclusiveUsage := buildInclusiveUsageSnapshot(sess, 0)
+	selfUsage := buildSelfUsageSnapshot(sess, 0)
+	parentAgentName := ca
+	evts <- TokenUsage(sess.ID, parentAgentName, selfUsage, inclusiveUsage)
 
 	slog.Debug("Task transfer completed", "agent", params.Agent, "task", params.Task)
 
