@@ -1002,10 +1002,28 @@ func (r *LocalRuntime) handleTaskTransfer(ctx context.Context, sess *session.Ses
 	}
 
 	sess.ToolsApproved = s.ToolsApproved
+	parentCostBefore := sess.Cost // capture parent values for debug logging
+	parentInputBefore := sess.InputTokens
+	parentOutputBefore := sess.OutputTokens
+
 	sess.Cost += s.Cost
 	// Mirror cost behavior: once the child finishes, fold its token usage into the parent totals.
 	sess.InputTokens += s.InputTokens
 	sess.OutputTokens += s.OutputTokens
+
+	slog.Debug("Merged sub-session usage into parent",
+		"parent_session_id", sess.ID,
+		"child_session_id", s.ID,
+		"parent_cost_before", parentCostBefore,
+		"parent_cost_after", sess.Cost,
+		"child_cost", s.Cost,
+		"parent_input_before", parentInputBefore,
+		"parent_input_after", sess.InputTokens,
+		"child_input", s.InputTokens,
+		"parent_output_before", parentOutputBefore,
+		"parent_output_after", sess.OutputTokens,
+		"child_output", s.OutputTokens,
+	)
 
 	sess.AddSubSession(s)
 
