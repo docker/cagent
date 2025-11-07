@@ -9,6 +9,7 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/dustin/go-humanize" // provides comma-separated number formatting
 
 	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/tools"
@@ -120,14 +121,9 @@ func (m *model) SetWorking(working bool) tea.Cmd {
 	return nil
 }
 
-// formatTokenCount formats a token count with K/M suffixes for readability
+// formatTokenCount formats a token count with grouping separators for readability
 func formatTokenCount(count int) string {
-	if count >= 1000000 {
-		return fmt.Sprintf("%.1fM", float64(count)/1000000)
-	} else if count >= 1000 {
-		return fmt.Sprintf("%.1fK", float64(count)/1000)
-	}
-	return fmt.Sprintf("%d", count)
+	return humanize.Comma(int64(count))
 }
 
 // getCurrentWorkingDirectory returns the current working directory with home directory replaced by ~/
@@ -238,21 +234,28 @@ func (m *model) workingIndicator() string {
 func (m *model) tokenUsage() string { // renders aggregate usage summary line + breakdown
 	label, totals := m.renderTotals()                       // get friendly label plus computed totals
 	totalTokens := totals.InputTokens + totals.OutputTokens // sum user + assistant tokens for display
-	var usagePercent float64                                // default to zero percent until both limits/length available
-	if totals.ContextLimit > 0 {                            // avoid divide-by-zero if limit unknown
-		usagePercent = (float64(totals.ContextLength) / float64(totals.ContextLimit)) * 100 // compute context utilization percentage
+
+	// var usagePercent float64
+	// if totals.ContextLimit > 0 {
+	// 	usagePercent = (float64(totals.ContextLength) / float64(totals.ContextLimit)) * 100
+	// }
+	// percentageText := styles.MutedStyle.Render(fmt.Sprintf("%.0f%%", usagePercent))
+
+	var builder strings.Builder                                   // assemble multiline output
+	builder.WriteString(styles.SubtleStyle.Render("TOTAL USAGE")) // heading for total usage
+	if label != "" {                                              // append contextual label when available
+		builder.WriteString(fmt.Sprintf(" (%s)", label)) // show whether totals are team/session scoped
 	}
+	builder.WriteString(fmt.Sprintf("\n  Tokens: %s | Cost: $%.2f\n", formatTokenCount(totalTokens), totals.Cost)) // display totals line
+	builder.WriteString("--------------------------------\n")                                                      // visual separator
+	builder.WriteString(styles.SubtleStyle.Render("SESSION BREAKDOWN"))                                            // heading for per-session details
 
-	percentageText := styles.MutedStyle.Render(fmt.Sprintf("%.0f%%", usagePercent))                  // style percentage for readability
-	totalTokensText := styles.SubtleStyle.Render(fmt.Sprintf("(%s)", formatTokenCount(totalTokens))) // show compact token count
-	costText := styles.MutedStyle.Render(fmt.Sprintf("$%.2f", totals.Cost))                          // render cumulative cost
-
-	var builder strings.Builder                                                                       // assemble multiline output
-	builder.WriteString(fmt.Sprintf("%s %s %s %s", label, percentageText, totalTokensText, costText)) // first line shows team totals
-
-	if breakdown := m.sessionBreakdownLines(); len(breakdown) > 0 { // append breakdown when data available
-		builder.WriteString("\n")                          // separate sections with newline
-		builder.WriteString(strings.Join(breakdown, "\n")) // add each session line
+	breakdown := m.sessionBreakdownLines() // fetch breakdown blocks
+	if len(breakdown) > 0 {                // append breakdown when data available
+		builder.WriteString("\n")                            // ensure newline before blocks
+		builder.WriteString(strings.Join(breakdown, "\n\n")) // place blank line between blocks
+	} else {
+		builder.WriteString("\n  No session usage yet") // fallback text when no sessions reported
 	}
 
 	return builder.String() // return composed view
@@ -289,11 +292,11 @@ func (m *model) renderTotals() (string, *runtime.Usage) { // resolves label + to
 		totals = &runtime.Usage{} // fall back to zero snapshot
 	}
 
-	label := styles.SubtleStyle.Render("Session Total") // default label when only one session present
-	if m.usageState.rootInclusive != nil {              // when root inclusive exists we can show team wording
-		label = styles.SubtleStyle.Render("Team Total")                                                       // highlight that totals represent the whole team
+	label := "Session Total"               // default label when only one session present
+	if m.usageState.rootInclusive != nil { // when root inclusive exists we can show team wording
+		label = "Team Total"                                                                                  // highlight that totals represent the whole team
 		if m.usageState.activeSessionID != "" && m.usageState.activeSessionID != m.usageState.rootSessionID { // active child contributes live usage
-			label = styles.SubtleStyle.Render("Team Total (incl. active child)") // clarify that active child is included
+			label = "Team Total (incl. active child)" // clarify that active child is included
 		}
 	}
 
@@ -350,8 +353,16 @@ func (m *model) sessionBreakdownLines() []string { // renders per-session self u
 	}
 	sort.Strings(ids) // ensure stable ordering regardless of map iteration
 
-	lines := make([]string, 0, len(ids)) // preallocate slice for resulting lines
-	for _, id := range ids {             // build row for each session
+	lines := make([]string, 0, len(ids)+1) // include space for root block
+
+	if rootBlock := m.rootSessionBlock(); rootBlock != "" { // prepend root block when available
+		lines = append(lines, rootBlock)
+	}
+
+	for _, id := range ids { // build block for each session
+		if id == m.usageState.rootSessionID { // skip root session since totals already shown above
+			continue
+		}
 		usage := m.usageState.sessions[id] // fetch stored snapshot
 		if usage == nil {                  // skip if snapshot missing
 			continue // nothing to render for this id
@@ -361,16 +372,74 @@ func (m *model) sessionBreakdownLines() []string { // renders per-session self u
 			agentName = id // show session ID as identifier
 		}
 
-		tokens := usage.InputTokens + usage.OutputTokens                                                                                                                           // compute per-session tokens
-		cost := usage.Cost                                                                                                                                                         // read per-session cost
-		line := fmt.Sprintf("%s %s %s", agentName, styles.SubtleStyle.Render(fmt.Sprintf("(%s)", formatTokenCount(tokens))), styles.MutedStyle.Render(fmt.Sprintf("$%.2f", cost))) // compose line with token + cost info
-
-		if id == m.usageState.activeSessionID { // highlight active agent row
-			line = styles.ActiveStyle.Render(line) // reuse active style for emphasis
+		if block := formatSessionBlock(agentName, usage, id == m.usageState.activeSessionID); block != "" { // compose + style block
+			lines = append(lines, block) // add block to breakdown list
 		}
-
-		lines = append(lines, line) // add row to breakdown list
 	}
 
 	return lines // return composed rows
+}
+
+func (m *model) rootSessionBlock() string { // formats root agent entry with exclusive usage
+	exclusive := m.computeRootExclusiveUsage() // derive exclusive self usage
+	if exclusive == nil {
+		return ""
+	}
+
+	name := m.usageState.rootAgentName // prefer configured agent name
+	if name == "" {
+		name = "Root"
+	}
+
+	return formatSessionBlock(name, exclusive, m.usageState.activeSessionID == m.usageState.rootSessionID)
+}
+
+func (m *model) computeRootExclusiveUsage() *runtime.Usage { // subtracts child usage from root inclusive totals
+	if m.usageState.rootInclusive == nil {
+		return nil
+	}
+
+	exclusive := cloneUsage(m.usageState.rootInclusive) // operate on a copy
+	for id, usage := range m.usageState.sessions {
+		if id == m.usageState.rootSessionID || usage == nil {
+			continue // skip root entry and nil snapshots
+		}
+		exclusive = subtractUsage(exclusive, usage) // remove child contribution
+	}
+
+	return exclusive
+}
+
+func subtractUsage(base, delta *runtime.Usage) *runtime.Usage { // subtracts usage safely
+	if base == nil || delta == nil {
+		return base
+	}
+
+	base.InputTokens -= delta.InputTokens
+	if base.InputTokens < 0 {
+		base.InputTokens = 0
+	}
+	base.OutputTokens -= delta.OutputTokens
+	if base.OutputTokens < 0 {
+		base.OutputTokens = 0
+	}
+	base.ContextLength = base.InputTokens + base.OutputTokens
+	base.Cost -= delta.Cost
+	if base.Cost < 0 {
+		base.Cost = 0
+	}
+
+	return base
+}
+
+func formatSessionBlock(agentName string, usage *runtime.Usage, isActive bool) string { // helper to render a single block
+	if usage == nil {
+		return ""
+	}
+
+	block := fmt.Sprintf("  %s\n     Tokens: %s | Cost: $%.2f", agentName, formatTokenCount(usage.InputTokens+usage.OutputTokens), usage.Cost)
+	if isActive {
+		return styles.ActiveStyle.Render(block)
+	}
+	return block
 }
