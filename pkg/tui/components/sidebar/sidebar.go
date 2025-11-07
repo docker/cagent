@@ -25,11 +25,11 @@ const (
 )
 
 // Model represents a sidebar component
-type Model interface {
+type Model interface { // interface defines sidebar contract
 	layout.Model
 	layout.Sizeable
 
-	SetTokenUsage(usage *runtime.Usage)
+	SetTokenUsage(event *runtime.TokenUsageEvent) // accepts enriched runtime events for usage tracking
 	SetTodos(toolCall tools.ToolCall) error
 	SetWorking(working bool) tea.Cmd
 	SetMode(mode Mode)
@@ -37,26 +37,36 @@ type Model interface {
 }
 
 // model implements Model
-type model struct {
-	width        int
-	height       int
-	usage        *runtime.Usage
-	todoComp     *todotool.SidebarComponent
-	working      bool
-	mcpInit      bool
-	spinner      spinner.Model
-	mode         Mode
-	sessionTitle string
+type model struct { // tea model for sidebar component
+	width        int             // viewport width
+	height       int             // viewport height
+	usageState   usageState      // aggregated usage tracking state
+	todoComp     *todotool.SidebarComponent // embedded todo component
+	working      bool            // indicates if runtime is working
+	mcpInit      bool            // indicates MCP initialization state
+	spinner      spinner.Model   // spinner for busy indicator
+	mode         Mode            // layout mode
+	sessionTitle string          // current session title
+}
+
+type usageState struct { // holds all token usage snapshots for sidebar
+	sessions        map[string]*runtime.Usage // per-session self usage snapshots
+	rootInclusive   *runtime.Usage            // inclusive usage snapshot emitted by root
+	rootSessionID   string                    // session ID associated with root agent
+	rootAgentName   string                    // resolved root agent name for comparisons
+	activeSessionID string                    // currently active session ID for highlighting
 }
 
 func New(manager *service.TodoManager) Model {
 	return &model{
-		width:        20,
-		height:       24,
-		usage:        &runtime.Usage{},
-		todoComp:     todotool.NewSidebarComponent(manager),
-		spinner:      spinner.New(spinner.WithSpinner(spinner.Dot)),
-		sessionTitle: "New session",
+		width:  20, // default width matches initial layout
+		height: 24, // default height matches initial layout
+		usageState: usageState{ // initialize usage tracking containers
+			sessions: make(map[string]*runtime.Usage), // allocate map to avoid nil lookups
+		},
+		todoComp:     todotool.NewSidebarComponent(manager),                           // instantiate todo component
+		spinner:      spinner.New(spinner.WithSpinner(spinner.Dot)), // configure spinner visuals
+		sessionTitle: "New session",                                 // initial placeholder title
 	}
 }
 
@@ -64,8 +74,29 @@ func (m *model) Init() tea.Cmd {
 	return nil
 }
 
-func (m *model) SetTokenUsage(usage *runtime.Usage) {
-	m.usage = usage
+func (m *model) SetTokenUsage(event *runtime.TokenUsageEvent) { // updates usage state from runtime events
+	if event == nil { // guard against nil events
+		return // nothing to do when event missing
+	}
+
+	if event.AgentContext.AgentName != "" && m.usageState.rootAgentName == "" { // capture root agent name from first event
+		m.usageState.rootAgentName = event.AgentContext.AgentName // remember orchestrator name to identify later events
+	}
+
+	if event.SessionID != "" { // update currently active session ID
+		m.usageState.activeSessionID = event.SessionID // track active session for totals/highlighting
+	}
+
+	if event.SelfUsage != nil && event.SessionID != "" { // store self snapshot per session
+		m.usageState.sessions[event.SessionID] = cloneUsage(event.SelfUsage) // clone to avoid aliasing runtime memory
+	}
+
+	if event.AgentContext.AgentName == m.usageState.rootAgentName && event.InclusiveUsage != nil { // update root inclusive snapshot when orchestrator reports
+		m.usageState.rootInclusive = cloneUsage(event.InclusiveUsage) // persist inclusive totals for team view
+		if event.SessionID != "" {                                    // also note root session ID for comparisons
+			m.usageState.rootSessionID = event.SessionID // record root session identifier
+		}
+	}
 }
 
 func (m *model) SetTodos(toolCall tools.ToolCall) error {
@@ -197,18 +228,23 @@ func (m *model) workingIndicator() string {
 	return ""
 }
 
-func (m *model) tokenUsage() string {
-	totalTokens := m.usage.InputTokens + m.usage.OutputTokens
-	var usagePercent float64
-	if m.usage.ContextLimit > 0 {
-		usagePercent = (float64(m.usage.ContextLength) / float64(m.usage.ContextLimit)) * 100
+func (m *model) tokenUsage() string { // renders aggregate usage summary line
+	totals := m.computeTeamTotals() // derive totals considering root inclusive + active child
+	if totals == nil {              // ensure we always have a struct to read from
+		totals = &runtime.Usage{} // fall back to zeroed usage snapshot
 	}
 
-	percentageText := styles.MutedStyle.Render(fmt.Sprintf("%.0f%%", usagePercent))
-	totalTokensText := styles.SubtleStyle.Render(fmt.Sprintf("(%s)", formatTokenCount(totalTokens)))
-	costText := styles.MutedStyle.Render(fmt.Sprintf("$%.2f", m.usage.Cost))
+	totalTokens := totals.InputTokens + totals.OutputTokens // sum user + assistant tokens for display
+	var usagePercent float64                                // default to zero percent until both limits/length available
+	if totals.ContextLimit > 0 {                            // avoid divide-by-zero if limit unknown
+		usagePercent = (float64(totals.ContextLength) / float64(totals.ContextLimit)) * 100 // compute context utilization percentage
+	}
 
-	return fmt.Sprintf("%s %s %s", percentageText, totalTokensText, costText)
+	percentageText := styles.MutedStyle.Render(fmt.Sprintf("%.0f%%", usagePercent))                  // style percentage for readability
+	totalTokensText := styles.SubtleStyle.Render(fmt.Sprintf("(%s)", formatTokenCount(totalTokens))) // show compact token count
+	costText := styles.MutedStyle.Render(fmt.Sprintf("$%.2f", totals.Cost))                          // render cumulative cost
+
+	return fmt.Sprintf("%s %s %s", percentageText, totalTokensText, costText) // final combined line
 }
 
 // SetSize sets the dimensions of the component
@@ -226,4 +262,51 @@ func (m *model) GetSize() (width, height int) {
 
 func (m *model) SetMode(mode Mode) {
 	m.mode = mode
+}
+
+func cloneUsage(u *runtime.Usage) *runtime.Usage { // helper to copy runtime usage structs safely
+	if u == nil { // avoid panics on nil usage snapshots
+		return nil // nothing to clone when nil
+	}
+	clone := *u   // copy by value to detach from original pointer
+	return &clone // return pointer to independent copy
+}
+
+func (m *model) computeTeamTotals() *runtime.Usage { // derives aggregate totals for the team line
+	base := cloneUsage(m.usageState.rootInclusive) // start with root inclusive snapshot, if any
+	active := m.currentSessionUsage()              // get self usage for currently active session
+
+	if base == nil { // when root has not reported yet
+		return cloneUsage(active) // either return active session usage or nil
+	}
+
+	if active != nil && m.usageState.activeSessionID != "" && m.usageState.activeSessionID != m.usageState.rootSessionID { // only add active child when it differs from root session
+		base = mergeUsageTotals(base, active) // merge child self usage into inclusive total for live view
+	}
+
+	return base // return computed totals (may still be nil if nothing reported)
+}
+
+func (m *model) currentSessionUsage() *runtime.Usage { // fetches usage snapshot for active session
+	if m.usageState.activeSessionID == "" { // when no active session tracked
+		return nil // nothing to return
+	}
+	return m.usageState.sessions[m.usageState.activeSessionID] // look up snapshot in map (may be nil)
+}
+
+func mergeUsageTotals(base, delta *runtime.Usage) *runtime.Usage { // adds token/cost fields from delta into base
+	if base == nil { // handle nil base by cloning delta
+		return cloneUsage(delta) // ensure caller gets independent struct
+	}
+	if delta == nil { // nothing to add if delta missing
+		return base // return base unchanged
+	}
+	base.InputTokens += delta.InputTokens       // accumulate input tokens
+	base.OutputTokens += delta.OutputTokens     // accumulate output tokens
+	base.ContextLength += delta.ContextLength   // accumulate context length for completeness
+	if delta.ContextLimit > base.ContextLimit { // prefer higher limit to avoid regressions
+		base.ContextLimit = delta.ContextLimit // update context limit when child limit is larger
+	}
+	base.Cost += delta.Cost // accumulate cost for overall spend
+	return base             // return augmented total
 }
