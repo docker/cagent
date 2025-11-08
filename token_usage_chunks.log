@@ -1,0 +1,11 @@
+2025-11-08T00:18:50.290663971+05:30 session=1e71f4d6-d78b-42eb-88c4-91fa41844e48 agent=root input=720 output=31 cached_input=0 cached_output=0 reasoning=0
+2025-11-08T00:18:51.471031012+05:30 session=d62de100-5146-4d04-859b-ed948172cd7f agent=root input=97 output=5 cached_input=0 cached_output=0 reasoning=0
+2025-11-08T00:20:47.798194225+05:30 session=1e71f4d6-d78b-42eb-88c4-91fa41844e48 agent=root input=763 output=93 cached_input=0 cached_output=0 reasoning=0
+2025-11-08T00:20:53.516887132+05:30 session=1e71f4d6-d78b-42eb-88c4-91fa41844e48 agent=root input=941 output=140 cached_input=0 cached_output=0 reasoning=0
+2025-11-08T00:20:57.185493823+05:30 session=1e71f4d6-d78b-42eb-88c4-91fa41844e48 agent=root input=1284 output=160 cached_input=1024 cached_output=0 reasoning=0
+2025-11-08T00:21:05.417292221+05:30 session=c9f1c62d-83bc-4e82-91f7-3639f4d2f125 agent=prompt_chooser input=273 output=414 cached_input=0 cached_output=0 reasoning=0
+2025-11-08T00:21:08.686708966+05:30 session=1e71f4d6-d78b-42eb-88c4-91fa41844e48 agent=root input=1866 output=95 cached_input=1408 cached_output=0 reasoning=0
+2025-11-08T00:21:44.921965729+05:30 session=76988a03-689b-4247-8acf-575c45bc1332 agent=writer input=173 output=939 cached_input=0 cached_output=0 reasoning=0
+2025-11-08T00:21:46.984974671+05:30 session=1e71f4d6-d78b-42eb-88c4-91fa41844e48 agent=root input=2908 output=51 cached_input=1920 cached_output=0 reasoning=0
+2025-11-08T12:39:38.95656092+05:30 session=df4da77a-c159-4fe1-8af6-65456ecb232b agent=root input=720 output=10 cached_input=0 cached_output=0 reasoning=0
+2025-11-08T12:39:40.489735821+05:30 session=35b1f828-ce36-4cd1-b6b5-5874f8156956 agent=root input=97 output=5 cached_input=0 cached_output=0 reasoning=0

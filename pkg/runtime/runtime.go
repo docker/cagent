@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +28,8 @@ import (
 	"github.com/docker/cagent/pkg/tools"
 	"github.com/docker/cagent/pkg/tools/builtin"
 )
+
+const tokenUsageLogFile = "token_usage_chunks.log"
 
 type ResumeType string
 
@@ -382,9 +385,9 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 				contextLimit = m.Limit.Context
 			}
 			// Emit a snapshot that downstream components can use for both self and inclusive totals.
-				inclusiveUsage := buildInclusiveUsageSnapshot(sess, contextLimit)
-				selfUsage := buildSelfUsageSnapshot(sess, contextLimit)
-				events <- TokenUsage(sess.ID, a.Name(), selfUsage, inclusiveUsage)
+			inclusiveUsage := buildInclusiveUsageSnapshot(sess, contextLimit)
+			selfUsage := buildSelfUsageSnapshot(sess, contextLimit)
+			events <- TokenUsage(sess.ID, a.Name(), selfUsage, inclusiveUsage)
 
 			if m != nil && r.sessionCompaction {
 				if sess.InputTokens+sess.OutputTokens > int(float64(contextLimit)*0.9) {
@@ -394,9 +397,9 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 						events <- SessionCompaction(sess.ID, "start", r.currentAgent)
 						r.Summarize(ctx, sess, events)
 						// Refresh usage after compaction since token counts may have changed.
-							inclusiveUsage := buildInclusiveUsageSnapshot(sess, contextLimit)
-							selfUsage := buildSelfUsageSnapshot(sess, contextLimit)
-							events <- TokenUsage(sess.ID, a.Name(), selfUsage, inclusiveUsage)
+						inclusiveUsage := buildInclusiveUsageSnapshot(sess, contextLimit)
+						selfUsage := buildSelfUsageSnapshot(sess, contextLimit)
+						events <- TokenUsage(sess.ID, a.Name(), selfUsage, inclusiveUsage)
 						events <- SessionCompaction(sess.ID, "completed", r.currentAgent)
 					}
 				}
@@ -411,9 +414,9 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 					events <- SessionCompaction(sess.ID, "start", r.currentAgent)
 					r.Summarize(ctx, sess, events)
 					// Emit the post-compaction snapshot as well for consistency.
-						inclusiveUsage := buildInclusiveUsageSnapshot(sess, contextLimit)
-						selfUsage := buildSelfUsageSnapshot(sess, contextLimit)
-						events <- TokenUsage(sess.ID, a.Name(), selfUsage, inclusiveUsage)
+					inclusiveUsage := buildInclusiveUsageSnapshot(sess, contextLimit)
+					selfUsage := buildSelfUsageSnapshot(sess, contextLimit)
+					events <- TokenUsage(sess.ID, a.Name(), selfUsage, inclusiveUsage)
 					events <- SessionCompaction(sess.ID, "completed", r.currentAgent)
 				}
 			}
@@ -557,6 +560,8 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 
 			selfInput := response.Usage.InputTokens + response.Usage.CachedInputTokens
 			selfOutput := response.Usage.OutputTokens + response.Usage.CachedOutputTokens + response.Usage.ReasoningTokens
+
+			logTokenUsageChunk(sess.ID, a.Name(), response.Usage)
 
 			var callCost float64
 			if m != nil {
@@ -714,6 +719,33 @@ func childTokenTotals(sess *session.Session) (int, int) {
 		childOutput = 0
 	}
 	return childInput, childOutput
+}
+
+func logTokenUsageChunk(sessionID, agentName string, usage *chat.Usage) {
+	if usage == nil {
+		return
+	}
+	entry := fmt.Sprintf("%s session=%s agent=%s input=%d output=%d cached_input=%d cached_output=%d reasoning=%d\n",
+		time.Now().Format(time.RFC3339Nano),
+		sessionID,
+		agentName,
+		usage.InputTokens,
+		usage.OutputTokens,
+		usage.CachedInputTokens,
+		usage.CachedOutputTokens,
+		usage.ReasoningTokens,
+	)
+
+	file, err := os.OpenFile(tokenUsageLogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		slog.Warn("Failed to open token usage log file", "error", err)
+		return
+	}
+	defer file.Close()
+
+	if _, err := file.WriteString(entry); err != nil {
+		slog.Warn("Failed to write token usage log entry", "error", err)
+	}
 }
 
 // processToolCalls handles the execution of tool calls for an agent
