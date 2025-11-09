@@ -405,8 +405,11 @@ func (m *model) sessionBreakdownLines() []string { // renders per-session self u
 }
 
 func (m *model) rootSessionBlock() string { // formats root agent entry with exclusive usage
-	exclusive := m.computeRootExclusiveUsage() // derive exclusive self usage
-	if exclusive == nil {
+	rootUsage := m.usageState.sessions[m.usageState.rootSessionID]
+	if rootUsage == nil {
+		rootUsage = m.usageState.rootInclusive
+	}
+	if rootUsage == nil {
 		return ""
 	}
 
@@ -415,45 +418,7 @@ func (m *model) rootSessionBlock() string { // formats root agent entry with exc
 		name = "Root"
 	}
 
-	return formatSessionBlock(name, exclusive, m.usageState.activeSessionID == m.usageState.rootSessionID)
-}
-
-func (m *model) computeRootExclusiveUsage() *runtime.Usage { // subtracts child usage from root inclusive totals
-	if m.usageState.rootInclusive == nil {
-		return nil
-	}
-
-	exclusive := cloneUsage(m.usageState.rootInclusive) // operate on a copy
-	for id, usage := range m.usageState.sessions {
-		if id == m.usageState.rootSessionID || usage == nil {
-			continue // skip root entry and nil snapshots
-		}
-		exclusive = subtractUsage(exclusive, usage) // remove child contribution
-	}
-
-	return exclusive
-}
-
-func subtractUsage(base, delta *runtime.Usage) *runtime.Usage { // subtracts usage safely
-	if base == nil || delta == nil {
-		return base
-	}
-
-	base.InputTokens -= delta.InputTokens
-	if base.InputTokens < 0 {
-		base.InputTokens = 0
-	}
-	base.OutputTokens -= delta.OutputTokens
-	if base.OutputTokens < 0 {
-		base.OutputTokens = 0
-	}
-	base.ContextLength = base.InputTokens + base.OutputTokens
-	base.Cost -= delta.Cost
-	if base.Cost < 0 {
-		base.Cost = 0
-	}
-
-	return base
+	return formatSessionBlock(name, cloneUsage(rootUsage), m.usageState.activeSessionID == m.usageState.rootSessionID)
 }
 
 func formatSessionBlock(agentName string, usage *runtime.Usage, isActive bool) string { // helper to render a single block
