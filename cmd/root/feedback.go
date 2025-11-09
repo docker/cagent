@@ -9,16 +9,19 @@ import (
 	"github.com/docker/cagent/pkg/telemetry"
 )
 
-// NewFeedbackCmd creates a new feedback command
-func NewFeedbackCmd() *cobra.Command {
+func newFeedbackCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "feedback",
 		Short: "Send feedback about cagent",
 		Long:  `Submit feedback or report issues with cagent`,
 		Args:  cobra.NoArgs,
-		Run: func(cmd *cobra.Command, args []string) {
-			telemetry.TrackCommand("feedback", args)
-			fmt.Println("Feel free to give feedback:\n", feedback.FeedbackLink)
-		},
+		RunE:  runFeedbackCommand,
 	}
+}
+
+func runFeedbackCommand(cmd *cobra.Command, args []string) error {
+	telemetry.TrackCommand("feedback", args)
+
+	fmt.Fprintln(cmd.OutOrStdout(), "Feel free to give feedback:\n", feedback.FeedbackLink)
+	return nil
 }

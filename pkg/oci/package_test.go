@@ -96,7 +96,6 @@ func TestPackageFileAsOCIToStoreDifferentFileTypes(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Create test file
 			testFile := filepath.Join(t.TempDir(), tc.filename)
 			require.NoError(t, os.WriteFile(testFile, []byte(tc.content), 0o644))
 
@@ -106,7 +105,6 @@ func TestPackageFileAsOCIToStoreDifferentFileTypes(t *testing.T) {
 
 			digests = append(digests, digest)
 
-			// Verify the artifact was stored
 			img, err := store.GetArtifactImage(tc.tag)
 			require.NoError(t, err)
 			assert.NotNil(t, img)

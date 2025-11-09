@@ -6,23 +6,17 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/docker/cagent/pkg/config"
 )
 
 const (
-	flagGateway       = "gateway"
 	flagModelsGateway = "models-gateway"
-	envGateway        = "CAGENT_GATEWAY"
 	envModelsGateway  = "CAGENT_MODELS_GATEWAY"
 )
 
-type gatewayConfig struct {
-	mainGateway string
-}
-
-var gwConfig gatewayConfig
-
 func canonize(endpoint string) string {
-	return strings.TrimSpace(strings.TrimSuffix(endpoint, "/"))
+	return strings.TrimSuffix(strings.TrimSpace(endpoint), "/")
 }
 
 func logEnvvarShadowing(flagValue, varName, flagName string) {
@@ -31,37 +25,14 @@ func logEnvvarShadowing(flagValue, varName, flagName string) {
 	}
 }
 
-func addGatewayFlags(cmd *cobra.Command) {
-	cmd.PersistentFlags().StringVar(&gwConfig.mainGateway, flagGateway, "", "Set the gateway address to use for models and tool calls")
+func addGatewayFlags(cmd *cobra.Command, runConfig *config.RuntimeConfig) {
 	cmd.PersistentFlags().StringVar(&runConfig.ModelsGateway, flagModelsGateway, "", "Set the models gateway address")
 
-	// Don't allow gateway to be specified if a qualified gateway flag is provided
-	cmd.MarkFlagsMutuallyExclusive(flagGateway, flagModelsGateway)
-
 	persistentPreRunE := cmd.PersistentPreRunE
-	cmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
-		// verify mutual exclusion for environment variables
-		if os.Getenv(envGateway) != "" && os.Getenv(envModelsGateway) != "" {
-			return fmt.Errorf("environment variables %s and %s cannot be set at the same time", envGateway, envModelsGateway)
-		}
-
-		// Get gateway value from the environment.
-		// This behavior sets both the models and tools gateway
-		mainGateway := os.Getenv(envGateway)
-		if mainGateway != "" {
-			logEnvvarShadowing(gwConfig.mainGateway, envGateway, flagGateway)
-			gwConfig.mainGateway = mainGateway
-			runConfig.ModelsGateway = mainGateway
-		}
-
+	cmd.PersistentPreRunE = func(_ *cobra.Command, args []string) error {
 		if gateway := os.Getenv(envModelsGateway); gateway != "" {
 			logEnvvarShadowing(runConfig.ModelsGateway, envModelsGateway, flagModelsGateway)
 			runConfig.ModelsGateway = gateway
-		}
-
-		// Set the qualified gateways to the main gateway if they haven't been set explicitly
-		if runConfig.ModelsGateway == "" {
-			runConfig.ModelsGateway = gwConfig.mainGateway
 		}
 
 		// Ensure the gateway url is canonical.

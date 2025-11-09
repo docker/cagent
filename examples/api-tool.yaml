@@ -1,0 +1,14 @@
+version: "2"
+
+agents: 
+  root:
+    description: Chess.com daily puzzle agent
+    instruction: Call the daily-puzzle tool and print the puzzle in ascii with unicode chess pieces. Do not solve the puzzle for them, only provide hints and guidance.
+    model: google/gemini-2.5-pro
+    toolsets:
+      - type: api
+        api_config:
+          instruction: Get todos
+          name: daily-puzzle
+          endpoint: https://api.chess.com/pub/puzzle
+          method: GET

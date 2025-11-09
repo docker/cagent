@@ -17,7 +17,11 @@ import (
 	"github.com/docker/cagent/pkg/tools"
 )
 
-const userAgent = "cagent/1.0"
+const (
+	userAgent = "cagent/1.0"
+
+	ToolNameFetch = "fetch"
+)
 
 type FetchTool struct {
 	tools.ElicitationTool
@@ -308,7 +312,7 @@ USAGE TIPS
 func (t *FetchTool) Tools(context.Context) ([]tools.Tool, error) {
 	return []tools.Tool{
 		{
-			Name:        "fetch",
+			Name:        ToolNameFetch,
 			Category:    "fetch",
 			Description: "Fetch content from one or more HTTP/HTTPS URLs. Returns the response body and metadata.",
 			Parameters: map[string]any{

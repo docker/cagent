@@ -6,15 +6,23 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/v2/key"
-	tea "github.com/charmbracelet/bubbletea/v2"
-	"github.com/charmbracelet/lipgloss/v2"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
-	"github.com/docker/cagent/pkg/app"
+	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/tools"
+	"github.com/docker/cagent/pkg/tools/builtin"
 	"github.com/docker/cagent/pkg/tui/components/todo"
 	"github.com/docker/cagent/pkg/tui/core"
+	"github.com/docker/cagent/pkg/tui/core/layout"
 	"github.com/docker/cagent/pkg/tui/styles"
+)
+
+type (
+	RuntimeResumeMsg struct {
+		Response runtime.ResumeType
+	}
 )
 
 // ToolConfirmationResponse represents the user's response to tool confirmation
@@ -26,7 +34,6 @@ type ToolConfirmationResponse struct {
 type toolConfirmationDialog struct {
 	width, height int
 	toolCall      tools.ToolCall
-	app           *app.App
 	keyMap        toolConfirmationKeyMap
 }
 
@@ -63,10 +70,9 @@ func defaultToolConfirmationKeyMap() toolConfirmationKeyMap {
 }
 
 // NewToolConfirmationDialog creates a new tool confirmation dialog
-func NewToolConfirmationDialog(toolCall tools.ToolCall, appInstance *app.App) Dialog {
+func NewToolConfirmationDialog(toolCall tools.ToolCall) Dialog {
 	return &toolConfirmationDialog{
 		toolCall: toolCall,
-		app:      appInstance,
 		keyMap:   defaultToolConfirmationKeyMap(),
 	}
 }
@@ -77,7 +83,7 @@ func (d *toolConfirmationDialog) Init() tea.Cmd {
 }
 
 // Update handles messages for the tool confirmation dialog
-func (d *toolConfirmationDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (d *toolConfirmationDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		d.width = msg.Width
@@ -87,20 +93,11 @@ func (d *toolConfirmationDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		switch {
 		case key.Matches(msg, d.keyMap.Yes):
-			if d.app != nil {
-				d.app.Resume("approve")
-			}
-			return d, core.CmdHandler(CloseDialogMsg{})
+			return d, tea.Sequence(core.CmdHandler(CloseDialogMsg{}), core.CmdHandler(RuntimeResumeMsg{Response: runtime.ResumeTypeApprove}))
 		case key.Matches(msg, d.keyMap.No):
-			if d.app != nil {
-				d.app.Resume("reject")
-			}
-			return d, core.CmdHandler(CloseDialogMsg{})
+			return d, tea.Sequence(core.CmdHandler(CloseDialogMsg{}), core.CmdHandler(RuntimeResumeMsg{Response: runtime.ResumeTypeReject}))
 		case key.Matches(msg, d.keyMap.All):
-			if d.app != nil {
-				d.app.Resume("approve-session")
-			}
-			return d, core.CmdHandler(CloseDialogMsg{})
+			return d, tea.Sequence(core.CmdHandler(CloseDialogMsg{}), core.CmdHandler(RuntimeResumeMsg{Response: runtime.ResumeTypeApproveSession}))
 		}
 
 		if msg.String() == "ctrl+c" {
@@ -185,7 +182,7 @@ func (d *toolConfirmationDialog) View() string {
 
 	// Arguments section
 	var argumentsSection string
-	if d.toolCall.Function.Name == "create_todos" || d.toolCall.Function.Name == "create_todo" {
+	if d.toolCall.Function.Name == builtin.ToolNameCreateTodos || d.toolCall.Function.Name == builtin.ToolNameCreateTodo {
 		argumentsSection = d.renderTodo(contentWidth)
 	} else {
 		argumentsSection = d.renderArguments(contentWidth)
@@ -315,7 +312,7 @@ func (d *toolConfirmationDialog) Position() (row, col int) {
 	}
 
 	// Add height for todo preview section if todo-related tools
-	if d.toolCall.Function.Name == "create_todos" || d.toolCall.Function.Name == "create_todo" && d.toolCall.Function.Arguments != "" {
+	if d.toolCall.Function.Name == builtin.ToolNameCreateTodos || d.toolCall.Function.Name == builtin.ToolNameCreateTodo && d.toolCall.Function.Arguments != "" {
 		// Add height for preview section header and content
 		// Rough estimation: 2 lines for header + variable lines for todos
 		dialogHeight += 6

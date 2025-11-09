@@ -26,6 +26,7 @@ linters:
     - usestdlibvars
     - forbidigo
     - iotamixing
+    - gochecknoinits
   settings:
     forbidigo:
       forbid:
@@ -37,6 +38,8 @@ linters:
           msg: "do not use os.MkdirTemp() in tests, use t.TempDir()"
         - pattern: os\.Setenv()
           msg: "do not use os.Setenv() in tests, use t.Setenv()"
+        - pattern: fmt\.Print.*()
+          msg: "do not use fmt.Print() or fmt.Println() in tests"
     depguard:
       rules:
         internal:

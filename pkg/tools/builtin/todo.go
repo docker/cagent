@@ -11,6 +11,13 @@ import (
 	"github.com/docker/cagent/pkg/tools"
 )
 
+const (
+	ToolNameCreateTodo  = "create_todo"
+	ToolNameCreateTodos = "create_todos"
+	ToolNameUpdateTodo  = "update_todo"
+	ToolNameListTodos   = "list_todos"
+)
+
 type TodoTool struct {
 	tools.ElicitationTool
 	handler *todoHandler
@@ -159,7 +166,7 @@ func (h *todoHandler) listTodos(context.Context, tools.ToolCall) (*tools.ToolCal
 func (t *TodoTool) Tools(context.Context) ([]tools.Tool, error) {
 	return []tools.Tool{
 		{
-			Name:         "create_todo",
+			Name:         ToolNameCreateTodo,
 			Category:     "todo",
 			Description:  "Create a new todo item with a description",
 			Parameters:   tools.MustSchemaFor[CreateTodoArgs](),
@@ -171,7 +178,7 @@ func (t *TodoTool) Tools(context.Context) ([]tools.Tool, error) {
 			},
 		},
 		{
-			Name:         "create_todos",
+			Name:         ToolNameCreateTodos,
 			Category:     "todo",
 			Description:  "Create a list of new todo items with descriptions",
 			Parameters:   tools.MustSchemaFor[CreateTodosArgs](),
@@ -183,7 +190,7 @@ func (t *TodoTool) Tools(context.Context) ([]tools.Tool, error) {
 			},
 		},
 		{
-			Name:         "update_todo",
+			Name:         ToolNameUpdateTodo,
 			Category:     "todo",
 			Description:  "Update the status of a todo item",
 			Parameters:   tools.MustSchemaFor[UpdateTodoArgs](),
@@ -195,7 +202,7 @@ func (t *TodoTool) Tools(context.Context) ([]tools.Tool, error) {
 			},
 		},
 		{
-			Name:         "list_todos",
+			Name:         ToolNameListTodos,
 			Category:     "todo",
 			Description:  "List all current todos with their status",
 			OutputSchema: tools.MustSchemaFor[string](),

@@ -16,13 +16,11 @@ import (
 
 // TestCountAnthropicTokensBeta_Success tests successful token counting for beta API
 func TestCountAnthropicTokensBeta_Success(t *testing.T) {
-	// Setup mock server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/v1/messages/count_tokens", r.URL.Path)
 		assert.Equal(t, "application/json", r.Header.Get("content-type"))
 		assert.NotEmpty(t, r.Header.Get("x-api-key"))
 
-		// Verify request body contains expected fields
 		var payload map[string]any
 		err := json.NewDecoder(r.Body).Decode(&payload)
 		assert.NoError(t, err)
@@ -36,7 +34,6 @@ func TestCountAnthropicTokensBeta_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Create test data
 	messages := []anthropic.BetaMessageParam{
 		{
 			Role: anthropic.BetaMessageParamRoleUser,
@@ -49,16 +46,13 @@ func TestCountAnthropicTokensBeta_Success(t *testing.T) {
 		{Text: "You are helpful"},
 	}
 
-	// Create client with test server URL
 	client := anthropic.NewClient(
 		option.WithAPIKey("test-key"),
 		option.WithBaseURL(server.URL),
 	)
 
-	// Call function
 	tokens, err := countAnthropicTokensBeta(t.Context(), client, "claude-3-5-sonnet-20241022", messages, system, nil)
 
-	// Verify
 	require.NoError(t, err)
 	assert.Equal(t, int64(150), tokens)
 }
@@ -68,7 +62,6 @@ func TestCountAnthropicTokensBeta_NoAPIKey(t *testing.T) {
 	messages := []anthropic.BetaMessageParam{}
 	system := []anthropic.BetaTextBlockParam{}
 
-	// Create client without base URL to trigger error
 	client := anthropic.NewClient(
 		option.WithAPIKey("test-key"),
 		// No base URL set
@@ -90,7 +83,6 @@ func TestCountAnthropicTokensBeta_ServerError(t *testing.T) {
 	messages := []anthropic.BetaMessageParam{}
 	system := []anthropic.BetaTextBlockParam{}
 
-	// Create client with test server URL
 	client := anthropic.NewClient(
 		option.WithAPIKey("test-key"),
 		option.WithBaseURL(server.URL),
@@ -108,7 +100,6 @@ func TestCountAnthropicTokensBeta_WithTools(t *testing.T) {
 		err := json.NewDecoder(r.Body).Decode(&payload)
 		assert.NoError(t, err)
 
-		// Verify tools are included in payload
 		assert.NotNil(t, payload["tools"])
 		tools, ok := payload["tools"].([]any)
 		assert.True(t, ok)
@@ -129,7 +120,6 @@ func TestCountAnthropicTokensBeta_WithTools(t *testing.T) {
 		}},
 	}
 
-	// Create client with test server URL
 	client := anthropic.NewClient(
 		option.WithAPIKey("test-key"),
 		option.WithBaseURL(server.URL),

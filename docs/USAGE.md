@@ -56,6 +56,9 @@ $ cagent exec config.yaml --yolo          # Run the agent once and auto-accept a
 # API Server (HTTP REST API)
 $ cagent api config.yaml
 $ cagent api config.yaml --listen :8080
+$ cagent api ociReference # start API from oci reference 
+## start API from oci reference, auto-pull every 10 mins and reload if a new team was pulled
+$ cagent api ociReference --pull-interval 10
 
 # ACP Server (Agent Client Protocol via stdio)
 $ cagent acp config.yaml                 # Start ACP server on stdio
@@ -172,20 +175,20 @@ Determine how much the model should think by setting the `thinking_budget`
 
 - **OpenAI**: use effort levels — `minimal`, `low`, `medium`, `high`
 - **Anthropic**: set an integer token budget. Range is 1024–32768; must be strictly less than `max_tokens`.
-- **Google (Gemini)**: set an integer token budget. `0` -> disable thinking, `-1` -> dynamic thinking (model decides). Most models: 0–24576 tokens. Gemini 2.5 Pro: 128–32768 tokens (and cannot disabled thinking). 
+- **Google (Gemini)**: set an integer token budget. `0` -> disable thinking, `-1` -> dynamic thinking (model decides). Most models: 0–24576 tokens. Gemini 2.5 Pro: 128–32768 tokens (and cannot disable thinking). 
 
 Examples (OpenAI):
 
 ```yaml
 models:
-  openai:
+  gpt:
     provider: openai
     model: gpt-5-mini
     thinking_budget: low
 
 agents:
   root:
-    model: openai
+    model: gpt
     instruction: you are a helpful assistant
 ```
 
@@ -265,7 +268,7 @@ See `examples/thinking_budget.yaml` for a complete runnable demo.
 
 # OpenAI
 models:
-  openai:
+  gpt:
     provider: openai
     model: gpt-5-mini
 

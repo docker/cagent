@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/docker/cagent/pkg/tools"
 	"github.com/docker/cagent/pkg/tools/builtin"
@@ -42,7 +42,7 @@ func (c *Component) SetTodos(toolCall tools.ToolCall) error {
 	toolName := toolCall.Function.Name
 	arguments := toolCall.Function.Arguments
 	switch toolName {
-	case "create_todo":
+	case builtin.ToolNameCreateTodo:
 		var params builtin.CreateTodoArgs
 		if err := json.Unmarshal([]byte(arguments), &params); err != nil {
 			return err
@@ -56,7 +56,7 @@ func (c *Component) SetTodos(toolCall tools.ToolCall) error {
 		}
 		c.todos = append(c.todos, newTodo)
 
-	case "create_todos":
+	case builtin.ToolNameCreateTodos:
 		var params builtin.CreateTodosArgs
 		if err := json.Unmarshal([]byte(arguments), &params); err != nil {
 			return err
@@ -72,7 +72,7 @@ func (c *Component) SetTodos(toolCall tools.ToolCall) error {
 			c.todos = append(c.todos, newTodo)
 		}
 
-	case "update_todo":
+	case builtin.ToolNameUpdateTodo:
 		var params builtin.UpdateTodoArgs
 		if err := json.Unmarshal([]byte(arguments), &params); err != nil {
 			return err

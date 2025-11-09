@@ -3,7 +3,7 @@ package commands
 import (
 	"context"
 
-	tea "github.com/charmbracelet/bubbletea/v2"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/docker/cagent/pkg/app"
 	"github.com/docker/cagent/pkg/feedback"
@@ -100,7 +100,7 @@ func builtInFeedbackCommands() []Item {
 			},
 		},
 		{
-			ID:          "feedback.feeedback",
+			ID:          "feedback.feedback",
 			Label:       "Give Feedback",
 			Description: "Provide feedback about cagent",
 			Category:    "Feedback",

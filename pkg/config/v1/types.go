@@ -7,6 +7,8 @@ import (
 	"github.com/docker/cagent/pkg/config/types"
 )
 
+const Version = "1"
+
 // ScriptShellToolConfig represents a custom shell tool configuration
 type ScriptShellToolConfig struct {
 	Cmd         string `json:"cmd" yaml:"cmd"`

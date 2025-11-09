@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
-	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/goccy/go-yaml"
 
+	"github.com/docker/cagent/pkg/cli"
 	"github.com/docker/cagent/pkg/config"
 	"github.com/docker/cagent/pkg/filesystem"
 )
@@ -28,7 +28,7 @@ type Options struct {
 	Pull    bool
 }
 
-func BuildDockerImage(ctx context.Context, agentFilePath string, fs filesystem.FS, dockerImageName string, opts Options) error {
+func BuildDockerImage(ctx context.Context, out *cli.Printer, agentFilePath string, fs filesystem.FS, dockerImageName string, opts Options) error {
 	cfg, err := config.LoadConfig(agentFilePath, fs)
 	if err != nil {
 		return err
@@ -71,7 +71,7 @@ func BuildDockerImage(ctx context.Context, agentFilePath string, fs filesystem.F
 
 	dockerfile := dockerfileBuf.String()
 	if opts.DryRun {
-		fmt.Println(dockerfile)
+		out.Println(dockerfile)
 		return nil
 	}
 

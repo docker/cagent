@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"os/signal"
 	"syscall"
 
@@ -21,7 +22,7 @@ func main() {
 	defer cancel()
 
 	if err := run(ctx); err != nil {
-		fmt.Println(err)
+		log.Println(err)
 	}
 }
 

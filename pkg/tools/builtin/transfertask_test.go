@@ -27,15 +27,12 @@ func TestTaskTool_Tools(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, allTools, 1)
 
-	// Verify transfer_task function
 	assert.Equal(t, "transfer_task", allTools[0].Name)
 	assert.Equal(t, "transfer", allTools[0].Category)
 	assert.Contains(t, allTools[0].Description, "transfer a task to the selected team member")
 
-	// Verify no handler is provided (it's handled externally)
 	assert.Nil(t, allTools[0].Handler)
 
-	// Check parameters
 	schema, err := json.Marshal(allTools[0].Parameters)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{
@@ -79,11 +76,9 @@ func TestTaskTool_DisplayNames(t *testing.T) {
 func TestTaskTool_StartStop(t *testing.T) {
 	tool := NewTransferTaskTool()
 
-	// Test Start method
 	err := tool.Start(t.Context())
 	require.NoError(t, err)
 
-	// Test Stop method
 	err = tool.Stop(t.Context())
 	require.NoError(t, err)
 }

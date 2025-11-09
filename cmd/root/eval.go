@@ -1,33 +1,40 @@
 package root
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 
+	"github.com/docker/cagent/pkg/cli"
+	"github.com/docker/cagent/pkg/config"
 	"github.com/docker/cagent/pkg/evaluation"
 	"github.com/docker/cagent/pkg/teamloader"
 	"github.com/docker/cagent/pkg/telemetry"
 )
 
-func NewEvalCmd() *cobra.Command {
+type evalFlags struct {
+	runConfig config.RuntimeConfig
+}
+
+func newEvalCmd() *cobra.Command {
+	var flags evalFlags
+
 	cmd := &cobra.Command{
 		Use:   "eval <agent-name> <eval-dir>",
 		Short: "Run evaluations for an agent",
 		Args:  cobra.ExactArgs(2),
-		RunE:  runEvalCommand,
+		RunE:  flags.runEvalCommand,
 	}
 
-	addGatewayFlags(cmd)
-	addRuntimeConfigFlags(cmd)
+	addRuntimeConfigFlags(cmd, &flags.runConfig)
 
 	return cmd
 }
 
-func runEvalCommand(cmd *cobra.Command, args []string) error {
+func (f *evalFlags) runEvalCommand(cmd *cobra.Command, args []string) error {
 	telemetry.TrackCommand("eval", args)
 
-	agents, err := teamloader.Load(cmd.Context(), args[0], runConfig)
+	out := cli.NewPrinter(cmd.OutOrStdout())
+
+	agents, err := teamloader.Load(cmd.Context(), args[0], f.runConfig)
 	if err != nil {
 		return err
 	}
@@ -38,9 +45,9 @@ func runEvalCommand(cmd *cobra.Command, args []string) error {
 	}
 
 	for _, evalResult := range evalResults {
-		fmt.Printf("Eval file: %s\n", evalResult.EvalFile)
-		fmt.Printf("Tool trajectory score: %f\n", evalResult.Score.ToolTrajectoryScore)
-		fmt.Printf("Rouge-1 score: %f\n", evalResult.Score.Rouge1Score)
+		out.Printf("Eval file: %s\n", evalResult.EvalFile)
+		out.Printf("Tool trajectory score: %f\n", evalResult.Score.ToolTrajectoryScore)
+		out.Printf("Rouge-1 score: %f\n", evalResult.Score.Rouge1Score)
 	}
 
 	return nil

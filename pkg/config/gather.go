@@ -65,6 +65,8 @@ func GatherEnvVarsForModels(cfg *latest.Config) []string {
 				requiredEnv["ANTHROPIC_API_KEY"] = true
 			case "google":
 				requiredEnv["GOOGLE_API_KEY"] = true
+			case "mistral":
+				requiredEnv["MISTRAL_API_KEY"] = true
 			}
 		}
 	}

@@ -15,16 +15,13 @@ import (
 func TestStoreAgentName(t *testing.T) {
 	tempDB := filepath.Join(t.TempDir(), "test_store.db")
 
-	// Create the store
 	store, err := NewSQLiteSessionStore(tempDB)
 	require.NoError(t, err)
 	defer store.(*SQLiteSessionStore).Close()
 
-	// Create test agents
 	testAgent1 := agent.New("test-agent-1", "test prompt 1")
 	testAgent2 := agent.New("test-agent-2", "test prompt 2")
 
-	// Create a session with messages from different agents
 	session := &Session{
 		ID: "test-session",
 		Messages: []Item{
@@ -52,7 +49,6 @@ func TestStoreAgentName(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, retrievedSession)
 
-	// Verify the agent names are correctly stored and retrieved
 	assert.Len(t, retrievedSession.GetAllMessages(), 3)
 
 	// First message should be user message with empty agent name
@@ -72,19 +68,15 @@ func TestStoreAgentName(t *testing.T) {
 }
 
 func TestStoreMultipleAgents(t *testing.T) {
-	// Create a temporary database file
 	tempDB := filepath.Join(t.TempDir(), "test_store_multi.db")
 
-	// Create the store
 	store, err := NewSQLiteSessionStore(tempDB)
 	require.NoError(t, err)
 	defer store.(*SQLiteSessionStore).Close()
 
-	// Create multiple test agents
 	agent1 := agent.New("agent-1", "agent 1 prompt")
 	agent2 := agent.New("agent-2", "agent 2 prompt")
 
-	// Create a session with messages from different agents
 	session := &Session{
 		ID:        "multi-agent-session",
 		CreatedAt: time.Now(),
@@ -110,7 +102,6 @@ func TestStoreMultipleAgents(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, retrievedSession)
 
-	// Verify the agent names are correctly stored and retrieved
 	assert.Len(t, retrievedSession.Messages, 3)
 
 	// First message should be user message with empty agent name
@@ -129,18 +120,14 @@ func TestStoreMultipleAgents(t *testing.T) {
 }
 
 func TestGetSessions(t *testing.T) {
-	// Create a temporary database file
 	tempDB := filepath.Join(t.TempDir(), "test_get_sessions.db")
 
-	// Create the store
 	store, err := NewSQLiteSessionStore(tempDB)
 	require.NoError(t, err)
 	defer store.(*SQLiteSessionStore).Close()
 
-	// Create a test agent
 	testAgent := agent.New("test-agent", "test prompt")
 
-	// Create multiple sessions
 	session1 := &Session{
 		ID: "session-1",
 		Messages: []Item{
@@ -174,7 +161,6 @@ func TestGetSessions(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, sessions, 2)
 
-	// Verify agent names are preserved in all sessions
 	for _, session := range sessions {
 		assert.Len(t, session.Messages, 1)
 		assert.Equal(t, "test-agent", session.Messages[0].Message.AgentName)
@@ -182,19 +168,15 @@ func TestGetSessions(t *testing.T) {
 }
 
 func TestStoreAgentNameJSON(t *testing.T) {
-	// Create a temporary database file
 	tempDB := filepath.Join(t.TempDir(), "test_store_json.db")
 
-	// Create the store
 	store, err := NewSQLiteSessionStore(tempDB)
 	require.NoError(t, err)
 	defer store.(*SQLiteSessionStore).Close()
 
-	// Create test agents
 	agent1 := agent.New("my-agent", "test prompt")
 	agent2 := agent.New("another-agent", "another prompt")
 
-	// Create a session with messages from different agents
 	session := &Session{
 		ID: "json-test-session",
 		Messages: []Item{
@@ -220,12 +202,10 @@ func TestStoreAgentNameJSON(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, retrievedSession)
 
-	// Verify specific agent filenames are correctly stored and retrieved
 	assert.Equal(t, "demo-agent", retrievedSession.Messages[0].Message.AgentFilename) // User message
 	assert.Empty(t, retrievedSession.Messages[1].Message.AgentFilename)               // First agent
 	assert.Empty(t, retrievedSession.Messages[2].Message.AgentFilename)               // Second agent
 
-	// Verify specific agent names are correctly stored and retrieved
 	assert.Empty(t, retrievedSession.Messages[0].Message.AgentName)                  // User message
 	assert.Equal(t, "my-agent", retrievedSession.Messages[1].Message.AgentName)      // First agent
 	assert.Equal(t, "another-agent", retrievedSession.Messages[2].Message.AgentName) // Second agent

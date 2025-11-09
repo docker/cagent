@@ -2,7 +2,7 @@ version: "1"
 
 agents:
   root:
-    model: openai
+    model: gpt
     toolsets:
       - type: think
       - type: mcp
@@ -10,6 +10,6 @@ agents:
         args: ["mcp", "gateway", "run", "--servers=fetch"]
 
 models:
-  openai:
+  gpt:
     provider: openai
     model: gpt-4o

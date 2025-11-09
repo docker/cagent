@@ -32,12 +32,12 @@ func loadFrom(path string) (*Aliases, error) {
 		return nil, fmt.Errorf("failed to read aliases file: %w", err)
 	}
 
-	s := Aliases{}
-	if err := yaml.Unmarshal(data, &s); err != nil {
+	var aliases Aliases
+	if err := yaml.Unmarshal(data, &aliases); err != nil {
 		return nil, fmt.Errorf("failed to parse aliases file: %w", err)
 	}
 
-	return &s, nil
+	return &aliases, nil
 }
 
 // Save saves aliases to the configuration file

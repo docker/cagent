@@ -14,7 +14,6 @@ import (
 
 // TestAPIMessageWithImageStructure tests that the API message type can hold image attachments
 func TestAPIMessageWithImageStructure(t *testing.T) {
-	// Create a message with image attachment using multi_content
 	imageData := createTestImageDataURL()
 	messages := []api.Message{
 		{
@@ -44,17 +43,14 @@ func TestAPIMessageWithImageStructure(t *testing.T) {
 	err = json.Unmarshal(jsonData, &decoded)
 	require.NoError(t, err)
 
-	// Verify the structure
 	assert.Len(t, decoded, 1)
 	assert.Equal(t, chat.MessageRoleUser, decoded[0].Role)
 	assert.Empty(t, decoded[0].Content) // Content should be empty when using MultiContent
 	assert.Len(t, decoded[0].MultiContent, 2)
 
-	// Verify text part
 	assert.Equal(t, chat.MessagePartTypeText, decoded[0].MultiContent[0].Type)
 	assert.Equal(t, "What's in this image?", decoded[0].MultiContent[0].Text)
 
-	// Verify image part
 	assert.Equal(t, chat.MessagePartTypeImageURL, decoded[0].MultiContent[1].Type)
 	require.NotNil(t, decoded[0].MultiContent[1].ImageURL)
 	assert.Equal(t, imageData, decoded[0].MultiContent[1].ImageURL.URL)
@@ -79,7 +75,6 @@ func TestAPIMessageWithTextOnly(t *testing.T) {
 	err = json.Unmarshal(jsonData, &decoded)
 	require.NoError(t, err)
 
-	// Verify the structure
 	assert.Len(t, decoded, 1)
 	assert.Equal(t, chat.MessageRoleUser, decoded[0].Role)
 	assert.Equal(t, "Tell me a joke", decoded[0].Content)

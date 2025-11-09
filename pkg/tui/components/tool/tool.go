@@ -5,15 +5,18 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/v2/spinner"
-	tea "github.com/charmbracelet/bubbletea/v2"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/glamour/v2"
 
 	"github.com/docker/cagent/pkg/app"
+	"github.com/docker/cagent/pkg/tools/builtin"
 	"github.com/docker/cagent/pkg/tui/core/layout"
 	"github.com/docker/cagent/pkg/tui/styles"
 	"github.com/docker/cagent/pkg/tui/types"
 )
+
+type ToggleDiffViewMsg struct{}
 
 // toolModel implements Model
 type toolModel struct {
@@ -26,6 +29,8 @@ type toolModel struct {
 	height int
 
 	app *app.App
+
+	splitDiffView bool
 }
 
 // SetSize implements Model.
@@ -36,20 +41,21 @@ func (mv *toolModel) SetSize(width, height int) tea.Cmd {
 }
 
 // New creates a new tool view
-func New(msg *types.Message, a *app.App, renderer *glamour.TermRenderer) layout.Model {
-	if msg.ToolCall.Function.Name == "transfer_task" {
+func New(msg *types.Message, a *app.App, renderer *glamour.TermRenderer, splitDiffView bool) layout.Model {
+	if msg.ToolCall.Function.Name == builtin.ToolNameTransferTask {
 		return &transferTaskModel{
 			msg: msg,
 		}
 	}
 
 	return &toolModel{
-		message:  msg,
-		width:    80,
-		height:   1,
-		spinner:  spinner.New(spinner.WithSpinner(spinner.Points)),
-		renderer: renderer,
-		app:      a,
+		message:       msg,
+		width:         80,
+		height:        1,
+		spinner:       spinner.New(spinner.WithSpinner(spinner.Points)),
+		renderer:      renderer,
+		app:           a,
+		splitDiffView: splitDiffView,
 	}
 }
 
@@ -71,9 +77,12 @@ func (mv *toolModel) Init() tea.Cmd {
 	return nil
 }
 
-// Update handles messages and updates the message view state
-func (mv *toolModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Handle spinner updates for empty assistant messages or pending/running tools
+func (mv *toolModel) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
+	if _, ok := msg.(ToggleDiffViewMsg); ok {
+		mv.splitDiffView = !mv.splitDiffView
+		return mv, nil
+	}
+
 	switch mv.message.Type {
 	case types.MessageTypeAssistant:
 		if mv.message.Content == "" {
@@ -94,20 +103,17 @@ func (mv *toolModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (mv *toolModel) View() string {
 	msg := mv.message
-
 	displayName := msg.ToolDefinition.DisplayName()
-
 	content := fmt.Sprintf("%s %s", icon(msg.ToolStatus), styles.HighlightStyle.Render(displayName))
 
-	// Add spinner for pending and running tools
 	if msg.ToolStatus == types.ToolStatusPending || msg.ToolStatus == types.ToolStatusRunning {
 		content += " " + mv.spinner.View()
 	}
 
 	if msg.ToolCall.Function.Arguments != "" {
 		switch msg.ToolCall.Function.Name {
-		case "edit_file":
-			diff, path := renderEditFile(msg.ToolCall, mv.width-4)
+		case builtin.ToolNameEditFile:
+			diff, path := renderEditFile(msg.ToolCall, mv.width-4, mv.splitDiffView)
 			if diff != "" {
 				var editFile string
 				editFile += styles.ToolCallArgKey.Render("path:")
@@ -120,7 +126,6 @@ func (mv *toolModel) View() string {
 		}
 	}
 
-	// Add tool result content if available (for completed tools with content)
 	var resultContent string
 	if (msg.ToolStatus == types.ToolStatusCompleted || msg.ToolStatus == types.ToolStatusError) && msg.Content != "" {
 		var content string
@@ -140,7 +145,6 @@ func (mv *toolModel) View() string {
 		// Wrap long lines to fit the component width
 		lines := wrapLines(content, availableWidth)
 
-		// Take only first 10 lines after wrapping
 		header := "output"
 		if len(lines) > 10 {
 			lines = lines[:10]

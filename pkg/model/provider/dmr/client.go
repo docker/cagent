@@ -107,7 +107,7 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, opts ...options.Opt
 
 	return &Client{
 		Config: base.Config{
-			ModelConfig:  cfg,
+			ModelConfig:  *cfg,
 			ModelOptions: globalOptions,
 		},
 		client:  openai.NewClientWithConfig(clientConfig),
@@ -384,15 +384,16 @@ func (c *Client) CreateChatCompletionStream(ctx context.Context, messages []chat
 	} else {
 		slog.Error("Failed to marshal DMR request to JSON", "error", err)
 	}
-	if c.ModelOptions.StructuredOutput != nil {
-		slog.Debug("Adding structured output to DMR request", "structured_output", c.ModelOptions.StructuredOutput)
+	if structuredOutput := c.ModelOptions.StructuredOutput(); structuredOutput != nil {
+		slog.Debug("Adding structured output to DMR request", "structured_output", structuredOutput)
+
 		request.ResponseFormat = &openai.ChatCompletionResponseFormat{
 			Type: openai.ChatCompletionResponseFormatTypeJSONSchema,
 			JSONSchema: &openai.ChatCompletionResponseFormatJSONSchema{
-				Name:        c.ModelOptions.StructuredOutput.Name,
-				Description: c.ModelOptions.StructuredOutput.Description,
-				Schema:      jsonSchema(c.ModelOptions.StructuredOutput.Schema),
-				Strict:      c.ModelOptions.StructuredOutput.Strict,
+				Name:        structuredOutput.Name,
+				Description: structuredOutput.Description,
+				Schema:      jsonSchema(structuredOutput.Schema),
+				Strict:      structuredOutput.Strict,
 			},
 		}
 	}

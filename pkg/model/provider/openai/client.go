@@ -123,8 +123,9 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 
 	return &Client{
 		Config: base.Config{
-			ModelConfig:  cfg,
+			ModelConfig:  *cfg,
 			ModelOptions: globalOptions,
+			Env:          env,
 		},
 		clientFn: clientFn,
 	}, nil
@@ -235,12 +236,12 @@ func (c *Client) CreateChatCompletionStream(
 		},
 	}
 
-	if c.MaxTokens() > 0 {
+	if maxToken := c.ModelConfig.MaxTokens; maxToken > 0 {
 		if !isResponsesOnlyModel(c.ModelConfig.Model) {
-			request.MaxTokens = c.MaxTokens()
-			slog.Debug("OpenAI request configured with max tokens", "max_tokens", c.MaxTokens())
+			request.MaxTokens = maxToken
+			slog.Debug("OpenAI request configured with max tokens", "max_tokens", maxToken, "model", c.ModelConfig.Model)
 		} else {
-			request.MaxCompletionTokens = c.MaxTokens()
+			request.MaxCompletionTokens = maxToken
 			slog.Debug("using max_completion_tokens instead of max_tokens for Responses-API models", "model", c.ModelConfig.Model)
 		}
 	}
@@ -273,7 +274,7 @@ func (c *Client) CreateChatCompletionStream(
 
 	// Apply thinking budget: set reasoning_effort parameter
 	if c.ModelConfig.ThinkingBudget != nil {
-		effort, err := getOpenAIReasoningEffort(c.ModelConfig)
+		effort, err := getOpenAIReasoningEffort(&c.ModelConfig)
 		if err != nil {
 			slog.Error("OpenAI request using thinking_budget failed", "error", err)
 			return nil, err
@@ -283,17 +284,18 @@ func (c *Client) CreateChatCompletionStream(
 	}
 
 	// Apply structured output configuration
-	if c.ModelOptions.StructuredOutput != nil {
+	if structuredOutput := c.ModelOptions.StructuredOutput(); structuredOutput != nil {
+		slog.Debug("OpenAI request using structured output", "name", structuredOutput.Name, "strict", structuredOutput.Strict)
+
 		request.ResponseFormat = &openai.ChatCompletionResponseFormat{
 			Type: openai.ChatCompletionResponseFormatTypeJSONSchema,
 			JSONSchema: &openai.ChatCompletionResponseFormatJSONSchema{
-				Name:        c.ModelOptions.StructuredOutput.Name,
-				Description: c.ModelOptions.StructuredOutput.Description,
-				Schema:      jsonSchema(c.ModelOptions.StructuredOutput.Schema),
-				Strict:      c.ModelOptions.StructuredOutput.Strict,
+				Name:        structuredOutput.Name,
+				Description: structuredOutput.Description,
+				Schema:      jsonSchema(structuredOutput.Schema),
+				Strict:      structuredOutput.Strict,
 			},
 		}
-		slog.Debug("OpenAI request using structured output", "name", c.ModelOptions.StructuredOutput.Name, "strict", c.ModelOptions.StructuredOutput.Strict)
 	}
 
 	// Log the request in JSON format for debugging

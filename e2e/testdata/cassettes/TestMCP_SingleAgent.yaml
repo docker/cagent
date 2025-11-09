@@ -1,0 +1,23 @@
+---
+version: 2
+interactions:
+- id: 0
+  request:
+    proto: HTTP/1.1
+    proto_major: 1
+    proto_minor: 1
+    content_length: 0
+    host: api.openai.com
+    body: "{\"model\":\"gpt-3.5-turbo\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a knowledgeable assistant that helps users with various tasks.\\nBe helpful, accurate, and concise in your responses.\\n\"},{\"role\":\"user\",\"content\":\"What is 2+2? Answer in one sentence.\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}"
+    url: https://api.openai.com/v1/chat/completions
+    method: POST
+  response:
+    proto: HTTP/2.0
+    proto_major: 2
+    proto_minor: 0
+    content_length: -1
+    body: "data: {\"id\":\"chatcmpl-CY7sFgZVIXou7zbnYzI3fXr2w47qf\",\"object\":\"chat.completion.chunk\",\"created\":1762249455,\"model\":\"gpt-3.5-turbo-0125\",\"service_tier\":\"default\",\"system_fingerprint\":null,\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\",\"refusal\":null},\"logprobs\":null,\"finish_reason\":null}],\"usage\":null,\"obfuscation\":\"SFuaKROI\"}\n\ndata: {\"id\":\"chatcmpl-CY7sFgZVIXou7zbnYzI3fXr2w47qf\",\"object\":\"chat.completion.chunk\",\"created\":1762249455,\"model\":\"gpt-3.5-turbo-0125\",\"service_tier\":\"default\",\"system_fingerprint\":null,\"choices\":[{\"index\":0,\"delta\":{\"content\":\"2\"},\"logprobs\":null,\"finish_reason\":null}],\"usage\":null,\"obfuscation\":\"jFqvhM8CQ\"}\n\ndata: {\"id\":\"chatcmpl-CY7sFgZVIXou7zbnYzI3fXr2w47qf\",\"object\":\"chat.completion.chunk\",\"created\":1762249455,\"model\":\"gpt-3.5-turbo-0125\",\"service_tier\":\"default\",\"system_fingerprint\":null,\"choices\":[{\"index\":0,\"delta\":{\"content\":\"+\"},\"logprobs\":null,\"finish_reason\":null}],\"usage\":null,\"obfuscation\":\"Eq3WK0zEA\"}\n\ndata: {\"id\":\"chatcmpl-CY7sFgZVIXou7zbnYzI3fXr2w47qf\",\"object\":\"chat.completion.chunk\",\"created\":1762249455,\"model\":\"gpt-3.5-turbo-0125\",\"service_tier\":\"default\",\"system_fingerprint\":null,\"choices\":[{\"index\":0,\"delta\":{\"content\":\"2\"},\"logprobs\":null,\"finish_reason\":null}],\"usage\":null,\"obfuscation\":\"K8ySC4buM\"}\n\ndata: {\"id\":\"chatcmpl-CY7sFgZVIXou7zbnYzI3fXr2w47qf\",\"object\":\"chat.completion.chunk\",\"created\":1762249455,\"model\":\"gpt-3.5-turbo-0125\",\"service_tier\":\"default\",\"system_fingerprint\":null,\"choices\":[{\"index\":0,\"delta\":{\"content\":\" equals\"},\"logprobs\":null,\"finish_reason\":null}],\"usage\":null,\"obfuscation\":\"GLM\"}\n\ndata: {\"id\":\"chatcmpl-CY7sFgZVIXou7zbnYzI3fXr2w47qf\",\"object\":\"chat.completion.chunk\",\"created\":1762249455,\"model\":\"gpt-3.5-turbo-0125\",\"service_tier\":\"default\",\"system_fingerprint\":null,\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \"},\"logprobs\":null,\"finish_reason\":null}],\"usage\":null,\"obfuscation\":\"Fot5FepkW\"}\n\ndata: {\"id\":\"chatcmpl-CY7sFgZVIXou7zbnYzI3fXr2w47qf\",\"object\":\"chat.completion.chunk\",\"created\":1762249455,\"model\":\"gpt-3.5-turbo-0125\",\"service_tier\":\"default\",\"system_fingerprint\":null,\"choices\":[{\"index\":0,\"delta\":{\"content\":\"4\"},\"logprobs\":null,\"finish_reason\":null}],\"usage\":null,\"obfuscation\":\"crJhnXxGC\"}\n\ndata: {\"id\":\"chatcmpl-CY7sFgZVIXou7zbnYzI3fXr2w47qf\",\"object\":\"chat.completion.chunk\",\"created\":1762249455,\"model\":\"gpt-3.5-turbo-0125\",\"service_tier\":\"default\",\"system_fingerprint\":null,\"choices\":[{\"index\":0,\"delta\":{\"content\":\".\"},\"logprobs\":null,\"finish_reason\":null}],\"usage\":null,\"obfuscation\":\"B52kPvlng\"}\n\ndata: {\"id\":\"chatcmpl-CY7sFgZVIXou7zbnYzI3fXr2w47qf\",\"object\":\"chat.completion.chunk\",\"created\":1762249455,\"model\":\"gpt-3.5-turbo-0125\",\"service_tier\":\"default\",\"system_fingerprint\":null,\"choices\":[{\"index\":0,\"delta\":{},\"logprobs\":null,\"finish_reason\":\"stop\"}],\"usage\":null,\"obfuscation\":\"WZBb\"}\n\ndata: {\"id\":\"chatcmpl-CY7sFgZVIXou7zbnYzI3fXr2w47qf\",\"object\":\"chat.completion.chunk\",\"created\":1762249455,\"model\":\"gpt-3.5-turbo-0125\",\"service_tier\":\"default\",\"system_fingerprint\":null,\"choices\":[],\"usage\":{\"prompt_tokens\":46,\"completion_tokens\":7,\"total_tokens\":53,\"prompt_tokens_details\":{\"cached_tokens\":0,\"audio_tokens\":0},\"completion_tokens_details\":{\"reasoning_tokens\":0,\"audio_tokens\":0,\"accepted_prediction_tokens\":0,\"rejected_prediction_tokens\":0}},\"obfuscation\":\"9zKk8YAMqH\"}\n\ndata: [DONE]\n\n"
+    headers: {}
+    status: 200 OK
+    code: 200
+    duration: 497.3025ms

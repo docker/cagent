@@ -2,42 +2,45 @@ package root
 
 import (
 	"log/slog"
-	"os"
 
 	acpsdk "github.com/coder/acp-go-sdk"
 	"github.com/spf13/cobra"
 
 	"github.com/docker/cagent/pkg/acp"
+	"github.com/docker/cagent/pkg/config"
 	"github.com/docker/cagent/pkg/telemetry"
 )
 
-// NewACPCmd creates a new acp command
-func NewACPCmd() *cobra.Command {
+type acpFlags struct {
+	runConfig config.RuntimeConfig
+}
+
+func newACPCmd() *cobra.Command {
+	var flags acpFlags
+
 	cmd := &cobra.Command{
 		Use:   "acp <agent-file>",
 		Short: "Start an ACP (Agent Client Protocol) server",
 		Long:  `Start an ACP server that exposes the agent via the Agent Client Protocol`,
 		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			telemetry.TrackCommand("acp", args)
-			return runACP(cmd, args)
-		},
+		RunE:  flags.runACPCommand,
 	}
 
-	addGatewayFlags(cmd)
-	addRuntimeConfigFlags(cmd)
+	addRuntimeConfigFlags(cmd, &flags.runConfig)
 
 	return cmd
 }
 
-func runACP(cmd *cobra.Command, args []string) error {
+func (f *acpFlags) runACPCommand(cmd *cobra.Command, args []string) error {
+	telemetry.TrackCommand("acp", args)
+
 	ctx := cmd.Context()
 	agentFilename := args[0]
 
-	slog.Debug("Starting ACP server", "agent_file", agentFilename, "debug_mode", debugMode)
+	slog.Debug("Starting ACP server", "agent_file", agentFilename)
 
-	acpAgent := acp.NewAgent(agentFilename, runConfig)
-	conn := acpsdk.NewAgentSideConnection(acpAgent, os.Stdout, os.Stdin)
+	acpAgent := acp.NewAgent(agentFilename, f.runConfig)
+	conn := acpsdk.NewAgentSideConnection(acpAgent, cmd.OutOrStdout(), cmd.InOrStdin())
 	conn.SetLogger(slog.Default())
 	acpAgent.SetAgentConnection(conn)
 	defer acpAgent.Stop(ctx)

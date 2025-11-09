@@ -16,7 +16,7 @@ import (
 const AppName = "cagent"
 
 // initOTelSDK initializes OpenTelemetry SDK with OTLP exporter
-func initOTelSDK(ctx context.Context) (shutdown func(context.Context) error, err error) {
+func initOTelSDK(ctx context.Context) (err error) {
 	res, err := resource.Merge(
 		resource.Default(),
 		resource.NewWithAttributes(
@@ -26,7 +26,7 @@ func initOTelSDK(ctx context.Context) (shutdown func(context.Context) error, err
 		),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create resource: %w", err)
+		return fmt.Errorf("failed to create resource: %w", err)
 	}
 
 	var traceExporter trace.SpanExporter
@@ -39,7 +39,7 @@ func initOTelSDK(ctx context.Context) (shutdown func(context.Context) error, err
 			otlptracehttp.WithInsecure(), // TODO: make configurable
 		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create trace exporter: %w", err)
+			return fmt.Errorf("failed to create trace exporter: %w", err)
 		}
 	}
 
@@ -59,5 +59,10 @@ func initOTelSDK(ctx context.Context) (shutdown func(context.Context) error, err
 	tp := trace.NewTracerProvider(tracerProviderOpts...)
 	otel.SetTracerProvider(tp)
 
-	return tp.Shutdown, nil
+	go func() {
+		<-ctx.Done()
+		_ = tp.Shutdown(context.Background())
+	}()
+
+	return nil
 }

@@ -1,8 +1,8 @@
 package dialog
 
 import (
-	tea "github.com/charmbracelet/bubbletea/v2"
-	"github.com/charmbracelet/lipgloss/v2"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/docker/cagent/pkg/tui/core/layout"
 )
@@ -26,7 +26,7 @@ type Dialog interface {
 
 // Manager manages the dialog stack and rendering
 type Manager interface {
-	tea.Model
+	layout.Model
 
 	GetLayers() []*lipgloss.Layer
 	Open() bool
@@ -51,7 +51,7 @@ func (d *manager) Init() tea.Cmd {
 }
 
 // Update handles messages and updates dialog state
-func (d *manager) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (d *manager) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		d.width = msg.Width
@@ -61,9 +61,7 @@ func (d *manager) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for i := range d.dialogStack {
 			u, cmd := d.dialogStack[i].Update(msg)
 			d.dialogStack[i] = u.(Dialog)
-			if cmd != nil {
-				cmds = append(cmds, cmd)
-			}
+			cmds = append(cmds, cmd)
 		}
 		return d, tea.Batch(cmds...)
 
@@ -99,7 +97,7 @@ func (d *manager) View() string {
 }
 
 // handleOpen processes dialog opening requests and adds to stack
-func (d *manager) handleOpen(msg OpenDialogMsg) (tea.Model, tea.Cmd) {
+func (d *manager) handleOpen(msg OpenDialogMsg) (layout.Model, tea.Cmd) {
 	d.dialogStack = append(d.dialogStack, msg.Model)
 
 	var cmds []tea.Cmd
@@ -116,7 +114,7 @@ func (d *manager) handleOpen(msg OpenDialogMsg) (tea.Model, tea.Cmd) {
 }
 
 // handleClose processes dialog closing requests (pops top dialog from stack)
-func (d *manager) handleClose() (tea.Model, tea.Cmd) {
+func (d *manager) handleClose() (layout.Model, tea.Cmd) {
 	if len(d.dialogStack) != 0 {
 		d.dialogStack = d.dialogStack[:len(d.dialogStack)-1]
 	}
@@ -125,7 +123,7 @@ func (d *manager) handleClose() (tea.Model, tea.Cmd) {
 }
 
 // handleCloseAll closes all dialogs in the stack
-func (d *manager) handleCloseAll() (tea.Model, tea.Cmd) {
+func (d *manager) handleCloseAll() (layout.Model, tea.Cmd) {
 	d.dialogStack = make([]Dialog, 0)
 	return d, nil
 }
@@ -133,6 +131,12 @@ func (d *manager) handleCloseAll() (tea.Model, tea.Cmd) {
 // Open returns true if there is at least one active dialog
 func (d *manager) Open() bool {
 	return len(d.dialogStack) > 0
+}
+
+func (d *manager) SetSize(width, height int) tea.Cmd {
+	d.width = width
+	d.height = height
+	return nil
 }
 
 // GetLayers returns lipgloss layers for rendering all dialogs in the stack

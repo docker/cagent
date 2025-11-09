@@ -237,7 +237,6 @@ func toolCall(t *testing.T, args map[string]any) tools.ToolCall {
 }
 
 func TestFetch_RobotsAllowed(t *testing.T) {
-	// Create test server that serves robots.txt allowing all
 	robotsContent := "User-agent: *\nAllow: /"
 
 	url := runHTTPServer(t, func(w http.ResponseWriter, r *http.Request) {
@@ -266,7 +265,6 @@ func TestFetch_RobotsAllowed(t *testing.T) {
 }
 
 func TestFetch_RobotsBlocked(t *testing.T) {
-	// Create test server that serves robots.txt disallowing the test path
 	robotsContent := "User-agent: *\nDisallow: /blocked"
 
 	url := runHTTPServer(t, func(w http.ResponseWriter, r *http.Request) {
@@ -295,7 +293,6 @@ func TestFetch_RobotsBlocked(t *testing.T) {
 }
 
 func TestFetch_RobotsMissing(t *testing.T) {
-	// Create test server that doesn't serve robots.txt (404)
 	url := runHTTPServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/robots.txt" {
 			http.NotFound(w, r)

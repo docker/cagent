@@ -15,8 +15,7 @@ import (
 	"github.com/docker/cagent/pkg/telemetry"
 )
 
-// NewCatalogCmd creates the catalog command with its subcommands
-func NewCatalogCmd() *cobra.Command {
+func newCatalogCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "catalog",
 		Short: "Manage the agent catalog",
@@ -32,20 +31,21 @@ func newCatalogListCmd() *cobra.Command {
 		Use:   "list [org]",
 		Short: "List catalog entries",
 		Args:  cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			// Track catalog list with "list" as the first argument for telemetry
-			telemetryArgs := append([]string{"list"}, args...)
-			telemetry.TrackCommand("catalog", telemetryArgs)
-
-			var org string
-			if len(args) == 0 {
-				org = "agentcatalog"
-			} else {
-				org = args[0]
-			}
-			return listCatalog(cmd.Context(), org)
-		},
+		RunE:  runCatalogListCommand,
 	}
+}
+
+func runCatalogListCommand(cmd *cobra.Command, args []string) error {
+	telemetry.TrackCommand("catalog", append([]string{"list"}, args...))
+
+	var org string
+	if len(args) == 0 {
+		org = "agentcatalog"
+	} else {
+		org = args[0]
+	}
+
+	return listCatalog(cmd.Context(), org)
 }
 
 type hubRepoList struct {

@@ -7,10 +7,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -21,79 +19,49 @@ import (
 	"github.com/docker/cagent/pkg/version"
 )
 
-// RuntimeError wraps runtime errors to distinguish them from usage errors
-type RuntimeError struct {
-	Err error
-}
-
-func (e RuntimeError) Error() string {
-	return e.Err.Error()
-}
-
-func (e RuntimeError) Unwrap() error {
-	return e.Err
-}
-
-var (
-	agentName   string
-	debugMode   bool
+type rootFlags struct {
 	enableOtel  bool
+	debugMode   bool
 	logFilePath string
 	logFile     *os.File
-)
-
-// isFirstRun checks if this is the first time cagent is being run
-// It creates a marker file in the user's config directory
-func isFirstRun() bool {
-	configDir := paths.GetConfigDir()
-	markerFile := filepath.Join(configDir, ".cagent_first_run")
-
-	// Check if marker file exists
-	if _, err := os.Stat(markerFile); err == nil {
-		return false // File exists, not first run
-	}
-
-	// Create marker file to indicate this run has happened
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
-		return false // Can't create config dir, assume not first run
-	}
-
-	if err := os.WriteFile(markerFile, []byte(""), 0o644); err != nil {
-		return false // Can't create marker file, assume not first run
-	}
-
-	return true // Successfully created marker, this is first run
 }
 
-// NewRootCmd creates the root command for cagent
 func NewRootCmd() *cobra.Command {
+	var flags rootFlags
+
 	cmd := &cobra.Command{
 		Use:   "cagent",
 		Short: "cagent - AI agent runner",
 		Long:  `cagent is a command-line tool for running AI agents`,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			// Initialize logging before anything else so logs don't break TUI
-			if err := setupLogging(cmd); err != nil {
+			if err := flags.setupLogging(cmd); err != nil {
 				// If logging setup fails, fall back to stderr so we still get logs
-				slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+				slog.SetDefault(slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), &slog.HandlerOptions{
 					Level: func() slog.Level {
-						if debugMode {
+						if flags.debugMode {
 							return slog.LevelDebug
 						}
 						return slog.LevelInfo
 					}(),
 				})))
 			}
-			if cmd.DisplayName() != "exec" && os.Getenv("CAGENT_HIDE_FEEDBACK_LINK") != "1" {
-				_, _ = cmd.OutOrStdout().Write([]byte("\nFor any feedback, please visit: " + feedback.FeedbackLink + "\n\n"))
+
+			telemetry.SetGlobalTelemetryDebugMode(flags.debugMode)
+
+			if flags.enableOtel {
+				if err := initOTelSDK(cmd.Context()); err != nil {
+					slog.Warn("Failed to initialize OpenTelemetry SDK", "error", err)
+				} else {
+					slog.Debug("OpenTelemetry SDK initialized successfully")
+				}
 			}
 
-			telemetry.SetGlobalTelemetryDebugMode(debugMode)
 			return nil
 		},
 		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
-			if logFile != nil {
-				_ = logFile.Close()
+			if flags.logFile != nil {
+				_ = flags.logFile.Close()
 			}
 			return nil
 		},
@@ -106,34 +74,31 @@ func NewRootCmd() *cobra.Command {
 	}
 
 	// Add persistent debug flag available to all commands
-	cmd.PersistentFlags().BoolVarP(&debugMode, "debug", "d", false, "Enable debug logging")
-	cmd.PersistentFlags().BoolVarP(&enableOtel, "otel", "o", false, "Enable OpenTelemetry tracing")
-	cmd.PersistentFlags().StringVar(&logFilePath, "log-file", "", "Path to debug log file (default: ~/.cagent/cagent.debug.log; only used with --debug)")
+	cmd.PersistentFlags().BoolVarP(&flags.debugMode, "debug", "d", false, "Enable debug logging")
+	cmd.PersistentFlags().BoolVarP(&flags.enableOtel, "otel", "o", false, "Enable OpenTelemetry tracing")
+	cmd.PersistentFlags().StringVar(&flags.logFilePath, "log-file", "", "Path to debug log file (default: ~/.cagent/cagent.debug.log; only used with --debug)")
 
-	cmd.AddCommand(NewVersionCmd())
-	cmd.AddCommand(NewRunCmd())
-	cmd.AddCommand(NewExecCmd())
-	cmd.AddCommand(NewNewCmd())
-	cmd.AddCommand(NewAPICmd())
-	cmd.AddCommand(NewACPCmd())
-	cmd.AddCommand(NewEvalCmd())
-	cmd.AddCommand(NewPushCmd())
-	cmd.AddCommand(NewPullCmd())
-	cmd.AddCommand(NewReadmeCmd())
-	cmd.AddCommand(NewDebugCmd())
-	cmd.AddCommand(NewFeedbackCmd())
-	cmd.AddCommand(NewCatalogCmd())
-	cmd.AddCommand(NewBuildCmd())
-	cmd.AddCommand(NewPrintCmd())
-	cmd.AddCommand(NewAliasCmd())
+	cmd.AddCommand(newVersionCmd())
+	cmd.AddCommand(newRunCmd())
+	cmd.AddCommand(newExecCmd())
+	cmd.AddCommand(newNewCmd())
+	cmd.AddCommand(newAPICmd())
+	cmd.AddCommand(newACPCmd())
+	cmd.AddCommand(newMCPCmd())
+	cmd.AddCommand(newEvalCmd())
+	cmd.AddCommand(newPushCmd())
+	cmd.AddCommand(newPullCmd())
+	cmd.AddCommand(newDebugCmd())
+	cmd.AddCommand(newFeedbackCmd())
+	cmd.AddCommand(newCatalogCmd())
+	cmd.AddCommand(newBuildCmd())
+	cmd.AddCommand(newPrintCmd())
+	cmd.AddCommand(newAliasCmd())
 
 	return cmd
 }
 
-func Execute() error {
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
-
+func Execute(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, args ...string) error {
 	// Set the version for automatic telemetry initialization
 	telemetry.SetGlobalTelemetryVersion(version.Version)
 
@@ -148,10 +113,15 @@ We collect anonymous usage data to help improve cagent. To disable:
   - Set environment variable: TELEMETRY_ENABLED=false
 
 `, feedback.FeedbackLink)
-		_, _ = os.Stderr.WriteString(startupMsg)
+		fmt.Fprint(stderr, startupMsg)
 	}
 
 	rootCmd := NewRootCmd()
+	rootCmd.SetArgs(args)
+	rootCmd.SetIn(stdin)
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(stderr)
+
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		envErr := &environment.RequiredEnvError{}
 		runtimeErr := RuntimeError{}
@@ -160,18 +130,18 @@ We collect anonymous usage data to help improve cagent. To disable:
 		case ctx.Err() != nil:
 			return ctx.Err()
 		case errors.As(err, &envErr):
-			fmt.Fprintln(os.Stderr, "The following environment variables must be set:")
+			fmt.Fprintln(stderr, "The following environment variables must be set:")
 			for _, v := range envErr.Missing {
-				fmt.Fprintf(os.Stderr, " - %s\n", v)
+				fmt.Fprintf(stderr, " - %s\n", v)
 			}
-			fmt.Fprintln(os.Stderr, "\nEither:\n - Set those environment variables before running cagent\n - Run cagent with --env-from-file\n - Store those secrets using one of the built-in environment variable providers.")
+			fmt.Fprintln(stderr, "\nEither:\n - Set those environment variables before running cagent\n - Run cagent with --env-from-file\n - Store those secrets using one of the built-in environment variable providers.")
 		case errors.As(err, &runtimeErr):
 			// Runtime errors have already been printed by the command itself
 			// Don't print them again or show usage
 		default:
 			// Command line usage errors - show the error and usage
-			fmt.Fprintln(os.Stderr, err)
-			fmt.Fprintln(os.Stderr)
+			fmt.Fprintln(stderr, err)
+			fmt.Fprintln(stderr)
 			if strings.HasPrefix(err.Error(), "unknown command ") || strings.HasPrefix(err.Error(), "accepts ") {
 				_ = rootCmd.Usage()
 			}
@@ -186,9 +156,9 @@ We collect anonymous usage data to help improve cagent. To disable:
 // setupLogging configures slog logging behavior.
 // When --debug is enabled, logs are written to a single file <dataDir>/cagent.debug.log (append mode),
 // or to the file specified by --log-file. When in the TUI, structured logs are suppressed if not in --debug mode
-func setupLogging(cmd *cobra.Command) error {
+func (f *rootFlags) setupLogging(cmd *cobra.Command) error {
 	level := slog.LevelInfo
-	if debugMode {
+	if f.debugMode {
 		level = slog.LevelDebug
 	}
 
@@ -203,9 +173,9 @@ func setupLogging(cmd *cobra.Command) error {
 	}
 
 	var writer io.Writer
-	if debugMode {
+	if f.debugMode {
 		// Determine path from flag or default to <dataDir>/cagent.debug.log
-		path := strings.TrimSpace(logFilePath)
+		path := strings.TrimSpace(f.logFilePath)
 		if path == "" {
 			dataDir := paths.GetDataDir()
 			path = filepath.Join(dataDir, "cagent.debug.log")
@@ -229,17 +199,17 @@ func setupLogging(cmd *cobra.Command) error {
 		}
 
 		// Open file for appending
-		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		logFile, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 		if err != nil {
 			return err
 		}
-		logFile = f
+		f.logFile = logFile
 
 		// In debug mode, write to file; mirror to stderr when not in TUI
 		if useTUI {
-			writer = f
+			writer = logFile
 		} else {
-			writer = io.MultiWriter(f, os.Stderr)
+			writer = io.MultiWriter(logFile, os.Stderr)
 		}
 	} else {
 		// Non-debug: discard logs in TUI to keep interface clean, else stderr
@@ -252,4 +222,40 @@ func setupLogging(cmd *cobra.Command) error {
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(writer, &slog.HandlerOptions{Level: level})))
 	return nil
+}
+
+// RuntimeError wraps runtime errors to distinguish them from usage errors
+type RuntimeError struct {
+	Err error
+}
+
+func (e RuntimeError) Error() string {
+	return e.Err.Error()
+}
+
+func (e RuntimeError) Unwrap() error {
+	return e.Err
+}
+
+// isFirstRun checks if this is the first time cagent is being run
+// It creates a marker file in the user's config directory
+func isFirstRun() bool {
+	configDir := paths.GetConfigDir()
+	markerFile := filepath.Join(configDir, ".cagent_first_run")
+
+	// Check if marker file exists
+	if _, err := os.Stat(markerFile); err == nil {
+		return false // File exists, not first run
+	}
+
+	// Create marker file to indicate this run has happened
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		return false // Can't create config dir, assume not first run
+	}
+
+	if err := os.WriteFile(markerFile, []byte(""), 0o644); err != nil {
+		return false // Can't create marker file, assume not first run
+	}
+
+	return true // Successfully created marker, this is first run
 }

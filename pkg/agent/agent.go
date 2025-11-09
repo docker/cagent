@@ -14,6 +14,7 @@ import (
 type Agent struct {
 	name               string
 	description        string
+	welcomeMessage     string
 	instruction        string
 	toolsets           []*StartableToolSet
 	models             []provider.Provider
@@ -77,6 +78,11 @@ func (a *Agent) Description() string {
 	return a.description
 }
 
+// WelcomeMessage returns the agent's welcome message
+func (a *Agent) WelcomeMessage() string {
+	return a.welcomeMessage
+}
+
 // SubAgents returns the list of sub-agent names
 func (a *Agent) SubAgents() []*Agent {
 	return a.subAgents
@@ -95,6 +101,11 @@ func (a *Agent) HasSubAgents() bool {
 // Model returns a random model from the available models
 func (a *Agent) Model() provider.Provider {
 	return a.models[rand.Intn(len(a.models))]
+}
+
+// Commands returns the named commands configured for this agent.
+func (a *Agent) Commands() map[string]string {
+	return a.commands
 }
 
 // Tools returns the tools available to this agent
@@ -129,11 +140,6 @@ func (a *Agent) ToolSets() []tools.ToolSet {
 	}
 
 	return toolSets
-}
-
-// Commands returns the named commands configured for this agent.
-func (a *Agent) Commands() map[string]string {
-	return a.commands
 }
 
 func (a *Agent) ensureToolSetsAreStarted(ctx context.Context) {

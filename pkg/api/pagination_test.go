@@ -48,7 +48,6 @@ func TestPaginateMessages_FirstPage(t *testing.T) {
 
 	// Should get most recent 10 messages (for chat infinite scroll)
 	// For 100 messages, indices 90-99 should be returned
-	// Check that we got recent messages by verifying they're different from the old first messages
 	assert.NotEqual(t, "Message 0", paginated[0].Message.Content) // Not the oldest message
 	assert.NotEqual(t, "Message 9", paginated[9].Message.Content) // Not the 10th oldest message
 	assert.Equal(t, "Message 90", paginated[0].Message.Content)   // Index 90
@@ -66,12 +65,10 @@ func TestPaginateMessages_WithBeforeCursorPagination(t *testing.T) {
 	endPage, endMeta, err := PaginateMessages(messages, endPageParams)
 	require.NoError(t, err)
 
-	// Verify we got the end page
 	assert.Len(t, endPage, 10)
 	assert.Equal(t, "Message 10", endPage[0].Message.Content) // Index 10
 	assert.Equal(t, "Message 19", endPage[9].Message.Content) // Index 19
 
-	// Get previous page using before cursor (should give us messages 0-9)
 	prevPageParams := PaginationParams{
 		Limit:  10,
 		Before: endMeta.PrevCursor, // Before the end page
@@ -93,7 +90,6 @@ func TestPaginateMessages_WithBeforeCursorPagination(t *testing.T) {
 func TestPaginateMessages_WithBeforeCursor(t *testing.T) {
 	messages := createTestMessages(100)
 
-	// Get a page in the middle (starting at index 50)
 	middleCursor := strconv.Itoa(50)
 
 	params := PaginationParams{
@@ -158,7 +154,6 @@ func TestPaginateMessages_EmptyMessages(t *testing.T) {
 func TestPaginateMessages_LastPage(t *testing.T) {
 	messages := createTestMessages(25)
 
-	// Get the oldest 5 messages (using before cursor to limit to earliest messages)
 	lastPageParams := PaginationParams{
 		Limit:  10,
 		Before: "5", // Before the 6th message (index 5)
@@ -178,7 +173,6 @@ func TestPaginateMessages_LastPage(t *testing.T) {
 func TestPaginateMessages_BeforeFirstMessage(t *testing.T) {
 	messages := createTestMessages(10)
 
-	// Create cursor pointing to before first message
 	firstCursor := strconv.Itoa(0)
 
 	params := PaginationParams{

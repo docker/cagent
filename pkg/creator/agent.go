@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,7 +54,7 @@ func (f *fsToolset) Tools(ctx context.Context) ([]tools.Tool, error) {
 	}
 
 	for i, tool := range innerTools {
-		if tool.Name == "write_file" {
+		if tool.Name == builtin.ToolNameWriteFile {
 			f.originalWriteFileHandler = tool.Handler
 			innerTools[i].Handler = f.customWriteFileHandler
 		}
@@ -91,7 +92,7 @@ func CreateAgent(ctx context.Context, baseDir, prompt string, runConfig config.R
 		return "", "", fmt.Errorf("failed to create LLM client: %w", err)
 	}
 
-	fmt.Println("Generating agent configuration....")
+	slog.Info("Generating agent configuration....")
 
 	fsToolset := fsToolset{inner: builtin.NewFilesystemTool([]string{baseDir})}
 	fileName := filepath.Base(fsToolset.path)
@@ -112,8 +113,10 @@ func CreateAgent(ctx context.Context, baseDir, prompt string, runConfig config.R
 		return "", "", fmt.Errorf("failed to create runtime: %w", err)
 	}
 
-	sess := session.New(session.WithUserMessage("", prompt))
-	sess.ToolsApproved = true
+	sess := session.New(
+		session.WithUserMessage("", prompt),
+		session.WithToolsApproved(true),
+	)
 
 	messages, err := rt.Run(ctx, sess)
 	if err != nil {
@@ -123,21 +126,13 @@ func CreateAgent(ctx context.Context, baseDir, prompt string, runConfig config.R
 	return messages[len(messages)-1].Message.Content, fsToolset.path, nil
 }
 
-func StreamCreateAgent(ctx context.Context, baseDir, prompt string, runConfig config.RuntimeConfig, providerName, modelNameOverride string, maxTokensOverride, maxIterations int) (<-chan runtime.Event, runtime.Runtime, error) {
-	// Apply default max iterations if not specified (0 means use defaults)
-	if maxIterations == 0 {
-		// Only when using DMR we set a default limit. Local models are more prone to loops
-		if providerName == "dmr" {
-			maxIterations = 20
-		}
-	}
+func Agent(ctx context.Context, baseDir string, runConfig config.RuntimeConfig, providerName string, maxTokensOverride int, modelNameOverride string) (*team.Team, error) {
 	defaultModels := map[string]string{
 		"openai":    "gpt-5-mini",
 		"anthropic": "claude-sonnet-4-0",
 		"google":    "gemini-2.5-flash",
 		"dmr":       "ai/qwen3:latest",
 	}
-
 	var modelName string
 	if _, ok := defaultModels[providerName]; ok {
 		modelName = defaultModels[providerName]
@@ -148,13 +143,7 @@ func StreamCreateAgent(ctx context.Context, baseDir, prompt string, runConfig co
 	if modelNameOverride != "" {
 		modelName = modelNameOverride
 	} else {
-		fmt.Printf("Using default model: %s\n", modelName)
-	}
-
-	// if the user provided a model override, let's use that by default for DMR
-	// in the generated agentfile
-	if providerName == "dmr" && modelName == "" {
-		defaultModels["dmr"] = modelName
+		slog.Info("Using default model: " + modelName)
 	}
 
 	// If not using a model gateway, avoid selecting a provider the user can't run
@@ -169,8 +158,29 @@ func StreamCreateAgent(ctx context.Context, baseDir, prompt string, runConfig co
 		if os.Getenv("GOOGLE_API_KEY") != "" {
 			usableProviders = append(usableProviders, "google")
 		}
+		if os.Getenv("MISTRAL_API_KEY") != "" {
+			usableProviders = append(usableProviders, "mistral")
+		}
 		// DMR runs locally by default; include it when not using a gateway
 		usableProviders = append(usableProviders, "dmr")
+	}
+
+	fsToolset := fsToolset{inner: builtin.NewFilesystemTool([]string{baseDir})}
+	fileName := filepath.Base(fsToolset.path)
+
+	// Provide soft guidance to prefer the selected providers
+	instructions := agentBuilderInstructions + "\n\nPreferred model providers to use: " + strings.Join(usableProviders, ", ") + ". You must always use one or more of the following model configurations: \n"
+	for _, provider := range usableProviders {
+		suggestedMaxTokens := 64000
+		if provider == "dmr" {
+			suggestedMaxTokens = 16000
+		}
+		instructions += fmt.Sprintf(`
+		models:
+			%s:
+				provider: %s
+				model: %s
+				max_tokens: %d\n`, provider, provider, defaultModels[provider], suggestedMaxTokens)
 	}
 
 	// Use 16k for DMR to limit memory costs
@@ -193,28 +203,7 @@ func StreamCreateAgent(ctx context.Context, baseDir, prompt string, runConfig co
 		options.WithGateway(runConfig.ModelsGateway),
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create LLM client: %w", err)
-	}
-
-	fmt.Println("Generating agent configuration....")
-
-	fsToolset := fsToolset{inner: builtin.NewFilesystemTool([]string{baseDir})}
-	fileName := filepath.Base(fsToolset.path)
-
-	// Provide soft guidance to prefer the selected providers
-	instructions := agentBuilderInstructions + "\n\nPreferred model providers to use: " + strings.Join(usableProviders, ", ") + ". You must always use one or more of the following model configurations: \n"
-	for _, provider := range usableProviders {
-		suggestedMaxTokens := 64000
-		if provider == "dmr" {
-			suggestedMaxTokens = 16000
-		}
-		instructions += fmt.Sprintf(`
-		version: "2"
-		models:
-			%s:
-				provider: %s
-				model: %s
-				max_tokens: %d\n`, provider, provider, defaultModels[provider], suggestedMaxTokens)
+		return nil, fmt.Errorf("failed to create LLM client: %w", err)
 	}
 
 	newTeam := team.New(
@@ -229,17 +218,6 @@ func StreamCreateAgent(ctx context.Context, baseDir, prompt string, runConfig co
 					&fsToolset,
 				),
 			)))
-	rt, err := runtime.New(newTeam)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create runtime: %w", err)
-	}
 
-	sess := session.New(
-		session.WithUserMessage("", prompt),
-		session.WithMaxIterations(maxIterations),
-	)
-	sess.ToolsApproved = true
-
-	events := rt.RunStream(ctx, sess)
-	return events, rt, nil
+	return newTeam, nil
 }

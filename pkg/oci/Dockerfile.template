@@ -22,7 +22,6 @@ LABEL org.opencontainers.image.version=""
 
 VOLUME /data
 ENV TELEMETRY_ENABLED=true
-ENV CAGENT_HIDE_FEEDBACK_LINK=0
 ENV CAGENT_HIDE_TELEMETRY_BANNER=0
 USER root
 RUN cat <<EOF >/agent.yaml && chmod 777 /agent.yaml

@@ -56,11 +56,11 @@ func (t *FilesystemToolset) Tools(ctx context.Context) ([]tools.Tool, error) {
 
 	for i := range baseTools {
 		switch baseTools[i].Name {
-		case "read_file":
+		case builtin.ToolNameReadFile:
 			baseTools[i].Handler = t.handleReadFile
-		case "write_file":
+		case builtin.ToolNameWriteFile:
 			baseTools[i].Handler = t.handleWriteFile
-		case "edit_file":
+		case builtin.ToolNameEditFile:
 			baseTools[i].Handler = t.handleEditFile
 		}
 	}

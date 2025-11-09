@@ -1,0 +1,43 @@
+---
+version: 2
+interactions:
+- id: 0
+  request:
+    proto: HTTP/1.1
+    proto_major: 1
+    proto_minor: 1
+    content_length: 0
+    host: api.anthropic.com
+    body: "{\"messages\":[{\"content\":[{\"text\":\"Who's djordje?. Be super concise.\",\"type\":\"text\"}],\"role\":\"user\"}],\"model\":\"claude-sonnet-4-0\",\"system\":[{\"text\":\"You are a knowledgeable assistant that helps users with various tasks.\\nBe helpful, accurate, and concise in your responses.\",\"type\":\"text\"}]}"
+    url: https://api.anthropic.com/v1/messages/count_tokens
+    method: POST
+  response:
+    proto: HTTP/2.0
+    proto_major: 2
+    proto_minor: 0
+    content_length: 19
+    body: "{\"input_tokens\":47}"
+    headers: {}
+    status: 200 OK
+    code: 200
+    duration: 322.217375ms
+- id: 1
+  request:
+    proto: HTTP/1.1
+    proto_major: 1
+    proto_minor: 1
+    content_length: 0
+    host: api.anthropic.com
+    body: "{\"max_tokens\":8192,\"messages\":[{\"content\":[{\"text\":\"Who's djordje?. Be super concise.\",\"type\":\"text\"}],\"role\":\"user\"}],\"model\":\"claude-sonnet-4-0\",\"system\":[{\"text\":\"You are a knowledgeable assistant that helps users with various tasks.\\nBe helpful, accurate, and concise in your responses.\",\"type\":\"text\"}],\"tools\":[],\"stream\":true}"
+    url: https://api.anthropic.com/v1/messages
+    method: POST
+  response:
+    proto: HTTP/2.0
+    proto_major: 2
+    proto_minor: 0
+    content_length: -1
+    body: "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-sonnet-4-20250514\",\"id\":\"msg_01NvGU2o6REjWRdHUU4ZWYS6\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":47,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":0},\"output_tokens\":2,\"service_tier\":\"standard\"}}       }\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}      }\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"I nee\"}               }\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"d more context. There are many people named Djordje (\"}              }\n\nevent: ping\ndata: {\"type\": \"ping\"}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"a Serbian name). Could you specify which Djordje you're asking\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" about?\"}           }\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0         }\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"input_tokens\":47,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"output_tokens\":35}           }\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"           }\n\n"
+    headers: {}
+    status: 200 OK
+    code: 200
+    duration: 1.590032s

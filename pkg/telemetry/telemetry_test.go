@@ -91,7 +91,6 @@ func (m *MockHTTPClient) GetRequestCount() int {
 func TestNewClient(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	// Test enabled client with mock HTTP client to capture HTTP calls
 	// Note: debug mode does NOT disable HTTP calls - it only adds extra logging
 	client := newClient(logger, false, false, "test-version")
 
@@ -111,14 +110,12 @@ func TestSessionTracking(t *testing.T) {
 	mockHTTP := NewMockHTTPClient()
 	client := newClient(logger, true, true, "test-version", mockHTTP.Client)
 
-	// Set endpoint, apiKey, and header to verify HTTP calls are made correctly
 	client.endpoint = "https://test-session-tracking.com/api"
 	client.apiKey = "test-session-key"
 	client.header = "test-header"
 
 	ctx := t.Context()
 
-	// Test session lifecycle
 	sessionID := client.RecordSessionStart(ctx, "test-agent", "test-session-id")
 	assert.NotEmpty(t, sessionID)
 
@@ -135,13 +132,11 @@ func TestSessionTracking(t *testing.T) {
 	// Wait for events to be processed
 	time.Sleep(100 * time.Millisecond)
 
-	// Verify HTTP requests were made (should have session start, tool call, token usage, session end)
 	requestCount := mockHTTP.GetRequestCount()
 	assert.Positive(t, requestCount, "Expected HTTP requests to be made for session tracking events")
 
 	t.Logf("Session tracking HTTP requests captured: %d", requestCount)
 
-	// Verify request structure
 	requests := mockHTTP.GetRequests()
 	for i, req := range requests {
 		assert.Equal(t, http.MethodPost, req.Method, "Request %d: Expected POST method", i)
@@ -154,7 +149,6 @@ func TestCommandTracking(t *testing.T) {
 	mockHTTP := NewMockHTTPClient()
 	client := newClient(logger, true, true, "test-version", mockHTTP.Client)
 
-	// Set endpoint, apiKey, and header to verify HTTP calls are made correctly
 	client.endpoint = "https://test-command-tracking.com/api"
 	client.apiKey = "test-command-key"
 	client.header = "test-header"
@@ -176,13 +170,11 @@ func TestCommandTracking(t *testing.T) {
 	// Wait for events to be processed
 	time.Sleep(100 * time.Millisecond)
 
-	// Verify HTTP requests were made for command tracking
 	requestCount := mockHTTP.GetRequestCount()
 	assert.Positive(t, requestCount, "Expected HTTP requests to be made for command tracking")
 
 	t.Logf("Command tracking HTTP requests captured: %d", requestCount)
 
-	// Verify request structure
 	requests := mockHTTP.GetRequests()
 	for i, req := range requests {
 		assert.Equal(t, "test-command-key", req.Header.Get("test-header"), "Request %d: Expected test-header test-command-key", i)
@@ -194,7 +186,6 @@ func TestCommandTrackingWithError(t *testing.T) {
 	mockHTTP := NewMockHTTPClient()
 	client := newClient(logger, true, true, "test-version", mockHTTP.Client)
 
-	// Set endpoint, apiKey, and header to verify HTTP calls are made correctly
 	client.endpoint = "https://test-command-error.com/api"
 	client.apiKey = "test-command-error-key"
 	client.header = "test-header"
@@ -214,7 +205,6 @@ func TestCommandTrackingWithError(t *testing.T) {
 	// Wait for events to be processed
 	time.Sleep(100 * time.Millisecond)
 
-	// Verify HTTP requests were made for command tracking with error
 	requestCount := mockHTTP.GetRequestCount()
 	assert.Positive(t, requestCount, "Expected HTTP requests to be made for command error tracking")
 
@@ -236,19 +226,15 @@ func TestStructuredEvent(t *testing.T) {
 }
 
 func TestGetTelemetryEnabled(t *testing.T) {
-	// Test default (enabled)
 	t.Setenv("TELEMETRY_ENABLED", "")
 	assert.True(t, GetTelemetryEnabled())
 
-	// Test explicitly disabled
 	t.Setenv("TELEMETRY_ENABLED", "false")
 	assert.False(t, GetTelemetryEnabled())
 
-	// Test explicitly enabled
 	t.Setenv("TELEMETRY_ENABLED", "true")
 	assert.True(t, GetTelemetryEnabled())
 
-	// Test other values default to enabled (only "false" disables)
 	testCases := []string{"1", "yes", "on", "enabled", "anything", ""}
 	for _, value := range testCases {
 		t.Setenv("TELEMETRY_ENABLED", value)
@@ -271,7 +257,6 @@ func (tc *Client) TrackCommand(ctx context.Context, commandInfo CommandInfo, fn 
 		return fn(ctx)
 	}
 
-	// Add telemetry client to context so the wrapped function can access it
 	ctx = WithClient(ctx, tc)
 
 	// Send telemetry event immediately (optimistic approach)
@@ -295,7 +280,6 @@ func (tc *Client) TrackServerStart(ctx context.Context, commandInfo CommandInfo,
 		return fn(ctx)
 	}
 
-	// Add telemetry client to context so the wrapped function can access it
 	ctx = WithClient(ctx, tc)
 
 	// Send startup event immediately
@@ -319,7 +303,6 @@ func TestAllEventTypes(t *testing.T) {
 	mockHTTP := NewMockHTTPClient()
 	client := newClient(logger, true, true, "test-version", mockHTTP.Client)
 
-	// Set endpoint, apiKey, and header to verify HTTP calls are made correctly
 	client.endpoint = "https://test-telemetry-all-events.com/api"
 	client.apiKey = "test-all-events-key"
 	client.header = "test-header"
@@ -332,7 +315,6 @@ func TestAllEventTypes(t *testing.T) {
 	client.RecordSessionStart(ctx, agentName, sessionID)
 
 	t.Run("CommandEvents", func(t *testing.T) {
-		// Test all major command events based on cmd/ files
 		commands := []struct {
 			action string
 			args   []string
@@ -355,7 +337,6 @@ func TestAllEventTypes(t *testing.T) {
 
 		for _, cmd := range commands {
 			t.Run(cmd.action, func(t *testing.T) {
-				// Test successful command
 				event := &CommandEvent{
 					Action:  cmd.action,
 					Args:    cmd.args,
@@ -363,7 +344,6 @@ func TestAllEventTypes(t *testing.T) {
 				}
 				client.Track(ctx, event)
 
-				// Test command with error
 				errorEvent := &CommandEvent{
 					Action:  cmd.action,
 					Args:    cmd.args,
@@ -376,7 +356,6 @@ func TestAllEventTypes(t *testing.T) {
 	})
 
 	t.Run("SessionEvents", func(t *testing.T) {
-		// Test session start event
 		startEvent := &SessionStartEvent{
 			Action:    "start",
 			SessionID: sessionID,
@@ -384,7 +363,6 @@ func TestAllEventTypes(t *testing.T) {
 		}
 		client.Track(ctx, startEvent)
 
-		// Test session end event
 		endEvent := &SessionEndEvent{
 			Action:       "end",
 			SessionID:    sessionID,
@@ -399,7 +377,6 @@ func TestAllEventTypes(t *testing.T) {
 		}
 		client.Track(ctx, endEvent)
 
-		// Test session with errors
 		errorSessionEvent := &SessionEndEvent{
 			Action:       "end",
 			SessionID:    sessionID + "-error",
@@ -416,7 +393,6 @@ func TestAllEventTypes(t *testing.T) {
 	})
 
 	t.Run("ToolEvents", func(t *testing.T) {
-		// Test various tool events based on the tool system
 		tools := []struct {
 			name     string
 			success  bool
@@ -457,7 +433,6 @@ func TestAllEventTypes(t *testing.T) {
 	})
 
 	t.Run("TokenEvents", func(t *testing.T) {
-		// Test token events for different models
 		models := []struct {
 			name         string
 			inputTokens  int64
@@ -488,7 +463,6 @@ func TestAllEventTypes(t *testing.T) {
 			})
 		}
 
-		// Test token event with error
 		errorTokenEvent := &TokenEvent{
 			Action:       "usage",
 			ModelName:    "failing-model",
@@ -510,44 +484,35 @@ func TestAllEventTypes(t *testing.T) {
 	// Give additional time for background processing
 	time.Sleep(100 * time.Millisecond)
 
-	// Verify that HTTP requests were made for all events
 	requestCount := mockHTTP.GetRequestCount()
 	assert.Positive(t, requestCount, "Expected HTTP requests to be made for telemetry events")
 
 	t.Logf("Total HTTP requests captured: %d", requestCount)
 
-	// Verify that all requests have correct structure
 	requests := mockHTTP.GetRequests()
 	bodies := mockHTTP.GetBodies()
 
 	assert.Len(t, requests, len(bodies), "Mismatch between request count and body count")
 
-	// Verify each HTTP request has correct headers and endpoint
 	for i, req := range requests {
-		// Verify method and URL
 		assert.Equal(t, http.MethodPost, req.Method, "Request %d: Expected POST method", i)
 		assert.Equal(t, "https://test-telemetry-all-events.com/api", req.URL.String(), "Request %d: Expected correct URL", i)
 
-		// Verify headers
 		assert.Equal(t, "application/json", req.Header.Get("Content-Type"), "Request %d: Expected Content-Type application/json", i)
 		assert.Equal(t, "cagent/test-version", req.Header.Get("User-Agent"), "Request %d: Expected User-Agent cagent/test-version", i)
 		assert.Equal(t, "test-all-events-key", req.Header.Get("test-header"), "Request %d: Expected test-header test-all-events-key", i)
 
-		// Verify request body structure
 		var requestBody map[string]any
 		require.NoError(t, json.Unmarshal(bodies[i], &requestBody), "Request %d: Failed to unmarshal request body", i)
 
-		// Verify it has records array structure
 		records, ok := requestBody["records"].([]any)
 		require.True(t, ok, "Request %d: Expected 'records' array in request body", i)
 		assert.Len(t, records, 1, "Request %d: Expected 1 record", i)
 
-		// Verify the event structure
 		record := records[0].(map[string]any)
 		eventType, ok := record["event"].(string)
 		assert.True(t, ok && eventType != "", "Request %d: Expected non-empty event type", i)
 
-		// Verify properties exist
 		_, ok = record["properties"].(map[string]any)
 		assert.True(t, ok, "Request %d: Expected properties object in event", i)
 	}
@@ -654,13 +619,10 @@ func TestGlobalTelemetryFunctions(t *testing.T) {
 	SetGlobalTelemetryVersion("test-version")
 	SetGlobalTelemetryDebugMode(true)
 
-	// Test global command recording
 	TrackCommand("test-command", []string{"arg1"})
 
-	// Verify global client was initialized
 	assert.NotNil(t, globalToolTelemetryClient)
 
-	// Test explicit initialization
 	EnsureGlobalTelemetryInitialized()
 	client := GetGlobalTelemetryClient()
 	assert.NotNil(t, client)
@@ -668,21 +630,17 @@ func TestGlobalTelemetryFunctions(t *testing.T) {
 
 // TestHTTPRequestVerification tests that HTTP requests are made correctly when telemetry is enabled
 func TestHTTPRequestVerification(t *testing.T) {
-	// Create logger with debug level to see all debug messages
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	mockHTTP := NewMockHTTPClient()
 
-	// Create client with mock HTTP client, endpoint, and API key to trigger HTTP calls
 	client := newClient(logger, true, true, "test-version", mockHTTP.Client)
 
-	// Set endpoint, API key, and header to ensure HTTP calls are made
 	client.endpoint = "https://test-telemetry.example.com/api/events"
 	client.apiKey = "test-api-key"
 	client.header = "test-header"
 
 	ctx := t.Context()
 
-	// Test command event HTTP request
 	t.Run("CommandEventHTTPRequest", func(t *testing.T) {
 		// Reset mock before test
 		mockHTTP = NewMockHTTPClient()
@@ -694,7 +652,6 @@ func TestHTTPRequestVerification(t *testing.T) {
 			Success: true,
 		}
 
-		// Verify the client is properly configured
 		assert.NotEmpty(t, client.endpoint, "Client endpoint should be set for this test")
 		assert.NotEmpty(t, client.apiKey, "Client API key should be set for this test")
 		assert.True(t, client.enabled, "Client should be enabled for this test")
@@ -709,45 +666,37 @@ func TestHTTPRequestVerification(t *testing.T) {
 		// Debug output
 		t.Logf("HTTP requests captured: %d", mockHTTP.GetRequestCount())
 
-		// Verify HTTP request was made
 		assert.Positive(t, mockHTTP.GetRequestCount(), "Expected HTTP request to be made")
 
 		requests := mockHTTP.GetRequests()
 		req := requests[0]
 
-		// Verify request method and URL
 		assert.Equal(t, http.MethodPost, req.Method, "Expected POST request")
 		assert.Equal(t, "https://test-telemetry.example.com/api/events", req.URL.String(), "Expected correct URL")
 
-		// Verify headers
 		assert.Equal(t, "application/json", req.Header.Get("Content-Type"), "Expected Content-Type application/json")
 		assert.Equal(t, "cagent/test-version", req.Header.Get("User-Agent"), "Expected User-Agent cagent/test-version")
 		assert.Equal(t, "test-api-key", req.Header.Get("test-header"), "Expected test-header test-api-key")
 
-		// Verify request body structure
 		bodies := mockHTTP.GetBodies()
 		assert.NotEmpty(t, bodies, "Expected request body to be captured")
 
 		var requestBody map[string]any
 		require.NoError(t, json.Unmarshal(bodies[0], &requestBody), "Failed to unmarshal request body")
 
-		// Verify it has records array structure
 		records, ok := requestBody["records"].([]any)
 		require.True(t, ok, "Expected 'records' array in request body")
 		assert.Len(t, records, 1, "Expected 1 record")
 
-		// Verify the event structure
 		record := records[0].(map[string]any)
 		assert.Equal(t, "command", record["event"], "Expected event type 'command'")
 
-		// Verify properties contain the command data
 		properties, ok := record["properties"].(map[string]any)
 		require.True(t, ok, "Expected properties object in event")
 		assert.Equal(t, "run", properties["action"], "Expected action 'run'")
 		assert.True(t, properties["is_success"].(bool), "Expected is_success true")
 	})
 
-	// Test that no HTTP calls are made when endpoint/apiKey are missing
 	t.Run("NoHTTPWhenMissingCredentials", func(t *testing.T) {
 		mockHTTP2 := NewMockHTTPClient()
 		client2 := newClient(logger, true, true, "test-version", mockHTTP2.Client)
@@ -763,11 +712,9 @@ func TestHTTPRequestVerification(t *testing.T) {
 
 		client2.Track(ctx, event)
 
-		// Verify no HTTP requests were made
 		assert.Zero(t, mockHTTP2.GetRequestCount(), "Expected no HTTP requests when endpoint/apiKey are missing")
 	})
 
-	// Test that no HTTP calls are made when client is disabled
 	t.Run("NoHTTPWhenDisabled", func(t *testing.T) {
 		mockHTTP3 := NewMockHTTPClient()
 		client3 := newClient(logger, false, true, "test-version", mockHTTP3.Client)
@@ -779,7 +726,6 @@ func TestHTTPRequestVerification(t *testing.T) {
 
 		client3.Track(ctx, event)
 
-		// Verify no HTTP requests were made (client disabled means Track returns early)
 		assert.Zero(t, mockHTTP3.GetRequestCount(), "Expected no HTTP requests when client is disabled")
 	})
 }
@@ -821,7 +767,6 @@ func TestNon2xxHTTPResponseHandling(t *testing.T) {
 	requestCount := mockHTTP.GetRequestCount()
 	assert.Positive(t, requestCount, "Expected HTTP request to be made despite error response")
 
-	// Test additional error codes
 	mockHTTP.SetResponse(&http.Response{
 		StatusCode: http.StatusNotFound,
 		Status:     "404 Not Found",

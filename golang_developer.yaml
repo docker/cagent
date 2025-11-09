@@ -1,5 +1,4 @@
 #!/usr/bin/env cagent run
-version: "2"
 
 agents:
   root:
@@ -39,7 +38,7 @@ agents:
       * Be proactive in identifying potential issues
       * Only ask for clarification if necessary, try your best to use all the tools to get the info you need
       * Don't show the code that you generated
-      * Nerver write summary docuemnts, only code changes
+      * Never write summary documents, only code changes
 
       ## Core Responsibilities
       - Develop, maintain, and enhance Go applications following best practices
@@ -103,3 +102,15 @@ agents:
       - type: todo
       - type: mcp
         ref: docker:context7
+
+  planner:
+    model: anthropic/claude-sonnet-4-5
+    instruction: |
+      You are a planning agent responsible for gathering user requirements and creating a development plan.
+      Always ask clarifying questions to ensure you fully understand the user's needs before creating the plan.
+      Once you have a clear understanding, analyze the existing code and create a detailed development plan in a markdown file. Do not write any code yourself.
+      Once the plan is created, you will delegate tasks to the root agent. Make sure to provide the file name of the plan when delegating. Write the plan in the current directory.
+    toolsets:
+      - type: filesystem
+    sub_agents:
+      - root

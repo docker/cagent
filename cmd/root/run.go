@@ -1,25 +1,20 @@
 package root
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
-	"path/filepath"
-	"strings"
-	"time"
 
-	tea "github.com/charmbracelet/bubbletea/v2"
+	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 	"go.opentelemetry.io/otel"
 
-	"github.com/docker/cagent/pkg/aliases"
+	"github.com/docker/cagent/pkg/agentfile"
 	"github.com/docker/cagent/pkg/app"
 	"github.com/docker/cagent/pkg/cli"
-	"github.com/docker/cagent/pkg/content"
-	"github.com/docker/cagent/pkg/remote"
+	"github.com/docker/cagent/pkg/config"
 	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/team"
@@ -28,19 +23,21 @@ import (
 	"github.com/docker/cagent/pkg/tui"
 )
 
-var (
-	agentsDir      string
+type runExecFlags struct {
+	agentName      string
+	workingDir     string
 	autoApprove    bool
 	attachmentPath string
-	workingDir     string
 	useTUI         bool
 	remoteAddress  string
-	dryRun         bool
 	modelOverrides []string
-)
+	dryRun         bool
+	runConfig      config.RuntimeConfig
+}
 
-// NewRunCmd creates a new run command
-func NewRunCmd() *cobra.Command {
+func newRunCmd() *cobra.Command {
+	var flags runExecFlags
+
 	cmd := &cobra.Command{
 		Use:   "run <agent-name> [message|-]",
 		Short: "Run an agent",
@@ -50,272 +47,230 @@ func NewRunCmd() *cobra.Command {
   cagent run ./echo.yaml "INSTRUCTIONS"
   echo "INSTRUCTIONS" | cagent run ./echo.yaml -`,
 		Args: cobra.RangeArgs(1, 2),
-		RunE: runCommand,
+		RunE: flags.runRunCommand,
 	}
 
-	cmd.PersistentFlags().StringVarP(&agentName, "agent", "a", "root", "Name of the agent to run")
-	cmd.PersistentFlags().StringVar(&workingDir, "working-dir", "", "Set the working directory for the session (applies to tools and relative paths)")
-	cmd.PersistentFlags().BoolVar(&autoApprove, "yolo", false, "Automatically approve all tool calls without prompting")
-	cmd.PersistentFlags().StringVar(&attachmentPath, "attach", "", "Attach an image file to the message")
-	cmd.PersistentFlags().BoolVar(&useTUI, "tui", true, "Run the agent with a Terminal User Interface (TUI)")
-	cmd.PersistentFlags().StringVar(&remoteAddress, "remote", "", "Use remote runtime with specified address (only supported with TUI)")
-	cmd.PersistentFlags().StringArrayVar(&modelOverrides, "model", nil, "Override agent model: [agent=]provider/model (repeatable)")
-	addGatewayFlags(cmd)
-	addRuntimeConfigFlags(cmd)
+	cmd.PersistentFlags().StringVarP(&flags.agentName, "agent", "a", "root", "Name of the agent to run")
+	cmd.PersistentFlags().StringVar(&flags.workingDir, "working-dir", "", "Set the working directory for the session (applies to tools and relative paths)")
+	cmd.PersistentFlags().BoolVar(&flags.autoApprove, "yolo", false, "Automatically approve all tool calls without prompting")
+	cmd.PersistentFlags().StringVar(&flags.attachmentPath, "attach", "", "Attach an image file to the message")
+	cmd.PersistentFlags().BoolVar(&flags.useTUI, "tui", true, "Run the agent with a Terminal User Interface (TUI)")
+	cmd.PersistentFlags().StringVar(&flags.remoteAddress, "remote", "", "Use remote runtime with specified address (only supported with TUI)")
+	cmd.PersistentFlags().StringArrayVar(&flags.modelOverrides, "model", nil, "Override agent model: [agent=]provider/model (repeatable)")
+
+	addRuntimeConfigFlags(cmd, &flags.runConfig)
 
 	return cmd
 }
 
-func runCommand(cmd *cobra.Command, args []string) error {
+func (f *runExecFlags) runRunCommand(cmd *cobra.Command, args []string) error {
 	telemetry.TrackCommand("run", args)
-	return doRunCommand(cmd.Context(), args, false)
+
+	ctx := cmd.Context()
+	out := cli.NewPrinter(cmd.OutOrStdout())
+
+	return f.runOrExec(ctx, out, args, false)
 }
 
-func execCommand(cmd *cobra.Command, args []string) error {
-	telemetry.TrackCommand("exec", args)
-	return doRunCommand(cmd.Context(), args, true)
-}
+func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []string, exec bool) error {
+	slog.Debug("Starting agent", "agent", f.agentName)
 
-func doRunCommand(ctx context.Context, args []string, exec bool) error {
-	slog.Debug("Starting agent", "agent", agentName, "debug_mode", debugMode)
-
-	agentFilename := args[0]
-
-	// Try to resolve as an alias first
-	if aliasStore, err := aliases.Load(); err == nil {
-		if resolvedPath, ok := aliasStore.Get(agentFilename); ok {
-			slog.Debug("Resolved alias", "alias", agentFilename, "path", resolvedPath)
-			agentFilename = resolvedPath
-		}
+	if err := f.validateRemoteFlag(exec); err != nil {
+		return err
 	}
 
-	if !strings.Contains(agentFilename, "\n") && (strings.Contains(agentFilename, ".yaml") || strings.Contains(agentFilename, ".yml")) {
-		if abs, err := filepath.Abs(agentFilename); err == nil {
-			agentFilename = abs
-		}
+	if err := f.setupWorkingDirectory(); err != nil {
+		return err
 	}
 
-	if enableOtel {
-		shutdown, err := initOTelSDK(ctx)
-		if err != nil {
-			slog.Warn("Failed to initialize OpenTelemetry SDK", "error", err)
-		} else if shutdown != nil {
-			defer func() {
-				shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				if err := shutdown(shutdownCtx); err != nil {
-					slog.Warn("Failed to shutdown OpenTelemetry SDK", "error", err)
-				}
-			}()
-			slog.Debug("OpenTelemetry SDK initialized successfully")
-		}
-	}
+	agentFileName := ""
 
-	// If working-dir was provided, validate and change process working directory
-	if workingDir != "" {
-		absWd, err := filepath.Abs(workingDir)
-		if err != nil {
-			return fmt.Errorf("invalid working directory: %w", err)
-		}
-		info, err := os.Stat(absWd)
-		if err != nil || !info.IsDir() {
-			return fmt.Errorf("working directory does not exist or is not a directory: %s", absWd)
-		}
-		if err := os.Chdir(absWd); err != nil {
-			return fmt.Errorf("failed to change working directory: %w", err)
-		}
-		_ = os.Setenv("PWD", absWd)
-		slog.Debug("Working directory set", "dir", absWd)
-	}
-
-	// Skip agent file loading when using remote runtime
-	var agents *team.Team
+	var rt runtime.Runtime
+	var sess *session.Session
 	var err error
-	if remoteAddress == "" {
-		// Determine how to obtain the agent definition
-		ext := strings.ToLower(filepath.Ext(agentFilename))
-		if ext == ".yaml" || ext == ".yml" || strings.HasPrefix(agentFilename, "/dev/fd/") {
-			// Treat as local YAML file: resolve to absolute path so later chdir doesn't break it
-			if !strings.Contains(agentFilename, "\n") {
-				if abs, err := filepath.Abs(agentFilename); err == nil {
-					agentFilename = abs
-				}
-			}
-			if !fileExists(agentFilename) {
-				return fmt.Errorf("agent file not found: %s", agentFilename)
-			}
-		} else {
-			// Treat as an OCI image reference. Try local store first, otherwise pull then load.
-			a, err := fromStore(agentFilename)
-			if err != nil {
-				fmt.Println("Pulling agent", agentFilename)
-				if _, pullErr := remote.Pull(agentFilename); pullErr != nil {
-					return fmt.Errorf("failed to pull OCI image %s: %w", agentFilename, pullErr)
-				}
-				// Retry after pull
-				a, err = fromStore(agentFilename)
-				if err != nil {
-					return fmt.Errorf("failed to load agent from store after pull: %w", err)
-				}
-			}
-
-			// Write the fetched content to a temporary YAML file
-			tmpFile, err := os.CreateTemp("", "agentfile-*.yaml")
-			if err != nil {
-				return err
-			}
-			defer os.Remove(tmpFile.Name())
-			if _, err := tmpFile.WriteString(a); err != nil {
-				tmpFile.Close()
-				return err
-			}
-			if err := tmpFile.Close(); err != nil {
-				return err
-			}
-			agentFilename = tmpFile.Name()
-		}
-
-		if runConfig.RedirectURI == "" {
-			runConfig.RedirectURI = "http://localhost:8083/oauth-callback"
-		}
-
-		agents, err = teamloader.Load(ctx, agentFilename, runConfig, teamloader.WithModelOverrides(modelOverrides))
+	if f.remoteAddress != "" {
+		rt, sess, err = f.createRemoteRuntimeAndSession(ctx, args[0])
 		if err != nil {
 			return err
 		}
-		defer func() {
-			if err := agents.StopToolSets(ctx); err != nil {
-				slog.Error("Failed to stop tool sets", "error", err)
-			}
-		}()
 	} else {
-		// For remote runtime, just store the original agent filename
-		// The remote server will handle agent loading
-		slog.Debug("Skipping local agent file loading for remote runtime", "filename", agentFilename)
+		agentFileName, err = f.resolveAgentFile(ctx, out, args[0])
+		if err != nil {
+			return err
+		}
+
+		t, err := f.loadAgents(ctx, agentFileName)
+		if err != nil {
+			return err
+		}
+
+		rt, sess, err = f.createLocalRuntimeAndSession(t)
+		if err != nil {
+			return err
+		}
 	}
 
-	// Validate remote flag usage
-	if remoteAddress != "" && (!useTUI || exec) {
+	if exec {
+		return f.handleExecMode(ctx, out, agentFileName, rt, sess, args)
+	}
+
+	if !f.useTUI {
+		return f.handleCLIMode(ctx, out, agentFileName, rt, sess, args)
+	}
+
+	return handleTUIMode(ctx, agentFileName, rt, sess, args)
+}
+
+func (f *runExecFlags) setupWorkingDirectory() error {
+	return setupWorkingDirectory(f.workingDir)
+}
+
+// resolveAgentFile is a wrapper method that calls the agentfile.Resolve function
+// after checking for remote address
+func (f *runExecFlags) resolveAgentFile(ctx context.Context, out *cli.Printer, agentFilename string) (string, error) {
+	if f.remoteAddress != "" {
+		return agentFilename, nil
+	}
+	return agentfile.Resolve(ctx, out, agentFilename)
+}
+
+func (f *runExecFlags) loadAgents(ctx context.Context, agentFilename string) (*team.Team, error) {
+	t, err := teamloader.Load(ctx, agentFilename, f.runConfig, teamloader.WithModelOverrides(f.modelOverrides))
+	if err != nil {
+		return nil, err
+	}
+
+	go func() {
+		<-ctx.Done()
+		if err := t.StopToolSets(ctx); err != nil {
+			slog.Error("Failed to stop tool sets", "error", err)
+		}
+	}()
+
+	return t, nil
+}
+
+func (f *runExecFlags) validateRemoteFlag(exec bool) error {
+	if f.remoteAddress != "" && (!f.useTUI || exec) {
 		return fmt.Errorf("--remote flag can only be used with TUI mode")
 	}
+	return nil
+}
 
-	tracer := otel.Tracer(AppName)
-
-	var sess *session.Session
-
-	// Create runtime based on whether remote flag is specified
-	var rt runtime.Runtime
-	if remoteAddress != "" && useTUI && !exec {
-		// Create remote runtime for TUI mode
-		remoteClient, err := runtime.NewClient(remoteAddress)
-		if err != nil {
-			return fmt.Errorf("failed to create remote client: %w", err)
-		}
-
-		// Attach agent metadata so remote runtimes can attribute usage correctly.
-		sessTemplate := session.New(session.WithAgentMetadata(agentName, ""))
-		sessTemplate.ToolsApproved = autoApprove
-		sess, err = remoteClient.CreateSession(ctx, sessTemplate)
-		if err != nil {
-			return err
-		}
-
-		remoteRt, err := runtime.NewRemoteRuntime(remoteClient,
-			runtime.WithRemoteCurrentAgent(agentName),
-			runtime.WithRemoteAgentFilename(args[0]),
-		)
-		if err != nil {
-			return fmt.Errorf("failed to create remote runtime: %w", err)
-		}
-		rt = remoteRt
-		slog.Debug("Using remote runtime", "address", remoteAddress, "agent", agentName)
-	} else {
-		agent, err := agents.Agent(agentName)
-		if err != nil {
-			return err
-		}
-
-		// Create session first to get its ID for OAuth state encoding
-		sess = session.New(
-			// Provide agent metadata so local sessions report attribution like remote ones.
-			session.WithMaxIterations(agent.MaxIterations()),
-			session.WithAgentMetadata(agentName, ""),
-		)
-		sess.ToolsApproved = autoApprove
-
-		// Create local runtime with root session ID for OAuth state encoding
-		localRt, err := runtime.New(agents,
-			runtime.WithCurrentAgent(agentName),
-			runtime.WithTracer(tracer),
-			runtime.WithRootSessionID(sess.ID),
-		)
-		if err != nil {
-			return fmt.Errorf("failed to create runtime: %w", err)
-		}
-		rt = localRt
-		slog.Debug("Using local runtime", "agent", agentName)
+func (f *runExecFlags) createRemoteRuntimeAndSession(ctx context.Context, originalFilename string) (runtime.Runtime, *session.Session, error) {
+	remoteClient, err := runtime.NewClient(f.remoteAddress)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create remote client: %w", err)
 	}
 
-	// For `cagent exec`
-	if exec {
-		execArgs := []string{"exec"}
-		if len(args) == 2 {
-			execArgs = append(execArgs, args[1])
-		} else {
-			execArgs = append(execArgs, "Follow the default instructions")
-		}
+	sessTemplate := session.New(
+		session.WithToolsApproved(f.autoApprove),
+	)
 
-		if dryRun {
-			fmt.Println("Dry run mode enabled. Agent initialized but will not execute.")
-			return nil
-		}
-		err := cli.Run(ctx, cli.Config{
-			AppName:        AppName,
-			AttachmentPath: attachmentPath,
-		}, agentFilename, rt, sess, execArgs)
-		if cliErr, ok := err.(cli.RuntimeError); ok {
-			return RuntimeError{Err: cliErr.Err}
-		}
-		return err
+	sess, err := remoteClient.CreateSession(ctx, sessTemplate)
+	if err != nil {
+		return nil, nil, err
 	}
 
-	// For `cagent run --tui=false`
-	if !useTUI {
-		err := cli.Run(ctx, cli.Config{
-			AppName:        AppName,
-			AttachmentPath: attachmentPath,
-		}, agentFilename, rt, sess, args)
-		if cliErr, ok := err.(cli.RuntimeError); ok {
-			return RuntimeError{Err: cliErr.Err}
-		}
-		return err
+	remoteRt, err := runtime.NewRemoteRuntime(remoteClient,
+		runtime.WithRemoteCurrentAgent(f.agentName),
+		runtime.WithRemoteAgentFilename(originalFilename),
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create remote runtime: %w", err)
 	}
 
-	// The default is to use the TUI
-	var firstMessage *string
+	slog.Debug("Using remote runtime", "address", f.remoteAddress, "agent", f.agentName)
+	return remoteRt, sess, nil
+}
+
+func (f *runExecFlags) createLocalRuntimeAndSession(t *team.Team) (runtime.Runtime, *session.Session, error) {
+	agent, err := t.Agent(f.agentName)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	sess := session.New(
+		session.WithMaxIterations(agent.MaxIterations()),
+		session.WithToolsApproved(f.autoApprove),
+	)
+
+	localRt, err := runtime.New(t,
+		runtime.WithCurrentAgent(f.agentName),
+		runtime.WithTracer(otel.Tracer(AppName)),
+		runtime.WithRootSessionID(sess.ID),
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create runtime: %w", err)
+	}
+
+	slog.Debug("Using local runtime", "agent", f.agentName)
+	return localRt, sess, nil
+}
+
+func (f *runExecFlags) handleExecMode(ctx context.Context, out *cli.Printer, agentFilename string, rt runtime.Runtime, sess *session.Session, args []string) error {
+	execArgs := []string{"exec"}
 	if len(args) == 2 {
-		// TODO: attachments
-		if args[1] == "-" {
-			buf, err := io.ReadAll(os.Stdin)
-			if err != nil {
-				return fmt.Errorf("failed to read from stdin: %w", err)
-			}
-			text := string(buf)
-			firstMessage = &text
-		} else {
-			firstMessage = &args[1]
-		}
+		execArgs = append(execArgs, args[1])
+	} else {
+		execArgs = append(execArgs, "Follow the default instructions")
 	}
 
-	a := app.New("cagent", agentFilename, rt, agents, sess, firstMessage)
+	if f.dryRun {
+		out.Println("Dry run mode enabled. Agent initialized but will not execute.")
+		return nil
+	}
+
+	err := cli.Run(ctx, out, cli.Config{
+		AppName:        AppName,
+		AttachmentPath: f.attachmentPath,
+	}, agentFilename, rt, sess, execArgs)
+	if cliErr, ok := err.(cli.RuntimeError); ok {
+		return RuntimeError{Err: cliErr.Err}
+	}
+	return err
+}
+
+func (f *runExecFlags) handleCLIMode(ctx context.Context, out *cli.Printer, agentFilename string, rt runtime.Runtime, sess *session.Session, args []string) error {
+	err := cli.Run(ctx, out, cli.Config{
+		AppName:        AppName,
+		AttachmentPath: f.attachmentPath,
+	}, agentFilename, rt, sess, args)
+	if cliErr, ok := err.(cli.RuntimeError); ok {
+		return RuntimeError{Err: cliErr.Err}
+	}
+	return err
+}
+
+func readInitialMessage(args []string) (*string, error) {
+	if len(args) < 2 {
+		return nil, nil
+	}
+
+	if args[1] == "-" {
+		buf, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read from stdin: %w", err)
+		}
+		text := string(buf)
+		return &text, nil
+	}
+
+	return &args[1], nil
+}
+
+func handleTUIMode(ctx context.Context, agentFilename string, rt runtime.Runtime, sess *session.Session, args []string) error {
+	firstMessage, err := readInitialMessage(args)
+	if err != nil {
+		return err
+	}
+
+	a := app.New(agentFilename, rt, sess, firstMessage)
 	m := tui.New(a)
 
 	progOpts := []tea.ProgramOption{
-		tea.WithAltScreen(),
 		tea.WithContext(ctx),
 		tea.WithFilter(tui.MouseEventFilter),
-		tea.WithMouseCellMotion(),
-		tea.WithMouseAllMotion(),
 	}
 
 	p := tea.NewProgram(m, progOpts...)
@@ -324,42 +279,4 @@ func doRunCommand(ctx context.Context, args []string, exec bool) error {
 
 	_, err = p.Run()
 	return err
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	exists := err == nil
-	return exists
-}
-
-func fromStore(reference string) (string, error) {
-	store, err := content.NewStore()
-	if err != nil {
-		return "", err
-	}
-
-	img, err := store.GetArtifactImage(reference)
-	if err != nil {
-		return "", err
-	}
-
-	layers, err := img.Layers()
-	if err != nil {
-		return "", err
-	}
-
-	var buf bytes.Buffer
-	layer := layers[0]
-	b, err := layer.Uncompressed()
-	if err != nil {
-		return "", err
-	}
-
-	_, err = io.Copy(&buf, b)
-	if err != nil {
-		return "", err
-	}
-	b.Close()
-
-	return buf.String(), nil
 }

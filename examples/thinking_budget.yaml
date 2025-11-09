@@ -3,8 +3,6 @@
 # Run the demo command with:
 # cagent run thinking_budget.yaml -c demo
 
-version: "2"
-
 agents:
   root:
     model: gpt-5-mini-min # <- try with gpt-5-mini-high

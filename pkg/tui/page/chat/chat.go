@@ -6,11 +6,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/atotto/clipboard"
-	"github.com/charmbracelet/bubbles/v2/help"
-	"github.com/charmbracelet/bubbles/v2/key"
-	tea "github.com/charmbracelet/bubbletea/v2"
-	"github.com/charmbracelet/lipgloss/v2"
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/docker/cagent/pkg/app"
 	"github.com/docker/cagent/pkg/history"
@@ -19,6 +18,7 @@ import (
 	"github.com/docker/cagent/pkg/tui/components/messages"
 	"github.com/docker/cagent/pkg/tui/components/notification"
 	"github.com/docker/cagent/pkg/tui/components/sidebar"
+	"github.com/docker/cagent/pkg/tui/components/tool"
 	"github.com/docker/cagent/pkg/tui/core"
 	"github.com/docker/cagent/pkg/tui/core/layout"
 	"github.com/docker/cagent/pkg/tui/dialog"
@@ -32,6 +32,10 @@ type FocusedPanel string
 const (
 	PanelChat   FocusedPanel = "chat"
 	PanelEditor FocusedPanel = "editor"
+
+	sidebarWidth = 40
+	// Hide sidebar if window width is less than this
+	minWindowWidth = 120
 )
 
 // Page represents the main chat page
@@ -40,14 +44,12 @@ type Page interface {
 	layout.Sizeable
 	layout.Help
 	CompactSession() tea.Cmd
-	CopySessionToClipboard() tea.Cmd
 	Cleanup()
 }
 
 // chatPage implements Page
 type chatPage struct {
 	width, height int
-	sessionTitle  string
 
 	// Components
 	sidebar  sidebar.Model
@@ -63,8 +65,7 @@ type chatPage struct {
 	// Key map
 	keyMap KeyMap
 
-	title string
-	app   *app.App
+	app *app.App
 
 	history *history.History
 
@@ -88,7 +89,7 @@ func defaultKeyMap() KeyMap {
 		),
 		Cancel: key.NewBinding(
 			key.WithKeys("esc"),
-			key.WithHelp("esc", "cancel stream"),
+			key.WithHelp("esc", "cancel"),
 		),
 	}
 }
@@ -101,7 +102,6 @@ func New(a *app.App) Page {
 	}
 
 	return &chatPage{
-		title:        a.Title(),
 		sidebar:      sidebar.New(),
 		messages:     messages.New(a),
 		editor:       editor.New(a, historyStore),
@@ -114,26 +114,26 @@ func New(a *app.App) Page {
 
 // Init initializes the chat page
 func (p *chatPage) Init() tea.Cmd {
-	cmds := []tea.Cmd{
+	var cmds []tea.Cmd
+
+	// Add welcome message if present
+	welcomeMsg := p.app.CurrentWelcomeMessage(context.Background())
+	if welcomeMsg != "" {
+		cmds = append(cmds, p.messages.AddWelcomeMessage(welcomeMsg))
+	}
+
+	cmds = append(cmds,
 		p.sidebar.Init(),
 		p.messages.Init(),
 		p.editor.Init(),
 		p.editor.Focus(),
-	}
-
-	if firstMessage := p.app.FirstMessage(); firstMessage != nil {
-		cmds = append(cmds, func() tea.Msg {
-			return editor.SendMsg{
-				Content: *firstMessage,
-			}
-		})
-	}
+	)
 
 	return tea.Batch(cmds...)
 }
 
 // Update handles messages and updates the page state
-func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (p *chatPage) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
@@ -158,6 +158,12 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return p, tea.Batch(cmds...)
 
 	case tea.KeyPressMsg:
+		if msg.String() == "ctrl+t" {
+			model, cmd := p.messages.Update(tool.ToggleDiffViewMsg{})
+			p.messages = model.(messages.Model)
+			return p, cmd
+		}
+
 		switch {
 		case key.Matches(msg, p.keyMap.Tab):
 			p.switchFocus()
@@ -209,12 +215,6 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case *runtime.ErrorEvent:
 		cmd := p.messages.AddErrorMessage(msg.Error)
 		return p, tea.Batch(cmd, p.messages.ScrollToBottom())
-	case *runtime.MCPInitStartedEvent:
-		spinnerCmd := p.sidebar.SetMCPInitializing(true)
-		return p, spinnerCmd
-	case *runtime.MCPInitFinishedEvent:
-		spinnerCmd := p.sidebar.SetMCPInitializing(false)
-		return p, spinnerCmd
 	case *runtime.ShellOutputEvent:
 		cmd := p.messages.AddShellOutputMessage(msg.Output)
 		return p, tea.Batch(cmd, p.messages.ScrollToBottom())
@@ -248,10 +248,8 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return p, tea.Batch(cmd, p.messages.ScrollToBottom())
 		}
 		return p, cmd
-	case *runtime.SessionTitleEvent:
-		p.sessionTitle = msg.Title
 	case *runtime.TokenUsageEvent:
-		p.sidebar.SetTokenUsage(msg.Usage)
+		p.sidebar.SetTokenUsage(msg) // forward full event so sidebar can track per-session usage
 	case *runtime.StreamStoppedEvent:
 		spinnerCmd := p.setWorking(false)
 		cmd := p.messages.AddSeparatorMessage()
@@ -272,7 +270,7 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Open tool confirmation dialog
 		dialogCmd := core.CmdHandler(dialog.OpenDialogMsg{
-			Model: dialog.NewToolConfirmationDialog(msg.ToolCall, p.app),
+			Model: dialog.NewToolConfirmationDialog(msg.ToolCall),
 		})
 
 		return p, tea.Batch(cmd, p.messages.ScrollToBottom(), spinnerCmd, dialogCmd)
@@ -337,34 +335,50 @@ func (p *chatPage) setWorking(working bool) tea.Cmd {
 
 // View renders the chat page
 func (p *chatPage) View() string {
-	// Header
-	headerText := p.title
-	header := styles.HeaderStyle.Render(headerText + " " + p.sessionTitle)
-
 	// Main chat content area (without input)
-	// Calculate chat width (85% of available width)
 	innerWidth := p.width // subtract app style padding
-	sidebarWidth := int(float64(innerWidth) * 0.15)
-	chatWidth := innerWidth - sidebarWidth
 
-	chatView := styles.ChatStyle.
-		Height(p.chatHeight).
-		Width(chatWidth).
-		Render(p.messages.View())
+	var bodyContent string
 
-	// Sidebar with explicit height constraint to prevent disappearing during scroll
-	sidebarView := lipgloss.NewStyle().
-		Width(sidebarWidth).
-		Height(p.chatHeight).
-		Align(lipgloss.Left, lipgloss.Top).
-		Render(p.sidebar.View())
+	if p.width >= minWindowWidth {
+		chatWidth := innerWidth - sidebarWidth
 
-	// Create horizontal layout with chat content and sidebar
-	bodyContent := lipgloss.JoinHorizontal(
-		lipgloss.Top,
-		chatView,
-		sidebarView,
-	)
+		chatView := styles.ChatStyle.
+			Height(p.chatHeight).
+			Width(chatWidth).
+			Render(p.messages.View())
+
+		sidebarView := lipgloss.NewStyle().
+			Width(sidebarWidth).
+			Height(p.chatHeight).
+			Align(lipgloss.Left, lipgloss.Top).
+			Render(p.sidebar.View())
+
+		bodyContent = lipgloss.JoinHorizontal(
+			lipgloss.Left,
+			chatView,
+			sidebarView,
+		)
+	} else {
+		sidebarWidth, sidebarHeight := p.sidebar.GetSize()
+
+		chatView := styles.ChatStyle.
+			Height(p.chatHeight).
+			Width(innerWidth).
+			Render(p.messages.View())
+
+		sidebarView := lipgloss.NewStyle().
+			Width(sidebarWidth).
+			Height(sidebarHeight).
+			Align(lipgloss.Left, lipgloss.Top).
+			Render(p.sidebar.View())
+
+		bodyContent = lipgloss.JoinVertical(
+			lipgloss.Top,
+			sidebarView,
+			chatView,
+		)
+	}
 
 	// Input field spans full width below everything
 	input := p.editor.View()
@@ -372,7 +386,6 @@ func (p *chatPage) View() string {
 	// Create a full-height layout with header, body, and input
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
-		header,
 		bodyContent,
 		input,
 	)
@@ -382,7 +395,6 @@ func (p *chatPage) View() string {
 		Render(content)
 }
 
-// SetSize sets the dimensions of the chat page
 func (p *chatPage) SetSize(width, height int) tea.Cmd {
 	p.width = width
 	p.height = height
@@ -390,25 +402,31 @@ func (p *chatPage) SetSize(width, height int) tea.Cmd {
 	var cmds []tea.Cmd
 
 	// Calculate heights accounting for padding
-	headerHeight := 3 // header + top/bottom padding
 	editorHeight := 3 // fixed 3 lines for multi-line input
 
 	// Calculate available space, ensuring status bar remains visible
-	availableHeight := height - headerHeight
-	p.inputHeight = editorHeight + 2 // account for editor padding
-	p.chatHeight = availableHeight - p.inputHeight
+	p.inputHeight = editorHeight + 3 // account for editor padding
 
 	// Account for horizontal padding in width
 	innerWidth := width - 2 // subtract left/right padding
 
-	// Calculate sidebar and main content widths (15% sidebar, 85% main)
-	sidebarWidth := int(float64(innerWidth) * 0.15)
-	mainWidth := innerWidth - sidebarWidth
+	var mainWidth int
+	if width >= minWindowWidth {
+		mainWidth = innerWidth - sidebarWidth
+		p.chatHeight = height - p.inputHeight
+		p.sidebar.SetMode(sidebar.ModeVertical)
+		cmds = append(cmds, p.sidebar.SetSize(sidebarWidth, p.chatHeight), p.messages.SetPosition(0, 0))
+	} else {
+		const horizontalSidebarHeight = 3
+		mainWidth = innerWidth
+		p.chatHeight = height - p.inputHeight - horizontalSidebarHeight
+		p.sidebar.SetMode(sidebar.ModeHorizontal)
+		cmds = append(cmds, p.sidebar.SetSize(width, horizontalSidebarHeight), p.messages.SetPosition(0, horizontalSidebarHeight))
+	}
 
 	// Set component sizes
 	cmds = append(cmds,
 		p.messages.SetSize(mainWidth, p.chatHeight),
-		p.sidebar.SetSize(sidebarWidth, p.chatHeight),
 		p.editor.SetSize(innerWidth, editorHeight), // Use calculated editor height
 	)
 
@@ -427,12 +445,8 @@ func (p *chatPage) Bindings() []key.Binding {
 		p.keyMap.Cancel,
 	}
 
-	// Add focused component bindings
-	switch p.focusedPanel {
-	case PanelChat:
+	if p.focusedPanel == PanelChat {
 		bindings = append(bindings, p.messages.Bindings()...)
-	case PanelEditor:
-		bindings = append(bindings, p.editor.Bindings()...)
 	}
 
 	return bindings
@@ -501,20 +515,6 @@ func (p *chatPage) processMessage(content string) tea.Cmd {
 	p.app.Run(ctx, p.msgCancel, content)
 
 	return p.messages.ScrollToBottom()
-}
-
-func (p *chatPage) CopySessionToClipboard() tea.Cmd {
-	transcript := p.messages.PlainTextTranscript()
-	if transcript == "" {
-		cmd := core.CmdHandler(notification.ShowMsg{Text: "Conversation is empty; nothing copied."})
-		return cmd
-	}
-
-	if err := clipboard.WriteAll(transcript); err != nil {
-		return core.CmdHandler(notification.ShowMsg{Text: "Failed to copy conversation: " + err.Error(), Type: notification.TypeError})
-	}
-
-	return core.CmdHandler(notification.ShowMsg{Text: "Conversation copied to clipboard."})
 }
 
 // CompactSession generates a summary and compacts the session history

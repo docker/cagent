@@ -46,11 +46,9 @@ func TestSessionNumHistoryItems(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create agent with specified numHistoryItems
 			testAgent := agent.New("test-agent", "test instruction",
 				agent.WithNumHistoryItems(tt.numHistoryItems))
 
-			// Create session with many messages
 			s := New()
 			for i := range tt.messageCount {
 				s.AddMessage(UserMessage("", fmt.Sprintf("Message %d", i)))
@@ -63,7 +61,6 @@ func TestSessionNumHistoryItems(t *testing.T) {
 				})
 			}
 
-			// Get messages for the agent
 			messages := s.GetMessages(testAgent)
 
 			// Count conversation messages (non-system)
@@ -88,7 +85,6 @@ func TestSessionNumHistoryItems(t *testing.T) {
 }
 
 func TestTrimMessagesPreservesSystemMessages(t *testing.T) {
-	// Create messages with multiple system messages
 	messages := []chat.Message{
 		{Role: chat.MessageRoleSystem, Content: "System instruction 1"},
 		{Role: chat.MessageRoleSystem, Content: "System instruction 2"},
@@ -101,7 +97,6 @@ func TestTrimMessagesPreservesSystemMessages(t *testing.T) {
 		{Role: chat.MessageRoleAssistant, Content: "Assistant response 3"},
 	}
 
-	// Test with very small limit (1 conversation message)
 	trimmed := trimMessages(messages, 1)
 
 	// Count message types
@@ -125,7 +120,6 @@ func TestTrimMessagesPreservesSystemMessages(t *testing.T) {
 }
 
 func TestTrimMessagesConversationLimit(t *testing.T) {
-	// Create a mix of system and conversation messages
 	messages := []chat.Message{
 		{Role: chat.MessageRoleSystem, Content: "System prompt"},
 		{Role: chat.MessageRoleUser, Content: "Message 1"},
@@ -172,7 +166,6 @@ func TestTrimMessagesConversationLimit(t *testing.T) {
 }
 
 func TestTrimMessagesWithToolCallsPreservation(t *testing.T) {
-	// Test that tool calls are properly handled when trimming, preserving system messages
 	messages := []chat.Message{
 		{Role: chat.MessageRoleSystem, Content: "System prompt"},
 		{Role: chat.MessageRoleUser, Content: "Old message"},
@@ -206,7 +199,6 @@ func TestTrimMessagesWithToolCallsPreservation(t *testing.T) {
 	// Limit to 3 conversation messages (should keep the recent tool interaction)
 	trimmed := trimMessages(messages, 3)
 
-	// Check that we don't have orphaned tool results
 	toolCallIDs := make(map[string]bool)
 	for _, msg := range trimmed {
 		if msg.Role == chat.MessageRoleAssistant {
@@ -216,7 +208,6 @@ func TestTrimMessagesWithToolCallsPreservation(t *testing.T) {
 		}
 	}
 
-	// Verify tool message consistency
 	for _, msg := range trimmed {
 		if msg.Role == chat.MessageRoleTool {
 			assert.True(t, toolCallIDs[msg.ToolCallID],
@@ -235,7 +226,6 @@ func TestTrimMessagesWithToolCallsPreservation(t *testing.T) {
 }
 
 func TestNumHistoryItemsConfiguration(t *testing.T) {
-	// Test that the configuration properly flows through the system
 	testCases := []struct {
 		configValue int
 		expected    int
@@ -249,11 +239,9 @@ func TestNumHistoryItemsConfiguration(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
-			// Create agent with specific configuration
 			a := agent.New("test", "instruction",
 				agent.WithNumHistoryItems(tc.configValue))
 
-			// Create a session and get messages
 			s := New()
 			s.AddMessage(UserMessage("", "test"))
 

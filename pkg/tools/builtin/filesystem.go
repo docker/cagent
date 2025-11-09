@@ -17,6 +17,23 @@ import (
 	"github.com/docker/cagent/pkg/tools"
 )
 
+const (
+	ToolNameCreateDirectory        = "create_directory"
+	ToolNameDirectoryTree          = "directory_tree"
+	ToolNameEditFile               = "edit_file"
+	ToolNameGetFileInfo            = "get_file_info"
+	ToolNameListAllowedDirectories = "list_allowed_directories"
+	ToolNameAddAllowedDirectory    = "add_allowed_directory"
+	ToolNameListDirectory          = "list_directory"
+	ToolNameListDirectoryWithSizes = "list_directory_with_sizes"
+	ToolNameMoveFile               = "move_file"
+	ToolNameReadFile               = "read_file"
+	ToolNameReadMultipleFiles      = "read_multiple_files"
+	ToolNameSearchFiles            = "search_files"
+	ToolNameSearchFilesContent     = "search_files_content"
+	ToolNameWriteFile              = "write_file"
+)
+
 // PostEditConfig represents a post-edit command configuration
 type PostEditConfig struct {
 	Path string // File path pattern (glob-style)
@@ -91,9 +108,7 @@ type GetFileInfoArgs struct {
 }
 
 type AddAllowedDirectoryArgs struct {
-	Path      string `json:"path" jsonschema:"The directory path to add to allowed directories"`
-	Reason    string `json:"reason" jsonschema:"Explanation of why this directory needs to be added"`
-	Confirmed bool   `json:"confirmed,omitempty" jsonschema:"Set to true to confirm that you consent to adding this directory"`
+	Path string `json:"path" jsonschema:"The directory path to add to allowed directories"`
 }
 
 type WriteFileArgs struct {
@@ -145,7 +160,7 @@ type EditFileArgs struct {
 func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 	return []tools.Tool{
 		{
-			Name:         "create_directory",
+			Name:         ToolNameCreateDirectory,
 			Category:     "filesystem",
 			Description:  "Create a new directory or ensure a directory exists. Can create multiple nested directories in one operation.",
 			Parameters:   tools.MustSchemaFor[CreateDirectoryArgs](),
@@ -156,7 +171,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			},
 		},
 		{
-			Name:        "directory_tree",
+			Name:        ToolNameDirectoryTree,
 			Category:    "filesystem",
 			Description: "Get a recursive tree view of files and directories as a JSON structure.",
 			Parameters:  tools.MustSchemaFor[DirectoryTreeArgs](),
@@ -191,7 +206,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			},
 		},
 		{
-			Name:         "edit_file",
+			Name:         ToolNameEditFile,
 			Category:     "filesystem",
 			Description:  "Make line-based edits to a text file. Each edit replaces exact line sequences with new content.",
 			Parameters:   tools.MustSchemaFor[EditFileArgs](),
@@ -202,7 +217,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			},
 		},
 		{
-			Name:         "get_file_info",
+			Name:         ToolNameGetFileInfo,
 			Category:     "filesystem",
 			Description:  "Retrieve detailed metadata about a file or directory.",
 			Parameters:   tools.MustSchemaFor[GetFileInfoArgs](),
@@ -214,7 +229,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			},
 		},
 		{
-			Name:         "list_allowed_directories",
+			Name:         ToolNameListAllowedDirectories,
 			Category:     "filesystem",
 			Description:  "Returns a list of directories that the server has permission to access. Don't call if you access only the current working directory. It's always allowed.",
 			OutputSchema: tools.MustSchemaFor[string](),
@@ -225,7 +240,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			},
 		},
 		{
-			Name:         "add_allowed_directory",
+			Name:         ToolNameAddAllowedDirectory,
 			Category:     "filesystem",
 			Description:  "Request to add a new directory to the allowed directories list. This requires explicit user consent for security reasons.",
 			Parameters:   tools.MustSchemaFor[AddAllowedDirectoryArgs](),
@@ -236,7 +251,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			},
 		},
 		{
-			Name:         "list_directory",
+			Name:         ToolNameListDirectory,
 			Category:     "filesystem",
 			Description:  "Get a detailed listing of all files and directories in a specified path.",
 			Parameters:   tools.MustSchemaFor[ListDirectoryArgs](),
@@ -248,7 +263,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			},
 		},
 		{
-			Name:         "list_directory_with_sizes",
+			Name:         ToolNameListDirectoryWithSizes,
 			Category:     "filesystem",
 			Description:  "Get a detailed listing of all files and directories in a specified path, including sizes.",
 			Parameters:   tools.MustSchemaFor[ListDirectoryArgs](),
@@ -260,7 +275,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			},
 		},
 		{
-			Name:         "move_file",
+			Name:         ToolNameMoveFile,
 			Category:     "filesystem",
 			Description:  "Move or rename files and directories.",
 			Parameters:   tools.MustSchemaFor[MoveFileArgs](),
@@ -271,7 +286,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			},
 		},
 		{
-			Name:         "read_file",
+			Name:         ToolNameReadFile,
 			Category:     "filesystem",
 			Description:  "Read the complete contents of a file from the file system.",
 			Parameters:   tools.MustSchemaFor[ReadFileArgs](),
@@ -283,7 +298,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			},
 		},
 		{
-			Name:        "read_multiple_files",
+			Name:        ToolNameReadMultipleFiles,
 			Category:    "filesystem",
 			Description: "Read the contents of multiple files simultaneously.",
 			Parameters:  tools.MustSchemaFor[ReadMultipleFilesArgs](),
@@ -296,7 +311,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			},
 		},
 		{
-			Name:         "search_files",
+			Name:         ToolNameSearchFiles,
 			Category:     "filesystem",
 			Description:  "Recursively search for files and directories matching a pattern. Prints the full paths of matching files and the total number of files found.",
 			Parameters:   tools.MustSchemaFor[SearchFilesArgs](),
@@ -308,7 +323,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			},
 		},
 		{
-			Name:         "search_files_content",
+			Name:         ToolNameSearchFilesContent,
 			Category:     "filesystem",
 			Description:  "Searches for text or regex patterns in the content of files matching a GLOB pattern.",
 			Parameters:   tools.MustSchemaFor[SearchFilesContentArgs](),
@@ -320,7 +335,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			},
 		},
 		{
-			Name:         "write_file",
+			Name:         ToolNameWriteFile,
 			Category:     "filesystem",
 			Description:  "Create a new file or completely overwrite an existing file with new content.",
 			Parameters:   tools.MustSchemaFor[WriteFileArgs](),
@@ -557,38 +572,12 @@ func (t *FilesystemTool) handleAddAllowedDirectory(_ context.Context, toolCall t
 		}
 	}
 
-	// If not confirmed, show consent request
-	if !args.Confirmed {
-		consentMsg := fmt.Sprintf(`SECURITY CONSENT REQUEST
-
-The agent is requesting permission to add a new directory to the allowed filesystem access list:
-
-Path: %s
-Reason: %s
-
-This will grant the agent read/write access to this directory and all its subdirectories.
-
-IMPORTANT: Only grant this permission if:
-1. You trust this request and understand the security implications
-2. The directory contains files the agent legitimately needs to access
-3. The directory doesn't contain sensitive personal data or system files
-
-To proceed, call this tool again with the same parameters but add "confirmed": true
-To deny, do not call the tool again.
-
-Current allowed directories:
-%s`, absPath, args.Reason, strings.Join(t.allowedDirectories, "\n"))
-
-		return &tools.ToolCallResult{Output: consentMsg}, nil
-	}
-
 	// User has confirmed, add the directory
 	return t.addAllowedDirectory(absPath)
 }
 
 // addAllowedDirectory adds a directory to the allowed directories list
 func (t *FilesystemTool) addAllowedDirectory(absPath string) (*tools.ToolCallResult, error) {
-	// Add the directory to the allowed list
 	t.allowedDirectories = append(t.allowedDirectories, absPath)
 
 	successMsg := fmt.Sprintf(`Directory successfully added to allowed directories list.

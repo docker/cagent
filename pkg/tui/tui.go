@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/charmbracelet/bubbles/v2/help"
-	"github.com/charmbracelet/bubbles/v2/key"
-	tea "github.com/charmbracelet/bubbletea/v2"
-	"github.com/charmbracelet/lipgloss/v2"
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/atotto/clipboard"
 
 	"github.com/docker/cagent/pkg/app"
 	"github.com/docker/cagent/pkg/browser"
@@ -68,10 +69,6 @@ type KeyMap struct {
 // DefaultKeyMap returns the default global key bindings
 func DefaultKeyMap() KeyMap {
 	return KeyMap{
-		Quit: key.NewBinding(
-			key.WithKeys("ctrl+c"),
-			key.WithHelp("ctrl+c", "quit"),
-		),
 		CommandPalette: key.NewBinding(
 			key.WithKeys("ctrl+p"),
 			key.WithHelp("ctrl+p", "command palette"),
@@ -97,10 +94,20 @@ func New(a *app.App) tea.Model {
 
 // Init initializes the application
 func (a *appModel) Init() tea.Cmd {
-	return tea.Batch(
+	cmds := []tea.Cmd{
 		a.dialog.Init(),
 		a.chatPage.Init(),
-	)
+	}
+
+	if firstMessage := a.application.FirstMessage(); firstMessage != nil {
+		cmds = append(cmds, func() tea.Msg {
+			return editor.SendMsg{
+				Content: a.application.ResolveCommand(context.Background(), *firstMessage),
+			}
+		})
+	}
+
+	return tea.Batch(cmds...)
 }
 
 // Help returns help information
@@ -167,7 +174,16 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, a.chatPage.CompactSession()
 
 	case commands.CopySessionToClipboardMsg:
-		return a, a.chatPage.CopySessionToClipboard()
+		transcript := a.application.PlainTextTranscript()
+		if transcript == "" {
+			return a, core.CmdHandler(notification.ShowMsg{Text: "Conversation is empty; nothing copied."})
+		}
+
+		if err := clipboard.WriteAll(transcript); err != nil {
+			return a, core.CmdHandler(notification.ShowMsg{Text: "Failed to copy conversation: " + err.Error(), Type: notification.TypeError})
+		}
+
+		return a, core.CmdHandler(notification.ShowMsg{Text: "Conversation copied to clipboard."})
 
 	case commands.AgentCommandMsg:
 		resolvedCommand := a.application.ResolveCommand(context.Background(), msg.Command)
@@ -175,6 +191,10 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case commands.OpenURLMsg:
 		_ = browser.Open(context.Background(), msg.URL)
+		return a, nil
+
+	case dialog.RuntimeResumeMsg:
+		a.application.Resume(msg.Response)
 		return a, nil
 
 	case error:
@@ -218,7 +238,7 @@ func (a *appModel) handleWindowResize(width, height int) tea.Cmd {
 	var cmds []tea.Cmd
 
 	// Update dimensions
-	a.width, a.height = width, height-2 // Account for status bar
+	a.width, a.height = width, height-1 // Account for status bar
 
 	if !a.ready {
 		a.ready = true
@@ -227,22 +247,10 @@ func (a *appModel) handleWindowResize(width, height int) tea.Cmd {
 	// Update dialog system
 	u, cmd := a.dialog.Update(tea.WindowSizeMsg{Width: width, Height: height})
 	a.dialog = u.(dialog.Manager)
-	if cmd != nil {
-		cmds = append(cmds, cmd)
-	}
+	cmds = append(cmds, cmd)
 
-	// Update chat page
-	if sizable, ok := a.chatPage.(interface{ SetSize(int, int) tea.Cmd }); ok {
-		cmd := sizable.SetSize(a.width, a.height)
-		cmds = append(cmds, cmd)
-	} else {
-		// Fallback: send window size message
-		updated, cmd := a.chatPage.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
-		a.chatPage = updated.(chat.Page)
-		if cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-	}
+	cmd = a.chatPage.SetSize(a.width, a.height)
+	cmds = append(cmds, cmd)
 
 	// Update status bar width
 	a.statusBar.SetWidth(a.width)
@@ -302,21 +310,6 @@ func (a *appModel) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 
 // View renders the complete application interface
 func (a *appModel) View() tea.View {
-	// Handle minimum window size
-	if a.wWidth < 25 || a.wHeight < 15 {
-		return toFullscreenView(styles.CenterStyle.
-			Width(a.wWidth).
-			Height(a.wHeight).
-			Render(
-				styles.BorderStyle.
-					Padding(1, 1).
-					Foreground(lipgloss.Color("#ffffff")).
-					BorderForeground(lipgloss.Color("#ff5f87")).
-					Render("Window too small!"),
-			),
-		)
-	}
-
 	// Show error if present
 	if a.err != nil {
 		return toFullscreenView(styles.ErrorStyle.Render(a.err.Error()))
@@ -378,6 +371,9 @@ func (a *appModel) View() tea.View {
 
 func toFullscreenView(content string) tea.View {
 	view := tea.NewView(content)
+	view.AltScreen = true
+	view.MouseMode = tea.MouseModeCellMotion
 	view.BackgroundColor = styles.Background
+
 	return view
 }

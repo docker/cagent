@@ -1,9 +1,8 @@
 #!/usr/bin/env cagent run
-version: "2"
 
 agents:
   root:
-    model: openai
+    model: gpt
     description: An agent with custom shell commands
     instruction: You are a helpful assistant with access to custom shell tools.
     toolsets:
@@ -31,7 +30,7 @@ agents:
                 type: string
 
 models:
-  openai:
+  gpt:
     provider: openai
     model: gpt-4o
     max_tokens: 1500

@@ -183,45 +183,48 @@ func Warning(message, agentName string) Event {
 }
 
 type TokenUsageEvent struct {
-	Type  string `json:"type"`
-	Usage *Usage `json:"usage"`
+	// Type stays "token_usage" for backward compatibility with existing clients.
+	Type string `json:"type"`
+	// SessionID lets consumers correlate usage snapshots with a specific session/sub-session.
+	SessionID string `json:"session_id"`
+	// Usage retains the legacy aggregate payload so older UIs do not break immediately.
+	Usage *Usage `json:"usage,omitempty"`
+	// SelfUsage captures the tokens/cost generated directly by the emitting session.
+	SelfUsage *Usage `json:"self_usage,omitempty"`
+	// InclusiveUsage represents the session plus any merged child usage for team totals.
+	InclusiveUsage *Usage `json:"inclusive_usage,omitempty"`
 	AgentContext
 }
 
 type Usage struct {
-	InputTokens    int             `json:"input_tokens"`
-	OutputTokens   int             `json:"output_tokens"`
-	ContextLength  int             `json:"context_length"`
-	ContextLimit   int             `json:"context_limit"`
-	Cost           float64         `json:"cost"`
-	Breakdown      []*SessionUsage `json:"breakdown,omitempty"`       // Per-session usage rows for hierarchical displays.
-	ActiveSessions []string        `json:"active_sessions,omitempty"` // IDs of sessions currently streaming tokens.
+	InputTokens   int     `json:"input_tokens"`
+	OutputTokens  int     `json:"output_tokens"`
+	ContextLength int     `json:"context_length"`
+	ContextLimit  int     `json:"context_limit"`
+	Cost          float64 `json:"cost"`
 }
 
-// SessionUsage captures token and cost totals for a specific session (and its place in the hierarchy).
-type SessionUsage struct {
-	SessionID       string  `json:"session_id"`
-	AgentName       string  `json:"agent_name"`
-	Title           string  `json:"title,omitempty"`
-	ParentSessionID string  `json:"parent_session_id,omitempty"`
-	Depth           int     `json:"depth"`
-	InputTokens     int     `json:"input_tokens"`
-	OutputTokens    int     `json:"output_tokens"`
-	Cost            float64 `json:"cost"`
-	ContextLimit    int     `json:"context_limit,omitempty"`
-	Active          bool    `json:"active"`
-}
+func TokenUsage(sessionID, agentName string, selfUsage, inclusiveUsage *Usage) Event {
+	if selfUsage == nil && inclusiveUsage == nil {
+		return &TokenUsageEvent{Type: "token_usage"}
+	}
 
-func TokenUsage(inputTokens, outputTokens, contextLength, contextLimit int, cost float64) Event {
+	// Default to inclusive usage when only one snapshot is provided.
+	if selfUsage == nil {
+		selfUsage = inclusiveUsage
+	}
+	if inclusiveUsage == nil {
+		inclusiveUsage = selfUsage
+	}
+
+	// Emit both snapshots so the UI can show per-session and team totals simultaneously.
 	return &TokenUsageEvent{
-		Type: "token_usage",
-		Usage: &Usage{
-			ContextLength: contextLength,
-			ContextLimit:  contextLimit,
-			InputTokens:   inputTokens,
-			OutputTokens:  outputTokens,
-			Cost:          cost,
-		},
+		Type:           "token_usage",
+		SessionID:      sessionID,
+		Usage:          inclusiveUsage,
+		SelfUsage:      selfUsage,
+		InclusiveUsage: inclusiveUsage,
+		AgentContext:   AgentContext{AgentName: agentName},
 	}
 }
 

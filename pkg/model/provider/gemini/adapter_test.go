@@ -10,9 +10,7 @@ import (
 )
 
 func TestStreamAdapter_FunctionCalls(t *testing.T) {
-	// Test that function calls are properly handled in the final message
 	t.Run("function calls in final message", func(t *testing.T) {
-		// Create a mock response with function calls
 		mockResp := &genai.GenerateContentResponse{
 			Candidates: []*genai.Candidate{
 				{

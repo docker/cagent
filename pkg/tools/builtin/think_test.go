@@ -38,11 +38,9 @@ func TestThinkTool_Tools(t *testing.T) {
 		assert.Equal(t, "think", tool.Category)
 	}
 
-	// Verify think function
 	assert.Equal(t, "think", allTools[0].Name)
 	assert.Contains(t, allTools[0].Description, "Use the tool to think about something")
 
-	// Check parameters
 	schema, err := json.Marshal(allTools[0].Parameters)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{
@@ -75,14 +73,12 @@ func TestThinkTool_DisplayNames(t *testing.T) {
 func TestThinkTool_Handler(t *testing.T) {
 	tool := NewThinkTool()
 
-	// Get handler from tool
 	tls, err := tool.Tools(t.Context())
 	require.NoError(t, err)
 	require.Len(t, tls, 1)
 
 	handler := tls[0].Handler
 
-	// Create tool call with thought
 	args := ThinkArgs{
 		Thought: "This is a test thought",
 	}
@@ -96,14 +92,11 @@ func TestThinkTool_Handler(t *testing.T) {
 		},
 	}
 
-	// Call handler
 	result, err := handler(t.Context(), toolCall)
 
-	// Verify
 	require.NoError(t, err)
 	assert.Contains(t, result.Output, "This is a test thought")
 
-	// Add another thought
 	args.Thought = "Another thought"
 	argsBytes, err = json.Marshal(args)
 	require.NoError(t, err)
@@ -112,7 +105,6 @@ func TestThinkTool_Handler(t *testing.T) {
 
 	result, err = handler(t.Context(), toolCall)
 
-	// Verify both thoughts are in output
 	require.NoError(t, err)
 	assert.Contains(t, result.Output, "This is a test thought")
 	assert.Contains(t, result.Output, "Another thought")
@@ -121,7 +113,6 @@ func TestThinkTool_Handler(t *testing.T) {
 func TestThinkTool_InvalidArguments(t *testing.T) {
 	tool := NewThinkTool()
 
-	// Get handler from tool
 	tls, err := tool.Tools(t.Context())
 	require.NoError(t, err)
 	require.Len(t, tls, 1)
@@ -144,11 +135,9 @@ func TestThinkTool_InvalidArguments(t *testing.T) {
 func TestThinkTool_StartStop(t *testing.T) {
 	tool := NewThinkTool()
 
-	// Test Start method
 	err := tool.Start(t.Context())
 	require.NoError(t, err)
 
-	// Test Stop method
 	err = tool.Stop(t.Context())
 	require.NoError(t, err)
 }

@@ -1,5 +1,6 @@
-agents:
+version: "0"
 
+agents:
   root:
     model: openai/gpt-4o
     instruction: you are a helpful computer assistant

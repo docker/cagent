@@ -6,6 +6,8 @@ import (
 	"github.com/docker/cagent/pkg/tools"
 )
 
+const ToolNameTransferTask = "transfer_task"
+
 type TransferTaskTool struct {
 	tools.ElicitationTool
 }
@@ -30,7 +32,7 @@ func (t *TransferTaskTool) Instructions() string {
 func (t *TransferTaskTool) Tools(context.Context) ([]tools.Tool, error) {
 	return []tools.Tool{
 		{
-			Name:     "transfer_task",
+			Name:     ToolNameTransferTask,
 			Category: "transfer",
 			Description: `Use this function to transfer a task to the selected team member.
             You must provide a clear and concise description of the task the member should achieve AND the expected output.`,

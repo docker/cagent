@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -91,7 +92,7 @@ func (s *Store) GetDatabase(ctx context.Context) (*Database, error) {
 	// Save to cache
 	if err := s.saveToCache(cacheFile, database); err != nil {
 		// Log the error but don't fail the request
-		fmt.Printf("Warning: failed to save to cache: %v\n", err)
+		slog.Warn("Warning: failed to save to cache", "error", err)
 	}
 
 	return database, nil

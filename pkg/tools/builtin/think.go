@@ -9,6 +9,8 @@ import (
 	"github.com/docker/cagent/pkg/tools"
 )
 
+const ToolNameThink = "think"
+
 type ThinkTool struct {
 	tools.ElicitationTool
 	handler *thinkHandler
@@ -59,7 +61,7 @@ Before taking any action or responding to the user after receiving tool results,
 func (t *ThinkTool) Tools(context.Context) ([]tools.Tool, error) {
 	return []tools.Tool{
 		{
-			Name:         "think",
+			Name:         ToolNameThink,
 			Category:     "think",
 			Description:  "Use the tool to think about something. It will not obtain new information or change the database, but just append the thought to the log. Use it when complex reasoning or some cache memory is needed.",
 			Parameters:   tools.MustSchemaFor[ThinkArgs](),

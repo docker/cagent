@@ -13,7 +13,7 @@ import (
 
 	"github.com/docker/cagent/pkg/agent"
 	"github.com/docker/cagent/pkg/chat"
-	"github.com/docker/cagent/pkg/model/provider/options"
+	"github.com/docker/cagent/pkg/model/provider/base"
 	"github.com/docker/cagent/pkg/modelsdev"
 	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/team"
@@ -143,7 +143,7 @@ func (m *mockProvider) CreateChatCompletionStream(context.Context, []chat.Messag
 	return m.stream, nil
 }
 
-func (m *mockProvider) Options() options.ModelOptions { return options.ModelOptions{} }
+func (m *mockProvider) BaseConfig() base.Config { return base.Config{} }
 
 func (m *mockProvider) MaxTokens() int { return 0 }
 
@@ -157,7 +157,7 @@ func (m *mockProviderWithError) CreateChatCompletionStream(context.Context, []ch
 	return nil, fmt.Errorf("simulated error creating chat completion stream")
 }
 
-func (m *mockProviderWithError) Options() options.ModelOptions { return options.ModelOptions{} }
+func (m *mockProviderWithError) BaseConfig() base.Config { return base.Config{} }
 
 func (m *mockProviderWithError) MaxTokens() int { return 0 }
 
@@ -200,33 +200,14 @@ func hasEventType(t *testing.T, events []Event, target Event) bool {
 	return false
 }
 
-// assertTokenUsageEvent validates richer token usage payloads emitted by the runtime.
-func assertTokenUsageEvent(t *testing.T, ev Event, sess *session.Session, input, output int) {
-	t.Helper()
-
-	usageEvent, ok := ev.(*TokenUsageEvent)
-	require.True(t, ok, "expected TokenUsageEvent, got %T", ev)
-	require.NotNil(t, usageEvent.Usage)
-
-	require.Equal(t, input, usageEvent.Usage.InputTokens)
-	require.Equal(t, output, usageEvent.Usage.OutputTokens)
-	require.Equal(t, input+output, usageEvent.Usage.ContextLength)
-	require.InDelta(t, 0.0, usageEvent.Usage.Cost, 1e-9)
-
-	require.NotNil(t, usageEvent.Usage.Breakdown)
-	require.Len(t, usageEvent.Usage.Breakdown, 1)
-
-	row := usageEvent.Usage.Breakdown[0]
-	require.Equal(t, sess.ID, row.SessionID)
-	require.Equal(t, "root", row.AgentName)
-	require.Equal(t, sess.Title, row.Title)
-	require.Equal(t, 0, row.Depth)
-	require.Equal(t, input, row.InputTokens)
-	require.Equal(t, output, row.OutputTokens)
-	require.InDelta(t, 0.0, row.Cost, 1e-9)
-	require.True(t, row.Active)
-
-	require.ElementsMatch(t, []string{sess.ID}, usageEvent.Usage.ActiveSessions)
+func makeUsageSnapshot(input, output, contextLimit int) *Usage {
+	return &Usage{
+		InputTokens:   input,
+		OutputTokens:  output,
+		ContextLength: input + output,
+		ContextLimit:  contextLimit,
+		Cost:          0,
+	}
 }
 
 func TestSimple(t *testing.T) {
@@ -239,21 +220,16 @@ func TestSimple(t *testing.T) {
 
 	events := runSession(t, sess, stream)
 
-	require.Len(t, events, 5)
+	snapshot := makeUsageSnapshot(3, 2, 0)
+	expectedEvents := []Event{
+		UserMessage("Hi"),
+		StreamStarted(sess.ID, "root"),
+		AgentChoice("root", "Hello"),
+		TokenUsage(sess.ID, "root", snapshot, snapshot),
+		StreamStopped(sess.ID, "root"),
+	}
 
-	require.IsType(t, &UserMessageEvent{}, events[0])
-	require.Equal(t, "Hi", events[0].(*UserMessageEvent).Message)
-
-	require.IsType(t, &StreamStartedEvent{}, events[1])
-	require.Equal(t, sess.ID, events[1].(*StreamStartedEvent).SessionID)
-
-	require.IsType(t, &AgentChoiceEvent{}, events[2])
-	require.Equal(t, "Hello", events[2].(*AgentChoiceEvent).Content)
-
-	assertTokenUsageEvent(t, events[3], sess, 3, 2)
-
-	require.IsType(t, &StreamStoppedEvent{}, events[4])
-	require.Equal(t, sess.ID, events[4].(*StreamStoppedEvent).SessionID)
+	require.Equal(t, expectedEvents, events)
 }
 
 func TestMultipleContentChunks(t *testing.T) {
@@ -270,29 +246,20 @@ func TestMultipleContentChunks(t *testing.T) {
 
 	events := runSession(t, sess, stream)
 
-	require.Len(t, events, 8)
+	snapshot := makeUsageSnapshot(8, 12, 0)
+	expectedEvents := []Event{
+		UserMessage("Please greet me"),
+		StreamStarted(sess.ID, "root"),
+		AgentChoice("root", "Hello "),
+		AgentChoice("root", "there, "),
+		AgentChoice("root", "how "),
+		AgentChoice("root", "are "),
+		AgentChoice("root", "you?"),
+		TokenUsage(sess.ID, "root", snapshot, snapshot),
+		StreamStopped(sess.ID, "root"),
+	}
 
-	require.IsType(t, &UserMessageEvent{}, events[0])
-	require.Equal(t, "Please greet me", events[0].(*UserMessageEvent).Message)
-
-	require.IsType(t, &StreamStartedEvent{}, events[1])
-
-	require.IsType(t, &AgentChoiceEvent{}, events[2])
-	require.Equal(t, "Hello ", events[2].(*AgentChoiceEvent).Content)
-
-	require.IsType(t, &AgentChoiceEvent{}, events[3])
-	require.Equal(t, "there, ", events[3].(*AgentChoiceEvent).Content)
-
-	require.IsType(t, &AgentChoiceEvent{}, events[4])
-	require.Equal(t, "how ", events[4].(*AgentChoiceEvent).Content)
-
-	require.IsType(t, &AgentChoiceEvent{}, events[5])
-	require.Equal(t, "are ", events[5].(*AgentChoiceEvent).Content)
-
-	require.IsType(t, &AgentChoiceEvent{}, events[6])
-	require.Equal(t, "you?", events[6].(*AgentChoiceEvent).Content)
-
-	assertTokenUsageEvent(t, events[7], sess, 8, 12)
+	require.Equal(t, expectedEvents, events)
 }
 
 func TestWithReasoning(t *testing.T) {
@@ -307,25 +274,18 @@ func TestWithReasoning(t *testing.T) {
 
 	events := runSession(t, sess, stream)
 
-	require.Len(t, events, 7)
+	snapshot := makeUsageSnapshot(10, 15, 0)
+	expectedEvents := []Event{
+		UserMessage("Hi"),
+		StreamStarted(sess.ID, "root"),
+		AgentChoiceReasoning("root", "Let me think about this..."),
+		AgentChoiceReasoning("root", " I should respond politely."),
+		AgentChoice("root", "Hello, how can I help you?"),
+		TokenUsage(sess.ID, "root", snapshot, snapshot),
+		StreamStopped(sess.ID, "root"),
+	}
 
-	require.IsType(t, &UserMessageEvent{}, events[0])
-	require.Equal(t, "Hi", events[0].(*UserMessageEvent).Message)
-
-	require.IsType(t, &StreamStartedEvent{}, events[1])
-
-	require.IsType(t, &AgentChoiceReasoningEvent{}, events[2])
-	require.Equal(t, "Let me think about this...", events[2].(*AgentChoiceReasoningEvent).Content)
-
-	require.IsType(t, &AgentChoiceReasoningEvent{}, events[3])
-	require.Equal(t, " I should respond politely.", events[3].(*AgentChoiceReasoningEvent).Content)
-
-	require.IsType(t, &AgentChoiceEvent{}, events[4])
-	require.Equal(t, "Hello, how can I help you?", events[4].(*AgentChoiceEvent).Content)
-
-	assertTokenUsageEvent(t, events[5], sess, 10, 15)
-
-	require.IsType(t, &StreamStoppedEvent{}, events[6])
+	require.Equal(t, expectedEvents, events)
 }
 
 func TestMixedContentAndReasoning(t *testing.T) {
@@ -341,28 +301,19 @@ func TestMixedContentAndReasoning(t *testing.T) {
 
 	events := runSession(t, sess, stream)
 
-	require.Len(t, events, 8)
+	snapshot := makeUsageSnapshot(15, 20, 0)
+	expectedEvents := []Event{
+		UserMessage("Hi there"),
+		StreamStarted(sess.ID, "root"),
+		AgentChoiceReasoning("root", "The user wants a greeting"),
+		AgentChoice("root", "Hello!"),
+		AgentChoiceReasoning("root", " I should be friendly"),
+		AgentChoice("root", " How can I help you today?"),
+		TokenUsage(sess.ID, "root", snapshot, snapshot),
+		StreamStopped(sess.ID, "root"),
+	}
 
-	require.IsType(t, &UserMessageEvent{}, events[0])
-	require.Equal(t, "Hi there", events[0].(*UserMessageEvent).Message)
-
-	require.IsType(t, &StreamStartedEvent{}, events[1])
-
-	require.IsType(t, &AgentChoiceReasoningEvent{}, events[2])
-	require.Equal(t, "The user wants a greeting", events[2].(*AgentChoiceReasoningEvent).Content)
-
-	require.IsType(t, &AgentChoiceEvent{}, events[3])
-	require.Equal(t, "Hello!", events[3].(*AgentChoiceEvent).Content)
-
-	require.IsType(t, &AgentChoiceReasoningEvent{}, events[4])
-	require.Equal(t, " I should be friendly", events[4].(*AgentChoiceReasoningEvent).Content)
-
-	require.IsType(t, &AgentChoiceEvent{}, events[5])
-	require.Equal(t, " How can I help you today?", events[5].(*AgentChoiceEvent).Content)
-
-	assertTokenUsageEvent(t, events[6], sess, 15, 20)
-
-	require.IsType(t, &StreamStoppedEvent{}, events[7])
+	require.Equal(t, expectedEvents, events)
 }
 
 func TestToolCallSequence(t *testing.T) {
@@ -407,7 +358,6 @@ func TestErrorEvent(t *testing.T) {
 	require.IsType(t, &ErrorEvent{}, events[2])
 	require.IsType(t, &StreamStoppedEvent{}, events[3])
 
-	// Check the error message contains our test error
 	errorEvent := events[2].(*ErrorEvent)
 	require.Contains(t, errorEvent.Error, "simulated error")
 }
@@ -516,7 +466,7 @@ func (p *queueProvider) CreateChatCompletionStream(context.Context, []chat.Messa
 	return s, nil
 }
 
-func (p *queueProvider) Options() options.ModelOptions { return options.ModelOptions{} }
+func (p *queueProvider) BaseConfig() base.Config { return base.Config{} }
 
 func (p *queueProvider) MaxTokens() int { return 0 }
 
@@ -592,15 +542,15 @@ func TestCompactionOccursAfterToolResultsWhenToolUsePresent(t *testing.T) {
 	require.NotEqual(t, -1, toolRespIdx, "expected a ToolCallResponseEvent")
 	require.NotEqual(t, -1, compactionStartIdx, "expected a SessionCompaction start event")
 
-	// Assert compaction is triggered only after tool results have been appended
 	require.Greater(t, compactionStartIdx, toolRespIdx, "compaction should occur after tool results when tool_use is present")
 }
 
 func TestSessionWithoutUserMessage(t *testing.T) {
 	stream := newStreamBuilder().AddContent("OK").AddStopWithUsage(1, 1).Build()
 
-	sess := session.New()
-	sess.SendUserMessage = false
+	sess := session.New(
+		session.WithSendUserMessage(false),
+	)
 
 	events := runSession(t, sess, stream)
 
@@ -693,7 +643,6 @@ func TestNewRuntime_NoAgentsError(t *testing.T) {
 }
 
 func TestNewRuntime_InvalidCurrentAgentError(t *testing.T) {
-	// Create a team with a single agent named "root"
 	root := agent.New("root", "You are a test agent")
 	tm := team.New(team.WithAgents(root))
 
@@ -703,7 +652,6 @@ func TestNewRuntime_InvalidCurrentAgentError(t *testing.T) {
 }
 
 func TestSummarize_EmptySession(t *testing.T) {
-	// Create a runtime with a simple agent
 	prov := &mockProvider{id: "test/mock-model", stream: &mockStream{}}
 	root := agent.New("root", "You are a test agent", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(root))
@@ -711,7 +659,6 @@ func TestSummarize_EmptySession(t *testing.T) {
 	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
-	// Create an empty session (no messages)
 	sess := session.New()
 	sess.Title = "Empty Session Test"
 
@@ -765,7 +712,6 @@ func TestProcessToolCalls_UnknownTool_NoToolResultMessage(t *testing.T) {
 	for range events {
 	}
 
-	// Verify no tool result message was added for the unknown tool
 	var sawToolMsg bool
 	for _, it := range sess.Messages {
 		if it.IsMessage() && it.Message.Message.Role == chat.MessageRoleTool && it.Message.Message.ToolCallID == "tool-unknown-1" {

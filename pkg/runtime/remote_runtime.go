@@ -7,6 +7,7 @@ import (
 
 	"github.com/docker/cagent/pkg/api"
 	"github.com/docker/cagent/pkg/chat"
+	latest "github.com/docker/cagent/pkg/config/v2"
 	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/team"
 )
@@ -63,18 +64,26 @@ func (r *RemoteRuntime) CurrentAgentName() string {
 }
 
 func (r *RemoteRuntime) CurrentAgentCommands(ctx context.Context) map[string]string {
+	return r.readCurrentAgentConfig(ctx).Commands
+}
+
+func (r *RemoteRuntime) CurrentWelcomeMessage(ctx context.Context) string {
+	return r.readCurrentAgentConfig(ctx).WelcomeMessage
+}
+
+func (r *RemoteRuntime) readCurrentAgentConfig(ctx context.Context) latest.AgentConfig {
 	cfg, err := r.client.GetAgent(ctx, r.agentFilename)
 	if err != nil {
-		return map[string]string{}
+		return latest.AgentConfig{}
 	}
 
 	for agentName, agent := range cfg.Agents {
 		if agentName == r.currentAgent {
-			return agent.Commands
+			return agent
 		}
 	}
 
-	return map[string]string{}
+	return latest.AgentConfig{}
 }
 
 // RunStream starts the agent's interaction loop and returns a channel of events
@@ -127,7 +136,7 @@ func (r *RemoteRuntime) Run(ctx context.Context, sess *session.Session) ([]sessi
 }
 
 // Resume allows resuming execution after user confirmation
-func (r *RemoteRuntime) Resume(ctx context.Context, confirmationType string) {
+func (r *RemoteRuntime) Resume(ctx context.Context, confirmationType ResumeType) {
 	slog.Debug("Resuming remote runtime", "agent", r.currentAgent, "confirmation_type", confirmationType, "session_id", r.sessionID)
 
 	if r.sessionID == "" {
@@ -135,7 +144,7 @@ func (r *RemoteRuntime) Resume(ctx context.Context, confirmationType string) {
 		return
 	}
 
-	if err := r.client.ResumeSession(ctx, r.sessionID, confirmationType); err != nil {
+	if err := r.client.ResumeSession(ctx, r.sessionID, string(confirmationType)); err != nil {
 		slog.Error("Failed to resume remote session", "error", err, "session_id", r.sessionID)
 	}
 }

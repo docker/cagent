@@ -5,18 +5,15 @@ import (
 	"os/exec"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea/v2"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/session"
-	"github.com/docker/cagent/pkg/team"
 )
 
 type App struct {
-	title            string
 	agentFilename    string
 	runtime          runtime.Runtime
-	team             *team.Team
 	session          *session.Session
 	firstMessage     *string
 	events           chan tea.Msg
@@ -24,12 +21,10 @@ type App struct {
 	cancel           context.CancelFunc
 }
 
-func New(title, agentFilename string, rt runtime.Runtime, agents *team.Team, sess *session.Session, firstMessage *string) *App {
+func New(agentFilename string, rt runtime.Runtime, sess *session.Session, firstMessage *string) *App {
 	return &App{
-		title:            title,
 		agentFilename:    agentFilename,
 		runtime:          rt,
-		team:             agents,
 		session:          sess,
 		firstMessage:     firstMessage,
 		events:           make(chan tea.Msg, 128),
@@ -41,12 +36,9 @@ func (a *App) FirstMessage() *string {
 	return a.firstMessage
 }
 
-func (a *App) Team() *team.Team {
-	return a.team
-}
-
-func (a *App) Title() string {
-	return a.title
+// CurrentWelcomeMessage returns the welcome message for the active agent
+func (a *App) CurrentWelcomeMessage(ctx context.Context) string {
+	return a.runtime.CurrentWelcomeMessage(ctx)
 }
 
 // CurrentAgentCommands returns the commands for the active agent
@@ -94,9 +86,9 @@ func (a *App) Subscribe(ctx context.Context, program *tea.Program) {
 }
 
 // Resume resumes the runtime with the given confirmation type
-func (a *App) Resume(confirmationType string) {
+func (a *App) Resume(resumeType runtime.ResumeType) {
 	if a.runtime != nil {
-		a.runtime.Resume(context.Background(), confirmationType)
+		a.runtime.Resume(context.Background(), resumeType)
 	}
 }
 
@@ -129,6 +121,10 @@ func (a *App) ResumeStartOAuth(bool) {
 		// TODO(rumpl): handle the error
 		_ = a.runtime.ResumeElicitation(context.Background(), "accept", nil)
 	}
+}
+
+func (a *App) PlainTextTranscript() string {
+	return transcript(a.session)
 }
 
 // throttleEvents buffers and merges rapid events to prevent UI flooding

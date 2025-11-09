@@ -1,0 +1,11 @@
+version: "2"
+
+agents:
+  root:
+    model: mistral
+    instruction: Always answer by talking like a pirate.
+
+models:
+  mistral:
+    provider: mistral
+    model: mistral-small-latest

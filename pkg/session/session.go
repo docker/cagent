@@ -46,12 +46,6 @@ type Session struct {
 	// Title is the title of the session, set by the runtime
 	Title string `json:"title"`
 
-	// AgentName tracks the agent responsible for this session
-	AgentName string `json:"agent_name"`
-
-	// ParentSessionID links sub-sessions back to their parent
-	ParentSessionID string `json:"parent_session_id,omitempty"`
-
 	// Messages holds the conversation history (messages and sub-sessions)
 	Messages []Item `json:"messages"`
 
@@ -74,22 +68,14 @@ type Session struct {
 	InputTokens  int     `json:"input_tokens"`
 	OutputTokens int     `json:"output_tokens"`
 	Cost         float64 `json:"cost"`
-
-	// TotalInputTokens accumulates all input tokens consumed in this session, including sub-sessions.
-	TotalInputTokens int `json:"total_input_tokens"`
-	// TotalOutputTokens accumulates all output tokens consumed in this session, including sub-sessions.
-	TotalOutputTokens int `json:"total_output_tokens"`
-	// TotalCost accumulates the total cost incurred in this session, including sub-sessions.
-	TotalCost float64 `json:"total_cost"`
-
-	lastSeenUsage    usageSnapshot
-	mergedIntoParent bool
-}
-
-type usageSnapshot struct {
-	inputTokens  int
-	outputTokens int
-	cost         float64
+	// Self* fields track the most recent provider-reported usage for this session only (no children).
+	SelfInputTokens  int     `json:"self_input_tokens"`
+	SelfOutputTokens int     `json:"self_output_tokens"`
+	SelfCost         float64 `json:"self_cost"`
+	// Child* fields accumulate merged usage from completed sub-sessions for quick lookup.
+	ChildInputTokens  int     `json:"child_input_tokens"`
+	ChildOutputTokens int     `json:"child_output_tokens"`
+	ChildCost         float64 `json:"child_cost"`
 }
 
 // Message is a message from an agent
@@ -257,11 +243,15 @@ func WithTitle(title string) Opt {
 	}
 }
 
-// WithAgentMetadata sets agent attribution metadata on the session
-func WithAgentMetadata(agentName, parentSessionID string) Opt {
+func WithToolsApproved(toolsApproved bool) Opt {
 	return func(s *Session) {
-		s.AgentName = agentName
-		s.ParentSessionID = parentSessionID
+		s.ToolsApproved = toolsApproved
+	}
+}
+
+func WithSendUserMessage(sendUserMessage bool) Opt {
+	return func(s *Session) {
+		s.SendUserMessage = sendUserMessage
 	}
 }
 
@@ -422,58 +412,6 @@ func (s *Session) GetMostRecentAgentFilename() string {
 		}
 	}
 	return ""
-}
-
-// AddUsageDelta increments cumulative usage and updates the session's latest usage snapshot.
-// Callers should provide deltas relative to the previous usage totals to avoid double counting.
-func (s *Session) AddUsageDelta(inputDelta, outputDelta int, cost float64) {
-	if inputDelta < 0 {
-		inputDelta = 0
-	}
-	if outputDelta < 0 {
-		outputDelta = 0
-	}
-	if cost < 0 {
-		cost = 0
-	}
-
-	s.TotalInputTokens += inputDelta
-	s.TotalOutputTokens += outputDelta
-	s.TotalCost += cost
-
-	// Preserve existing behaviour where InputTokens/OutputTokens represent the latest absolute counts.
-	s.InputTokens += inputDelta
-	s.OutputTokens += outputDelta
-	s.Cost += cost
-
-	s.lastSeenUsage.inputTokens = s.InputTokens
-	s.lastSeenUsage.outputTokens = s.OutputTokens
-	s.lastSeenUsage.cost += cost
-}
-
-// MergeChildUsage folds a completed child session's totals into the current session.
-func (s *Session) MergeChildUsage(child *Session) {
-	if child == nil || child.mergedIntoParent {
-		return
-	}
-
-	s.TotalInputTokens += child.TotalInputTokens
-	s.TotalOutputTokens += child.TotalOutputTokens
-	s.TotalCost += child.TotalCost
-	child.mergedIntoParent = true
-}
-
-// ResetUsageTracking clears per-call usage counters while keeping cumulative totals intact.
-func (s *Session) ResetUsageTracking() {
-	s.InputTokens = 0
-	s.OutputTokens = 0
-	s.Cost = 0
-	s.lastSeenUsage = usageSnapshot{}
-}
-
-// UsageSnapshot returns a copy of the last tracked usage snapshot for diagnostic/testing purposes.
-func (s *Session) UsageSnapshot() (inputTokens, outputTokens int, cost float64) {
-	return s.lastSeenUsage.inputTokens, s.lastSeenUsage.outputTokens, s.lastSeenUsage.cost
 }
 
 // trimMessages ensures we don't exceed the maximum number of messages while maintaining

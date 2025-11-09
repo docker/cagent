@@ -72,6 +72,7 @@ func NewDefaultToolsetRegistry() *ToolsetRegistry {
 	r.Register("filesystem", createFilesystemTool)
 	r.Register("fetch", createFetchTool)
 	r.Register("mcp", createMCPTool)
+	r.Register("api", createAPITool)
 	return r
 }
 
@@ -157,6 +158,16 @@ func createFilesystemTool(ctx context.Context, toolset latest.Toolset, parentDir
 	}
 
 	return builtin.NewFilesystemTool([]string{wd}, opts...), nil
+}
+
+func createAPITool(ctx context.Context, toolset latest.Toolset, parentDir string, envProvider environment.Provider, runtimeConfig config.RuntimeConfig) (tools.ToolSet, error) {
+	if toolset.APIConfig.Endpoint == "" {
+		return nil, fmt.Errorf("api tool requires an endpoint in api_config")
+	}
+
+	toolset.APIConfig.Headers = js.Expand(ctx, toolset.APIConfig.Headers, envProvider)
+
+	return builtin.NewAPITool(toolset.APIConfig), nil
 }
 
 func createFetchTool(ctx context.Context, toolset latest.Toolset, parentDir string, envProvider environment.Provider, runtimeConfig config.RuntimeConfig) (tools.ToolSet, error) {
@@ -310,10 +321,11 @@ func Load(ctx context.Context, p string, runtimeConfig config.RuntimeConfig, opt
 		return nil, fmt.Errorf("failed to read env files: %w", err)
 	}
 
-	env := environment.NewMultiProvider(
-		envFilesProviders,
-		environment.NewDefaultProvider(),
-	)
+	defaultEnvProvider := runtimeConfig.DefaultEnvProvider
+	if defaultEnvProvider == nil {
+		defaultEnvProvider = environment.NewDefaultProvider()
+	}
+	env := environment.NewMultiProvider(envFilesProviders, defaultEnvProvider)
 
 	// Load the agent's configuration
 	cfg, err := config.LoadConfigSecureDeprecated(fileName, parentDir)
@@ -339,6 +351,7 @@ func Load(ctx context.Context, p string, runtimeConfig config.RuntimeConfig, opt
 		opts := []agent.Opt{
 			agent.WithName(name),
 			agent.WithDescription(agentConfig.Description),
+			agent.WithWelcomeMessage(agentConfig.WelcomeMessage),
 			agent.WithAddDate(agentConfig.AddDate),
 			agent.WithAddEnvironmentInfo(agentConfig.AddEnvironmentInfo),
 			agent.WithAddPromptFiles(agentConfig.AddPromptFiles),

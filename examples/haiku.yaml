@@ -1,5 +1,4 @@
-#!/usr/bin/env cagent exec
-version: "2"
+#!/usr/bin/env cagent run
 
 agents:
   root:

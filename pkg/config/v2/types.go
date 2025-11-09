@@ -1,8 +1,8 @@
 package v2
 
-import (
-	"github.com/docker/cagent/pkg/config/types"
-)
+import "github.com/docker/cagent/pkg/config/types"
+
+const Version = "2"
 
 // Config represents the entire configuration file
 type Config struct {
@@ -16,6 +16,7 @@ type Config struct {
 type AgentConfig struct {
 	Model              string            `json:"model,omitempty"`
 	Description        string            `json:"description,omitempty"`
+	WelcomeMessage     string            `json:"welcome_message,omitempty"`
 	Toolsets           []Toolset         `json:"toolsets,omitempty"`
 	Instruction        string            `json:"instruction,omitempty"`
 	SubAgents          []string          `json:"sub_agents,omitempty"`
@@ -87,6 +88,16 @@ type ScriptShellToolConfig struct {
 	WorkingDir string            `json:"working_dir,omitempty"`
 }
 
+type APIToolConfig struct {
+	Instruction string            `json:"instruction,omitempty"`
+	Name        string            `json:"name,omitempty"`
+	Required    []string          `json:"required,omitempty"`
+	Args        map[string]any    `json:"args,omitempty"`
+	Endpoint    string            `json:"endpoint,omitempty"`
+	Method      string            `json:"method,omitempty"`
+	Headers     map[string]string `json:"headers,omitempty"`
+}
+
 // PostEditConfig represents a post-edit command configuration
 type PostEditConfig struct {
 	Path string `json:"path"`
@@ -121,6 +132,8 @@ type Toolset struct {
 
 	// For the `filesystem` tool - post-edit commands
 	PostEdit []PostEditConfig `json:"post_edit,omitempty"`
+
+	APIConfig APIToolConfig `json:"api_config"`
 
 	// For the `fetch` tool
 	Timeout int `json:"timeout,omitempty"`

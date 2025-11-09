@@ -3,8 +3,8 @@ package statusbar
 import (
 	"strings"
 
-	"github.com/charmbracelet/bubbles/v2/key"
-	"github.com/charmbracelet/lipgloss/v2"
+	"charm.land/bubbles/v2/key"
+	"charm.land/lipgloss/v2"
 
 	"github.com/docker/cagent/pkg/tui/core"
 	"github.com/docker/cagent/pkg/tui/styles"
@@ -50,7 +50,7 @@ func (s *StatusBar) formatHelpString(bindings []key.Binding) string {
 
 // View renders the status bar
 func (s *StatusBar) View() string {
-	versionText := styles.MutedStyle.Render(version.Version)
+	versionText := styles.MutedStyle.Render("cagent " + version.Version)
 
 	var helpText string
 	if s.help != nil {

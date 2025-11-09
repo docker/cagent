@@ -30,7 +30,6 @@ func Pull(registryRef string, opts ...crane.Option) (string, error) {
 
 	if meta, metaErr := store.GetArtifactMetadata(localRef); metaErr == nil {
 		if meta.Digest == remoteDigest {
-			fmt.Printf("Artifact %s already exists in the store (digest %s). Using cache.\n", localRef, remoteDigest)
 			return meta.Digest, nil
 		}
 	}

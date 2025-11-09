@@ -2,7 +2,6 @@ package builtin
 
 import (
 	"encoding/json"
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -33,7 +32,6 @@ func TestNewScriptShellTool_ToolNoArg(t *testing.T) {
 	assert.Len(t, allTools, 1)
 
 	schema, err := json.Marshal(allTools[0].Parameters)
-	fmt.Println(string(schema))
 	require.NoError(t, err)
 	assert.JSONEq(t, `{
 	"type": "object",

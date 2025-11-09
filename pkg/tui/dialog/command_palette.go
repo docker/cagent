@@ -3,13 +3,14 @@ package dialog
 import (
 	"strings"
 
-	"github.com/charmbracelet/bubbles/v2/key"
-	"github.com/charmbracelet/bubbles/v2/textinput"
-	tea "github.com/charmbracelet/bubbletea/v2"
-	"github.com/charmbracelet/lipgloss/v2"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/docker/cagent/pkg/tui/commands"
 	"github.com/docker/cagent/pkg/tui/core"
+	"github.com/docker/cagent/pkg/tui/core/layout"
 	"github.com/docker/cagent/pkg/tui/styles"
 )
 
@@ -87,7 +88,7 @@ func (d *commandPaletteDialog) Init() tea.Cmd {
 }
 
 // Update handles messages for the command palette dialog
-func (d *commandPaletteDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (d *commandPaletteDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {

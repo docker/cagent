@@ -3,7 +3,7 @@ package dialog
 import (
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea/v2"
+	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/require"
 
 	"github.com/docker/cagent/pkg/tui/commands"

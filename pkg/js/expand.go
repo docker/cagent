@@ -37,3 +37,18 @@ func Expand(ctx context.Context, kv map[string]string, env environment.Provider)
 
 	return expanded
 }
+
+func ExpandString(ctx context.Context, str string, values map[string]string) (string, error) {
+	vm := goja.New()
+
+	for k, v := range values {
+		_ = vm.Set(k, v)
+	}
+
+	expanded, err := vm.RunString("`" + str + "`")
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%v", expanded.Export()), nil
+}

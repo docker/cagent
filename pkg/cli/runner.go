@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,7 +38,7 @@ type Config struct {
 }
 
 // Run executes an agent in non-TUI mode, handling user input and runtime events
-func Run(ctx context.Context, cfg Config, agentFilename string, rt runtime.Runtime, sess *session.Session, args []string) error {
+func Run(ctx context.Context, out *Printer, cfg Config, agentFilename string, rt runtime.Runtime, sess *session.Session, args []string) error {
 	// Create a cancellable context for this agentic loop and wire Ctrl+C to cancel it
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -61,7 +62,7 @@ func Run(ctx context.Context, cfg Config, agentFilename string, rt runtime.Runti
 
 		userInput = runtime.ResolveCommand(ctx, rt, userInput)
 
-		handled, err := runUserCommand(userInput, sess, rt, ctx)
+		handled, err := runUserCommand(out, userInput, sess, rt, ctx)
 		if err != nil {
 			return err
 		}
@@ -90,12 +91,12 @@ func Run(ctx context.Context, cfg Config, agentFilename string, rt runtime.Runti
 			if agentName != "" && (firstLoop || lastAgent != agentName) {
 				if !firstLoop {
 					if llmIsTyping {
-						fmt.Println()
+						out.Println()
 						llmIsTyping = false
 					}
-					fmt.Println()
+					out.Println()
 				}
-				PrintAgentName(agentName)
+				out.PrintAgentName(agentName)
 				firstLoop = false
 				lastAgent = agentName
 				reasoningStarted = false // Reset reasoning state on agent change
@@ -106,16 +107,16 @@ func Run(ctx context.Context, cfg Config, agentFilename string, rt runtime.Runti
 				if !llmIsTyping {
 					// Only add newline if we're not already typing
 					if !agentChanged {
-						fmt.Println()
+						out.Println()
 					}
 					llmIsTyping = true
 				}
 				// Add newline when transitioning from reasoning to regular content
 				if reasoningStarted {
-					fmt.Println()
+					out.Println()
 				}
 				reasoningStarted = false // Reset when regular content starts
-				fmt.Printf("%s", e.Content)
+				out.Print(e.Content)
 			case *runtime.AgentChoiceReasoningEvent:
 				if !reasoningStarted {
 					// First reasoning chunk: print prefix
@@ -123,17 +124,17 @@ func Run(ctx context.Context, cfg Config, agentFilename string, rt runtime.Runti
 					if e.AgentName != "" && e.AgentName != "root" {
 						prefix = prefix + e.AgentName + ": "
 					}
-					fmt.Printf("\n%s", White(prefix))
+					out.Printf("\n%s", prefix)
 					reasoningStarted = true
 				}
 				// Continue printing reasoning content
-				fmt.Printf("%s", White(e.Content))
+				out.Print(e.Content)
 			case *runtime.ToolCallConfirmationEvent:
 				if llmIsTyping {
-					fmt.Println()
+					out.Println()
 					llmIsTyping = false
 				}
-				result := PrintToolCallWithConfirmation(ctx, e.ToolCall, rd)
+				result := out.PrintToolCallWithConfirmation(ctx, e.ToolCall, rd)
 				// If interrupted, skip resuming; the runtime will notice context cancellation and stop
 				if ctx.Err() != nil {
 					continue
@@ -141,12 +142,12 @@ func Run(ctx context.Context, cfg Config, agentFilename string, rt runtime.Runti
 				lastConfirmedToolCallID = e.ToolCall.ID // Store the ID to avoid duplicate printing
 				switch result {
 				case ConfirmationApprove:
-					rt.Resume(ctx, string(runtime.ResumeTypeApprove))
+					rt.Resume(ctx, runtime.ResumeTypeApprove)
 				case ConfirmationApproveSession:
 					sess.ToolsApproved = true
-					rt.Resume(ctx, string(runtime.ResumeTypeApproveSession))
+					rt.Resume(ctx, runtime.ResumeTypeApproveSession)
 				case ConfirmationReject:
-					rt.Resume(ctx, string(runtime.ResumeTypeReject))
+					rt.Resume(ctx, runtime.ResumeTypeReject)
 					lastConfirmedToolCallID = "" // Clear on reject since tool won't execute
 				case ConfirmationAbort:
 					// Stop the agent loop immediately
@@ -155,26 +156,26 @@ func Run(ctx context.Context, cfg Config, agentFilename string, rt runtime.Runti
 				}
 			case *runtime.ToolCallEvent:
 				if llmIsTyping {
-					fmt.Println()
+					out.Println()
 					llmIsTyping = false
 				}
 				// Only print if this wasn't already shown during confirmation
 				if e.ToolCall.ID != lastConfirmedToolCallID {
-					PrintToolCall(e.ToolCall)
+					out.PrintToolCall(e.ToolCall)
 				}
 			case *runtime.ToolCallResponseEvent:
 				if llmIsTyping {
-					fmt.Println()
+					out.Println()
 					llmIsTyping = false
 				}
-				PrintToolCallResponse(e.ToolCall, e.Response)
+				out.PrintToolCallResponse(e.ToolCall, e.Response)
 				// Clear the confirmed ID after the tool completes
 				if e.ToolCall.ID == lastConfirmedToolCallID {
 					lastConfirmedToolCallID = ""
 				}
 			case *runtime.ErrorEvent:
 				if llmIsTyping {
-					fmt.Println()
+					out.Println()
 					llmIsTyping = false
 				}
 				lowerErr := strings.ToLower(e.Error)
@@ -182,33 +183,33 @@ func Run(ctx context.Context, cfg Config, agentFilename string, rt runtime.Runti
 					lastErr = nil
 				} else {
 					lastErr = fmt.Errorf("%s", e.Error)
-					PrintError(lastErr)
+					out.PrintError(lastErr)
 				}
 			case *runtime.MaxIterationsReachedEvent:
 				if llmIsTyping {
-					fmt.Println()
+					out.Println()
 					llmIsTyping = false
 				}
 
-				result := PromptMaxIterationsContinue(ctx, e.MaxIterations)
+				result := out.PromptMaxIterationsContinue(ctx, e.MaxIterations)
 				switch result {
 				case ConfirmationApprove:
-					rt.Resume(ctx, string(runtime.ResumeTypeApprove))
+					rt.Resume(ctx, runtime.ResumeTypeApprove)
 				case ConfirmationReject:
-					rt.Resume(ctx, string(runtime.ResumeTypeReject))
+					rt.Resume(ctx, runtime.ResumeTypeReject)
 					return nil
 				case ConfirmationAbort:
-					rt.Resume(ctx, string(runtime.ResumeTypeReject))
+					rt.Resume(ctx, runtime.ResumeTypeReject)
 					return nil
 				}
 			case *runtime.ElicitationRequestEvent:
 				if llmIsTyping {
-					fmt.Println()
+					out.Println()
 					llmIsTyping = false
 				}
 
 				serverURL := e.Meta["cagent/server_url"].(string)
-				result := PromptOAuthAuthorization(ctx, serverURL)
+				result := out.PromptOAuthAuthorization(ctx, serverURL)
 				switch {
 				case ctx.Err() != nil:
 					return ctx.Err()
@@ -223,7 +224,7 @@ func Run(ctx context.Context, cfg Config, agentFilename string, rt runtime.Runti
 
 		// If the loop ended due to Ctrl+C, inform the user succinctly
 		if ctx.Err() != nil {
-			fmt.Println(Yellow("\n⚠️  agent stopped  ⚠️"))
+			out.Println("\n⚠️  agent stopped  ⚠️")
 		}
 
 		// Wrap runtime errors to prevent duplicate error messages and usage display
@@ -249,13 +250,14 @@ func Run(ctx context.Context, cfg Config, agentFilename string, rt runtime.Runti
 			}
 		}
 	} else {
-		PrintWelcomeMessage(cfg.AppName)
+		out.PrintWelcomeMessage(cfg.AppName)
 		firstQuestion := true
 		for {
 			if !firstQuestion {
-				fmt.Print("\n\n")
+				out.Println()
+				out.Println()
 			}
-			fmt.Print(Blue("> "))
+			out.Print("> ")
 			firstQuestion = false
 
 			line, err := input.ReadLine(ctx, os.Stdin)
@@ -278,20 +280,20 @@ func Run(ctx context.Context, cfg Config, agentFilename string, rt runtime.Runti
 
 // runUserCommand handles built-in session commands
 // TODO: This is a duplication of builtInSessionCommands() in pkg/tui/tui.go
-func runUserCommand(userInput string, sess *session.Session, rt runtime.Runtime, ctx context.Context) (bool, error) {
+func runUserCommand(out *Printer, userInput string, sess *session.Session, rt runtime.Runtime, ctx context.Context) (bool, error) {
 	switch userInput {
 	case "/exit":
 		os.Exit(0)
 	case "/eval":
 		evalFile, err := evaluation.Save(sess)
 		if err == nil {
-			fmt.Printf("%s\n", Yellow("Evaluation saved to file %s", evalFile))
+			out.Println("Evaluation saved to file:", evalFile)
 			return true, err
 		}
 		return true, nil
 	case "/usage":
-		fmt.Printf("%s\n", Yellow("Input tokens: %d", sess.InputTokens))
-		fmt.Printf("%s\n", Yellow("Output tokens: %d", sess.OutputTokens))
+		out.Println("Input tokens:", sess.InputTokens)
+		out.Println("Output tokens:", sess.OutputTokens)
 		return true, nil
 	case "/new":
 		// Reset session items
@@ -299,7 +301,7 @@ func runUserCommand(userInput string, sess *session.Session, rt runtime.Runtime,
 		return true, nil
 	case "/compact":
 		// Generate a summary of the session and compact the history
-		fmt.Printf("%s\n", Yellow("Generating summary..."))
+		out.Println("Generating summary...")
 
 		// Create a channel to capture summary events
 		events := make(chan runtime.Event, 100)
@@ -314,17 +316,17 @@ func runUserCommand(userInput string, sess *session.Session, rt runtime.Runtime,
 		for event := range events {
 			switch e := event.(type) {
 			case *runtime.SessionSummaryEvent:
-				fmt.Printf("%s\n", Yellow("Summary generated and added to session"))
-				fmt.Printf("Summary: %s\n", e.Summary)
+				out.Println("Summary generated and added to session")
+				out.Println("Summary:", e.Summary)
 				summaryGenerated = true
 			case *runtime.WarningEvent:
-				fmt.Printf("%s\n", Yellow("Warning: "+e.Message))
+				out.Println("Warning:", e.Message)
 				hasWarning = true
 			}
 		}
 
 		if !summaryGenerated && !hasWarning {
-			fmt.Printf("%s\n", Yellow("No summary generated"))
+			out.Println("No summary generated")
 		}
 
 		return true, nil
@@ -396,7 +398,7 @@ func createUserMessageWithAttachment(agentFilename, userContent, attachmentPath 
 	// Convert file to data URL
 	dataURL, err := fileToDataURL(attachmentPath)
 	if err != nil {
-		fmt.Printf("Warning: Failed to attach file %s: %v\n", attachmentPath, err)
+		slog.Warn("Failed to attach file", "path", attachmentPath, "error", err)
 		return session.UserMessage(agentFilename, userContent)
 	}
 

@@ -4,13 +4,14 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/v2/key"
-	tea "github.com/charmbracelet/bubbletea/v2"
-	"github.com/charmbracelet/lipgloss/v2"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/junegunn/fzf/src/algo"
 	"github.com/junegunn/fzf/src/util"
 
 	"github.com/docker/cagent/pkg/tui/core"
+	"github.com/docker/cagent/pkg/tui/core/layout"
 	"github.com/docker/cagent/pkg/tui/styles"
 )
 
@@ -78,7 +79,7 @@ func defaultCompletionKeyMap() completionKeyMap {
 
 // Manager manages the dialog stack and rendering
 type Manager interface {
-	tea.Model
+	layout.Model
 
 	GetLayers() []*lipgloss.Layer
 	Open() bool
@@ -112,7 +113,7 @@ func (c *manager) Open() bool {
 	return c.visible
 }
 
-func (c *manager) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (c *manager) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		c.width = msg.Width
@@ -164,6 +165,12 @@ func (c *manager) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return c, nil
+}
+
+func (c *manager) SetSize(width, height int) tea.Cmd {
+	c.width = width
+	c.height = height
+	return nil
 }
 
 func (c *manager) View() string {
@@ -221,7 +228,7 @@ func (c *manager) GetLayers() []*lipgloss.Layer {
 	view := c.View()
 	viewHeight := lipgloss.Height(view)
 
-	editorHeight := 5
+	editorHeight := 4
 	yPos := max(c.height-viewHeight-editorHeight-1, 0)
 
 	return []*lipgloss.Layer{

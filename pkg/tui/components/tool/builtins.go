@@ -10,7 +10,7 @@ import (
 	"github.com/docker/cagent/pkg/tui/styles"
 )
 
-func renderEditFile(toolCall tools.ToolCall, width int) (string, string) {
+func renderEditFile(toolCall tools.ToolCall, width int, splitView bool) (string, string) {
 	var args builtin.EditFileArgs
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
 		return "", ""
@@ -26,8 +26,12 @@ func renderEditFile(toolCall tools.ToolCall, width int) (string, string) {
 			output.WriteString("Edit #" + string(rune(i+1+'0')) + ":\n")
 		}
 
-		diff := computeDiff(edit.OldText, edit.NewText)
-		output.WriteString(renderDiffWithSyntaxHighlight(diff, args.Path, width))
+		diff := computeDiff(args.Path, edit.OldText, edit.NewText)
+		if splitView {
+			output.WriteString(renderSplitDiffWithSyntaxHighlight(diff, args.Path, width))
+		} else {
+			output.WriteString(renderDiffWithSyntaxHighlight(diff, args.Path, width))
+		}
 	}
 
 	return output.String(), args.Path

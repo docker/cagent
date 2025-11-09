@@ -14,11 +14,7 @@ A yaml file contains everyting needed to run a team of agents:
 
 If you are making a team of agents you should make one `root` agent whose job is to delegate tasks to its subagents
 
-Important: always include top level `version: "2"`
-
 ```yaml
-version: "2"
-
 agents:
 agent_name:
     model: string # Model reference
@@ -46,8 +42,6 @@ The todo, memory, and script tools can be configured:
 
 Todos can be shared between different agents in a team
 ```
-version: "2"
-
 agents:
     root:
         ...
@@ -59,8 +53,6 @@ agents:
 Memory needs a path to the sqlite database file 
 
 ```
-version: "2"
-
 agents:
     root:
         ...
@@ -72,8 +64,6 @@ agents:
 Script tools allow you to define custom shell commands with typed parameters:
 
 ```
-version: "2"
-
 agents:
     root:
         ...
@@ -126,8 +116,6 @@ Note: Arguments are substituted as environment variables in the command using $V
 Example of using the `youtube_transcript` MCP server, from the docker MCP Catalog, using the docker MCP Gateway:
 
 ```yaml
-version: "2"
-
 agents:
     root:
         ...
@@ -156,27 +144,23 @@ docker mcp server inspect <server_name>
 Multiple MCP Servers can be configured when multiple tools are useful.
 
 ```yaml
-version: "2"
-
 agents:
-    root:
-        ...
-        toolsets:
-        - type: mcp
-          ref: docker:duckduckgo
-        - type: mcp
-          ref: docker:youtube_transcript
-        - type: mcp
-          ref: docker:other
+  root:
+    ...
+    toolsets:
+    - type: mcp
+      ref: docker:duckduckgo
+    - type: mcp
+      ref: docker:youtube_transcript
+    - type: mcp
+      ref: docker:other
 ```
 
 ### Model Configuration
 
 ```yaml
-version: "2"
-
 models:
-model_name:
+  model_name:
     provider: string # Provider: openai, anthropic, dmr
     model: string # Model name: gpt-4o, claude-3-7-sonnet-latest
     max_tokens: integer # Response length limit

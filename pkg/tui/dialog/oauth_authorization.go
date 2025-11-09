@@ -3,12 +3,13 @@ package dialog
 import (
 	"fmt"
 
-	"github.com/charmbracelet/bubbles/v2/key"
-	tea "github.com/charmbracelet/bubbletea/v2"
-	"github.com/charmbracelet/lipgloss/v2"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/docker/cagent/pkg/app"
 	"github.com/docker/cagent/pkg/tui/core"
+	"github.com/docker/cagent/pkg/tui/core/layout"
 	"github.com/docker/cagent/pkg/tui/styles"
 )
 
@@ -62,7 +63,7 @@ func (d *oauthAuthorizationDialog) Init() tea.Cmd {
 }
 
 // Update handles messages for the OAuth authorization confirmation dialog
-func (d *oauthAuthorizationDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (d *oauthAuthorizationDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		d.width = msg.Width

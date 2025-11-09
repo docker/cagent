@@ -50,7 +50,7 @@ func TestMigrate_v0_v1_provider(t *testing.T) {
 	cfg, err := LoadConfig("provider_v0.yaml", root)
 	require.NoError(t, err)
 
-	assert.Equal(t, "openai", cfg.Models["openai"].Provider)
+	assert.Equal(t, "openai", cfg.Models["gpt"].Provider)
 }
 
 func TestMigrate_v1_provider(t *testing.T) {
@@ -61,7 +61,7 @@ func TestMigrate_v1_provider(t *testing.T) {
 	cfg, err := LoadConfig("provider_v1.yaml", root)
 	require.NoError(t, err)
 
-	assert.Equal(t, "openai", cfg.Models["openai"].Provider)
+	assert.Equal(t, "openai", cfg.Models["gpt"].Provider)
 }
 
 func TestMigrate_v0_v1_todo(t *testing.T) {
@@ -215,6 +215,10 @@ func TestCheckRequiredEnvVars(t *testing.T) {
 			expectedMissing: []string{"GOOGLE_API_KEY"},
 		},
 		{
+			yaml:            "mistral_inline.yaml",
+			expectedMissing: []string{"MISTRAL_API_KEY"},
+		},
+		{
 			yaml:            "dmr_inline.yaml",
 			expectedMissing: []string{},
 		},
@@ -231,12 +235,16 @@ func TestCheckRequiredEnvVars(t *testing.T) {
 			expectedMissing: []string{"GOOGLE_API_KEY"},
 		},
 		{
+			yaml:            "mistral_model.yaml",
+			expectedMissing: []string{"MISTRAL_API_KEY"},
+		},
+		{
 			yaml:            "dmr_model.yaml",
 			expectedMissing: []string{},
 		},
 		{
 			yaml:            "all.yaml",
-			expectedMissing: []string{"ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY"},
+			expectedMissing: []string{"ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "MISTRAL_API_KEY", "OPENAI_API_KEY"},
 		},
 	}
 	for _, test := range tests {

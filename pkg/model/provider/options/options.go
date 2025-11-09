@@ -6,11 +6,15 @@ import (
 
 type ModelOptions struct {
 	gateway          string
-	StructuredOutput *latest.StructuredOutput
+	structuredOutput *latest.StructuredOutput
 }
 
 func (c *ModelOptions) Gateway() string {
 	return c.gateway
+}
+
+func (c *ModelOptions) StructuredOutput() *latest.StructuredOutput {
+	return c.structuredOutput
 }
 
 type Opt func(*ModelOptions)
@@ -21,9 +25,9 @@ func WithGateway(gateway string) Opt {
 	}
 }
 
-func WithStructuredOutput(output *latest.StructuredOutput) Opt {
+func WithStructuredOutput(structuredOutput *latest.StructuredOutput) Opt {
 	return func(cfg *ModelOptions) {
-		cfg.StructuredOutput = output
+		cfg.structuredOutput = structuredOutput
 	}
 }
 
@@ -34,8 +38,8 @@ func FromModelOptions(m ModelOptions) []Opt {
 	if g := m.Gateway(); g != "" {
 		out = append(out, WithGateway(g))
 	}
-	if m.StructuredOutput != nil {
-		out = append(out, WithStructuredOutput(m.StructuredOutput))
+	if m.structuredOutput != nil {
+		out = append(out, WithStructuredOutput(m.structuredOutput))
 	}
 	return out
 }

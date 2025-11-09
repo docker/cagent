@@ -1,9 +1,9 @@
 package layout
 
 import (
-	"github.com/charmbracelet/bubbles/v2/help"
-	"github.com/charmbracelet/bubbles/v2/key"
-	tea "github.com/charmbracelet/bubbletea/v2"
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 )
 
 // Sizeable represents components that can be resized
@@ -17,6 +17,10 @@ type Focusable interface {
 	Blur() tea.Cmd
 }
 
+type Positionable interface {
+	SetPosition(x, y int) tea.Cmd
+}
+
 // Help represents components that provide help information
 type Help interface {
 	Bindings() []key.Binding
@@ -25,7 +29,8 @@ type Help interface {
 
 // Model is the base interface for all TUI models
 type Model interface {
-	tea.Model
-	tea.ViewModel
+	Init() tea.Cmd
+	Update(tea.Msg) (Model, tea.Cmd)
+	View() string
 	Sizeable
 }

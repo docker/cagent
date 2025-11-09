@@ -11,7 +11,6 @@ import (
 )
 
 func TestTrimMessages(t *testing.T) {
-	// Create a slice of messages that exceeds maxMessages
 	messages := make([]chat.Message, maxMessages+10)
 
 	// Fill with some basic messages
@@ -22,7 +21,6 @@ func TestTrimMessages(t *testing.T) {
 		}
 	}
 
-	// Test basic trimming
 	result := trimMessages(messages, maxMessages)
 	assert.Len(t, result, maxMessages, "should trim to maxMessages")
 }
@@ -75,7 +73,6 @@ func TestTrimMessagesWithToolCalls(t *testing.T) {
 	// Should keep last 3 messages, but ensure tool call consistency
 	assert.Len(t, result, maxItems)
 
-	// Verify we don't have any orphaned tool results
 	toolCalls := make(map[string]bool)
 	for _, msg := range result {
 		if msg.Role == chat.MessageRoleAssistant {
@@ -90,13 +87,10 @@ func TestTrimMessagesWithToolCalls(t *testing.T) {
 }
 
 func TestGetMessages(t *testing.T) {
-	// Create a test agent
 	testAgent := &agent.Agent{}
 
-	// Create a session with many messages
 	s := New()
 
-	// Add more than maxMessages to the session
 	for range maxMessages + 10 {
 		s.AddMessage(NewAgentMessage(testAgent, &chat.Message{
 			Role:    chat.MessageRoleUser,
@@ -104,7 +98,6 @@ func TestGetMessages(t *testing.T) {
 		}))
 	}
 
-	// Get messages for the agent
 	messages := s.GetMessages(testAgent)
 
 	// Count non-system messages (since system messages are not limited)
@@ -115,18 +108,14 @@ func TestGetMessages(t *testing.T) {
 		}
 	}
 
-	// Verify we get at most maxMessages for non-system messages
 	assert.LessOrEqual(t, nonSystemCount, maxMessages, "non-system messages should not exceed maxMessages")
 }
 
 func TestGetMessagesWithToolCalls(t *testing.T) {
-	// Create a test agent
 	testAgent := &agent.Agent{}
 
-	// Create a session
 	s := New()
 
-	// Add a sequence of messages with tool calls
 	s.AddMessage(NewAgentMessage(testAgent, &chat.Message{
 		Role:    chat.MessageRoleUser,
 		Content: "test message",
@@ -148,14 +137,12 @@ func TestGetMessagesWithToolCalls(t *testing.T) {
 		Content:    "tool result",
 	}))
 
-	// Set maxMessages to 2 to force trimming
 	oldMax := maxMessages
 	maxMessages = 2
 	defer func() { maxMessages = oldMax }()
 
 	messages := s.GetMessages(testAgent)
 
-	// Verify tool call consistency
 	toolCalls := make(map[string]bool)
 	for _, msg := range messages {
 		if msg.Role == chat.MessageRoleAssistant {
@@ -170,13 +157,10 @@ func TestGetMessagesWithToolCalls(t *testing.T) {
 }
 
 func TestGetMessagesWithSummary(t *testing.T) {
-	// Create a test agent
 	testAgent := &agent.Agent{}
 
-	// Create a session
 	s := New()
 
-	// Add some initial messages
 	s.AddMessage(NewAgentMessage(testAgent, &chat.Message{
 		Role:    chat.MessageRoleUser,
 		Content: "first message",
@@ -186,10 +170,8 @@ func TestGetMessagesWithSummary(t *testing.T) {
 		Content: "first response",
 	}))
 
-	// Add a summary
 	s.Messages = append(s.Messages, Item{Summary: "This is a summary of the conversation so far"})
 
-	// Add messages after the summary
 	s.AddMessage(NewAgentMessage(testAgent, &chat.Message{
 		Role:    chat.MessageRoleUser,
 		Content: "message after summary",
@@ -199,7 +181,6 @@ func TestGetMessagesWithSummary(t *testing.T) {
 		Content: "response after summary",
 	}))
 
-	// Get messages
 	messages := s.GetMessages(testAgent)
 
 	// Count non-system messages (user and assistant only)

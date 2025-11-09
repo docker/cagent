@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/v2/key"
-	tea "github.com/charmbracelet/bubbletea/v2"
-	"github.com/charmbracelet/lipgloss/v2"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/docker/cagent/pkg/app"
+	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/tui/core"
+	"github.com/docker/cagent/pkg/tui/core/layout"
 	"github.com/docker/cagent/pkg/tui/styles"
 )
 
@@ -63,7 +65,7 @@ func (d *maxIterationsDialog) Init() tea.Cmd {
 }
 
 // Update handles messages for the max iterations confirmation dialog
-func (d *maxIterationsDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (d *maxIterationsDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		d.width = msg.Width
@@ -73,17 +75,10 @@ func (d *maxIterationsDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		switch {
 		case key.Matches(msg, d.keyMap.Yes):
-			if d.app != nil {
-				d.app.Resume("approve")
-			}
-			return d, core.CmdHandler(CloseDialogMsg{})
+			return d, tea.Sequence(core.CmdHandler(CloseDialogMsg{}), core.CmdHandler(RuntimeResumeMsg{Response: runtime.ResumeTypeApprove}))
 		case key.Matches(msg, d.keyMap.No):
-			if d.app != nil {
-				d.app.Resume("reject")
-			}
-			return d, core.CmdHandler(CloseDialogMsg{})
+			return d, tea.Sequence(core.CmdHandler(CloseDialogMsg{}), core.CmdHandler(RuntimeResumeMsg{Response: runtime.ResumeTypeReject}))
 		}
-
 		if msg.String() == "ctrl+c" {
 			return d, tea.Quit
 		}

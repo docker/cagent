@@ -2,7 +2,7 @@
 
 ## Development environment setup
 
-> We currently support `cagent` development on macOS and linux based systems. Windows support coming soon
+> We currently support `cagent` development on macOS and Linux-based systems. Windows support coming soon
 
 #### Build from source
 
@@ -13,7 +13,7 @@ If you're hacking on `cagent`, or just want to be on the bleeding edge, then bui
 - Go 1.25 or higher
 - API key(s) for your chosen AI provider (OpenAI, Anthropic, Gemini, etc.)
 - [Task 3.44 or higher](https://taskfile.dev/installation/)
-- [`golangci-lint`](https://golangci-lint.run/docs/welcome/install/#binaries`)
+- [`golangci-lint`](https://golangci-lint.run/docs/welcome/install/#binaries)
 
 ##### Build commands
 
@@ -25,8 +25,9 @@ task build
 
 # Set keys for remote inference services
 export OPENAI_API_KEY=your_api_key_here    # For OpenAI models
-export ANTHROPIC_API_KEY=your_api_key_here # For Anthopic models
+export ANTHROPIC_API_KEY=your_api_key_here # For Anthropic models
 export GOOGLE_API_KEY=your_api_key_here    # For Gemini models
+export MISTRAL_API_KEY=your_api_key_here   # For Mistral models
 
 # Run with a sample configuration
 ./bin/cagent run examples/code.yaml
@@ -44,7 +45,7 @@ Binary builds can also be made using `docker` itself.
 
 Start a build via docker using `task build-local` (for only your local architecture), or use `task cross` to build for all supported platforms.  
 
-Builds done via `docker` will the placed in the `./dist` directory
+Builds done via `docker` will be placed in the `./dist` directory
 
 ```sh
 $ task build-local

@@ -2,7 +2,7 @@ version: "1"
 
 agents:
   root:
-    model: openai
+    model: gpt
     description: Create a biography of the user based on internet searches.
     instruction: Your goal is to present the user with a concise and informative biography based on their online presence.
     toolsets:
@@ -13,6 +13,6 @@ agents:
         args: ["mcp", "gateway", "run", "--servers=fetch"]
 
 models:
-  openai:
+  gpt:
     provider: openai
     model: gpt-4o

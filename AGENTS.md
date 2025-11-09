@@ -80,8 +80,6 @@ cagent is a multi-agent AI system with hierarchical agent structure and pluggabl
 #### Agent Configuration
 
 ```yaml
-version: "2"
-
 agents:
   root:
     model: model_ref # Can be inline like "openai/gpt-4o" or reference defined models
@@ -251,8 +249,6 @@ toolsets:
 ### Agent Hierarchy Example
 
 ```yaml
-version: "2"
-
 agents:
   root:
     model: anthropic/claude-sonnet-4-0
@@ -282,7 +278,7 @@ agents:
 
 - `/new` - Clear session history
 - `/compact` - Generate summary and compact session history
-- `/copy` - Show token usage statistics
+- `/copy` - Copy the current conversation to the clipboard
 - `/eval` - Save evaluation data
 
 ## File Locations and Patterns
@@ -309,9 +305,9 @@ agents:
 - `OPENAI_API_KEY` - OpenAI authentication
 - `ANTHROPIC_API_KEY` - Anthropic authentication
 - `GOOGLE_API_KEY` - Google/Gemini authentication
+- `MISTRAL_API_KEY` - Mistral authentication
 - `TELEMETRY_ENABLED` - Control telemetry (set to false to disable)
 - `CAGENT_HIDE_TELEMETRY_BANNER` - Hide telemetry banner message
-- `CAGENT_HIDE_FEEDBACK_LINK` - Hide feedback link
 
 ## Debugging and Troubleshooting
 

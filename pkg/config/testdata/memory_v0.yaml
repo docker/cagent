@@ -1,6 +1,8 @@
+version: "0"
+
 agents:
   root:
-    model: openai
+    model: gpt
     memory:
        path: dev_memory.db
     toolsets:
@@ -9,6 +11,6 @@ agents:
         args: ["mcp", "gateway", "run", "--servers=fetch"]
 
 models:
-  openai:
+  gpt:
     type: openai
     model: gpt-4o

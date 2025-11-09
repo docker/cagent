@@ -3,8 +3,9 @@ package tool
 import (
 	"encoding/json"
 
-	tea "github.com/charmbracelet/bubbletea/v2"
+	tea "charm.land/bubbletea/v2"
 
+	"github.com/docker/cagent/pkg/tui/core/layout"
 	"github.com/docker/cagent/pkg/tui/styles"
 	"github.com/docker/cagent/pkg/tui/types"
 )
@@ -21,7 +22,7 @@ func (m *transferTaskModel) SetSize(_, _ int) tea.Cmd {
 	return nil
 }
 
-func (m *transferTaskModel) Update(tea.Msg) (tea.Model, tea.Cmd) {
+func (m *transferTaskModel) Update(tea.Msg) (layout.Model, tea.Cmd) {
 	return m, nil
 }
 

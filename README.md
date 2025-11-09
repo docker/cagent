@@ -1,7 +1,8 @@
 # 🤖 `cagent` 🤖
 
-> A powerful, easy to use, customizable multi-agent runtime that orchestrates AI agents with
-> specialized capabilities and tools, and the interactions between agents.
+> A powerful, easy to use, customizable multi-agent runtime that orchestrates AI
+> agents with specialized capabilities and tools, and the interactions between
+> agents.
 
 ![cagent in action](docs/assets/cagent-run.gif)
 
@@ -10,18 +11,20 @@
 `cagent` lets you create and run intelligent AI agents, where each agent has
 specialized knowledge, tools, and capabilities.
 
-Think of it as allowing you to quickly build, share and run a team of virtual experts that
-collaborate to solve complex problems for you.
+Think of it as allowing you to quickly build, share and run a team of virtual
+experts that collaborate to solve complex problems for you.
 
 And it's dead easy to use!
 
-⚠️ Note: `cagent` is in active development, **breaking changes are to be expected** ⚠️
+⚠️ Note: `cagent` is in active development, **breaking changes are to be
+expected** ⚠️
 
 ### Your First Agent
 
 Example [basic_agent.yaml](/examples/basic_agent.yaml):
 
-Creating agents with cagent is very simple. They are described in a short yaml file, like this one:
+Creating agents with cagent is very simple. They are described in a short yaml
+file, like this one:
 
 ```yaml
 agents:
@@ -39,19 +42,23 @@ Many more examples can be found [here](/examples/README.md)!
 
 ### Improving an agent with MCP tools
 
-`cagent` supports MCP servers, enabling agents to use a wide variety of external tools and services.
+`cagent` supports MCP servers, enabling agents to use a wide variety of external
+tools and services.
 
 It supports three transport types: `stdio`, `http` and `sse`.
 
-Giving an agent access to tools via MCP is a quick way to greatly improve its capabilities, the quality of its results and its general useful-ness.
+Giving an agent access to tools via MCP is a quick way to greatly improve its
+capabilities, the quality of its results and its general usefulness.
 
-Get started quickly with the [Docker MCP Toolkit](https://docs.docker.com/ai/mcp-catalog-and-toolkit/toolkit/) and [catalog](https://docs.docker.com/ai/mcp-catalog-and-toolkit/catalog/)
+Get started quickly with the [Docker MCP
+Toolkit](https://docs.docker.com/ai/mcp-catalog-and-toolkit/toolkit/) and
+[catalog](https://docs.docker.com/ai/mcp-catalog-and-toolkit/catalog/)
 
-Here, we're giving the same basic agent from the example above access to a **containerized** `duckduckgo` mcp server and it's tools by using Docker's MCP Gateway:
+Here, we're giving the same basic agent from the example above access to a
+**containerized** `duckduckgo` mcp server and its tools by using Docker's MCP
+Gateway:
 
 ```yaml
-version: "2"
-
 agents:
   root:
     model: openai/gpt-5-mini
@@ -64,15 +71,18 @@ agents:
         ref: docker:duckduckgo # stdio transport
 ```
 
-When using a containerized server via the Docker MCP gateway, you can configure any required settings/secrets/authentication using the [Docker MCP Toolkit](https://docs.docker.com/ai/mcp-catalog-and-toolkit/toolkit/#example-use-the-github-official-mcp-server) in Docker Desktop.
+When using a containerized server via the Docker MCP gateway, you can configure
+any required settings/secrets/authentication using the [Docker MCP
+Toolkit](https://docs.docker.com/ai/mcp-catalog-and-toolkit/toolkit/#example-use-the-github-official-mcp-server)
+in Docker Desktop.
 
-Aside from the containerized MCP severs the Docker MCP Gateway provides, any standard MCP server can be used with cagent!
+Aside from the containerized MCP servers the Docker MCP Gateway provides, any
+standard MCP server can be used with cagent!
 
-Here's an example similar to the above but adding `read_file` and `write_file` tools from the `rust-mcp-filesystem` MCP server:
+Here's an example similar to the above but adding `read_file` and `write_file`
+tools from the `rust-mcp-filesystem` MCP server:
 
 ```yaml
-version: "2"
-
 agents:
   root:
     model: openai/gpt-5-mini
@@ -91,16 +101,51 @@ agents:
           - "RUST_LOG=debug"
 ```
 
-See [the USAGE docs](./docs/USAGE.md#tool-configuration) for more detailed information and examples
+See [the USAGE docs](./docs/USAGE.md#tool-configuration) for more detailed
+information and examples
+
+### Exposing agents as MCP tools
+
+`cagent` can expose agents as MCP tools via the `cagent mcp` command, allowing other MCP clients to use your agents.
+
+Each agent in your configuration becomes an MCP tool with its description.
+
+```bash
+# Start MCP server with local file
+cagent mcp ./examples/dev-team.yaml
+
+# Or use an OCI artifact
+cagent mcp agentcatalog/pirate
+```
+
+This exposes each agent as a tool (e.g., `root`, `designer`, `awesome_engineer`) that MCP clients can call:
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "designer",
+    "arguments": {
+      "message": "Design a login page"
+    }
+  }
+}
+```
 
 ### 🎯 Key Features
 
-- **🏗️ Multi-agent architecture** - Create specialized agents for different domains.
-- **🔧 Rich tool ecosystem** - Agents can use external tools and APIs via the MCP protocol.
-- **🔄 Smart delegation** - Agents can automatically route tasks to the most suitable specialist.
+- **🏗️ Multi-agent architecture** - Create specialized agents for different
+  domains.
+- **🔧 Rich tool ecosystem** - Agents can use external tools and APIs via the
+  MCP protocol.
+- **🔄 Smart delegation** - Agents can automatically route tasks to the most
+  suitable specialist.
 - **📝 YAML configuration** - Declarative model and agent configuration.
-- **💭 Advanced reasoning** - Built-in "think", "todo" and "memory" tools for complex problem-solving.
-- **🌐 Multiple AI providers** - Support for OpenAI, Anthropic, Gemini, xAI and [Docker Model Runner](https://docs.docker.com/ai/model-runner/).
+- **💭 Advanced reasoning** - Built-in "think", "todo" and "memory" tools for
+  complex problem-solving.
+- **🌐 Multiple AI providers** - Support for OpenAI, Anthropic, Gemini, xA,
+  Mistral, Nebius and [Docker Model
+  Runner](https://docs.docker.com/ai/model-runner/).
 
 ## 🚀 Quick Start 🚀
 
@@ -116,22 +161,27 @@ $ brew install cagent
 
 #### Using binary releases
 
-[Prebuilt binaries](https://github.com/docker/cagent/releases) for Windows, macOS and Linux can be found on the releases page of the [project's GitHub repository](https://github.com/docker/cagent/releases)
+[Prebuilt binaries](https://github.com/docker/cagent/releases) for Windows,
+macOS and Linux can be found on the releases page of the [project's GitHub
+repository](https://github.com/docker/cagent/releases)
 
-Once you've downloaded the appropriate binary for your platform, you may need to give it executable permissions.
-On macOS and Linux, this is done with the following command:
+Once you've downloaded the appropriate binary for your platform, you may need to
+give it executable permissions. On macOS and Linux, this is done with the
+following command:
 
 ```sh
 # linux amd64 build example
 chmod +x /path/to/downloads/cagent-linux-amd64
 ```
 
-You can then rename the binary to `cagent` and configure your `PATH` to be able to find it (configuration varies by platform).
+You can then rename the binary to `cagent` and configure your `PATH` to be able
+to find it (configuration varies by platform).
 
 ### **Set your API keys**
 
-Based on the models you configure your agents to use, you will need to set the corresponding provider API key accordingly,
-all theses keys are optional, you will likely need at least one of these, though:
+Based on the models you configure your agents to use, you will need to set the
+corresponding provider API key accordingly, all these keys are optional, you
+will likely need at least one of these, though:
 
 ```bash
 # For OpenAI models
@@ -145,6 +195,12 @@ export GOOGLE_API_KEY=your_api_key_here
 
 # For xAI models
 export XAI_API_KEY=your_api_key_here
+
+# For Nebius models
+export NEBIUS_API_KEY=your_api_key_here
+
+# For Mistral models
+export MISTRAL_API_KEY=your_api_key_here
 ```
 
 ### Run Agents!
@@ -198,11 +254,17 @@ models:
     max_tokens: 64000
 ```
 
-You'll find a curated list of agents examples, spread into 3 categories, [Basic](https://github.com/docker/cagent/tree/main/examples#basic-configurations), [Advanced](https://github.com/docker/cagent/tree/main/examples#advanced-configurations) and [multi-agents](https://github.com/docker/cagent/tree/main/examples#multi-agent-configurations) in the `/examples/` directory.
+You'll find a curated list of agents examples, spread into 3 categories,
+[Basic](https://github.com/docker/cagent/tree/main/examples#basic-configurations),
+[Advanced](https://github.com/docker/cagent/tree/main/examples#advanced-configurations)
+and
+[multi-agents](https://github.com/docker/cagent/tree/main/examples#multi-agent-configurations)
+in the `/examples/` directory.
 
 ### DMR (Docker Model Runner) provider options
 
-When using the `dmr` provider, you can use the `provider_opts` key for DMR runtime-specific (e.g. llama.cpp) options:
+When using the `dmr` provider, you can use the `provider_opts` key for DMR
+runtime-specific (e.g. llama.cpp) options:
 
 ```yaml
 models:
@@ -214,18 +276,29 @@ models:
       runtime_flags: ["--ngl=33", "--repeat-penalty=1.2", ...] # or comma/space-separated string
 ```
 
-The default base_url `cagent` will use for DMR providers is `http://localhost:12434/engines/llama.cpp/v1`. DMR itself might need to be enabled via [Docker Desktop's settings](https://docs.docker.com/ai/model-runner/get-started/#enable-dmr-in-docker-desktop) on MacOS and Windows, and via command line on [Docker CE on Linux](https://docs.docker.com/ai/model-runner/get-started/#enable-dmr-in-docker-engine).
+The default base_url `cagent` will use for DMR providers is
+`http://localhost:12434/engines/llama.cpp/v1`. DMR itself might need to be
+enabled via [Docker Desktop's
+settings](https://docs.docker.com/ai/model-runner/get-started/#enable-dmr-in-docker-desktop)
+on MacOS and Windows, and via command line on [Docker CE on
+Linux](https://docs.docker.com/ai/model-runner/get-started/#enable-dmr-in-docker-engine).
 
 ## Quickly generate agents and agent teams with `cagent new`
 
-Using the command `cagent new` you can quickly generate agents or multi-agent teams using a single prompt!  
+Using the command `cagent new` you can quickly generate agents or multi-agent
+teams using a single prompt!  
 `cagent` has a built-in agent dedicated to this task.
 
-To use the feature, you must have an Anthropic, OpenAI or Google API key available in your environment, or specify a local model to run with DMR (Docker Model Runner).
+To use the feature, you must have an Anthropic, OpenAI or Google API key
+available in your environment, or specify a local model to run with DMR (Docker
+Model Runner).
 
-You can choose what provider and model gets used by passing the `--model provider/modelname` flag to `cagent new`
+You can choose what provider and model gets used by passing the `--model
+provider/modelname` flag to `cagent new`
 
-If `--model` is unspecified, `cagent new` will automatically choose between these 3 providers in order based on the first api key it finds in your environment.
+If `--model` is unspecified, `cagent new` will automatically choose between
+these 3 providers in order based on the first api key it finds in your
+environment.
 
 ```sh
 export ANTHROPIC_API_KEY=your_api_key_here  # first choice. default model claude-sonnet-4-0
@@ -234,10 +307,13 @@ export GOOGLE_API_KEY=your_api_key_here     # if anthropic and openai keys are n
 ```
 
 `--max-tokens` can be specified to override the context limit used.  
-When using DMR, the default is 16k to limit memory usage. With all other providers the default is 64k
+When using DMR, the default is 16k to limit memory usage. With all other
+providers the default is 64k
 
-`--max-iterations` can be specified to override how many times the agent is allowed to loop when doing tool calling etc.
-When using DMR, the default is set to 20 (small local models have the highest chance of getting confused and looping endlessly). For all other providers, the default is 0 (unlimited).
+`--max-iterations` can be specified to override how many times the agent is
+allowed to loop when doing tool calling etc. When using DMR, the default is set
+to 20 (small local models have the highest chance of getting confused and
+looping endlessly). For all other providers, the default is 0 (unlimited).
 
 Example of provider, model, context size and max iterations overriding:
 
@@ -272,13 +348,15 @@ What should your agent/agent team do? (describe its purpose):
 
 ### `cagent push`
 
-Agent configurations can be packaged and shared to Docker Hub using the `cagent push` command
+Agent configurations can be packaged and shared to Docker Hub using the `cagent
+push` command
 
 ```sh
 cagent push ./<agent-file>.yaml namespace/reponame
 ```
 
-`cagent` will automatically build an OCI image and push it to the desired repository using your Docker credentials
+`cagent` will automatically build an OCI image and push it to the desired
+repository using your Docker credentials
 
 ### `cagent pull`
 
@@ -288,27 +366,32 @@ Pulling agents from Docker Hub is also just one `cagent pull` command away.
 cagent pull creek/pirate
 ```
 
-`cagent` will pull the image, extract the yaml file and place it in your working directory for ease of use.
+`cagent` will pull the image, extract the yaml file and place it in your working
+directory for ease of use.
 
 `cagent run creek.yaml` will run your newly pulled agent
 
 ## Usage
 
-More details on the usage and configuration of `cagent` can be found in [USAGE.md](/docs/USAGE.md)
+More details on the usage and configuration of `cagent` can be found in
+[USAGE.md](/docs/USAGE.md)
 
 ## Telemetry
 
-We track anonymous usage data to improve the tool. See [TELEMETRY.md](/docs/TELEMETRY.md) for details.
+We track anonymous usage data to improve the tool. See
+[TELEMETRY.md](/docs/TELEMETRY.md) for details.
 
 ## Contributing
 
 Want to hack on `cagent`, or help us fix bugs and build out some features? 🔧
 
-Read the information on how to build from source and contribute to the project in [CONTRIBUTING.md](/docs/CONTRIBUTING.md)
+Read the information on how to build from source and contribute to the project
+in [CONTRIBUTING.md](/docs/CONTRIBUTING.md)
 
 ## DogFooding: using `cagent` to code on `cagent`
 
-A smart way to improve `cagent`'s codebase and feature set is to do it with the help of a `cagent` agent!
+A smart way to improve `cagent`'s codebase and feature set is to do it with the
+help of a `cagent` agent!
 
 We have one that we use and that you should use too:
 
@@ -317,12 +400,14 @@ cd cagent
 cagent run ./golang_developer.yaml
 ```
 
-This agent is an _expert Golang developer specializing in the cagent multi-agent AI system architecture_.
+This agent is an _expert Golang developer specializing in the cagent multi-agent
+AI system architecture_.
 
-Ask it anything about `cagent`. It can be questions about the current code or about
-improvements to the code. It can also fix issues and implement new features!
+Ask it anything about `cagent`. It can be questions about the current code or
+about improvements to the code. It can also fix issues and implement new
+features!
 
 ## Share your feedback
 
-We’d love to hear your thoughts on this project.
-You can find us on [Slack](https://dockercommunity.slack.com/archives/C09DASHHRU4)
+We’d love to hear your thoughts on this project. You can find us on
+[Slack](https://dockercommunity.slack.com/archives/C09DASHHRU4)

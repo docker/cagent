@@ -74,7 +74,6 @@ func TestPushWithOptions(t *testing.T) {
 }
 
 func TestContentStore(t *testing.T) {
-	// Create a content store
 	store, err := content.NewStore(content.WithBaseDir(t.TempDir()))
 	require.NoError(t, err)
 

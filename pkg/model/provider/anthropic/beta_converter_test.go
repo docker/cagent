@@ -62,10 +62,8 @@ func TestConvertBetaMessages_MergesConsecutiveToolMessages(t *testing.T) {
 	// Convert to Beta format
 	betaMessages := convertBetaMessages(messages)
 
-	// Verify structure: User -> Assistant (with 2 tool_use) -> User (with 2 tool_result) -> Assistant
 	require.Len(t, betaMessages, 4, "Should have 4 messages after conversion")
 
-	// Verify roles
 	msg0Map, _ := marshalToMapBeta(betaMessages[0])
 	msg1Map, _ := marshalToMapBeta(betaMessages[1])
 	msg2Map, _ := marshalToMapBeta(betaMessages[2])
@@ -75,13 +73,11 @@ func TestConvertBetaMessages_MergesConsecutiveToolMessages(t *testing.T) {
 	assert.Equal(t, "user", msg2Map["role"])
 	assert.Equal(t, "assistant", msg3Map["role"])
 
-	// Verify the second user message (tool results) has both tool_result blocks
 	userMsg2Map, ok := marshalToMapBeta(betaMessages[2])
 	require.True(t, ok)
 	content := contentArrayBeta(userMsg2Map)
 	require.Len(t, content, 2, "User message should have 2 tool_result blocks")
 
-	// Verify both tool_result IDs are present
 	toolResultIDs := collectToolResultIDs(content)
 	assert.Contains(t, toolResultIDs, "tool_call_1")
 	assert.Contains(t, toolResultIDs, "tool_call_2")

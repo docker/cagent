@@ -3,10 +3,10 @@ package styles
 import (
 	"strings"
 
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/lipgloss/v2"
 	"github.com/alecthomas/chroma/v2"
-	"github.com/charmbracelet/bubbles/v2/textarea"
 	"github.com/charmbracelet/glamour/v2/ansi"
-	"github.com/charmbracelet/lipgloss/v2"
 )
 
 const (
@@ -36,6 +36,14 @@ const (
 	// Diff colors
 	ColorDiffAddBg    = "#20303B" // Dark blue-green
 	ColorDiffRemoveBg = "#3C2A2A" // Dark red-brown
+
+	// Line number and UI element colors
+	ColorLineNumber = "#565F89" // Muted blue-grey (same as ColorMutedBlue)
+	ColorSeparator  = "#414868" // Dark blue-grey (same as ColorBorderSecondary)
+
+	// Word-level diff highlight colors (visible but not harsh)
+	ColorDiffWordAddBg    = "#2D4F3F" // Medium dark teal with green tint
+	ColorDiffWordRemoveBg = "#4F2D3A" // Medium dark burgundy with red tint
 
 	// Interactive element colors
 	ColorSelected = "#364A82" // Dark blue for selected items
@@ -112,6 +120,10 @@ var (
 	DiffRemoveBg = lipgloss.Color(ColorDiffRemoveBg)
 	DiffAddFg    = lipgloss.Color(ColorSuccessGreen)
 	DiffRemoveFg = lipgloss.Color(ColorErrorRed)
+
+	// UI element colors
+	LineNumber = lipgloss.Color(ColorLineNumber)
+	Separator  = lipgloss.Color(ColorSeparator)
 
 	// Interactive element colors
 	Selected         = lipgloss.Color(ColorSelected)
@@ -266,9 +278,15 @@ var (
 			Background(DiffRemoveBg).
 			Foreground(DiffRemoveFg)
 
-	DiffUnchangedStyle = lipgloss.NewStyle()
+	DiffUnchangedStyle = BaseStyle.Background(BackgroundAlt)
 
 	DiffContextStyle = BaseStyle
+)
+
+// Syntax highlighting UI element styles
+var (
+	LineNumberStyle = BaseStyle.Foreground(LineNumber).Background(BackgroundAlt)
+	SeparatorStyle  = BaseStyle.Foreground(Separator).Background(BackgroundAlt)
 )
 
 // Tool Call Styles

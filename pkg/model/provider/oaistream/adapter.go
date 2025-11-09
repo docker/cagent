@@ -59,12 +59,22 @@ func (a *StreamAdapter) Recv() (chat.MessageStreamResponse, error) {
 		}
 		// Use the tracked finish reason instead of hardcoding stop
 		finishReason := a.lastFinishReason
-		if finishReason == "" {
+		if finishReason == chat.FinishReasonNull || finishReason == "" {
 			finishReason = chat.FinishReasonStop
 		}
-		response.Choices = append(response.Choices, chat.MessageStreamChoice{
-			FinishReason: finishReason,
-		})
+		// OPENAI returns the usage without a finish reason or a choice, so we fake it here
+		// and create a new choice for the last event in the stream
+		if len(openaiResponse.Choices) == 0 {
+			response.Choices = append(response.Choices, chat.MessageStreamChoice{
+				FinishReason: finishReason,
+			})
+		} else {
+			// Other openai-compatible providers DO resturn a choice with finish reason...
+			response.Choices[0].FinishReason = finishReason
+		}
+		if finishReason == chat.FinishReasonStop {
+			return response, nil
+		}
 	}
 
 	// Convert the choices

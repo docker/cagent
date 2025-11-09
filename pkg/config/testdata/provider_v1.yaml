@@ -2,9 +2,9 @@ version: "1"
 
 agents:
   root:
-    model: openai
+    model: gpt
 
 models:
-  openai:
+  gpt:
     provider: openai
     model: gpt-4o

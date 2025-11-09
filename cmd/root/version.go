@@ -9,19 +9,20 @@ import (
 	"github.com/docker/cagent/pkg/version"
 )
 
-// NewVersionCmd creates a new version command
-func NewVersionCmd() *cobra.Command {
+func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "Print the version information",
 		Long:  `Display the version, build time, and commit hash`,
 		Args:  cobra.NoArgs,
-		Run: func(cmd *cobra.Command, args []string) {
-			// Track the version command
-			telemetry.TrackCommand("version", args)
-
-			fmt.Printf("cagent version %s\n", version.Version)
-			fmt.Printf("Commit: %s\n", version.Commit)
-		},
+		Run:   runVersionCommand,
 	}
+}
+
+func runVersionCommand(cmd *cobra.Command, args []string) {
+	telemetry.TrackCommand("version", args)
+
+	out := cmd.OutOrStdout()
+	fmt.Fprintf(out, "cagent version %s\n", version.Version)
+	fmt.Fprintf(out, "Commit: %s\n", version.Commit)
 }

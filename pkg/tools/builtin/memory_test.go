@@ -62,12 +62,10 @@ func TestMemoryTool_Tools(t *testing.T) {
 		assert.Equal(t, "memory", tool.Category)
 	}
 
-	// Verify tool functions
 	assert.Equal(t, "add_memory", allTools[0].Name)
 	assert.Equal(t, "get_memories", allTools[1].Name)
 	assert.Equal(t, "delete_memory", allTools[2].Name)
 
-	// Check add_memory parameters
 	schema, err := json.Marshal(allTools[0].Parameters)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{
@@ -84,10 +82,8 @@ func TestMemoryTool_Tools(t *testing.T) {
 	]
 }`, string(schema))
 
-	// Check get_memories parameters
 	assert.Nil(t, allTools[1].Parameters)
 
-	// Check delete_memory parameters
 	schema, err = json.Marshal(allTools[2].Parameters)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{
@@ -122,12 +118,10 @@ func TestMemoryTool_HandleAddMemory(t *testing.T) {
 	manager := new(MockDB)
 	tool := NewMemoryTool(manager)
 
-	// Setup mock using database.UserMemory
 	manager.On("AddMemory", mock.Anything, mock.MatchedBy(func(memory database.UserMemory) bool {
 		return memory.Memory == "test memory"
 	})).Return(nil)
 
-	// Create tool call
 	args := AddMemoryArgs{
 		Memory: "test memory",
 	}
@@ -141,10 +135,8 @@ func TestMemoryTool_HandleAddMemory(t *testing.T) {
 		},
 	}
 
-	// Call handler
 	result, err := tool.handleAddMemory(t.Context(), toolCall)
 
-	// Verify
 	require.NoError(t, err)
 	assert.Contains(t, result.Output, "Memory added successfully")
 	manager.AssertExpectations(t)
@@ -154,7 +146,6 @@ func TestMemoryTool_HandleGetMemories(t *testing.T) {
 	manager := new(MockDB)
 	tool := NewMemoryTool(manager)
 
-	// Setup mock using database.UserMemory
 	memories := []database.UserMemory{
 		{
 			ID:        "1",
@@ -169,7 +160,6 @@ func TestMemoryTool_HandleGetMemories(t *testing.T) {
 	}
 	manager.On("GetMemories", mock.Anything).Return(memories, nil)
 
-	// Create tool call
 	toolCall := tools.ToolCall{
 		Function: tools.FunctionCall{
 			Name:      "get_memories",
@@ -177,10 +167,8 @@ func TestMemoryTool_HandleGetMemories(t *testing.T) {
 		},
 	}
 
-	// Call handler
 	result, err := tool.handleGetMemories(t.Context(), toolCall)
 
-	// Verify
 	require.NoError(t, err)
 
 	var returnedMemories []database.UserMemory
@@ -196,12 +184,10 @@ func TestMemoryTool_HandleDeleteMemory(t *testing.T) {
 	manager := new(MockDB)
 	tool := NewMemoryTool(manager)
 
-	// Setup mock using database.UserMemory
 	manager.On("DeleteMemory", mock.Anything, mock.MatchedBy(func(memory database.UserMemory) bool {
 		return memory.ID == "1"
 	})).Return(nil)
 
-	// Create tool call
 	args := DeleteMemoryArgs{
 		ID: "1",
 	}
@@ -215,10 +201,8 @@ func TestMemoryTool_HandleDeleteMemory(t *testing.T) {
 		},
 	}
 
-	// Call handler
 	result, err := tool.handleDeleteMemory(t.Context(), toolCall)
 
-	// Verify
 	require.NoError(t, err)
 	assert.Contains(t, result.Output, "Memory with ID 1 deleted successfully")
 	manager.AssertExpectations(t)
@@ -257,11 +241,9 @@ func TestMemoryTool_StartStop(t *testing.T) {
 	manager := new(MockDB)
 	tool := NewMemoryTool(manager)
 
-	// Test Start method
 	err := tool.Start(t.Context())
 	require.NoError(t, err)
 
-	// Test Stop method
 	err = tool.Stop(t.Context())
 	require.NoError(t, err)
 }

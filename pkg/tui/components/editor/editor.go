@@ -3,10 +3,8 @@ package editor
 import (
 	"strings"
 
-	"github.com/charmbracelet/bubbles/v2/help"
-	"github.com/charmbracelet/bubbles/v2/key"
-	"github.com/charmbracelet/bubbles/v2/textarea"
-	tea "github.com/charmbracelet/bubbletea/v2"
+	"charm.land/bubbles/v2/textarea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/docker/cagent/pkg/app"
 	"github.com/docker/cagent/pkg/history"
@@ -27,7 +25,6 @@ type Editor interface {
 	layout.Model
 	layout.Sizeable
 	layout.Focusable
-	layout.Help
 	SetWorking(working bool) tea.Cmd
 }
 
@@ -72,7 +69,7 @@ func (e *editor) Init() tea.Cmd {
 }
 
 // Update handles messages and updates the component state
-func (e *editor) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (e *editor) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -201,21 +198,6 @@ func (e *editor) Focus() tea.Cmd {
 func (e *editor) Blur() tea.Cmd {
 	e.textarea.Blur()
 	return nil
-}
-
-// Bindings returns key bindings for the component
-func (e *editor) Bindings() []key.Binding {
-	return []key.Binding{
-		key.NewBinding(
-			key.WithKeys("enter"),
-			key.WithHelp("enter", "send"),
-		),
-	}
-}
-
-// Help returns the help information
-func (e *editor) Help() help.KeyMap {
-	return core.NewSimpleHelp(e.Bindings())
 }
 
 func (e *editor) SetWorking(working bool) tea.Cmd {

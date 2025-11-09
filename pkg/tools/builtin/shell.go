@@ -9,9 +9,12 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/docker/cagent/pkg/tools"
 )
+
+const ToolNameShell = "shell"
 
 type ShellTool struct {
 	tools.ElicitationTool
@@ -25,11 +28,13 @@ type shellHandler struct {
 	shell           string
 	shellArgsPrefix []string
 	env             []string
+	timeout         time.Duration
 }
 
 type RunShellArgs struct {
-	Cmd string `json:"cmd" jsonschema:"The shell command to execute"`
-	Cwd string `json:"cwd" jsonschema:"The working directory to execute the command in"`
+	Cmd     string `json:"cmd" jsonschema:"The shell command to execute"`
+	Cwd     string `json:"cwd" jsonschema:"The working directory to execute the command in"`
+	Timeout int    `json:"timeout,omitempty" jsonschema:"Command execution timeout in seconds (default: 30)"`
 }
 
 func (h *shellHandler) RunShell(ctx context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
@@ -37,6 +42,16 @@ func (h *shellHandler) RunShell(ctx context.Context, toolCall tools.ToolCall) (*
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &params); err != nil {
 		return nil, fmt.Errorf("invalid arguments: %w", err)
 	}
+
+	// Determine effective timeout
+	effectiveTimeout := h.timeout
+	if params.Timeout > 0 {
+		effectiveTimeout = time.Duration(params.Timeout) * time.Second
+	}
+
+	// Create timeout context
+	timeoutCtx, cancel := context.WithTimeout(ctx, effectiveTimeout)
+	defer cancel()
 
 	cmd := exec.Command(h.shell, append(h.shellArgsPrefix, params.Cmd)...)
 	cmd.Env = h.env
@@ -73,12 +88,21 @@ func (h *shellHandler) RunShell(ctx context.Context, toolCall tools.ToolCall) (*
 	}()
 
 	select {
-	case <-ctx.Done():
+	case <-timeoutCtx.Done():
 		if cmd.Process != nil {
 			_ = kill(cmd.Process, pg)
 		}
+		output := outBuf.String()
+		// Check if parent context was cancelled or if it was a timeout
+		if ctx.Err() != nil {
+			// Parent context was cancelled
+			return &tools.ToolCallResult{
+				Output: "Command cancelled",
+			}, nil
+		}
+		// Timeout occurred
 		return &tools.ToolCallResult{
-			Output: "Command cancelled",
+			Output: fmt.Sprintf("Command timed out after %v\nOutput: %s", effectiveTimeout, output),
 		}, nil
 	case err := <-done:
 		output := outBuf.String()
@@ -136,6 +160,7 @@ func NewShellTool(env []string) *ShellTool {
 			shell:           shell,
 			shellArgsPrefix: argsPrefix,
 			env:             env,
+			timeout:         30 * time.Second,
 		},
 	}
 }
@@ -158,12 +183,15 @@ On Unix-like systems, ${SHELL} is used or /bin/sh as fallback.
 
 **Command Isolation**: Each tool call creates a fresh shell session - no state persists between executions.
 
+**Timeout Protection**: Commands have a default 30-second timeout to prevent hanging. For longer operations, specify a custom timeout.
+
 ## Parameter Reference
 
 | Parameter | Type   | Required | Description |
 |-----------|--------|----------|-------------|
 | cmd       | string | Yes      | Shell command to execute |
 | cwd       | string | Yes      | Working directory (use "." for current) |
+| timeout   | int    | No       | Timeout in seconds (default: 30) |
 
 ## Best Practices
 
@@ -174,16 +202,20 @@ On Unix-like systems, ${SHELL} is used or /bin/sh as fallback.
 - Write advanced scripts with heredocs, that replace a lot of simple commands or tool calls
 - This tool is great at reading and writing multiple files at once
 - Avoid writing shell scripts to the disk. Instead, use heredocs to pipe the script to the SHELL
+- Use the timeout parameter for long-running operations (e.g., builds, tests)
 
 ## Usage Examples
 
 **Basic command execution:**
 { "cmd": "ls -la", "cwd": "." }
 
+**Long-running command with custom timeout:**
+{ "cmd": "npm run build", "cwd": ".", "timeout": 120 }
+
 **Language-specific operations:**
-{ "cmd": "go test ./...", "cwd": "." }
+{ "cmd": "go test ./...", "cwd": ".", "timeout": 180 }
 { "cmd": "npm install", "cwd": "frontend" }
-{ "cmd": "python -m pytest tests/", "cwd": "backend" }
+{ "cmd": "python -m pytest tests/", "cwd": "backend", "timeout": 90 }
 
 **File operations:**
 { "cmd": "find . -name '*.go' -type f", "cwd": "." }
@@ -203,13 +235,14 @@ EOF" }
 
 ## Error Handling
 
-Commands that exit with non-zero status codes will return error information along with any output produced before failure.`
+Commands that exit with non-zero status codes will return error information along with any output produced before failure.
+Commands that exceed their timeout will be terminated automatically.`
 }
 
 func (t *ShellTool) Tools(context.Context) ([]tools.Tool, error) {
 	return []tools.Tool{
 		{
-			Name:         "shell",
+			Name:         ToolNameShell,
 			Category:     "shell",
 			Description:  `Executes the given shell command in the user's default shell.`,
 			Parameters:   tools.MustSchemaFor[RunShellArgs](),

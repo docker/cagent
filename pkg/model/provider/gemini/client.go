@@ -37,13 +37,13 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 		return nil, errors.New("model type must be 'google'")
 	}
 
-	var modelOptions options.ModelOptions
+	var globalOptions options.ModelOptions
 	for _, opt := range opts {
-		opt(&modelOptions)
+		opt(&globalOptions)
 	}
 
 	var clientFn func(context.Context) (*genai.Client, error)
-	if gateway := modelOptions.Gateway(); gateway == "" {
+	if gateway := globalOptions.Gateway(); gateway == "" {
 		apiKey := env.Get(ctx, "GOOGLE_API_KEY")
 		if apiKey == "" {
 			return nil, errors.New("GOOGLE_API_KEY environment variable is required")
@@ -101,8 +101,9 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 
 	return &Client{
 		Config: base.Config{
-			ModelConfig:  cfg,
-			ModelOptions: modelOptions,
+			ModelConfig:  *cfg,
+			ModelOptions: globalOptions,
+			Env:          env,
 		},
 		clientFn: clientFn,
 	}, nil
@@ -213,10 +214,6 @@ func convertMessagesToGemini(messages []chat.Message) []*genai.Content {
 
 // buildConfig creates GenerateContentConfig from model config
 func (c *Client) buildConfig() *genai.GenerateContentConfig {
-	if c.ModelConfig == nil {
-		return nil
-	}
-
 	config := &genai.GenerateContentConfig{
 		Temperature:      genai.Ptr(float32(c.ModelConfig.Temperature)),
 		TopP:             genai.Ptr(float32(c.ModelConfig.TopP)),
@@ -251,9 +248,9 @@ func (c *Client) buildConfig() *genai.GenerateContentConfig {
 		}
 	}
 
-	if c.ModelOptions.StructuredOutput != nil {
+	if structuredOutput := c.ModelOptions.StructuredOutput(); structuredOutput != nil {
 		config.ResponseMIMEType = "application/json"
-		config.ResponseJsonSchema = c.ModelOptions.StructuredOutput.Schema
+		config.ResponseJsonSchema = structuredOutput.Schema
 	}
 
 	return config

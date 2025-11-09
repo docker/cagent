@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/goccy/go-yaml"
 
 	v0 "github.com/docker/cagent/pkg/config/v0"
 	v1 "github.com/docker/cagent/pkg/config/v1"
-	latest "github.com/docker/cagent/pkg/config/v2"
+	latest "github.com/docker/cagent/pkg/config/v2" //nolint:staticcheck // This is used everywhere we reference the latest version
+	v2 "github.com/docker/cagent/pkg/config/v2"     //nolint:staticcheck // This is used for migrations to v2
 	"github.com/docker/cagent/pkg/environment"
 	"github.com/docker/cagent/pkg/filesystem"
 )
@@ -27,21 +27,22 @@ func LoadConfigSecureDeprecated(path, allowedDir string) (*latest.Config, error)
 }
 
 func LoadConfig(path string, fs filesystem.FS) (*latest.Config, error) {
-	dir := filepath.Dir(path)
-
 	data, err := fs.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading config file: %w", err)
 	}
 
 	var raw struct {
-		Version any `yaml:"version"`
+		Version string `yaml:"version,omitempty"`
 	}
-	if err := yaml.UnmarshalWithOptions(data, &raw, yaml.ReferenceDirs(dir)); err != nil {
+	if err := yaml.UnmarshalWithOptions(data, &raw); err != nil {
 		return nil, fmt.Errorf("looking for version in config file %s\n%s", path, yaml.FormatError(err, true, true))
 	}
+	if raw.Version == "" {
+		raw.Version = latest.Version
+	}
 
-	oldConfig, err := parseCurrentVersion(dir, data, raw.Version)
+	oldConfig, err := parseCurrentVersion(data, raw.Version)
 	if err != nil {
 		return nil, fmt.Errorf("parsing config file %s\n%s", path, yaml.FormatError(err, true, true))
 	}
@@ -50,6 +51,8 @@ func LoadConfig(path string, fs filesystem.FS) (*latest.Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("migrating config: %w", err)
 	}
+
+	config.Version = raw.Version
 
 	if err := validateConfig(&config); err != nil {
 		return nil, err
@@ -78,22 +81,24 @@ func CheckRequiredEnvVars(ctx context.Context, cfg *latest.Config, env environme
 	return nil
 }
 
-func parseCurrentVersion(dir string, data []byte, version any) (any, error) {
-	options := []yaml.DecodeOption{yaml.Strict(), yaml.ReferenceDirs(dir)}
+func parseCurrentVersion(data []byte, version string) (any, error) {
+	options := []yaml.DecodeOption{yaml.Strict()}
 
 	switch version {
-	case nil, "0", 0:
+	case v0.Version:
 		var cfg v0.Config
 		err := yaml.UnmarshalWithOptions(data, &cfg, options...)
 		return cfg, err
-	case "1", 1:
+	case v1.Version:
 		var cfg v1.Config
 		err := yaml.UnmarshalWithOptions(data, &cfg, options...)
 		return cfg, err
-	default:
-		var cfg latest.Config
+	case v2.Version:
+		var cfg v2.Config
 		err := yaml.UnmarshalWithOptions(data, &cfg, options...)
 		return cfg, err
+	default:
+		return nil, fmt.Errorf("unsupported config version: %v", version)
 	}
 }
 

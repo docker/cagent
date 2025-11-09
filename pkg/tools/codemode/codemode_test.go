@@ -3,7 +3,6 @@ package codemode
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -41,7 +40,6 @@ func TestCodeModeTool_Tools(t *testing.T) {
 }`, string(inputSchema))
 
 	outputSchema, err := json.Marshal(fetchTool.OutputSchema)
-	fmt.Println(string(outputSchema))
 	require.NoError(t, err)
 	assert.JSONEq(t, `{
 	"type": "object",

@@ -150,7 +150,6 @@ func TestSystemMessages_InterspersedExtractedAndExcluded(t *testing.T) {
 	// Converted messages must exclude system roles and preserve order of others
 	out := convertMessages(msgs)
 	require.Len(t, out, 3)
-	// Check roles: user, assistant, user
 	expectedRoles := []string{"user", "assistant", "user"}
 	for i, expected := range expectedRoles {
 		b, err := json.Marshal(out[i])
@@ -254,7 +253,6 @@ func TestConvertMessages_GroupToolResults_AfterAssistantToolUse(t *testing.T) {
 	// Validate sequencing is acceptable to Anthropic
 	require.NoError(t, validateAnthropicSequencing(converted))
 
-	// Check the third message (index 2) is a user with tool_result blocks for both tools
 	b, err := json.Marshal(converted[2])
 	require.NoError(t, err)
 	var m map[string]any
@@ -280,13 +278,11 @@ func TestConvertMessages_GroupToolResults_AfterAssistantToolUse(t *testing.T) {
 
 // TestCountAnthropicTokens_Success tests successful token counting for standard API
 func TestCountAnthropicTokens_Success(t *testing.T) {
-	// Setup mock server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/v1/messages/count_tokens", r.URL.Path)
 		assert.Equal(t, "application/json", r.Header.Get("content-type"))
 		assert.NotEmpty(t, r.Header.Get("x-api-key"))
 
-		// Verify request body contains expected fields
 		var payload map[string]any
 		err := json.NewDecoder(r.Body).Decode(&payload)
 		assert.NoError(t, err)
@@ -300,7 +296,6 @@ func TestCountAnthropicTokens_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Create test data
 	messages := []anthropic.MessageParam{
 		{
 			Role: anthropic.MessageParamRoleUser,
@@ -313,16 +308,13 @@ func TestCountAnthropicTokens_Success(t *testing.T) {
 		{Text: "You are helpful"},
 	}
 
-	// Create client with test server URL
 	client := anthropic.NewClient(
 		option.WithAPIKey("test-key"),
 		option.WithBaseURL(server.URL),
 	)
 
-	// Call function
 	tokens, err := countAnthropicTokens(t.Context(), client, "claude-3-5-sonnet-20241022", messages, system, nil)
 
-	// Verify
 	require.NoError(t, err)
 	assert.Equal(t, int64(150), tokens)
 }
@@ -332,7 +324,6 @@ func TestCountAnthropicTokens_NoAPIKey(t *testing.T) {
 	messages := []anthropic.MessageParam{}
 	system := []anthropic.TextBlockParam{}
 
-	// Create client without base URL to trigger error
 	client := anthropic.NewClient(
 		option.WithAPIKey("test-key"),
 		// No base URL set
@@ -354,7 +345,6 @@ func TestCountAnthropicTokens_ServerError(t *testing.T) {
 	messages := []anthropic.MessageParam{}
 	system := []anthropic.TextBlockParam{}
 
-	// Create client with test server URL
 	client := anthropic.NewClient(
 		option.WithAPIKey("test-key"),
 		option.WithBaseURL(server.URL),
@@ -373,7 +363,6 @@ func TestCountAnthropicTokens_WithTools(t *testing.T) {
 		err := json.NewDecoder(r.Body).Decode(&payload)
 		assert.NoError(t, err)
 
-		// Verify tools are included in payload
 		assert.NotNil(t, payload["tools"])
 		tools, ok := payload["tools"].([]any)
 		assert.True(t, ok)
@@ -394,7 +383,6 @@ func TestCountAnthropicTokens_WithTools(t *testing.T) {
 		}},
 	}
 
-	// Create client with test server URL
 	client := anthropic.NewClient(
 		option.WithAPIKey("test-key"),
 		option.WithBaseURL(server.URL),

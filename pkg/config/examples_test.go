@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/xeipuuv/gojsonschema"
 
+	latest "github.com/docker/cagent/pkg/config/v2"
 	"github.com/docker/cagent/pkg/filesystem"
 	"github.com/docker/cagent/pkg/modelsdev"
 )
@@ -45,7 +46,7 @@ func TestParseExamples(t *testing.T) {
 			cfg, err := LoadConfig(file, filesystem.AllowAll)
 
 			require.NoError(t, err)
-			require.Equal(t, "2", cfg.Version, "Version should be 2 in %s", file)
+			require.Equal(t, latest.Version, cfg.Version, "Version should be %d in %s", latest.Version, file)
 			require.NotEmpty(t, cfg.Agents["root"].Description, "Description should not be empty in %s", file)
 			require.NotEmpty(t, cfg.Agents["root"].Instruction, "Instruction should not be empty in %s", file)
 

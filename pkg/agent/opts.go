@@ -40,6 +40,12 @@ func WithDescription(description string) Opt {
 	}
 }
 
+func WithWelcomeMessage(welcomeMessage string) Opt {
+	return func(a *Agent) {
+		a.welcomeMessage = welcomeMessage
+	}
+}
+
 func WithName(name string) Opt {
 	return func(a *Agent) {
 		a.name = name

@@ -1,0 +1,10 @@
+version: "2"
+
+agents:
+  root:
+    model: openai/gpt-5-mini
+    instruction: You are a knowledgeable assistant that can write test files.
+    toolsets:
+      - type: filesystem
+        tools:
+          - write_file

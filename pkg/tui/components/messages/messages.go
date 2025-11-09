@@ -1,15 +1,14 @@
 package messages
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/atotto/clipboard"
-	"github.com/charmbracelet/bubbles/v2/help"
-	"github.com/charmbracelet/bubbles/v2/key"
-	tea "github.com/charmbracelet/bubbletea/v2"
-	"github.com/charmbracelet/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 
@@ -42,19 +41,20 @@ type Model interface {
 	layout.Sizeable
 	layout.Focusable
 	layout.Help
+	layout.Positionable
 
 	AddUserMessage(content string) tea.Cmd
 	AddErrorMessage(content string) tea.Cmd
 	AddAssistantMessage() tea.Cmd
 	AddSeparatorMessage() tea.Cmd
 	AddCancelledMessage() tea.Cmd
+	AddWelcomeMessage(content string) tea.Cmd
 	AddOrUpdateToolCall(agentName string, toolCall tools.ToolCall, toolDef tools.Tool, status types.ToolStatus) tea.Cmd
 	AddToolResult(msg *runtime.ToolCallResponseEvent, status types.ToolStatus) tea.Cmd
 	AppendToLastMessage(agentName string, messageType types.MessageType, content string) tea.Cmd
-	ScrollToBottom() tea.Cmd
 	AddShellOutputMessage(content string) tea.Cmd
-	AddWarningMessage(content string) tea.Cmd
-	PlainTextTranscript() string
+
+	ScrollToBottom() tea.Cmd
 	IsAtBottom() bool
 }
 
@@ -111,6 +111,10 @@ type model struct {
 	totalHeight   int                  // Total height of all content in lines
 
 	selection selectionState
+
+	splitDiffView bool
+
+	xPos, yPos int
 }
 
 // New creates a new message list component
@@ -120,6 +124,7 @@ func New(a *app.App) Model {
 		height:        24,
 		app:           a,
 		renderedItems: make(map[int]renderedItem),
+		splitDiffView: true,
 	}
 }
 
@@ -138,20 +143,17 @@ func (m *model) Init() tea.Cmd {
 }
 
 // Update handles messages and updates the component state
-func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
 	case StreamCancelledMsg:
 		// Handle stream cancellation internally
 		m.removeSpinner()
-		m.cancelPendingToolCalls()
+		m.removePendingToolCallMessages()
 		return m, nil
 	case tea.WindowSizeMsg:
-		cmd := m.SetSize(msg.Width, msg.Height)
-		if cmd != nil {
-			cmds = append(cmds, cmd)
-		}
+		cmds = append(cmds, m.SetSize(msg.Width, msg.Height))
 
 	case tea.MouseClickMsg:
 		if msg.Button == tea.MouseLeft {
@@ -218,6 +220,20 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case tool.ToggleDiffViewMsg:
+		m.splitDiffView = !m.splitDiffView
+
+		var cmds []tea.Cmd
+		for i, view := range m.views {
+			updatedView, cmd := view.Update(tool.ToggleDiffViewMsg{})
+			m.views[i] = updatedView
+			cmds = append(cmds, cmd)
+		}
+
+		m.invalidateAllItems()
+
+		return m, tea.Batch(cmds...)
+
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "esc":
@@ -247,12 +263,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Forward updates to all message views
 	for i, view := range m.views {
 		updatedView, cmd := view.Update(msg)
-		if updatedView != nil {
-			m.views[i] = updatedView.(layout.Model)
-		}
-		if cmd != nil {
-			cmds = append(cmds, cmd)
-		}
+		m.views[i] = updatedView
+		cmds = append(cmds, cmd)
 	}
 
 	return m, tea.Batch(cmds...)
@@ -308,6 +320,12 @@ func (m *model) SetSize(width, height int) tea.Cmd {
 
 	// Size changes may affect item rendering, invalidate all items
 	m.invalidateAllItems()
+	return nil
+}
+
+func (m *model) SetPosition(x, y int) tea.Cmd {
+	m.xPos = x
+	m.yPos = y
 	return nil
 }
 
@@ -412,7 +430,7 @@ func (m *model) renderItem(index int, view layout.Model) renderedItem {
 
 	// Render the item (always for dynamic content, or when not cached)
 	rendered := view.View()
-	height := strings.Count(rendered, "\n") + 1
+	height := lipgloss.Height(rendered)
 	if rendered == "" {
 		height = 0
 	}
@@ -513,14 +531,6 @@ func (m *model) AddShellOutputMessage(content string) tea.Cmd {
 	})
 }
 
-func (m *model) AddWarningMessage(content string) tea.Cmd {
-	// Create a new warning message
-	return m.addMessage(&types.Message{
-		Type:    types.MessageTypeWarning,
-		Content: content,
-	})
-}
-
 // AddAssistantMessage adds an assistant message to the chat
 func (m *model) AddAssistantMessage() tea.Cmd {
 	return m.addMessage(&types.Message{
@@ -571,6 +581,24 @@ func (m *model) AddSeparatorMessage() tea.Cmd {
 func (m *model) AddCancelledMessage() tea.Cmd {
 	msg := types.Message{
 		Type: types.MessageTypeCancelled,
+	}
+	m.messages = append(m.messages, msg)
+
+	view := m.createMessageView(&msg)
+	m.views = append(m.views, view)
+
+	return view.Init()
+}
+
+// AddWelcomeMessage adds a welcome message to the chat
+func (m *model) AddWelcomeMessage(content string) tea.Cmd {
+	if content == "" {
+		return nil
+	}
+
+	msg := types.Message{
+		Type:    types.MessageTypeWelcome,
+		Content: content,
 	}
 	m.messages = append(m.messages, msg)
 
@@ -678,39 +706,8 @@ func (m *model) ScrollToBottom() tea.Cmd {
 	}
 }
 
-// PlainTextTranscript returns the conversation as plain text suitable for copying
-func (m *model) PlainTextTranscript() string {
-	var builder strings.Builder
-
-	for i := range m.messages {
-		msg := m.messages[i]
-		switch msg.Type {
-		case types.MessageTypeUser:
-			writeTranscriptSection(&builder, "User", msg.Content)
-		case types.MessageTypeAssistant:
-			label := assistantLabel(msg.Sender)
-			writeTranscriptSection(&builder, label, msg.Content)
-		case types.MessageTypeAssistantReasoning:
-			label := assistantLabel(msg.Sender) + " (thinking)"
-			writeTranscriptSection(&builder, label, msg.Content)
-		case types.MessageTypeShellOutput:
-			writeTranscriptSection(&builder, "Shell Output", msg.Content)
-		case types.MessageTypeError:
-			writeTranscriptSection(&builder, "Error", msg.Content)
-		case types.MessageTypeToolCall:
-			callLabel := toolCallLabel(msg)
-			writeTranscriptSection(&builder, callLabel, formatToolCallContent(msg))
-		case types.MessageTypeToolResult:
-			resultLabel := toolResultLabel(msg)
-			writeTranscriptSection(&builder, resultLabel, msg.Content)
-		}
-	}
-
-	return strings.TrimSpace(builder.String())
-}
-
 func (m *model) createToolCallView(msg *types.Message) layout.Model {
-	view := tool.New(msg, m.app, markdown.NewRenderer(m.width))
+	view := tool.New(msg, m.app, markdown.NewRenderer(m.width), m.splitDiffView)
 	view.SetSize(m.width, 0)
 	return view
 }
@@ -738,8 +735,8 @@ func (m *model) removeSpinner() {
 	}
 }
 
-// cancelPendingToolCalls removes any tool calls that are in pending or running state
-func (m *model) cancelPendingToolCalls() {
+// removePendingToolCallMessages removes any tool call messages that are in pending or running state
+func (m *model) removePendingToolCallMessages() {
 	var newMessages []types.Message
 	var newViews []layout.Model
 
@@ -764,66 +761,14 @@ func (m *model) cancelPendingToolCalls() {
 	}
 }
 
-func assistantLabel(sender string) string {
-	trimmed := strings.TrimSpace(sender)
-	if trimmed == "" || trimmed == "root" {
-		return "Assistant"
-	}
-	return trimmed
-}
-
-func writeTranscriptSection(builder *strings.Builder, title, content string) {
-	text := strings.TrimSpace(content)
-	if text == "" {
-		return
-	}
-	if builder.Len() > 0 {
-		builder.WriteString("\n\n")
-	}
-	builder.WriteString(title)
-	builder.WriteString(":\n")
-	builder.WriteString(text)
-}
-
-func toolCallLabel(msg types.Message) string {
-	name := strings.TrimSpace(msg.ToolCall.Function.Name)
-	if name == "" {
-		return "Tool Call"
-	}
-	return fmt.Sprintf("Tool Call (%s)", name)
-}
-
-func formatToolCallContent(msg types.Message) string {
-	sender := assistantLabel(msg.Sender)
-	name := strings.TrimSpace(msg.ToolCall.Function.Name)
-	if name == "" {
-		name = "tool"
-	}
-	var parts []string
-	parts = append(parts, fmt.Sprintf("%s invoked %s", sender, name))
-	if args := strings.TrimSpace(msg.ToolCall.Function.Arguments); args != "" {
-		parts = append(parts, "Arguments:", args)
-	}
-	return strings.Join(parts, "\n")
-}
-
-func toolResultLabel(msg types.Message) string {
-	name := strings.TrimSpace(msg.ToolCall.Function.Name)
-	if name == "" {
-		return "Tool Result"
-	}
-	return fmt.Sprintf("Tool Result (%s)", name)
-}
-
 // mouseToLineCol converts mouse position to line/column in rendered content
 func (m *model) mouseToLineCol(x, y int) (line, col int) {
-	// Adjust for header (2 lines: text + bottom padding)
-	adjustedY := max(0, y-2)
-	line = m.scrollOffset + adjustedY
-
 	// Adjust for left padding (1 column from AppStyle)
-	adjustedX := max(0, x-1)
+	adjustedX := max(0, x-1-m.xPos)
 	col = adjustedX
+
+	adjustedY := max(0, y-m.yPos)
+	line = m.scrollOffset + adjustedY
 
 	return line, col
 }
@@ -851,50 +796,41 @@ func (m *model) extractSelectedText() string {
 		endLine = len(lines) - 1
 	}
 
-	// Single line selection
-	if startLine == endLine {
-		if startLine < len(lines) {
-			line := ansi.Strip(lines[startLine])
-			// Convert display width to rune indices
-			startIdx := displayWidthToRuneIndex(line, startCol)
-			endIdx := displayWidthToRuneIndex(line, endCol)
-			runes := []rune(line)
-			if startIdx < len(runes) && startIdx < endIdx {
-				if endIdx > len(runes) {
-					endIdx = len(runes)
-				}
-				return string(runes[startIdx:endIdx])
-			}
-		}
-		return ""
-	}
-
-	// Multi-line selection
 	var result strings.Builder
 	for i := startLine; i <= endLine && i < len(lines); i++ {
 		line := ansi.Strip(lines[i])
 		runes := []rune(line)
 
+		var lineText string
 		switch i {
 		case startLine:
+			if startLine == endLine {
+				startIdx := displayWidthToRuneIndex(line, startCol)
+				endIdx := min(displayWidthToRuneIndex(line, endCol), len(runes))
+				if startIdx < len(runes) && startIdx < endIdx {
+					lineText = strings.TrimSpace(string(runes[startIdx:endIdx]))
+				}
+				break
+			}
 			// First line: from startCol to end
 			startIdx := displayWidthToRuneIndex(line, startCol)
 			if startIdx < len(runes) {
-				result.WriteString(string(runes[startIdx:]))
+				lineText = strings.TrimSpace(string(runes[startIdx:]))
 			}
 		case endLine:
 			// Last line: from start to endCol
 			endIdx := min(displayWidthToRuneIndex(line, endCol), len(runes))
-			result.WriteString(string(runes[:endIdx]))
+			lineText = strings.TrimSpace(string(runes[:endIdx]))
 		default:
 			// Middle lines: entire line
-			result.WriteString(line)
+			lineText = strings.TrimSpace(line)
 		}
 
-		// Add newline except for last line
-		if i < endLine {
-			result.WriteString("\n")
+		if lineText != "" {
+			result.WriteString(lineText)
 		}
+
+		result.WriteString("\n")
 	}
 
 	return result.String()
@@ -905,7 +841,7 @@ func (m *model) copySelectionToClipboard() tea.Cmd {
 		return nil
 	}
 
-	selectedText := m.extractSelectedText()
+	selectedText := strings.TrimSpace(m.extractSelectedText())
 	if selectedText == "" {
 		return nil
 	}
@@ -967,25 +903,32 @@ func (m *model) applySelectionHighlight(lines []string, viewportStartLine int) [
 }
 
 func (m *model) highlightLine(line string, startCol, endCol int) string {
+	// Get plain text for boundary checks
 	plainLine := ansi.Strip(line)
+	plainWidth := runewidth.StringWidth(plainLine)
 
-	startRuneIdx := displayWidthToRuneIndex(plainLine, startCol)
-	endRuneIdx := displayWidthToRuneIndex(plainLine, endCol)
-
-	if startRuneIdx >= len([]rune(plainLine)) {
+	// Validate and normalize boundaries
+	if startCol >= plainWidth {
 		return line
 	}
-	if startRuneIdx >= endRuneIdx {
+	if startCol >= endCol {
 		return line
 	}
-
-	runes := []rune(plainLine)
-	before := string(runes[:startRuneIdx])
-	selected := styles.SelectionStyle.Render(string(runes[startRuneIdx:endRuneIdx]))
-	after := ""
-	if endRuneIdx < len(runes) {
-		after = string(runes[endRuneIdx:])
+	if endCol > plainWidth {
+		endCol = plainWidth
 	}
+
+	// Extract the three parts while preserving ANSI codes
+	// before: from start to startCol (preserves original styling)
+	before := ansi.Cut(line, 0, startCol)
+
+	// selected: from startCol to endCol (strip styling, apply selection style)
+	selectedText := ansi.Cut(line, startCol, endCol)
+	selectedPlain := ansi.Strip(selectedText)
+	selected := styles.SelectionStyle.Render(selectedPlain)
+
+	// after: from endCol to end (preserves original styling)
+	after := ansi.Cut(line, endCol, plainWidth)
 
 	return before + selected + after
 }
@@ -1014,12 +957,7 @@ func (m *model) autoScroll() tea.Cmd {
 
 	// Use stored screen Y coordinate to check if mouse is in autoscroll region
 	// mouseToLineCol subtracts 2 for header, so viewport-relative Y is mouseY - 2
-	viewportY := m.selection.mouseY - 2
-
-	// Ensure viewportY is valid (can't be negative or beyond viewport)
-	if viewportY < 0 {
-		viewportY = 0
-	}
+	viewportY := max(m.selection.mouseY-2, 0)
 
 	if viewportY < scrollThreshold && m.scrollOffset > 0 {
 		// Scroll up - mouse is near top of viewport

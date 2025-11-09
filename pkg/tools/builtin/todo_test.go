@@ -39,13 +39,11 @@ func TestTodoTool_Tools(t *testing.T) {
 		assert.Equal(t, "todo", tool.Category)
 	}
 
-	// Verify tool functions
 	assert.Equal(t, "create_todo", allTools[0].Name)
 	assert.Equal(t, "create_todos", allTools[1].Name)
 	assert.Equal(t, "update_todo", allTools[2].Name)
 	assert.Equal(t, "list_todos", allTools[3].Name)
 
-	// Check create_todo parameters
 	schema, err := json.Marshal(allTools[0].Parameters)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{
@@ -62,7 +60,6 @@ func TestTodoTool_Tools(t *testing.T) {
 	]
 }`, string(schema))
 
-	// Check create_todos parameters
 	schema, err = json.Marshal(allTools[1].Parameters)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{
@@ -82,7 +79,6 @@ func TestTodoTool_Tools(t *testing.T) {
 	"additionalProperties": false
 }`, string(schema))
 
-	// Check update_todo parameters
 	schema, err = json.Marshal(allTools[2].Parameters)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{
@@ -104,7 +100,6 @@ func TestTodoTool_Tools(t *testing.T) {
 	]
 }`, string(schema))
 
-	// Check list_todos parameters
 	assert.Nil(t, allTools[3].Parameters)
 }
 
@@ -123,14 +118,12 @@ func TestTodoTool_DisplayNames(t *testing.T) {
 func TestTodoTool_CreateTodo(t *testing.T) {
 	tool := NewTodoTool()
 
-	// Get handler from tool
 	tls, err := tool.Tools(t.Context())
 	require.NoError(t, err)
 	require.Len(t, tls, 4)
 
 	createHandler := tls[0].Handler
 
-	// Create tool call
 	args := CreateTodoArgs{
 		Description: "Test todo item",
 	}
@@ -144,14 +137,11 @@ func TestTodoTool_CreateTodo(t *testing.T) {
 		},
 	}
 
-	// Call handler
 	result, err := createHandler(t.Context(), toolCall)
 
-	// Verify
 	require.NoError(t, err)
 	assert.Contains(t, result.Output, "Created todo [todo_1]: Test todo item")
 
-	// Verify todo was added to the handler's todos map
 	assert.Equal(t, 1, tool.handler.todos.Length())
 	todo, exists := tool.handler.todos.Load("todo_1")
 	assert.True(t, exists)
@@ -162,14 +152,12 @@ func TestTodoTool_CreateTodo(t *testing.T) {
 func TestTodoTool_CreateTodos(t *testing.T) {
 	tool := NewTodoTool()
 
-	// Get handler from tool
 	tls, err := tool.Tools(t.Context())
 	require.NoError(t, err)
 	require.Len(t, tls, 4)
 
 	createTodosHandler := tls[1].Handler
 
-	// Create multiple todos
 	args := CreateTodosArgs{
 		Descriptions: []string{
 			"First todo item",
@@ -187,20 +175,16 @@ func TestTodoTool_CreateTodos(t *testing.T) {
 		},
 	}
 
-	// Call handler
 	result, err := createTodosHandler(t.Context(), toolCall)
 
-	// Verify
 	require.NoError(t, err)
 	assert.Contains(t, result.Output, "Created 3 todos:")
 	assert.Contains(t, result.Output, "todo_1")
 	assert.Contains(t, result.Output, "todo_2")
 	assert.Contains(t, result.Output, "todo_3")
 
-	// Verify todos were added to the handler's todos map
 	assert.Equal(t, 3, tool.handler.todos.Length())
 
-	// Create multiple todos
 	args = CreateTodosArgs{
 		Descriptions: []string{
 			"Last todo item",
@@ -216,7 +200,6 @@ func TestTodoTool_CreateTodos(t *testing.T) {
 		},
 	}
 
-	// Call handler
 	result, err = createTodosHandler(t.Context(), toolCall)
 
 	require.NoError(t, err)
@@ -228,7 +211,6 @@ func TestTodoTool_CreateTodos(t *testing.T) {
 func TestTodoTool_UpdateTodo(t *testing.T) {
 	tool := NewTodoTool()
 
-	// Get handlers from tool
 	tls, err := tool.Tools(t.Context())
 	require.NoError(t, err)
 	require.Len(t, tls, 4)
@@ -268,14 +250,11 @@ func TestTodoTool_UpdateTodo(t *testing.T) {
 		},
 	}
 
-	// Call update handler
 	result, err := updateHandler(t.Context(), updateToolCall)
 
-	// Verify
 	require.NoError(t, err)
 	assert.Contains(t, result.Output, "Updated todo [todo_1] to status: [completed]")
 
-	// Verify todo status was updated
 	todo, exists := tool.handler.todos.Load("todo_1")
 	assert.True(t, exists)
 	assert.Equal(t, "completed", todo.Status)
@@ -284,7 +263,6 @@ func TestTodoTool_UpdateTodo(t *testing.T) {
 func TestTodoTool_ListTodos(t *testing.T) {
 	tool := NewTodoTool()
 
-	// Get handlers from tool
 	tls, err := tool.Tools(t.Context())
 	require.NoError(t, err)
 	require.Len(t, tls, 4)
@@ -292,7 +270,6 @@ func TestTodoTool_ListTodos(t *testing.T) {
 	createHandler := tls[0].Handler
 	listHandler := tls[3].Handler
 
-	// Create a few todos
 	todos := []string{
 		"First todo item",
 		"Second todo item",
@@ -325,10 +302,8 @@ func TestTodoTool_ListTodos(t *testing.T) {
 		},
 	}
 
-	// Call list handler
 	result, err := listHandler(t.Context(), listToolCall)
 
-	// Verify
 	require.NoError(t, err)
 	assert.Contains(t, result.Output, "Current todos:")
 	for _, todoDesc := range todos {
@@ -340,7 +315,6 @@ func TestTodoTool_ListTodos(t *testing.T) {
 func TestTodoTool_UpdateNonexistentTodo(t *testing.T) {
 	tool := NewTodoTool()
 
-	// Get update handler from tool
 	tls, err := tool.Tools(t.Context())
 	require.NoError(t, err)
 	require.Len(t, tls, 4)
@@ -362,17 +336,14 @@ func TestTodoTool_UpdateNonexistentTodo(t *testing.T) {
 		},
 	}
 
-	// Call update handler
 	_, err = updateHandler(t.Context(), updateToolCall)
 
-	// Verify error
 	assert.ErrorContains(t, err, "not found")
 }
 
 func TestTodoTool_InvalidArguments(t *testing.T) {
 	tool := NewTodoTool()
 
-	// Get handlers from tool
 	tls, err := tool.Tools(t.Context())
 	require.NoError(t, err)
 	require.Len(t, tls, 4)
@@ -406,11 +377,9 @@ func TestTodoTool_InvalidArguments(t *testing.T) {
 func TestTodoTool_StartStop(t *testing.T) {
 	tool := NewTodoTool()
 
-	// Test Start method
 	err := tool.Start(t.Context())
 	require.NoError(t, err)
 
-	// Test Stop method
 	err = tool.Stop(t.Context())
 	require.NoError(t, err)
 }

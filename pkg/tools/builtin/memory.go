@@ -10,6 +10,12 @@ import (
 	"github.com/docker/cagent/pkg/tools"
 )
 
+const (
+	ToolNameAddMemory    = "add_memory"
+	ToolNameGetMemories  = "get_memories"
+	ToolNameDeleteMemory = "delete_memory"
+)
+
 type DB interface {
 	AddMemory(ctx context.Context, memory database.UserMemory) error
 	GetMemories(ctx context.Context) ([]database.UserMemory, error)
@@ -51,7 +57,7 @@ Do not talk about using the tool, just use it.
 func (t *MemoryTool) Tools(context.Context) ([]tools.Tool, error) {
 	return []tools.Tool{
 		{
-			Name:         "add_memory",
+			Name:         ToolNameAddMemory,
 			Category:     "memory",
 			Description:  "Add a new memory to the database",
 			Parameters:   tools.MustSchemaFor[AddMemoryArgs](),
@@ -62,7 +68,7 @@ func (t *MemoryTool) Tools(context.Context) ([]tools.Tool, error) {
 			},
 		},
 		{
-			Name:         "get_memories",
+			Name:         ToolNameGetMemories,
 			Category:     "memory",
 			Description:  "Retrieve all stored memories",
 			OutputSchema: tools.MustSchemaFor[[]database.UserMemory](),
@@ -73,7 +79,7 @@ func (t *MemoryTool) Tools(context.Context) ([]tools.Tool, error) {
 			},
 		},
 		{
-			Name:         "delete_memory",
+			Name:         ToolNameDeleteMemory,
 			Category:     "memory",
 			Description:  "Delete a specific memory by ID",
 			Parameters:   tools.MustSchemaFor[DeleteMemoryArgs](),

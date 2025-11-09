@@ -46,6 +46,7 @@ type Server struct {
 	sessionStore   session.Store
 	runConfig      config.RuntimeConfig
 	teams          map[string]*team.Team
+	teamsMu        sync.RWMutex
 	agentsDir      string
 	rootFS         *os.Root
 }
@@ -154,6 +155,65 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	return nil
 }
 
+// getTeam retrieves a team by key with read lock
+func (s *Server) getTeam(key string) (*team.Team, bool) {
+	s.teamsMu.RLock()
+	defer s.teamsMu.RUnlock()
+	t, exists := s.teams[key]
+	return t, exists
+}
+
+// setTeam sets a team by key with write lock, returns the old team if it existed
+func (s *Server) setTeam(key string, t *team.Team) (*team.Team, bool) {
+	s.teamsMu.Lock()
+	defer s.teamsMu.Unlock()
+	oldTeam, exists := s.teams[key]
+	s.teams[key] = t
+	return oldTeam, exists
+}
+
+// deleteTeam removes a team by key with write lock
+func (s *Server) deleteTeam(key string) {
+	s.teamsMu.Lock()
+	defer s.teamsMu.Unlock()
+	delete(s.teams, key)
+}
+
+// getTeams returns a snapshot of all teams with read lock
+func (s *Server) getTeams() map[string]*team.Team {
+	s.teamsMu.RLock()
+	defer s.teamsMu.RUnlock()
+	teams := make(map[string]*team.Team, len(s.teams))
+	for k, v := range s.teams {
+		teams[k] = v
+	}
+	return teams
+}
+
+// replaceAllTeams replaces the entire teams map with write lock, returns old teams
+func (s *Server) replaceAllTeams(teams map[string]*team.Team) map[string]*team.Team {
+	s.teamsMu.Lock()
+	defer s.teamsMu.Unlock()
+	oldTeams := s.teams
+	s.teams = teams
+	return oldTeams
+}
+
+// countTeams returns the number of teams with read lock
+func (s *Server) countTeams() int {
+	s.teamsMu.RLock()
+	defer s.teamsMu.RUnlock()
+	return len(s.teams)
+}
+
+// hasTeam checks if a team exists with read lock
+func (s *Server) hasTeam(key string) bool {
+	s.teamsMu.RLock()
+	defer s.teamsMu.RUnlock()
+	_, exists := s.teams[key]
+	return exists
+}
+
 func (s *Server) ping(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
@@ -216,10 +276,8 @@ func (s *Server) editAgentConfigYAML(c echo.Context) error {
 	yamlContent := string(body)
 
 	// Validate the YAML content by attempting to parse it
-	// Use ReferenceDirs to allow YAML files to reference other files relative to the agent directory
-	agentDir := filepath.Dir(p)
 	var tmpConfig latest.Config
-	if err := yaml.UnmarshalWithOptions([]byte(yamlContent), &tmpConfig, yaml.Strict(), yaml.ReferenceDirs(agentDir)); err != nil {
+	if err := yaml.UnmarshalWithOptions([]byte(yamlContent), &tmpConfig, yaml.Strict()); err != nil {
 		slog.Error("Invalid YAML content", "error", err)
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid YAML content: "+err.Error())
 	}
@@ -237,15 +295,15 @@ func (s *Server) editAgentConfigYAML(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to write agent file")
 	}
 
-	// Update the teams map with the reloaded agent
-	agentKey := strings.TrimSuffix(filepath.Base(p), filepath.Ext(p))
-	if oldTeam, exists := s.teams[agentKey]; exists {
-		// Stop old team's toolsets before replacing
+	agentKey := filepath.Base(p)
+
+	// Update the teams map with the reloaded agent and
+	// stop old team's toolsets
+	if oldTeam, exists := s.setTeam(agentKey, t); exists {
 		if err := oldTeam.StopToolSets(c.Request().Context()); err != nil {
 			slog.Error("Failed to stop old team toolsets", "agentKey", agentKey, "error", err)
 		}
 	}
-	s.teams[agentKey] = t
 
 	slog.Info("Agent YAML configuration updated successfully", "path", p)
 	return c.String(http.StatusOK, yamlContent)
@@ -323,15 +381,15 @@ func (s *Server) editAgentConfig(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to reload agent configuration")
 	}
 
-	// Update the teams map with the reloaded agent
-	agentKey := strings.TrimSuffix(filepath.Base(p), filepath.Ext(p))
-	if oldTeam, exists := s.teams[agentKey]; exists {
-		// Stop old team's toolsets before replacing
+	agentKey := filepath.Base(p)
+
+	// Update the teams map with the reloaded agent and
+	// stop old team's toolsets
+	if oldTeam, exists := s.setTeam(agentKey, t); exists {
 		if err := oldTeam.StopToolSets(c.Request().Context()); err != nil {
 			slog.Error("Failed to stop old team toolsets", "agentKey", agentKey, "error", err)
 		}
 	}
-	s.teams[agentKey] = t
 
 	slog.Info("Agent configuration updated successfully", "path", p)
 	return c.JSON(http.StatusOK, map[string]any{"message": "agent configuration updated successfully", "path": p, "config": mergedConfig})
@@ -361,7 +419,7 @@ func (s *Server) createAgent(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to load agent")
 	}
 
-	s.teams[filepath.Base(p)] = t
+	s.setTeam(filepath.Base(p), t)
 
 	slog.Info("Agent loaded", "path", p, "out", out)
 	return c.JSON(http.StatusOK, map[string]string{"path": p, "out": out})
@@ -450,8 +508,8 @@ func (s *Server) createAgentConfig(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to load agent from target path: "+err.Error())
 	}
 
-	agentKey := strings.TrimSuffix(filepath.Base(targetPath), filepath.Ext(targetPath))
-	s.teams[agentKey] = t
+	agentFilename := filepath.Base(targetPath)
+	s.setTeam(agentFilename, t)
 
 	slog.Info("Manual agent created successfully", "filepath", targetPath, "filename", filename)
 	return c.JSON(http.StatusOK, map[string]string{
@@ -537,7 +595,7 @@ func (s *Server) importAgent(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to load agent from target path: "+err.Error())
 	}
 
-	s.teams[agentKey] = t
+	s.setTeam(agentKey, t)
 
 	rootAgent, err := t.Agent("root")
 	if err != nil {
@@ -663,7 +721,7 @@ func (s *Server) pullAgent(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to load agent")
 	}
 
-	s.teams[agentName] = t
+	s.setTeam(filepath.Base(fileName), t)
 
 	rootAgent, err := t.Agent("root")
 	if err != nil {
@@ -760,18 +818,22 @@ func (s *Server) deleteAgent(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "file must be a YAML file (.yaml or .yml)")
 	}
 
-	// Determine the agent key from the file path
-	agentKey := strings.TrimSuffix(filepath.Base(req.FilePath), filepath.Ext(req.FilePath))
+	// Determine the agent filename from the file path
+	agentFilename := filepath.Base(req.FilePath)
 
 	// Remove from teams map and stop toolsets if active
-	if t, exists := s.teams[agentKey]; exists {
-		slog.Info("Stopping toolsets for agent", "agentKey", agentKey)
+	t, exists := s.getTeam(agentFilename)
+
+	if exists {
+		slog.Info("Stopping toolsets for agent", "agentKey", agentFilename)
 		if err := t.StopToolSets(c.Request().Context()); err != nil {
-			slog.Error("Failed to stop tool sets for agent", "agentKey", agentKey, "error", err)
+			slog.Error("Failed to stop tool sets for agent", "agentKey", agentFilename, "error", err)
 			// Continue with deletion even if stopping toolsets fails
 		}
-		delete(s.teams, agentKey)
-		slog.Info("Removed agent from teams", "agentKey", agentKey)
+
+		s.deleteTeam(agentFilename)
+
+		slog.Info("Removed agent from teams", "agentKey", agentFilename)
 	}
 
 	// Delete the file
@@ -780,7 +842,7 @@ func (s *Server) deleteAgent(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to delete agent file: "+err.Error())
 	}
 
-	slog.Info("Agent deleted successfully", "filePath", req.FilePath, "agentKey", agentKey)
+	slog.Info("Agent deleted successfully", "filePath", req.FilePath, "agentKey", agentFilename)
 	return c.JSON(http.StatusOK, map[string]string{
 		"filePath": req.FilePath,
 	})
@@ -796,6 +858,8 @@ func (s *Server) getAgents(c echo.Context) error {
 	// we want to return an empty slice if there are no agents, not nil.
 	agents := []api.Agent{}
 
+	// Manually lock the mutex to safely iterate over teams
+	s.teamsMu.RLock()
 	for id, t := range s.teams {
 		a, err := t.Agent("root")
 		if err != nil {
@@ -808,7 +872,8 @@ func (s *Server) getAgents(c echo.Context) error {
 			case t.Size() == 1:
 				a, err = t.Agent(t.AgentNames()[0])
 				if err != nil {
-					return echo.NewHTTPError(http.StatusInternalServerError, "failed to get agent")
+					s.teamsMu.RUnlock()
+					return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("failed to get agent for team %s: %v", id, err))
 				}
 				agents = append(agents, api.Agent{
 					Name:        id,
@@ -827,6 +892,7 @@ func (s *Server) getAgents(c echo.Context) error {
 			})
 		}
 	}
+	s.teamsMu.RUnlock()
 
 	// Sort agents by name
 	sort.Slice(agents, func(i, j int) bool {
@@ -841,21 +907,47 @@ func (s *Server) refreshAgentsFromDisk(ctx context.Context) error {
 		return nil
 	}
 
+	slog.Debug("Refreshing agents from disk", "agentsDir", s.agentsDir)
+
 	newTeams, err := teamloader.LoadTeams(ctx, s.agentsDir, s.runConfig)
 	if err != nil {
 		return fmt.Errorf("failed to load teams: %w", err)
 	}
 
-	for id, oldTeam := range s.teams {
+	oldTeams := s.getTeams()
+
+	for id, oldTeam := range oldTeams {
 		if _, exists := newTeams[id]; !exists {
 			// Team no longer exists on disk, stop its tool sets
+			slog.Info("Stopping tool sets for removed team", "team", id)
 			if err := oldTeam.StopToolSets(ctx); err != nil {
 				slog.Error("Failed to stop tool sets for removed team", "team", id, "error", err)
 			}
 		}
 	}
 
-	s.teams = newTeams
+	s.replaceAllTeams(newTeams)
+
+	return nil
+}
+
+// ReloadTeams loads teams from the specified path and replaces the current teams.
+// This method is thread-safe and ensures ongoing requests are not interrupted.
+func (s *Server) ReloadTeams(ctx context.Context, agentPath string) error {
+	newTeams, err := teamloader.LoadTeams(ctx, agentPath, s.runConfig)
+	if err != nil {
+		return fmt.Errorf("failed to load teams: %w", err)
+	}
+
+	oldTeams := s.replaceAllTeams(newTeams)
+
+	// Stop old teams' toolsets after releasing the lock to avoid blocking requests
+	for id, oldTeam := range oldTeams {
+		if err := oldTeam.StopToolSets(ctx); err != nil {
+			slog.Error("Failed to stop tool sets for old team", "team", id, "error", err)
+		}
+	}
+
 	return nil
 }
 
@@ -915,7 +1007,10 @@ func (s *Server) createSession(c echo.Context) error {
 	}
 
 	var opts []session.Opt
-	opts = append(opts, session.WithMaxIterations(sessionTemplate.MaxIterations))
+	opts = append(opts,
+		session.WithMaxIterations(sessionTemplate.MaxIterations),
+		session.WithToolsApproved(sessionTemplate.ToolsApproved),
+	)
 
 	if wd := strings.TrimSpace(sessionTemplate.WorkingDir); wd != "" {
 		absWd, err := filepath.Abs(wd)
@@ -936,7 +1031,6 @@ func (s *Server) createSession(c echo.Context) error {
 	}
 
 	sess := session.New(opts...)
-	sess.ToolsApproved = sessionTemplate.ToolsApproved
 
 	if err := s.sessionStore.AddSession(c.Request().Context(), sess); err != nil {
 		slog.Error("Failed to persist session", "session_id", sess.ID, "error", err)
@@ -998,7 +1092,7 @@ func (s *Server) resumeSession(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, fmt.Sprintf("runtime not found: %s", sessionID))
 	}
 
-	rt.Resume(c.Request().Context(), req.Confirmation)
+	rt.Resume(c.Request().Context(), runtime.ResumeType(req.Confirmation))
 
 	return c.JSON(http.StatusOK, map[string]string{"message": "session resumed"})
 }
