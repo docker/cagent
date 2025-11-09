@@ -79,44 +79,44 @@ func (m *model) Init() tea.Cmd {
 }
 
 func (m *model) SetTokenUsage(event *runtime.TokenUsageEvent) { // updates usage state from runtime events
-    if event == nil { // guard against nil events
-        return // nothing to do when event missing
-    }
+	if event == nil { // guard against nil events
+		return // nothing to do when event missing
+	}
 
-    // Legacy fallback: if new fields are missing, use event.Usage for both
-    selfUsage := event.SelfUsage
-    inclusiveUsage := event.InclusiveUsage
-    if (selfUsage == nil || inclusiveUsage == nil) && event.Usage != nil {
-        if selfUsage == nil {
-            selfUsage = event.Usage
-        }
-        if inclusiveUsage == nil {
-            inclusiveUsage = event.Usage
-        }
-    }
+	// Legacy fallback: if new fields are missing, use event.Usage for both
+	selfUsage := event.SelfUsage
+	inclusiveUsage := event.InclusiveUsage
+	if (selfUsage == nil || inclusiveUsage == nil) && event.Usage != nil {
+		if selfUsage == nil {
+			selfUsage = event.Usage
+		}
+		if inclusiveUsage == nil {
+			inclusiveUsage = event.Usage
+		}
+	}
 
-    if event.AgentContext.AgentName != "" && m.usageState.rootAgentName == "" { // capture root agent name from first event
-        m.usageState.rootAgentName = event.AgentContext.AgentName // remember orchestrator name to identify later events
-    }
+	if event.AgentContext.AgentName != "" && m.usageState.rootAgentName == "" { // capture root agent name from first event
+		m.usageState.rootAgentName = event.AgentContext.AgentName // remember orchestrator name to identify later events
+	}
 
-    if event.SessionID != "" { // update currently active session ID
-        m.usageState.activeSessionID = event.SessionID // track active session for totals/highlighting
-    }
+	if event.SessionID != "" { // update currently active session ID
+		m.usageState.activeSessionID = event.SessionID // track active session for totals/highlighting
+	}
 
-    if selfUsage != nil && event.SessionID != "" { // store self snapshot per session
-        m.usageState.sessions[event.SessionID] = cloneUsage(selfUsage) // clone to avoid aliasing runtime memory
-    }
+	if selfUsage != nil && event.SessionID != "" { // store self snapshot per session
+		m.usageState.sessions[event.SessionID] = cloneUsage(selfUsage) // clone to avoid aliasing runtime memory
+	}
 
-    if event.AgentContext.AgentName != "" && event.SessionID != "" { // map session ID to agent name for breakdown rows
-        m.usageState.sessionAgents[event.SessionID] = event.AgentContext.AgentName // remember descriptive label for later rendering
-    }
+	if event.AgentContext.AgentName != "" && event.SessionID != "" { // map session ID to agent name for breakdown rows
+		m.usageState.sessionAgents[event.SessionID] = event.AgentContext.AgentName // remember descriptive label for later rendering
+	}
 
-    if event.AgentContext.AgentName == m.usageState.rootAgentName && inclusiveUsage != nil { // update root inclusive snapshot when orchestrator reports
-        m.usageState.rootInclusive = cloneUsage(inclusiveUsage) // persist inclusive totals for team view
-        if event.SessionID != "" {                                    // also note root session ID for comparisons
-            m.usageState.rootSessionID = event.SessionID // record root session identifier
-        }
-    }
+	if event.AgentContext.AgentName == m.usageState.rootAgentName && inclusiveUsage != nil { // update root inclusive snapshot when orchestrator reports
+		m.usageState.rootInclusive = cloneUsage(inclusiveUsage) // persist inclusive totals for team view
+		if event.SessionID != "" {                              // also note root session ID for comparisons
+			m.usageState.rootSessionID = event.SessionID // record root session identifier
+		}
+	}
 }
 
 func (m *model) SetTodos(toolCall tools.ToolCall) error {
@@ -189,13 +189,10 @@ func (m *model) View() string {
 
 func (m *model) horizontalView() string {
 	pwd := getCurrentWorkingDirectory()
-
-	wi := m.workingIndicator()
-	titleGapWidth := m.width - lipgloss.Width(m.sessionTitle) - lipgloss.Width(wi) - 2
-	title := fmt.Sprintf("%s%*s%s", m.sessionTitle, titleGapWidth, "", m.workingIndicator())
-
-	gapWidth := m.width - lipgloss.Width(pwd) - lipgloss.Width(m.tokenUsage()) - 2
-	return lipgloss.JoinVertical(lipgloss.Top, title, fmt.Sprintf("%s%*s%s", styles.MutedStyle.Render(pwd), gapWidth, "", m.tokenUsage()))
+	usageSummary := m.tokenUsageSummary()
+	gapWidth := m.width - lipgloss.Width(pwd) - lipgloss.Width(usageSummary) - 2
+	title := m.sessionTitle + " " + m.workingIndicator()
+	return lipgloss.JoinVertical(lipgloss.Top, title, fmt.Sprintf("%s%*s%s", styles.MutedStyle.Render(pwd), gapWidth, "", usageSummary))
 }
 
 func (m *model) verticalView() string {
@@ -205,7 +202,7 @@ func (m *model) verticalView() string {
 		topContent += styles.MutedStyle.Render(pwd) + "\n\n"
 	}
 
-	topContent += m.tokenUsage()
+	topContent += m.tokenUsageDetails()
 	topContent += "\n" + m.workingIndicator()
 
 	m.todoComp.SetSize(m.width)
@@ -243,7 +240,22 @@ func (m *model) workingIndicator() string {
 	return ""
 }
 
-func (m *model) tokenUsage() string { // renders aggregate usage summary line + breakdown
+func (m *model) tokenUsageSummary() string { // condensed single-line usage view for horizontal layout
+	label, totals := m.renderTotals()
+	totalTokens := formatTokenCount(totals.InputTokens + totals.OutputTokens)
+	cost := fmt.Sprintf("$%.2f", totals.Cost)
+
+	var parts []string
+	if label != "" {
+		parts = append(parts, label)
+	}
+	parts = append(parts, fmt.Sprintf("Tokens: %s", totalTokens))
+	parts = append(parts, fmt.Sprintf("Cost: %s", cost))
+
+	return styles.SubtleStyle.Render(strings.Join(parts, " | "))
+}
+
+func (m *model) tokenUsageDetails() string { // renders aggregate usage summary line + breakdown
 	label, totals := m.renderTotals()                       // get friendly label plus computed totals
 	totalTokens := totals.InputTokens + totals.OutputTokens // sum user + assistant tokens for display
 
