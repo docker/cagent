@@ -79,32 +79,44 @@ func (m *model) Init() tea.Cmd {
 }
 
 func (m *model) SetTokenUsage(event *runtime.TokenUsageEvent) { // updates usage state from runtime events
-	if event == nil { // guard against nil events
-		return // nothing to do when event missing
-	}
+    if event == nil { // guard against nil events
+        return // nothing to do when event missing
+    }
 
-	if event.AgentContext.AgentName != "" && m.usageState.rootAgentName == "" { // capture root agent name from first event
-		m.usageState.rootAgentName = event.AgentContext.AgentName // remember orchestrator name to identify later events
-	}
+    // Legacy fallback: if new fields are missing, use event.Usage for both
+    selfUsage := event.SelfUsage
+    inclusiveUsage := event.InclusiveUsage
+    if (selfUsage == nil || inclusiveUsage == nil) && event.Usage != nil {
+        if selfUsage == nil {
+            selfUsage = event.Usage
+        }
+        if inclusiveUsage == nil {
+            inclusiveUsage = event.Usage
+        }
+    }
 
-	if event.SessionID != "" { // update currently active session ID
-		m.usageState.activeSessionID = event.SessionID // track active session for totals/highlighting
-	}
+    if event.AgentContext.AgentName != "" && m.usageState.rootAgentName == "" { // capture root agent name from first event
+        m.usageState.rootAgentName = event.AgentContext.AgentName // remember orchestrator name to identify later events
+    }
 
-	if event.SelfUsage != nil && event.SessionID != "" { // store self snapshot per session
-		m.usageState.sessions[event.SessionID] = cloneUsage(event.SelfUsage) // clone to avoid aliasing runtime memory
-	}
+    if event.SessionID != "" { // update currently active session ID
+        m.usageState.activeSessionID = event.SessionID // track active session for totals/highlighting
+    }
 
-	if event.AgentContext.AgentName != "" && event.SessionID != "" { // map session ID to agent name for breakdown rows
-		m.usageState.sessionAgents[event.SessionID] = event.AgentContext.AgentName // remember descriptive label for later rendering
-	}
+    if selfUsage != nil && event.SessionID != "" { // store self snapshot per session
+        m.usageState.sessions[event.SessionID] = cloneUsage(selfUsage) // clone to avoid aliasing runtime memory
+    }
 
-	if event.AgentContext.AgentName == m.usageState.rootAgentName && event.InclusiveUsage != nil { // update root inclusive snapshot when orchestrator reports
-		m.usageState.rootInclusive = cloneUsage(event.InclusiveUsage) // persist inclusive totals for team view
-		if event.SessionID != "" {                                    // also note root session ID for comparisons
-			m.usageState.rootSessionID = event.SessionID // record root session identifier
-		}
-	}
+    if event.AgentContext.AgentName != "" && event.SessionID != "" { // map session ID to agent name for breakdown rows
+        m.usageState.sessionAgents[event.SessionID] = event.AgentContext.AgentName // remember descriptive label for later rendering
+    }
+
+    if event.AgentContext.AgentName == m.usageState.rootAgentName && inclusiveUsage != nil { // update root inclusive snapshot when orchestrator reports
+        m.usageState.rootInclusive = cloneUsage(inclusiveUsage) // persist inclusive totals for team view
+        if event.SessionID != "" {                                    // also note root session ID for comparisons
+            m.usageState.rootSessionID = event.SessionID // record root session identifier
+        }
+    }
 }
 
 func (m *model) SetTodos(toolCall tools.ToolCall) error {
