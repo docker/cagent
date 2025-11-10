@@ -71,15 +71,10 @@ type Session struct {
 	// Lifetime/cumulative token counters across the entire session (self + children).
 	TotalInputTokens  int `json:"total_input_tokens,omitempty"`
 	TotalOutputTokens int `json:"total_output_tokens,omitempty"`
-    // Self* fields track the most recent provider-reported usage for this session only (no children).
-    SelfInputTokens  int     `json:"self_input_tokens"`
-    SelfOutputTokens int     `json:"self_output_tokens"`
-    SelfCost         float64 `json:"self_cost"`
-
-    // SelfTotal* fields track the cumulative self-only usage for this session across all passes.
-    SelfTotalInputTokens  int     `json:"self_total_input_tokens,omitempty"`
-    SelfTotalOutputTokens int     `json:"self_total_output_tokens,omitempty"`
-    SelfTotalCost         float64 `json:"self_total_cost,omitempty"`
+	// Self* fields track the most recent provider-reported usage for this session only (no children).
+	SelfInputTokens  int     `json:"self_input_tokens"`
+	SelfOutputTokens int     `json:"self_output_tokens"`
+	SelfCost         float64 `json:"self_cost"`
 }
 
 // Message is a message from an agent
