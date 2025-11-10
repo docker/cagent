@@ -52,10 +52,10 @@ type model struct { // tea model for sidebar component
 }
 
 type usageState struct { // holds all token usage snapshots for sidebar
-    sessions        map[string]*runtime.Usage // per-session self usage snapshots (lifetime + live)
-    inclusive       map[string]*runtime.Usage // per-session inclusive (lifetime + live) usage snapshots
-    sessionAgents   map[string]string         // optional agent name mapping per session
-    rootInclusive   *runtime.Usage            // inclusive usage snapshot emitted by root
+	sessions        map[string]*runtime.Usage // per-session self usage snapshots (lifetime + live)
+	inclusive       map[string]*runtime.Usage // per-session inclusive (lifetime + live) usage snapshots
+	sessionAgents   map[string]string         // optional agent name mapping per session
+	rootInclusive   *runtime.Usage            // inclusive usage snapshot emitted by root
     rootSessionID   string                    // session ID associated with root agent
     rootAgentName   string                    // resolved root agent name for comparisons
     activeSessionID string                    // currently active session ID for highlighting
@@ -321,54 +321,18 @@ func (m *model) renderTotals() (string, *runtime.Usage) { // resolves label + to
 		totals = &runtime.Usage{} // fall back to zero snapshot
 	}
 
-	label := "Session Total"               // default label when only one session present
-	if m.usageState.rootInclusive != nil { // when root inclusive exists we can show team wording
-		label = "Team Total"                                                                                  // highlight that totals represent the whole team
-		if m.usageState.activeSessionID != "" && m.usageState.activeSessionID != m.usageState.rootSessionID { // active child contributes live usage
-			label = "Team Total (incl. active child)" // clarify that active child is included
-		}
-	}
+	label := "Team Total" // totals always represent team-wide cumulative usage
 
 	return label, totals // return computed label with totals
 }
 
 func (m *model) computeTeamTotals() *runtime.Usage { // derives aggregate totals for the team line
-	base := cloneUsage(m.usageState.rootInclusive) // start with root inclusive snapshot, if any
-	active := m.currentSessionUsage()              // get self usage for currently active session
-
-	if base == nil { // when root has not reported yet
-		return cloneUsage(active) // either return active session usage or nil
+	totals := aggregateSelfUsage(m.usageState.sessions)
+	if totals != nil {
+		return totals
 	}
-
-	if active != nil && m.usageState.activeSessionID != "" && m.usageState.activeSessionID != m.usageState.rootSessionID { // only add active child when it differs from root session
-		base = mergeUsageTotals(base, active) // merge child self usage into inclusive total for live view
-	}
-
-	return base // return computed totals (may still be nil if nothing reported)
-}
-
-func (m *model) currentSessionUsage() *runtime.Usage { // fetches usage snapshot for active session
-	if m.usageState.activeSessionID == "" { // when no active session tracked
-		return nil // nothing to return
-	}
-	return m.usageState.sessions[m.usageState.activeSessionID] // look up snapshot in map (may be nil)
-}
-
-func mergeUsageTotals(base, delta *runtime.Usage) *runtime.Usage { // adds token/cost fields from delta into base
-	if base == nil { // handle nil base by cloning delta
-		return cloneUsage(delta) // ensure caller gets independent struct
-	}
-	if delta == nil { // nothing to add if delta missing
-		return base // return base unchanged
-	}
-	base.InputTokens += delta.InputTokens       // accumulate input tokens
-	base.OutputTokens += delta.OutputTokens     // accumulate output tokens
-	base.ContextLength += delta.ContextLength   // accumulate context length for completeness
-	if delta.ContextLimit > base.ContextLimit { // prefer higher limit to avoid regressions
-		base.ContextLimit = delta.ContextLimit // update context limit when child limit is larger
-	}
-	base.Cost += delta.Cost // accumulate cost for overall spend
-	return base             // return augmented total
+	// Fallback to root inclusive snapshot if we haven't received per-session data yet (e.g., very early)
+	return cloneUsage(m.usageState.rootInclusive)
 }
 
 func (m *model) sessionBreakdownLines() []string { // renders per-session self usage rows
@@ -438,4 +402,23 @@ func formatSessionBlock(agentName string, usage *runtime.Usage, isActive bool) s
 		return styles.ActiveStyle.Render(block)
 	}
 	return block
+}
+func aggregateSelfUsage(usages map[string]*runtime.Usage) *runtime.Usage {
+	if len(usages) == 0 {
+		return nil
+	}
+	var total runtime.Usage
+	for _, usage := range usages {
+		if usage == nil {
+			continue
+		}
+		total.InputTokens += usage.InputTokens
+		total.OutputTokens += usage.OutputTokens
+		total.ContextLength += usage.ContextLength
+		if usage.ContextLimit > total.ContextLimit {
+			total.ContextLimit = usage.ContextLimit
+		}
+		total.Cost += usage.Cost
+	}
+	return &total
 }
