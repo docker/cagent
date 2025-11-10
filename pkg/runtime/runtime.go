@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -561,8 +560,6 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 			selfInput := response.Usage.InputTokens + response.Usage.CachedInputTokens
 			selfOutput := response.Usage.OutputTokens + response.Usage.CachedOutputTokens + response.Usage.ReasoningTokens
 
-			logTokenUsageChunk(sess.ID, a.Name(), response.Usage)
-
 			var callCost float64
 			if m != nil {
 				callCost = (float64(response.Usage.InputTokens)*m.Cost.Input +
@@ -719,33 +716,6 @@ func childTokenTotals(sess *session.Session) (int, int) {
 		childOutput = 0
 	}
 	return childInput, childOutput
-}
-
-func logTokenUsageChunk(sessionID, agentName string, usage *chat.Usage) {
-	if usage == nil {
-		return
-	}
-	entry := fmt.Sprintf("%s session=%s agent=%s input=%d output=%d cached_input=%d cached_output=%d reasoning=%d\n",
-		time.Now().Format(time.RFC3339Nano),
-		sessionID,
-		agentName,
-		usage.InputTokens,
-		usage.OutputTokens,
-		usage.CachedInputTokens,
-		usage.CachedOutputTokens,
-		usage.ReasoningTokens,
-	)
-
-	file, err := os.OpenFile(tokenUsageLogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		slog.Warn("Failed to open token usage log file", "error", err)
-		return
-	}
-	defer file.Close()
-
-	if _, err := file.WriteString(entry); err != nil {
-		slog.Warn("Failed to write token usage log entry", "error", err)
-	}
 }
 
 // processToolCalls handles the execution of tool calls for an agent
@@ -1069,9 +1039,6 @@ func (r *LocalRuntime) handleTaskTransfer(ctx context.Context, sess *session.Ses
 	}
 
 	sess.ToolsApproved = s.ToolsApproved
-	parentCostBefore := sess.Cost // capture parent values for debug logging
-	parentInputBefore := sess.InputTokens
-	parentOutputBefore := sess.OutputTokens
 
 	sess.Cost += s.Cost
 	// Mirror cost behavior: once the child finishes, fold its token usage into the parent totals.
@@ -1080,20 +1047,6 @@ func (r *LocalRuntime) handleTaskTransfer(ctx context.Context, sess *session.Ses
 	childOutputTotal += s.OutputTokens
 	sess.InputTokens = childInputTotal + sess.SelfInputTokens
 	sess.OutputTokens = childOutputTotal + sess.SelfOutputTokens
-
-	slog.Debug("Merged sub-session usage into parent",
-		"parent_session_id", sess.ID,
-		"child_session_id", s.ID,
-		"parent_cost_before", parentCostBefore,
-		"parent_cost_after", sess.Cost,
-		"child_cost", s.Cost,
-		"parent_input_before", parentInputBefore,
-		"parent_input_after", sess.InputTokens,
-		"child_input", s.InputTokens,
-		"parent_output_before", parentOutputBefore,
-		"parent_output_after", sess.OutputTokens,
-		"child_output", s.OutputTokens,
-	)
 
 	sess.AddSubSession(s)
 
