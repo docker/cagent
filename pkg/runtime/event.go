@@ -313,7 +313,8 @@ func (e *ElicitationRequestEvent) GetAgentName() string { return e.AgentName }
 
 type AuthorizationEvent struct {
 	Type         string `json:"type"`
-	Confirmation string `json:"confirmation"` // only "confirmed"
+	// Confirmation is currently only set to "confirmed".
+	Confirmation string `json:"confirmation"`
 	AgentContext
 }
 

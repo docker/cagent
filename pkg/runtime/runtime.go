@@ -38,8 +38,10 @@ type modelStore interface {
 
 // ElicitationResult represents the result of an elicitation request
 type ElicitationResult struct {
-	Action  string         // "accept", "decline", or "cancel"
-	Content map[string]any // The submitted form data (only present when action is "accept")
+	// Action is "accept", "decline", or "cancel".
+	Action string
+	// Content contains the submitted form data when the action is "accept".
+	Content map[string]any
 }
 
 // ElicitationError represents an error from a declined/cancelled elicitation
@@ -89,22 +91,27 @@ type LocalRuntime struct {
 	toolMap                     map[string]ToolHandler
 	team                        *team.Team
 	currentAgent                string
-	rootSessionID               string // Root session ID for OAuth state encoding (preserved across sub-sessions)
+	// rootSessionID stores the root session ID for OAuth state encoding across sub-sessions.
+	rootSessionID               string
 	resumeChan                  chan ResumeType
 	tracer                      trace.Tracer
 	modelsStore                 modelStore
 	sessionCompaction           bool
 	managedOAuth                bool
-	elicitationRequestCh        chan ElicitationResult // Channel for receiving elicitation responses
-	elicitationEventsChannel    chan Event             // Current events channel for sending elicitation requests
-	elicitationEventsChannelMux sync.RWMutex           // Protects elicitationEventsChannel
+	// elicitationRequestCh receives elicitation responses from clients.
+	elicitationRequestCh        chan ElicitationResult
+	// elicitationEventsChannel holds the current events channel for elicitation requests.
+	elicitationEventsChannel    chan Event
+	// elicitationEventsChannelMux protects access to the elicitation events channel.
+	elicitationEventsChannelMux sync.RWMutex
 }
 
 type streamResult struct {
 	Calls             []tools.ToolCall
 	Content           string
 	ReasoningContent  string
-	ThinkingSignature string // Used with Anthropic's extended thinking feature
+	// ThinkingSignature is used with Anthropic's extended thinking feature.
+	ThinkingSignature string
 	Stopped           bool
 }
 
@@ -625,9 +632,10 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 
 				// Check if we should emit a partial event for this tool call
 				// We want to emit when we first get the function name
+				// Avoid emitting when the stored function name is already known.
 				shouldEmitPartial := !emittedPartialEvents[deltaToolCall.ID] &&
 					deltaToolCall.Function.Name != "" &&
-					toolCalls[idx].Function.Name == "" // Don't emit if we already have the name
+					toolCalls[idx].Function.Name == ""
 
 				// Update fields based on what's in the delta
 				if deltaToolCall.ID != "" {
@@ -1145,7 +1153,8 @@ func (r *LocalRuntime) Summarize(ctx context.Context, sess *session.Session, eve
 		case "assistant":
 			role = "Assistant"
 		case "system":
-			continue // Skip system messages for summarization
+			// Skip system messages for summarization.
+			continue
 		}
 		conversationHistory.WriteString(fmt.Sprintf("\n%s: %s", role, messages[i].Message.Content))
 	}

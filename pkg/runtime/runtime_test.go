@@ -481,7 +481,8 @@ func TestCompactionOccursAfterToolResultsWhenToolUsePresent(t *testing.T) {
 	mainStream := newStreamBuilder().
 		AddToolCallName("call_1", "test_tool").
 		AddToolCallArguments("call_1", "{}").
-		AddStopWithUsage(95, 0). // Context limit will be 100
+		// Context limit will be 100.
+		AddStopWithUsage(95, 0).
 		Build()
 
 	// Second stream: summary generation (simple content)

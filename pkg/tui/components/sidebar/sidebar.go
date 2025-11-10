@@ -8,7 +8,9 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/dustin/go-humanize" // provides comma-separated number formatting
+
+	// humanize provides comma-separated number formatting.
+	"github.com/dustin/go-humanize"
 
 	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/tools"
@@ -25,38 +27,55 @@ const (
 	ModeHorizontal
 )
 
-// Model represents a sidebar component
-type Model interface { // interface defines sidebar contract
+// Model represents a sidebar component.
+type Model interface {
 	layout.Model
 	layout.Sizeable
 
-	SetTokenUsage(event *runtime.TokenUsageEvent) // accepts enriched runtime events for usage tracking
+	// SetTokenUsage accepts enriched runtime events for usage tracking.
+	SetTokenUsage(event *runtime.TokenUsageEvent)
 	SetTodos(toolCall tools.ToolCall) error
 	SetWorking(working bool) tea.Cmd
 	SetMode(mode Mode)
 	GetSize() (width, height int)
 }
 
-// model implements Model
-type model struct { // tea model for sidebar component
-	width        int             // viewport width
-	height       int             // viewport height
-	usageState   usageState      // aggregated usage tracking state
-	todoComp     *todotool.SidebarComponent // embedded todo component
-	working      bool            // indicates if runtime is working
-	mcpInit      bool            // indicates MCP initialization state
-	spinner      spinner.Model   // spinner for busy indicator
-	mode         Mode            // layout mode
-	sessionTitle string          // current session title
+// model implements Model.
+type model struct {
+	// width stores the viewport width.
+	width int
+	// height stores the viewport height.
+	height int
+	// usageState tracks aggregated usage snapshots.
+	usageState usageState
+	// todoComp embeds the todo component.
+	todoComp *todotool.SidebarComponent
+	// working indicates whether the runtime is working.
+	working bool
+	// mcpInit reports the MCP initialization state.
+	mcpInit bool
+	// spinner renders the busy indicator.
+	spinner spinner.Model
+	// mode controls the layout orientation.
+	mode Mode
+	// sessionTitle keeps the current session title.
+	sessionTitle string
 }
 
-type usageState struct { // holds aggregated token usage snapshots grouped by agent
-	sessionTotals map[string]*runtime.Usage // latest snapshot per session
-	sessionAgents map[string]string         // sessionID -> agent name
-	agents        []*agentUsage             // ordered list of agent aggregates
-	agentIndex    map[string]int            // quick lookup for agent position
-	rootInclusive *runtime.Usage            // inclusive usage snapshot emitted by root (fallback)
-	rootAgentName string                    // resolved root agent name for comparisons
+// usageState holds aggregated token usage snapshots grouped by agent.
+type usageState struct {
+	// sessionTotals stores the latest snapshot per session.
+	sessionTotals map[string]*runtime.Usage
+	// sessionAgents maps session IDs to agent names.
+	sessionAgents map[string]string
+	// agents keeps an ordered list of agent aggregates.
+	agents []*agentUsage
+	// agentIndex provides a quick lookup for agent positions.
+	agentIndex map[string]int
+	// rootInclusive stores the inclusive usage snapshot emitted by the root session.
+	rootInclusive *runtime.Usage
+	// rootAgentName tracks the resolved root agent name for comparisons.
+	rootAgentName string
 }
 
 type agentUsage struct {
@@ -66,17 +85,24 @@ type agentUsage struct {
 
 func New(manager *service.TodoManager) Model {
 	return &model{
-		width:  20, // default width matches initial layout
-		height: 24, // default height matches initial layout
-		usageState: usageState{ // initialize usage tracking containers
+		// width defaults to the initial layout width.
+		width:  20,
+		// height defaults to the initial layout height.
+		height: 24,
+		// usageState initializes usage tracking containers.
+		usageState: usageState{
 			sessionTotals: make(map[string]*runtime.Usage),
 			sessionAgents: make(map[string]string),
 			agents:        make([]*agentUsage, 0),
 			agentIndex:    make(map[string]int),
 		},
-		todoComp:     todotool.NewSidebarComponent(manager),                      // instantiate todo component
-		spinner:      spinner.New(spinner.WithSpinner(spinner.Dot)), // configure spinner visuals
-		sessionTitle: "New session",                                 // initial placeholder title
+
+		// todoComp instantiates the todo component.
+		todoComp:     todotool.NewSidebarComponent(manager),    
+		// spinner configures the busy indicator visuals.
+		spinner: spinner.New(spinner.WithSpinner(spinner.Dot)),
+		// sessionTitle starts with a placeholder.
+		sessionTitle: "New session",
 	}
 }
 
@@ -84,9 +110,11 @@ func (m *model) Init() tea.Cmd {
 	return nil
 }
 
-func (m *model) SetTokenUsage(event *runtime.TokenUsageEvent) { // updates usage state from runtime events
-	if event == nil { // guard against nil events
-		return // nothing to do when event missing
+// SetTokenUsage updates usage state from runtime events.
+func (m *model) SetTokenUsage(event *runtime.TokenUsageEvent) {
+	if event == nil {
+		// Nothing to update when the event is missing.
+		return
 	}
 
 	// Legacy fallback: if new fields are missing, use event.Usage for both
@@ -207,8 +235,9 @@ func (m *model) verticalView() string {
 	m.todoComp.SetSize(m.width)
 	todoContent := strings.TrimSuffix(m.todoComp.Render(), "\n")
 
-	// Calculate available height for content
-	availableHeight := m.height - 2 // Account for borders
+	// Calculate available height for content.
+	// Account for borders when determining the available height.
+	availableHeight := m.height - 2
 	topHeight := strings.Count(topContent, "\n") + 1
 	todoHeight := strings.Count(todoContent, "\n") + 1
 
@@ -239,7 +268,8 @@ func (m *model) workingIndicator() string {
 	return ""
 }
 
-func (m *model) tokenUsageSummary() string { // condensed single-line usage view for horizontal layout
+// tokenUsageSummary generates a condensed usage view for horizontal layout.
+func (m *model) tokenUsageSummary() string {
 	label, totals := m.renderTotals()
 	totalTokens := formatTokenCount(totals.InputTokens + totals.OutputTokens)
 	cost := fmt.Sprintf("$%.2f", totals.Cost)
@@ -254,9 +284,12 @@ func (m *model) tokenUsageSummary() string { // condensed single-line usage view
 	return styles.SubtleStyle.Render(strings.Join(parts, " | "))
 }
 
-func (m *model) tokenUsageDetails() string { // renders aggregate usage summary line + breakdown
-	label, totals := m.renderTotals()                       // get friendly label plus computed totals
-	totalTokens := totals.InputTokens + totals.OutputTokens // sum user + assistant tokens for display
+// tokenUsageDetails renders the aggregate usage summary line and breakdown.
+func (m *model) tokenUsageDetails() string {
+	// Determine the display label and aggregate totals.
+	label, totals := m.renderTotals()
+	// Sum user and assistant tokens for display.
+	totalTokens := totals.InputTokens + totals.OutputTokens
 
 	// var usagePercent float64
 	// if totals.ContextLimit > 0 {
@@ -264,24 +297,25 @@ func (m *model) tokenUsageDetails() string { // renders aggregate usage summary 
 	// }
 	// percentageText := styles.MutedStyle.Render(fmt.Sprintf("%.0f%%", usagePercent))
 
-	var builder strings.Builder                                   // assemble multiline output
-	builder.WriteString(styles.SubtleStyle.Render("TOTAL USAGE")) // heading for total usage
-	if label != "" {                                              // append contextual label when available
-		builder.WriteString(fmt.Sprintf(" (%s)", label)) // show whether totals are team/session scoped
+	// Assemble the multi-line output.
+	var builder strings.Builder
+	builder.WriteString(styles.SubtleStyle.Render("Total Usage"))
+	if label != "" {
+		builder.WriteString(fmt.Sprintf(" (%s)", label))
 	}
-	builder.WriteString(fmt.Sprintf("\n  Tokens: %s | Cost: $%.2f\n", formatTokenCount(totalTokens), totals.Cost)) // display totals line
-	builder.WriteString("--------------------------------\n")                                                      // visual separator
-	builder.WriteString(styles.SubtleStyle.Render("SESSION BREAKDOWN"))                                            // heading for per-session details
+	builder.WriteString(fmt.Sprintf("\n  Tokens: %s | Cost: $%.2f\n", formatTokenCount(totalTokens), totals.Cost))
+	builder.WriteString("--------------------------------\n")
+	builder.WriteString(styles.SubtleStyle.Render("Agent Breakdown"))
 
-	breakdown := m.sessionBreakdownLines() // fetch breakdown blocks
-	if len(breakdown) > 0 {                // append breakdown when data available
-		builder.WriteString("\n")                            // ensure newline before blocks
-		builder.WriteString(strings.Join(breakdown, "\n\n")) // place blank line between blocks
+	breakdown := m.sessionBreakdownLines()
+	if len(breakdown) > 0 {
+		builder.WriteString("\n")
+		builder.WriteString(strings.Join(breakdown, "\n\n"))
 	} else {
-		builder.WriteString("\n  No session usage yet") // fallback text when no sessions reported
+		builder.WriteString("\n  No session usage yet")
 	}
 
-	return builder.String() // return composed view
+	return builder.String()
 }
 
 // SetSize sets the dimensions of the component
@@ -301,12 +335,13 @@ func (m *model) SetMode(mode Mode) {
 	m.mode = mode
 }
 
-func cloneUsage(u *runtime.Usage) *runtime.Usage { // helper to copy runtime usage structs safely
-	if u == nil { // avoid panics on nil usage snapshots
-		return nil // nothing to clone when nil
+// cloneUsage copies runtime usage snapshots safely.
+func cloneUsage(u *runtime.Usage) *runtime.Usage {
+	if u == nil {
+		return nil
 	}
-	clone := *u   // copy by value to detach from original pointer
-	return &clone // return pointer to independent copy
+	clone := *u
+	return &clone
 }
 
 func selectSnapshot(primary, fallback *runtime.Usage) *runtime.Usage {
@@ -375,18 +410,20 @@ func applyUsageDelta(target *runtime.Usage, next, prev *runtime.Usage) {
 	target.Cost -= prev.Cost
 }
 
-func (m *model) renderTotals() (string, *runtime.Usage) { // resolves label + totals for display
-	totals := m.computeTeamTotals() // compute aggregate usage first
-	if totals == nil {              // ensure downstream code always receives a struct
-		totals = &runtime.Usage{} // fall back to zero snapshot
+// renderTotals resolves the label and totals for display.
+func (m *model) renderTotals() (string, *runtime.Usage) {
+	totals := m.computeTeamTotals()
+	if totals == nil {
+		totals = &runtime.Usage{}
 	}
 
-	label := "Team Total" // totals always represent team-wide cumulative usage
+	label := "Team Total"
 
-	return label, totals // return computed label with totals
+	return label, totals
 }
 
-func (m *model) computeTeamTotals() *runtime.Usage { // derives aggregate totals for the team line
+// computeTeamTotals derives aggregate totals for the team line.
+func (m *model) computeTeamTotals() *runtime.Usage {
 	if len(m.usageState.agents) == 0 {
 		return cloneUsage(m.usageState.rootInclusive)
 	}
@@ -408,7 +445,8 @@ func (m *model) computeTeamTotals() *runtime.Usage { // derives aggregate totals
 	return &totals
 }
 
-func (m *model) sessionBreakdownLines() []string { // renders per-agent self usage rows
+// sessionBreakdownLines renders per-agent self usage rows.
+func (m *model) sessionBreakdownLines() []string {
 	lines := make([]string, 0, len(m.usageState.agents)+1)
 
 	if rootBlock := m.rootSessionBlock(); rootBlock != "" {
@@ -431,7 +469,8 @@ func (m *model) sessionBreakdownLines() []string { // renders per-agent self usa
 	return lines
 }
 
-func (m *model) rootSessionBlock() string { // formats root agent entry with aggregated usage
+// rootSessionBlock formats the root agent entry with aggregated usage.
+func (m *model) rootSessionBlock() string {
 	var rootUsage *runtime.Usage
 	if idx, ok := m.usageState.agentIndex[m.usageState.rootAgentName]; ok {
 		rootUsage = cloneUsage(&m.usageState.agents[idx].usage)
@@ -450,7 +489,8 @@ func (m *model) rootSessionBlock() string { // formats root agent entry with agg
 	return formatSessionBlock(name, rootUsage)
 }
 
-func formatSessionBlock(agentName string, usage *runtime.Usage) string { // helper to render a single block
+// formatSessionBlock renders a single usage block for an agent.
+func formatSessionBlock(agentName string, usage *runtime.Usage) string {
 	if usage == nil {
 		return ""
 	}
