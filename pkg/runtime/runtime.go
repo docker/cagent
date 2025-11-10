@@ -74,6 +74,8 @@ type Runtime interface {
 	CurrentAgentCommands(ctx context.Context) map[string]string
 	// CurrentWelcomeMessage returns the welcome message for the active agent
 	CurrentWelcomeMessage(ctx context.Context) string
+	// AgentCount returns the total number of configured agents.
+	AgentCount() int
 	// RunStream starts the agent's interaction loop and returns a channel of events
 	RunStream(ctx context.Context, sess *session.Session) <-chan Event
 	// Run starts the agent's interaction loop and returns the final messages
@@ -88,28 +90,28 @@ type Runtime interface {
 
 // LocalRuntime manages the execution of agents
 type LocalRuntime struct {
-	toolMap                     map[string]ToolHandler
-	team                        *team.Team
-	currentAgent                string
+	toolMap      map[string]ToolHandler
+	team         *team.Team
+	currentAgent string
 	// rootSessionID stores the root session ID for OAuth state encoding across sub-sessions.
-	rootSessionID               string
-	resumeChan                  chan ResumeType
-	tracer                      trace.Tracer
-	modelsStore                 modelStore
-	sessionCompaction           bool
-	managedOAuth                bool
+	rootSessionID     string
+	resumeChan        chan ResumeType
+	tracer            trace.Tracer
+	modelsStore       modelStore
+	sessionCompaction bool
+	managedOAuth      bool
 	// elicitationRequestCh receives elicitation responses from clients.
-	elicitationRequestCh        chan ElicitationResult
+	elicitationRequestCh chan ElicitationResult
 	// elicitationEventsChannel holds the current events channel for elicitation requests.
-	elicitationEventsChannel    chan Event
+	elicitationEventsChannel chan Event
 	// elicitationEventsChannelMux protects access to the elicitation events channel.
 	elicitationEventsChannelMux sync.RWMutex
 }
 
 type streamResult struct {
-	Calls             []tools.ToolCall
-	Content           string
-	ReasoningContent  string
+	Calls            []tools.ToolCall
+	Content          string
+	ReasoningContent string
 	// ThinkingSignature is used with Anthropic's extended thinking feature.
 	ThinkingSignature string
 	Stopped           bool
@@ -196,6 +198,13 @@ func (r *LocalRuntime) CurrentAgentCommands(context.Context) map[string]string {
 
 func (r *LocalRuntime) CurrentWelcomeMessage(ctx context.Context) string {
 	return r.CurrentAgent().WelcomeMessage()
+}
+
+func (r *LocalRuntime) AgentCount() int {
+	if r.team == nil {
+		return 0
+	}
+	return r.team.Size()
 }
 
 // CurrentAgent returns the current agent

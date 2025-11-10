@@ -104,8 +104,13 @@ func New(a *app.App, sessionState *service.SessionState) Page {
 	}
 
 	return &chatPage{
+<<<<<<< HEAD
 		sidebar:      sidebar.New(sessionState.TodoManager),
 		messages:     messages.New(a, sessionState),
+=======
+		sidebar:      sidebar.New(a.AgentCount()),
+		messages:     messages.New(a),
+>>>>>>> aa627aa2 (fix percentage)
 		editor:       editor.New(a, historyStore),
 		focusedPanel: PanelEditor,
 		app:          a,

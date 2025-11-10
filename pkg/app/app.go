@@ -46,6 +46,13 @@ func (a *App) CurrentAgentCommands(ctx context.Context) map[string]string {
 	return a.runtime.CurrentAgentCommands(ctx)
 }
 
+func (a *App) AgentCount() int {
+	if a.runtime == nil {
+		return 0
+	}
+	return a.runtime.AgentCount()
+}
+
 // ResolveCommand converts /command to its prompt text
 func (a *App) ResolveCommand(ctx context.Context, userInput string) string {
 	return runtime.ResolveCommand(ctx, a.runtime, userInput)

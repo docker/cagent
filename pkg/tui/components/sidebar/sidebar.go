@@ -63,6 +63,8 @@ type model struct {
 	mode Mode
 	// sessionTitle keeps the current session title.
 	sessionTitle string
+	// singleAgentMode indicates whether the agent system contains only one agent.
+	singleAgentMode bool
 }
 
 // usageState holds aggregated token usage snapshots grouped by agent.
@@ -75,6 +77,8 @@ type usageState struct {
 	agents []*agentUsage
 	// agentIndex provides a quick lookup for agent positions.
 	agentIndex map[string]int
+	// agentNames tracks which agents have reported usage.
+	agentNames map[string]struct{}
 	// rootInclusive stores the inclusive usage snapshot emitted by the root session.
 	rootInclusive *runtime.Usage
 	// rootAgentName tracks the resolved root agent name for comparisons.
@@ -86,10 +90,10 @@ type agentUsage struct {
 	usage runtime.Usage
 }
 
-func New(manager *service.TodoManager) Model {
+func New(manager *service.TodoManager, agentCount int) Model {
 	return &model{
 		// width defaults to the initial layout width.
-		width:  20,
+		width: 20,
 		// height defaults to the initial layout height.
 		height: 24,
 		// usageState initializes usage tracking containers.
@@ -98,6 +102,7 @@ func New(manager *service.TodoManager) Model {
 			sessionAgents: make(map[string]string),
 			agents:        make([]*agentUsage, 0),
 			agentIndex:    make(map[string]int),
+			agentNames:    make(map[string]struct{}),
 		},
 
 		// todoComp instantiates the todo component.
@@ -105,7 +110,8 @@ func New(manager *service.TodoManager) Model {
 		// spinner configures the busy indicator visuals.
 		spinner: spinner.New(spinner.WithSpinner(spinner.Dot)),
 		// sessionTitle starts with a placeholder.
-		sessionTitle: "New session",
+		sessionTitle:    "New session",
+		singleAgentMode: agentCount == 1,
 	}
 }
 
@@ -284,6 +290,9 @@ func (m *model) tokenUsageSummary() string {
 	}
 	parts = append(parts, fmt.Sprintf("Tokens: %s", totalTokens))
 	parts = append(parts, fmt.Sprintf("Cost: %s", cost))
+	if percentageText, ok := m.singleAgentPercentageText(totals); ok {
+		parts = append(parts, fmt.Sprintf("Context: %s", percentageText))
+	}
 
 	return styles.SubtleStyle.Render(strings.Join(parts, " | "))
 }
@@ -296,19 +305,17 @@ func (m *model) tokenUsageDetails() string {
 	// Sum user and assistant tokens for display.
 	totalTokens := totals.InputTokens + totals.OutputTokens
 
-	// var usagePercent float64
-	// if totals.ContextLimit > 0 {
-	// 	usagePercent = (float64(totals.ContextLength) / float64(totals.ContextLimit)) * 100
-	// }
-	// percentageText := styles.MutedStyle.Render(fmt.Sprintf("%.0f%%", usagePercent))
-
 	// Assemble the multi-line output.
 	var builder strings.Builder
 	builder.WriteString(styles.SubtleStyle.Render("Total Usage"))
 	if label != "" {
 		builder.WriteString(fmt.Sprintf(" (%s)", label))
 	}
-	builder.WriteString(fmt.Sprintf("\n  Tokens: %s | Cost: $%.2f\n", formatTokenCount(totalTokens), totals.Cost))
+	contextSuffix := ""
+	if percentageText, ok := m.singleAgentPercentageText(totals); ok {
+		contextSuffix = fmt.Sprintf(" | Context: %s", percentageText)
+	}
+	builder.WriteString(fmt.Sprintf("\n  Tokens: %s | Cost: $%.2f%s\n", formatTokenCount(totalTokens), totals.Cost, contextSuffix))
 	builder.WriteString("--------------------------------\n")
 	builder.WriteString(styles.SubtleStyle.Render("Agent Breakdown"))
 
@@ -379,6 +386,7 @@ func (m *model) updateAgentTotals(agentName, sessionID string, snapshot *runtime
 	if agentName == "" {
 		return
 	}
+	m.usageState.agentNames[agentName] = struct{}{}
 
 	agent := m.ensureAgent(agentName)
 	applyUsageDelta(&agent.usage, snapshot, prev)
@@ -500,4 +508,45 @@ func formatSessionBlock(agentName string, usage *runtime.Usage) string {
 
 	block := fmt.Sprintf("  %s\n     Tokens: %s | Cost: $%.2f", agentName, formatTokenCount(usage.InputTokens+usage.OutputTokens), usage.Cost)
 	return block
+}
+
+// singleAgentPercentageText computes a context usage percentage when only one agent is active.
+func (m *model) singleAgentPercentageText(totals *runtime.Usage) (string, bool) {
+	if !m.singleAgentMode {
+		return "", false
+	}
+	if totals == nil || totals.ContextLimit <= 0 {
+		return "", false
+	}
+	if !m.isSingleAgentView() {
+		return "", false
+	}
+
+	contextTokens := totals.ContextLength
+	if contextTokens == 0 {
+		contextTokens = totals.InputTokens + totals.OutputTokens
+	}
+	usagePercent := (float64(contextTokens) / float64(totals.ContextLimit)) * 100
+	if usagePercent < 0 {
+		usagePercent = 0
+	}
+	if usagePercent > 100 {
+		usagePercent = 100
+	}
+
+	return styles.MutedStyle.Render(fmt.Sprintf("%.0f%%", usagePercent)), true
+}
+
+// isSingleAgentView returns true when only a single agent has reported usage.
+func (m *model) isSingleAgentView() bool {
+	if !m.singleAgentMode {
+		return false
+	}
+	if len(m.usageState.agentNames) == 0 {
+		return false
+	}
+	if len(m.usageState.agentNames) > 1 {
+		return false
+	}
+	return true
 }
