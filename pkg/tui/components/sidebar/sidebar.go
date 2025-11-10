@@ -3,7 +3,6 @@ package sidebar
 import (
 	"fmt"
 	"os"
-	"sort" // ensure deterministic breakdown ordering
 	"strings"
 
 	"charm.land/bubbles/v2/spinner"
@@ -51,14 +50,19 @@ type model struct { // tea model for sidebar component
 	sessionTitle string          // current session title
 }
 
-type usageState struct { // holds all token usage snapshots for sidebar
-	sessions        map[string]*runtime.Usage // per-session aggregated self usage snapshots
-	inclusive       map[string]*runtime.Usage // per-session inclusive (lifetime + live) usage snapshots
-	sessionAgents   map[string]string         // optional agent name mapping per session
-	rootInclusive   *runtime.Usage            // inclusive usage snapshot emitted by root
-	rootSessionID   string                    // session ID associated with root agent
-	rootAgentName   string                    // resolved root agent name for comparisons
-	activeSessionID string                    // currently active session ID for highlighting
+type usageState struct { // holds aggregated token usage snapshots grouped by agent
+	sessionTotals map[string]*runtime.Usage // latest snapshot per session
+	sessionAgents map[string]string         // sessionID -> agent name
+	agents        []*agentUsage             // ordered list of agent aggregates
+	agentIndex    map[string]int            // quick lookup for agent position
+	rootInclusive *runtime.Usage            // inclusive usage snapshot emitted by root (fallback)
+	rootAgentName string                    // resolved root agent name for comparisons
+	activeAgent   string                    // currently active agent for highlighting
+}
+
+type agentUsage struct {
+	name  string
+	usage runtime.Usage
 }
 
 func New(manager *service.TodoManager) Model {
@@ -66,9 +70,10 @@ func New(manager *service.TodoManager) Model {
 		width:  20, // default width matches initial layout
 		height: 24, // default height matches initial layout
 		usageState: usageState{ // initialize usage tracking containers
-			sessions:      make(map[string]*runtime.Usage), // allocate map to avoid nil lookups
-			inclusive:     make(map[string]*runtime.Usage), // allocate map for inclusive snapshots
-			sessionAgents: make(map[string]string),         // track agent names per session
+			sessionTotals: make(map[string]*runtime.Usage),
+			sessionAgents: make(map[string]string),
+			agents:        make([]*agentUsage, 0),
+			agentIndex:    make(map[string]int),
 		},
 		todoComp:     todotool.NewSidebarComponent(manager),                      // instantiate todo component
 		spinner:      spinner.New(spinner.WithSpinner(spinner.Dot)), // configure spinner visuals
@@ -97,37 +102,26 @@ func (m *model) SetTokenUsage(event *runtime.TokenUsageEvent) { // updates usage
 		}
 	}
 
-	if event.AgentContext.AgentName != "" && m.usageState.rootAgentName == "" { // capture root agent name from first event
-		m.usageState.rootAgentName = event.AgentContext.AgentName // remember orchestrator name to identify later events
+	agentName := event.AgentContext.AgentName
+	if agentName == "" {
+		agentName = event.SessionID
 	}
 
-	if event.SessionID != "" { // update currently active session ID
-		m.usageState.activeSessionID = event.SessionID // track active session for totals/highlighting
+	if event.AgentContext.AgentName != "" && m.usageState.rootAgentName == "" {
+		m.usageState.rootAgentName = event.AgentContext.AgentName
+	}
+	if agentName != "" {
+		m.usageState.activeAgent = agentName
 	}
 
 	if event.SessionID != "" {
-		snapshot := cloneUsage(selfUsage)
-		if snapshot == nil {
-			snapshot = cloneUsage(inclusiveUsage)
-		}
-		if snapshot != nil {
-			m.usageState.sessions[event.SessionID] = snapshot
-		}
-
-		if inclusiveUsage != nil { // store inclusive (lifetime) snapshot per session for legacy fallbacks
-			m.usageState.inclusive[event.SessionID] = cloneUsage(inclusiveUsage)
+		if snapshot := selectSnapshot(selfUsage, inclusiveUsage); snapshot != nil {
+			m.updateAgentTotals(agentName, event.SessionID, snapshot)
 		}
 	}
 
-	if event.AgentContext.AgentName != "" && event.SessionID != "" { // map session ID to agent name for breakdown rows
-		m.usageState.sessionAgents[event.SessionID] = event.AgentContext.AgentName // remember descriptive label for later rendering
-	}
-
-	if event.AgentContext.AgentName == m.usageState.rootAgentName && inclusiveUsage != nil { // update root inclusive snapshot when orchestrator reports
-		m.usageState.rootInclusive = cloneUsage(inclusiveUsage) // persist inclusive totals for team view
-		if event.SessionID != "" {                              // also note root session ID for comparisons
-			m.usageState.rootSessionID = event.SessionID // record root session identifier
-		}
+	if event.AgentContext.AgentName == m.usageState.rootAgentName && inclusiveUsage != nil {
+		m.usageState.rootInclusive = cloneUsage(inclusiveUsage)
 	}
 }
 
@@ -322,6 +316,65 @@ func cloneUsage(u *runtime.Usage) *runtime.Usage { // helper to copy runtime usa
 	return &clone // return pointer to independent copy
 }
 
+func selectSnapshot(primary, fallback *runtime.Usage) *runtime.Usage {
+	if primary != nil {
+		return cloneUsage(primary)
+	}
+	return cloneUsage(fallback)
+}
+
+func (m *model) updateAgentTotals(agentName, sessionID string, snapshot *runtime.Usage) {
+	if sessionID == "" || snapshot == nil {
+		return
+	}
+
+	prev := m.usageState.sessionTotals[sessionID]
+	m.usageState.sessionTotals[sessionID] = cloneUsage(snapshot)
+
+	if agentName == "" {
+		agentName = m.usageState.sessionAgents[sessionID]
+	} else {
+		m.usageState.sessionAgents[sessionID] = agentName
+	}
+	if agentName == "" {
+		return
+	}
+
+	agent := m.ensureAgent(agentName)
+	applyUsageDelta(&agent.usage, snapshot, prev)
+}
+
+func (m *model) ensureAgent(agentName string) *agentUsage {
+	if idx, ok := m.usageState.agentIndex[agentName]; ok {
+		return m.usageState.agents[idx]
+	}
+	entry := &agentUsage{name: agentName}
+	m.usageState.agentIndex[agentName] = len(m.usageState.agents)
+	m.usageState.agents = append(m.usageState.agents, entry)
+	return entry
+}
+
+func applyUsageDelta(target *runtime.Usage, next, prev *runtime.Usage) {
+	if target == nil || next == nil {
+		return
+	}
+	target.InputTokens += next.InputTokens
+	target.OutputTokens += next.OutputTokens
+	target.ContextLength += next.ContextLength
+	if next.ContextLimit > target.ContextLimit {
+		target.ContextLimit = next.ContextLimit
+	}
+	target.Cost += next.Cost
+
+	if prev == nil {
+		return
+	}
+	target.InputTokens -= prev.InputTokens
+	target.OutputTokens -= prev.OutputTokens
+	target.ContextLength -= prev.ContextLength
+	target.Cost -= prev.Cost
+}
+
 func (m *model) renderTotals() (string, *runtime.Usage) { // resolves label + totals for display
 	totals := m.computeTeamTotals() // compute aggregate usage first
 	if totals == nil {              // ensure downstream code always receives a struct
@@ -334,82 +387,67 @@ func (m *model) renderTotals() (string, *runtime.Usage) { // resolves label + to
 }
 
 func (m *model) computeTeamTotals() *runtime.Usage { // derives aggregate totals for the team line
-	totals := aggregateSelfUsage(m.usageState.sessions)
-	if totals != nil {
-		return totals
+	if len(m.usageState.agents) == 0 {
+		return cloneUsage(m.usageState.rootInclusive)
 	}
-	// Fallback to root inclusive snapshot if we haven't received per-session data yet (e.g., very early)
-	return cloneUsage(m.usageState.rootInclusive)
+
+	var totals runtime.Usage
+	for _, agent := range m.usageState.agents {
+		if agent == nil {
+			continue
+		}
+		totals.InputTokens += agent.usage.InputTokens
+		totals.OutputTokens += agent.usage.OutputTokens
+		totals.ContextLength += agent.usage.ContextLength
+		if agent.usage.ContextLimit > totals.ContextLimit {
+			totals.ContextLimit = agent.usage.ContextLimit
+		}
+		totals.Cost += agent.usage.Cost
+	}
+
+	return &totals
 }
 
-func (m *model) sessionBreakdownLines() []string { // renders per-session self usage rows
-	idSet := make(map[string]struct{}, len(m.usageState.sessions))
-	ids := make([]string, 0, len(m.usageState.sessions))
-	for id := range m.usageState.sessions { // iterate known sessions
-		idSet[id] = struct{}{}
-		ids = append(ids, id) // record id for sorting
-	}
-	for id := range m.usageState.inclusive {
-		if _, seen := idSet[id]; !seen {
-			idSet[id] = struct{}{}
-			ids = append(ids, id)
-		}
-	}
-	if len(ids) == 0 {
-		if rootBlock := m.rootSessionBlock(); rootBlock != "" {
-			return []string{rootBlock}
-		}
-		return nil
-	}
-	sort.Strings(ids) // ensure stable ordering regardless of map iteration
+func (m *model) sessionBreakdownLines() []string { // renders per-agent self usage rows
+	lines := make([]string, 0, len(m.usageState.agents)+1)
 
-	lines := make([]string, 0, len(ids)+1) // include space for root block
-
-	if rootBlock := m.rootSessionBlock(); rootBlock != "" { // prepend root block when available
+	if rootBlock := m.rootSessionBlock(); rootBlock != "" {
 		lines = append(lines, rootBlock)
 	}
 
-	for _, id := range ids { // build block for each session
-		if id == m.usageState.rootSessionID { // skip root session since totals already shown above
+	for _, agent := range m.usageState.agents {
+		if agent == nil || agent.name == "" || agent.name == m.usageState.rootAgentName {
 			continue
 		}
-		// Show self-only usage for session rows (lifetime across passes, not inclusive of children)
-		usage := m.usageState.sessions[id]
-		if usage == nil { // fall back to inclusive snapshot when self-only data unavailable (legacy runtimes)
-			usage = m.usageState.inclusive[id]
-		}
-		if usage == nil { // skip if snapshot still missing
-			continue // nothing to render for this id
-		}
-		agentName := m.usageState.sessionAgents[id] // resolve display name
-		if agentName == "" {                        // fallback when agent name unknown
-			agentName = id // show session ID as identifier
-		}
-
-		if block := formatSessionBlock(agentName, usage, id == m.usageState.activeSessionID); block != "" { // compose + style block
-			lines = append(lines, block) // add block to breakdown list
+		block := formatSessionBlock(agent.name, &agent.usage, agent.name == m.usageState.activeAgent)
+		if block != "" {
+			lines = append(lines, block)
 		}
 	}
 
-	return lines // return composed rows
+	if len(lines) == 0 {
+		return nil
+	}
+	return lines
 }
 
-func (m *model) rootSessionBlock() string { // formats root agent entry with self-only lifetime usage
-	// Prefer the self-only snapshot published for the root session; fall back to inclusive, then nothing
-	rootUsage := m.usageState.sessions[m.usageState.rootSessionID]
+func (m *model) rootSessionBlock() string { // formats root agent entry with aggregated usage
+	var rootUsage *runtime.Usage
+	if idx, ok := m.usageState.agentIndex[m.usageState.rootAgentName]; ok {
+		rootUsage = cloneUsage(&m.usageState.agents[idx].usage)
+	}
 	if rootUsage == nil {
-		rootUsage = m.usageState.rootInclusive
+		rootUsage = cloneUsage(m.usageState.rootInclusive)
 	}
 	if rootUsage == nil {
 		return ""
 	}
 
-	name := m.usageState.rootAgentName // prefer configured agent name
+	name := m.usageState.rootAgentName
 	if name == "" {
 		name = "Root"
 	}
-
-	return formatSessionBlock(name, cloneUsage(rootUsage), m.usageState.activeSessionID == m.usageState.rootSessionID)
+	return formatSessionBlock(name, rootUsage, m.usageState.activeAgent == name)
 }
 
 func formatSessionBlock(agentName string, usage *runtime.Usage, isActive bool) string { // helper to render a single block
@@ -422,23 +460,4 @@ func formatSessionBlock(agentName string, usage *runtime.Usage, isActive bool) s
 		return styles.ActiveStyle.Render(block)
 	}
 	return block
-}
-func aggregateSelfUsage(usages map[string]*runtime.Usage) *runtime.Usage {
-	if len(usages) == 0 {
-		return nil
-	}
-	var total runtime.Usage
-	for _, usage := range usages {
-		if usage == nil {
-			continue
-		}
-		total.InputTokens += usage.InputTokens
-		total.OutputTokens += usage.OutputTokens
-		total.ContextLength += usage.ContextLength
-		if usage.ContextLimit > total.ContextLimit {
-			total.ContextLimit = usage.ContextLimit
-		}
-		total.Cost += usage.Cost
-	}
-	return &total
 }
