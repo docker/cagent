@@ -1,0 +1,683 @@
+diff --git a/pkg/runtime/event.go b/pkg/runtime/event.go
+index 726e8e0..9816cab 100644
+--- a/pkg/runtime/event.go
++++ b/pkg/runtime/event.go
+@@ -183,8 +183,16 @@ func Warning(message, agentName string) Event {
+ }
+ 
+ type TokenUsageEvent struct {
+-	Type  string `json:"type"`
+-	Usage *Usage `json:"usage"`
++	// Type stays "token_usage" for backward compatibility with existing clients.
++	Type string `json:"type"`
++	// SessionID lets consumers correlate usage snapshots with a specific session/sub-session.
++	SessionID string `json:"session_id"`
++	// Usage retains the legacy aggregate payload so older UIs do not break immediately.
++	Usage *Usage `json:"usage,omitempty"`
++	// SelfUsage captures the tokens/cost generated directly by the emitting session.
++	SelfUsage *Usage `json:"self_usage,omitempty"`
++	// InclusiveUsage represents the session plus any merged child usage for team totals.
++	InclusiveUsage *Usage `json:"inclusive_usage,omitempty"`
+ 	AgentContext
+ }
+ 
+@@ -196,16 +204,27 @@ type Usage struct {
+ 	Cost          float64 `json:"cost"`
+ }
+ 
+-func TokenUsage(inputTokens, outputTokens, contextLength, contextLimit int, cost float64) Event {
++func TokenUsage(sessionID, agentName string, selfUsage, inclusiveUsage *Usage) Event {
++	if selfUsage == nil && inclusiveUsage == nil {
++		return &TokenUsageEvent{Type: "token_usage"}
++	}
++
++	// Default to inclusive usage when only one snapshot is provided.
++	if selfUsage == nil {
++		selfUsage = inclusiveUsage
++	}
++	if inclusiveUsage == nil {
++		inclusiveUsage = selfUsage
++	}
++
++	// Emit both snapshots so the UI can show per-session and team totals simultaneously.
+ 	return &TokenUsageEvent{
+-		Type: "token_usage",
+-		Usage: &Usage{
+-			ContextLength: contextLength,
+-			ContextLimit:  contextLimit,
+-			InputTokens:   inputTokens,
+-			OutputTokens:  outputTokens,
+-			Cost:          cost,
+-		},
++		Type:           "token_usage",
++		SessionID:      sessionID,
++		Usage:          inclusiveUsage,
++		SelfUsage:      selfUsage,
++		InclusiveUsage: inclusiveUsage,
++		AgentContext:   AgentContext{AgentName: agentName},
+ 	}
+ }
+ 
+diff --git a/pkg/runtime/runtime.go b/pkg/runtime/runtime.go
+index 9c6050a..13b8e43 100644
+--- a/pkg/runtime/runtime.go
++++ b/pkg/runtime/runtime.go
+@@ -28,6 +28,8 @@ import (
+ 	"github.com/docker/cagent/pkg/tools/builtin"
+ )
+ 
++const tokenUsageLogFile = "token_usage_chunks.log"
++
+ type ResumeType string
+ 
+ type modelStore interface {
+@@ -381,7 +383,10 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
+ 			if m != nil {
+ 				contextLimit = m.Limit.Context
+ 			}
+-			events <- TokenUsage(sess.InputTokens, sess.OutputTokens, sess.InputTokens+sess.OutputTokens, contextLimit, sess.Cost)
++			// Emit a snapshot that downstream components can use for both self and inclusive totals.
++			inclusiveUsage := buildInclusiveUsageSnapshot(sess, contextLimit)
++			selfUsage := buildSelfUsageSnapshot(sess, contextLimit)
++			events <- TokenUsage(sess.ID, a.Name(), selfUsage, inclusiveUsage)
+ 
+ 			if m != nil && r.sessionCompaction {
+ 				if sess.InputTokens+sess.OutputTokens > int(float64(contextLimit)*0.9) {
+@@ -390,7 +395,10 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
+ 					if len(res.Calls) == 0 {
+ 						events <- SessionCompaction(sess.ID, "start", r.currentAgent)
+ 						r.Summarize(ctx, sess, events)
+-						events <- TokenUsage(sess.InputTokens, sess.OutputTokens, sess.InputTokens+sess.OutputTokens, contextLimit, sess.Cost)
++						// Refresh usage after compaction since token counts may have changed.
++						inclusiveUsage := buildInclusiveUsageSnapshot(sess, contextLimit)
++						selfUsage := buildSelfUsageSnapshot(sess, contextLimit)
++						events <- TokenUsage(sess.ID, a.Name(), selfUsage, inclusiveUsage)
+ 						events <- SessionCompaction(sess.ID, "completed", r.currentAgent)
+ 					}
+ 				}
+@@ -404,7 +412,10 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
+ 				if sess.InputTokens+sess.OutputTokens > int(float64(contextLimit)*0.9) {
+ 					events <- SessionCompaction(sess.ID, "start", r.currentAgent)
+ 					r.Summarize(ctx, sess, events)
+-					events <- TokenUsage(sess.InputTokens, sess.OutputTokens, sess.InputTokens+sess.OutputTokens, contextLimit, sess.Cost)
++					// Emit the post-compaction snapshot as well for consistency.
++					inclusiveUsage := buildInclusiveUsageSnapshot(sess, contextLimit)
++					selfUsage := buildSelfUsageSnapshot(sess, contextLimit)
++					events <- TokenUsage(sess.ID, a.Name(), selfUsage, inclusiveUsage)
+ 					events <- SessionCompaction(sess.ID, "completed", r.currentAgent)
+ 				}
+ 			}
+@@ -544,15 +555,25 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
+ 		}
+ 
+ 		if response.Usage != nil {
++			childInputTotal, childOutputTotal := childTokenTotals(sess)
++
++			selfInput := response.Usage.InputTokens + response.Usage.CachedInputTokens
++			selfOutput := response.Usage.OutputTokens + response.Usage.CachedOutputTokens + response.Usage.ReasoningTokens
++
++			var callCost float64
+ 			if m != nil {
+-				sess.Cost += (float64(response.Usage.InputTokens)*m.Cost.Input +
++				callCost = (float64(response.Usage.InputTokens)*m.Cost.Input +
+ 					float64(response.Usage.OutputTokens+response.Usage.ReasoningTokens)*m.Cost.Output +
+ 					float64(response.Usage.CachedInputTokens)*m.Cost.CacheRead +
+ 					float64(response.Usage.CachedOutputTokens)*m.Cost.CacheWrite) / 1e6
++				sess.Cost += callCost
+ 			}
+ 
+-			sess.InputTokens = response.Usage.InputTokens + response.Usage.CachedInputTokens
+-			sess.OutputTokens = response.Usage.OutputTokens + response.Usage.CachedOutputTokens + response.Usage.ReasoningTokens
++			sess.SelfCost = callCost
++			sess.SelfInputTokens = selfInput
++			sess.SelfOutputTokens = selfOutput
++			sess.InputTokens = childInputTotal + selfInput
++			sess.OutputTokens = childOutputTotal + selfOutput
+ 
+ 			modelName := "unknown"
+ 			if m != nil {
+@@ -664,6 +685,39 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
+ 	}, nil
+ }
+ 
++// buildInclusiveUsageSnapshot captures the session's current inclusive usage in the shared event format.
++func buildInclusiveUsageSnapshot(sess *session.Session, contextLimit int) *Usage {
++	return &Usage{
++		ContextLength: sess.InputTokens + sess.OutputTokens,
++		ContextLimit:  contextLimit,
++		InputTokens:   sess.InputTokens,
++		OutputTokens:  sess.OutputTokens,
++		Cost:          sess.Cost,
++	}
++}
++
++func buildSelfUsageSnapshot(sess *session.Session, contextLimit int) *Usage {
++	return &Usage{
++		ContextLength: sess.SelfInputTokens + sess.SelfOutputTokens,
++		ContextLimit:  contextLimit,
++		InputTokens:   sess.SelfInputTokens,
++		OutputTokens:  sess.SelfOutputTokens,
++		Cost:          sess.SelfCost,
++	}
++}
++
++func childTokenTotals(sess *session.Session) (int, int) {
++	childInput := sess.InputTokens - sess.SelfInputTokens
++	if childInput < 0 {
++		childInput = 0
++	}
++	childOutput := sess.OutputTokens - sess.SelfOutputTokens
++	if childOutput < 0 {
++		childOutput = 0
++	}
++	return childInput, childOutput
++}
++
+ // processToolCalls handles the execution of tool calls for an agent
+ func (r *LocalRuntime) processToolCalls(ctx context.Context, sess *session.Session, calls []tools.ToolCall, agentTools []tools.Tool, events chan Event) {
+ 	a := r.CurrentAgent()
+@@ -985,10 +1039,23 @@ func (r *LocalRuntime) handleTaskTransfer(ctx context.Context, sess *session.Ses
+ 	}
+ 
+ 	sess.ToolsApproved = s.ToolsApproved
++
+ 	sess.Cost += s.Cost
++	// Mirror cost behavior: once the child finishes, fold its token usage into the parent totals.
++	childInputTotal, childOutputTotal := childTokenTotals(sess)
++	childInputTotal += s.InputTokens
++	childOutputTotal += s.OutputTokens
++	sess.InputTokens = childInputTotal + sess.SelfInputTokens
++	sess.OutputTokens = childOutputTotal + sess.SelfOutputTokens
+ 
+ 	sess.AddSubSession(s)
+ 
++	// Emit an updated token usage snapshot so the UI sees the merged totals immediately.
++	inclusiveUsage := buildInclusiveUsageSnapshot(sess, 0)
++	selfUsage := buildSelfUsageSnapshot(sess, 0)
++	parentAgentName := ca
++	evts <- TokenUsage(sess.ID, parentAgentName, selfUsage, inclusiveUsage)
++
+ 	slog.Debug("Task transfer completed", "agent", params.Agent, "task", params.Task)
+ 
+ 	span.SetStatus(codes.Ok, "task transfer completed")
+diff --git a/pkg/runtime/runtime_test.go b/pkg/runtime/runtime_test.go
+index e96a7a2..e2708f1 100644
+--- a/pkg/runtime/runtime_test.go
++++ b/pkg/runtime/runtime_test.go
+@@ -200,6 +200,16 @@ func hasEventType(t *testing.T, events []Event, target Event) bool {
+ 	return false
+ }
+ 
++func makeUsageSnapshot(input, output, contextLimit int) *Usage {
++	return &Usage{
++		InputTokens:   input,
++		OutputTokens:  output,
++		ContextLength: input + output,
++		ContextLimit:  contextLimit,
++		Cost:          0,
++	}
++}
++
+ func TestSimple(t *testing.T) {
+ 	stream := newStreamBuilder().
+ 		AddContent("Hello").
+@@ -210,11 +220,12 @@ func TestSimple(t *testing.T) {
+ 
+ 	events := runSession(t, sess, stream)
+ 
++	snapshot := makeUsageSnapshot(3, 2, 0)
+ 	expectedEvents := []Event{
+ 		UserMessage("Hi"),
+ 		StreamStarted(sess.ID, "root"),
+ 		AgentChoice("root", "Hello"),
+-		TokenUsage(3, 2, 5, 0, 0),
++		TokenUsage(sess.ID, "root", snapshot, snapshot),
+ 		StreamStopped(sess.ID, "root"),
+ 	}
+ 
+@@ -235,6 +246,7 @@ func TestMultipleContentChunks(t *testing.T) {
+ 
+ 	events := runSession(t, sess, stream)
+ 
++	snapshot := makeUsageSnapshot(8, 12, 0)
+ 	expectedEvents := []Event{
+ 		UserMessage("Please greet me"),
+ 		StreamStarted(sess.ID, "root"),
+@@ -243,7 +255,7 @@ func TestMultipleContentChunks(t *testing.T) {
+ 		AgentChoice("root", "how "),
+ 		AgentChoice("root", "are "),
+ 		AgentChoice("root", "you?"),
+-		TokenUsage(8, 12, 20, 0, 0),
++		TokenUsage(sess.ID, "root", snapshot, snapshot),
+ 		StreamStopped(sess.ID, "root"),
+ 	}
+ 
+@@ -262,13 +274,14 @@ func TestWithReasoning(t *testing.T) {
+ 
+ 	events := runSession(t, sess, stream)
+ 
++	snapshot := makeUsageSnapshot(10, 15, 0)
+ 	expectedEvents := []Event{
+ 		UserMessage("Hi"),
+ 		StreamStarted(sess.ID, "root"),
+ 		AgentChoiceReasoning("root", "Let me think about this..."),
+ 		AgentChoiceReasoning("root", " I should respond politely."),
+ 		AgentChoice("root", "Hello, how can I help you?"),
+-		TokenUsage(10, 15, 25, 0, 0),
++		TokenUsage(sess.ID, "root", snapshot, snapshot),
+ 		StreamStopped(sess.ID, "root"),
+ 	}
+ 
+@@ -288,6 +301,7 @@ func TestMixedContentAndReasoning(t *testing.T) {
+ 
+ 	events := runSession(t, sess, stream)
+ 
++	snapshot := makeUsageSnapshot(15, 20, 0)
+ 	expectedEvents := []Event{
+ 		UserMessage("Hi there"),
+ 		StreamStarted(sess.ID, "root"),
+@@ -295,7 +309,7 @@ func TestMixedContentAndReasoning(t *testing.T) {
+ 		AgentChoice("root", "Hello!"),
+ 		AgentChoiceReasoning("root", " I should be friendly"),
+ 		AgentChoice("root", " How can I help you today?"),
+-		TokenUsage(15, 20, 35, 0, 0),
++		TokenUsage(sess.ID, "root", snapshot, snapshot),
+ 		StreamStopped(sess.ID, "root"),
+ 	}
+ 
+diff --git a/pkg/session/session.go b/pkg/session/session.go
+index b6084cb..75d0881 100644
+--- a/pkg/session/session.go
++++ b/pkg/session/session.go
+@@ -68,6 +68,10 @@ type Session struct {
+ 	InputTokens  int     `json:"input_tokens"`
+ 	OutputTokens int     `json:"output_tokens"`
+ 	Cost         float64 `json:"cost"`
++	// Self* fields track the most recent provider-reported usage for this session only (no children).
++	SelfInputTokens  int     `json:"self_input_tokens"`
++	SelfOutputTokens int     `json:"self_output_tokens"`
++	SelfCost         float64 `json:"self_cost"`
+ }
+ 
+ // Message is a message from an agent
+diff --git a/pkg/tui/components/sidebar/sidebar.go b/pkg/tui/components/sidebar/sidebar.go
+index 0a33be1..6670f53 100644
+--- a/pkg/tui/components/sidebar/sidebar.go
++++ b/pkg/tui/components/sidebar/sidebar.go
+@@ -3,11 +3,13 @@ package sidebar
+ import (
+ 	"fmt"
+ 	"os"
++	"sort" // ensure deterministic breakdown ordering
+ 	"strings"
+ 
+ 	"charm.land/bubbles/v2/spinner"
+ 	tea "charm.land/bubbletea/v2"
+ 	"charm.land/lipgloss/v2"
++	"github.com/dustin/go-humanize" // provides comma-separated number formatting
+ 
+ 	"github.com/docker/cagent/pkg/runtime"
+ 	"github.com/docker/cagent/pkg/tools"
+@@ -24,11 +26,11 @@ const (
+ )
+ 
+ // Model represents a sidebar component
+-type Model interface {
++type Model interface { // interface defines sidebar contract
+ 	layout.Model
+ 	layout.Sizeable
+ 
+-	SetTokenUsage(usage *runtime.Usage)
++	SetTokenUsage(event *runtime.TokenUsageEvent) // accepts enriched runtime events for usage tracking
+ 	SetTodos(toolCall tools.ToolCall) error
+ 	SetWorking(working bool) tea.Cmd
+ 	SetMode(mode Mode)
+@@ -36,26 +38,38 @@ type Model interface {
+ }
+ 
+ // model implements Model
+-type model struct {
+-	width        int
+-	height       int
+-	usage        *runtime.Usage
+-	todoComp     *todo.Component
+-	working      bool
+-	mcpInit      bool
+-	spinner      spinner.Model
+-	mode         Mode
+-	sessionTitle string
++type model struct { // tea model for sidebar component
++	width        int             // viewport width
++	height       int             // viewport height
++	usageState   usageState      // aggregated usage tracking state
++	todoComp     *todo.Component // embedded todo component
++	working      bool            // indicates if runtime is working
++	mcpInit      bool            // indicates MCP initialization state
++	spinner      spinner.Model   // spinner for busy indicator
++	mode         Mode            // layout mode
++	sessionTitle string          // current session title
++}
++
++type usageState struct { // holds all token usage snapshots for sidebar
++	sessions        map[string]*runtime.Usage // per-session self usage snapshots
++	sessionAgents   map[string]string         // optional agent name mapping per session
++	rootInclusive   *runtime.Usage            // inclusive usage snapshot emitted by root
++	rootSessionID   string                    // session ID associated with root agent
++	rootAgentName   string                    // resolved root agent name for comparisons
++	activeSessionID string                    // currently active session ID for highlighting
+ }
+ 
+ func New() Model {
+ 	return &model{
+-		width:        20,
+-		height:       24,
+-		usage:        &runtime.Usage{},
+-		todoComp:     todo.NewComponent(),
+-		spinner:      spinner.New(spinner.WithSpinner(spinner.Dot)),
+-		sessionTitle: "New session",
++		width:  20, // default width matches initial layout
++		height: 24, // default height matches initial layout
++		usageState: usageState{ // initialize usage tracking containers
++			sessions:      make(map[string]*runtime.Usage), // allocate map to avoid nil lookups
++			sessionAgents: make(map[string]string),         // track agent names per session
++		},
++		todoComp:     todo.NewComponent(),                           // instantiate todo component
++		spinner:      spinner.New(spinner.WithSpinner(spinner.Dot)), // configure spinner visuals
++		sessionTitle: "New session",                                 // initial placeholder title
+ 	}
+ }
+ 
+@@ -63,8 +77,45 @@ func (m *model) Init() tea.Cmd {
+ 	return nil
+ }
+ 
+-func (m *model) SetTokenUsage(usage *runtime.Usage) {
+-	m.usage = usage
++func (m *model) SetTokenUsage(event *runtime.TokenUsageEvent) { // updates usage state from runtime events
++	if event == nil { // guard against nil events
++		return // nothing to do when event missing
++	}
++
++	// Legacy fallback: if new fields are missing, use event.Usage for both
++	selfUsage := event.SelfUsage
++	inclusiveUsage := event.InclusiveUsage
++	if (selfUsage == nil || inclusiveUsage == nil) && event.Usage != nil {
++		if selfUsage == nil {
++			selfUsage = event.Usage
++		}
++		if inclusiveUsage == nil {
++			inclusiveUsage = event.Usage
++		}
++	}
++
++	if event.AgentContext.AgentName != "" && m.usageState.rootAgentName == "" { // capture root agent name from first event
++		m.usageState.rootAgentName = event.AgentContext.AgentName // remember orchestrator name to identify later events
++	}
++
++	if event.SessionID != "" { // update currently active session ID
++		m.usageState.activeSessionID = event.SessionID // track active session for totals/highlighting
++	}
++
++	if selfUsage != nil && event.SessionID != "" { // store self snapshot per session
++		m.usageState.sessions[event.SessionID] = cloneUsage(selfUsage) // clone to avoid aliasing runtime memory
++	}
++
++	if event.AgentContext.AgentName != "" && event.SessionID != "" { // map session ID to agent name for breakdown rows
++		m.usageState.sessionAgents[event.SessionID] = event.AgentContext.AgentName // remember descriptive label for later rendering
++	}
++
++	if event.AgentContext.AgentName == m.usageState.rootAgentName && inclusiveUsage != nil { // update root inclusive snapshot when orchestrator reports
++		m.usageState.rootInclusive = cloneUsage(inclusiveUsage) // persist inclusive totals for team view
++		if event.SessionID != "" {                              // also note root session ID for comparisons
++			m.usageState.rootSessionID = event.SessionID // record root session identifier
++		}
++	}
+ }
+ 
+ func (m *model) SetTodos(toolCall tools.ToolCall) error {
+@@ -81,14 +132,9 @@ func (m *model) SetWorking(working bool) tea.Cmd {
+ 	return nil
+ }
+ 
+-// formatTokenCount formats a token count with K/M suffixes for readability
++// formatTokenCount formats a token count with grouping separators for readability
+ func formatTokenCount(count int) string {
+-	if count >= 1000000 {
+-		return fmt.Sprintf("%.1fM", float64(count)/1000000)
+-	} else if count >= 1000 {
+-		return fmt.Sprintf("%.1fK", float64(count)/1000)
+-	}
+-	return fmt.Sprintf("%d", count)
++	return humanize.Comma(int64(count))
+ }
+ 
+ // getCurrentWorkingDirectory returns the current working directory with home directory replaced by ~/
+@@ -142,9 +188,10 @@ func (m *model) View() string {
+ 
+ func (m *model) horizontalView() string {
+ 	pwd := getCurrentWorkingDirectory()
+-	gapWidth := m.width - lipgloss.Width(pwd) - lipgloss.Width(m.tokenUsage()) - 2
++	usageSummary := m.tokenUsageSummary()
++	gapWidth := m.width - lipgloss.Width(pwd) - lipgloss.Width(usageSummary) - 2
+ 	title := m.sessionTitle + " " + m.workingIndicator()
+-	return lipgloss.JoinVertical(lipgloss.Top, title, fmt.Sprintf("%s%*s%s", styles.MutedStyle.Render(pwd), gapWidth, "", m.tokenUsage()))
++	return lipgloss.JoinVertical(lipgloss.Top, title, fmt.Sprintf("%s%*s%s", styles.MutedStyle.Render(pwd), gapWidth, "", usageSummary))
+ }
+ 
+ func (m *model) verticalView() string {
+@@ -154,7 +201,7 @@ func (m *model) verticalView() string {
+ 		topContent += styles.MutedStyle.Render(pwd) + "\n\n"
+ 	}
+ 
+-	topContent += m.tokenUsage()
++	topContent += m.tokenUsageDetails()
+ 	topContent += "\n" + m.workingIndicator()
+ 
+ 	m.todoComp.SetSize(m.width)
+@@ -192,18 +239,49 @@ func (m *model) workingIndicator() string {
+ 	return ""
+ }
+ 
+-func (m *model) tokenUsage() string {
+-	totalTokens := m.usage.InputTokens + m.usage.OutputTokens
+-	var usagePercent float64
+-	if m.usage.ContextLimit > 0 {
+-		usagePercent = (float64(m.usage.ContextLength) / float64(m.usage.ContextLimit)) * 100
++func (m *model) tokenUsageSummary() string { // condensed single-line usage view for horizontal layout
++	label, totals := m.renderTotals()
++	totalTokens := formatTokenCount(totals.InputTokens + totals.OutputTokens)
++	cost := fmt.Sprintf("$%.2f", totals.Cost)
++
++	var parts []string
++	if label != "" {
++		parts = append(parts, label)
+ 	}
++	parts = append(parts, fmt.Sprintf("Tokens: %s", totalTokens))
++	parts = append(parts, fmt.Sprintf("Cost: %s", cost))
+ 
+-	percentageText := styles.MutedStyle.Render(fmt.Sprintf("%.0f%%", usagePercent))
+-	totalTokensText := styles.SubtleStyle.Render(fmt.Sprintf("(%s)", formatTokenCount(totalTokens)))
+-	costText := styles.MutedStyle.Render(fmt.Sprintf("$%.2f", m.usage.Cost))
++	return styles.SubtleStyle.Render(strings.Join(parts, " | "))
++}
+ 
+-	return fmt.Sprintf("%s %s %s", percentageText, totalTokensText, costText)
++func (m *model) tokenUsageDetails() string { // renders aggregate usage summary line + breakdown
++	label, totals := m.renderTotals()                       // get friendly label plus computed totals
++	totalTokens := totals.InputTokens + totals.OutputTokens // sum user + assistant tokens for display
++
++	// var usagePercent float64
++	// if totals.ContextLimit > 0 {
++	// 	usagePercent = (float64(totals.ContextLength) / float64(totals.ContextLimit)) * 100
++	// }
++	// percentageText := styles.MutedStyle.Render(fmt.Sprintf("%.0f%%", usagePercent))
++
++	var builder strings.Builder                                   // assemble multiline output
++	builder.WriteString(styles.SubtleStyle.Render("TOTAL USAGE")) // heading for total usage
++	if label != "" {                                              // append contextual label when available
++		builder.WriteString(fmt.Sprintf(" (%s)", label)) // show whether totals are team/session scoped
++	}
++	builder.WriteString(fmt.Sprintf("\n  Tokens: %s | Cost: $%.2f\n", formatTokenCount(totalTokens), totals.Cost)) // display totals line
++	builder.WriteString("--------------------------------\n")                                                      // visual separator
++	builder.WriteString(styles.SubtleStyle.Render("SESSION BREAKDOWN"))                                            // heading for per-session details
++
++	breakdown := m.sessionBreakdownLines() // fetch breakdown blocks
++	if len(breakdown) > 0 {                // append breakdown when data available
++		builder.WriteString("\n")                            // ensure newline before blocks
++		builder.WriteString(strings.Join(breakdown, "\n\n")) // place blank line between blocks
++	} else {
++		builder.WriteString("\n  No session usage yet") // fallback text when no sessions reported
++	}
++
++	return builder.String() // return composed view
+ }
+ 
+ // SetSize sets the dimensions of the component
+@@ -222,3 +300,134 @@ func (m *model) GetSize() (width, height int) {
+ func (m *model) SetMode(mode Mode) {
+ 	m.mode = mode
+ }
++
++func cloneUsage(u *runtime.Usage) *runtime.Usage { // helper to copy runtime usage structs safely
++	if u == nil { // avoid panics on nil usage snapshots
++		return nil // nothing to clone when nil
++	}
++	clone := *u   // copy by value to detach from original pointer
++	return &clone // return pointer to independent copy
++}
++
++func (m *model) renderTotals() (string, *runtime.Usage) { // resolves label + totals for display
++	totals := m.computeTeamTotals() // compute aggregate usage first
++	if totals == nil {              // ensure downstream code always receives a struct
++		totals = &runtime.Usage{} // fall back to zero snapshot
++	}
++
++	label := "Session Total"               // default label when only one session present
++	if m.usageState.rootInclusive != nil { // when root inclusive exists we can show team wording
++		label = "Team Total"                                                                                  // highlight that totals represent the whole team
++		if m.usageState.activeSessionID != "" && m.usageState.activeSessionID != m.usageState.rootSessionID { // active child contributes live usage
++			label = "Team Total (incl. active child)" // clarify that active child is included
++		}
++	}
++
++	return label, totals // return computed label with totals
++}
++
++func (m *model) computeTeamTotals() *runtime.Usage { // derives aggregate totals for the team line
++	base := cloneUsage(m.usageState.rootInclusive) // start with root inclusive snapshot, if any
++	active := m.currentSessionUsage()              // get self usage for currently active session
++
++	if base == nil { // when root has not reported yet
++		return cloneUsage(active) // either return active session usage or nil
++	}
++
++	if active != nil && m.usageState.activeSessionID != "" && m.usageState.activeSessionID != m.usageState.rootSessionID { // only add active child when it differs from root session
++		base = mergeUsageTotals(base, active) // merge child self usage into inclusive total for live view
++	}
++
++	return base // return computed totals (may still be nil if nothing reported)
++}
++
++func (m *model) currentSessionUsage() *runtime.Usage { // fetches usage snapshot for active session
++	if m.usageState.activeSessionID == "" { // when no active session tracked
++		return nil // nothing to return
++	}
++	return m.usageState.sessions[m.usageState.activeSessionID] // look up snapshot in map (may be nil)
++}
++
++func mergeUsageTotals(base, delta *runtime.Usage) *runtime.Usage { // adds token/cost fields from delta into base
++	if base == nil { // handle nil base by cloning delta
++		return cloneUsage(delta) // ensure caller gets independent struct
++	}
++	if delta == nil { // nothing to add if delta missing
++		return base // return base unchanged
++	}
++	base.InputTokens += delta.InputTokens       // accumulate input tokens
++	base.OutputTokens += delta.OutputTokens     // accumulate output tokens
++	base.ContextLength += delta.ContextLength   // accumulate context length for completeness
++	if delta.ContextLimit > base.ContextLimit { // prefer higher limit to avoid regressions
++		base.ContextLimit = delta.ContextLimit // update context limit when child limit is larger
++	}
++	base.Cost += delta.Cost // accumulate cost for overall spend
++	return base             // return augmented total
++}
++
++func (m *model) sessionBreakdownLines() []string { // renders per-session self usage rows
++	if len(m.usageState.sessions) == 0 { // nothing to render when map empty
++		return nil // keep caller logic simple
++	}
++
++	ids := make([]string, 0, len(m.usageState.sessions)) // gather session IDs for deterministic ordering
++	for id := range m.usageState.sessions {              // iterate known sessions
++		ids = append(ids, id) // record id for sorting
++	}
++	sort.Strings(ids) // ensure stable ordering regardless of map iteration
++
++	lines := make([]string, 0, len(ids)+1) // include space for root block
++
++	if rootBlock := m.rootSessionBlock(); rootBlock != "" { // prepend root block when available
++		lines = append(lines, rootBlock)
++	}
++
++	for _, id := range ids { // build block for each session
++		if id == m.usageState.rootSessionID { // skip root session since totals already shown above
++			continue
++		}
++		usage := m.usageState.sessions[id] // fetch stored snapshot
++		if usage == nil {                  // skip if snapshot missing
++			continue // nothing to render for this id
++		}
++		agentName := m.usageState.sessionAgents[id] // resolve display name
++		if agentName == "" {                        // fallback when agent name unknown
++			agentName = id // show session ID as identifier
++		}
++
++		if block := formatSessionBlock(agentName, usage, id == m.usageState.activeSessionID); block != "" { // compose + style block
++			lines = append(lines, block) // add block to breakdown list
++		}
++	}
++
++	return lines // return composed rows
++}
++
++func (m *model) rootSessionBlock() string { // formats root agent entry with exclusive usage
++	rootUsage := m.usageState.sessions[m.usageState.rootSessionID]
++	if rootUsage == nil {
++		rootUsage = m.usageState.rootInclusive
++	}
++	if rootUsage == nil {
++		return ""
++	}
++
++	name := m.usageState.rootAgentName // prefer configured agent name
++	if name == "" {
++		name = "Root"
++	}
++
++	return formatSessionBlock(name, cloneUsage(rootUsage), m.usageState.activeSessionID == m.usageState.rootSessionID)
++}
++
++func formatSessionBlock(agentName string, usage *runtime.Usage, isActive bool) string { // helper to render a single block
++	if usage == nil {
++		return ""
++	}
++
++	block := fmt.Sprintf("  %s\n     Tokens: %s | Cost: $%.2f", agentName, formatTokenCount(usage.InputTokens+usage.OutputTokens), usage.Cost)
++	if isActive {
++		return styles.ActiveStyle.Render(block)
++	}
++	return block
++}
+diff --git a/pkg/tui/page/chat/chat.go b/pkg/tui/page/chat/chat.go
+index 4b1355d..1b50d21 100644
+--- a/pkg/tui/page/chat/chat.go
++++ b/pkg/tui/page/chat/chat.go
+@@ -249,7 +249,7 @@ func (p *chatPage) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
+ 		}
+ 		return p, cmd
+ 	case *runtime.TokenUsageEvent:
+-		p.sidebar.SetTokenUsage(msg.Usage)
++		p.sidebar.SetTokenUsage(msg) // forward full event so sidebar can track per-session usage
+ 	case *runtime.StreamStoppedEvent:
+ 		spinnerCmd := p.setWorking(false)
+ 		cmd := p.messages.AddSeparatorMessage()

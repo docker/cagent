@@ -52,25 +52,27 @@ type model struct { // tea model for sidebar component
 }
 
 type usageState struct { // holds all token usage snapshots for sidebar
-	sessions        map[string]*runtime.Usage // per-session self usage snapshots
-	sessionAgents   map[string]string         // optional agent name mapping per session
-	rootInclusive   *runtime.Usage            // inclusive usage snapshot emitted by root
-	rootSessionID   string                    // session ID associated with root agent
-	rootAgentName   string                    // resolved root agent name for comparisons
-	activeSessionID string                    // currently active session ID for highlighting
+    sessions        map[string]*runtime.Usage // per-session self usage snapshots (lifetime + live)
+    inclusive       map[string]*runtime.Usage // per-session inclusive (lifetime + live) usage snapshots
+    sessionAgents   map[string]string         // optional agent name mapping per session
+    rootInclusive   *runtime.Usage            // inclusive usage snapshot emitted by root
+    rootSessionID   string                    // session ID associated with root agent
+    rootAgentName   string                    // resolved root agent name for comparisons
+    activeSessionID string                    // currently active session ID for highlighting
 }
 
 func New(manager *service.TodoManager) Model {
-	return &model{
-		width:  20, // default width matches initial layout
-		height: 24, // default height matches initial layout
-		usageState: usageState{ // initialize usage tracking containers
-			sessions:      make(map[string]*runtime.Usage), // allocate map to avoid nil lookups
-			sessionAgents: make(map[string]string),         // track agent names per session
-		},
-		todoComp:     todotool.NewSidebarComponent(manager),                           // instantiate todo component
-		spinner:      spinner.New(spinner.WithSpinner(spinner.Dot)), // configure spinner visuals
-		sessionTitle: "New session",                                 // initial placeholder title
+    return &model{
+        width:  20, // default width matches initial layout
+        height: 24, // default height matches initial layout
+        usageState: usageState{ // initialize usage tracking containers
+            sessions:      make(map[string]*runtime.Usage), // allocate map to avoid nil lookups
+            inclusive:     make(map[string]*runtime.Usage), // allocate map for inclusive snapshots
+            sessionAgents: make(map[string]string),         // track agent names per session
+        },
+        todoComp:     todotool.NewSidebarComponent(manager),                        // instantiate todo component
+        spinner:      spinner.New(spinner.WithSpinner(spinner.Dot)), // configure spinner visuals
+        sessionTitle: "New session",                                 // initial placeholder title
 	}
 }
 
@@ -103,9 +105,12 @@ func (m *model) SetTokenUsage(event *runtime.TokenUsageEvent) { // updates usage
 		m.usageState.activeSessionID = event.SessionID // track active session for totals/highlighting
 	}
 
-	if selfUsage != nil && event.SessionID != "" { // store self snapshot per session
-		m.usageState.sessions[event.SessionID] = cloneUsage(selfUsage) // clone to avoid aliasing runtime memory
-	}
+    if selfUsage != nil && event.SessionID != "" { // store self snapshot per session
+        m.usageState.sessions[event.SessionID] = cloneUsage(selfUsage) // clone to avoid aliasing runtime memory
+    }
+    if inclusiveUsage != nil && event.SessionID != "" { // store inclusive (lifetime) snapshot per session
+        m.usageState.inclusive[event.SessionID] = cloneUsage(inclusiveUsage)
+    }
 
 	if event.AgentContext.AgentName != "" && event.SessionID != "" { // map session ID to agent name for breakdown rows
 		m.usageState.sessionAgents[event.SessionID] = event.AgentContext.AgentName // remember descriptive label for later rendering
@@ -383,18 +388,19 @@ func (m *model) sessionBreakdownLines() []string { // renders per-session self u
 		lines = append(lines, rootBlock)
 	}
 
-	for _, id := range ids { // build block for each session
-		if id == m.usageState.rootSessionID { // skip root session since totals already shown above
-			continue
-		}
-		usage := m.usageState.sessions[id] // fetch stored snapshot
-		if usage == nil {                  // skip if snapshot missing
-			continue // nothing to render for this id
-		}
-		agentName := m.usageState.sessionAgents[id] // resolve display name
-		if agentName == "" {                        // fallback when agent name unknown
-			agentName = id // show session ID as identifier
-		}
+    for _, id := range ids { // build block for each session
+        if id == m.usageState.rootSessionID { // skip root session since totals already shown above
+            continue
+        }
+        // Show self-only usage for session rows (lifetime across passes, not inclusive of children)
+        usage := m.usageState.sessions[id]
+        if usage == nil {                  // skip if snapshot missing
+            continue // nothing to render for this id
+        }
+        agentName := m.usageState.sessionAgents[id] // resolve display name
+        if agentName == "" {                        // fallback when agent name unknown
+            agentName = id // show session ID as identifier
+        }
 
 		if block := formatSessionBlock(agentName, usage, id == m.usageState.activeSessionID); block != "" { // compose + style block
 			lines = append(lines, block) // add block to breakdown list
@@ -404,14 +410,15 @@ func (m *model) sessionBreakdownLines() []string { // renders per-session self u
 	return lines // return composed rows
 }
 
-func (m *model) rootSessionBlock() string { // formats root agent entry with exclusive usage
-	rootUsage := m.usageState.sessions[m.usageState.rootSessionID]
-	if rootUsage == nil {
-		rootUsage = m.usageState.rootInclusive
-	}
-	if rootUsage == nil {
-		return ""
-	}
+func (m *model) rootSessionBlock() string { // formats root agent entry with self-only lifetime usage
+    // Prefer the self-only snapshot published for the root session; fall back to inclusive, then nothing
+    rootUsage := m.usageState.sessions[m.usageState.rootSessionID]
+    if rootUsage == nil {
+        rootUsage = m.usageState.rootInclusive
+    }
+    if rootUsage == nil {
+        return ""
+    }
 
 	name := m.usageState.rootAgentName // prefer configured agent name
 	if name == "" {

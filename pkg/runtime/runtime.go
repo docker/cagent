@@ -536,14 +536,18 @@ func (r *LocalRuntime) Run(ctx context.Context, sess *session.Session) ([]sessio
 }
 
 func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStream, a *agent.Agent, agentTools []tools.Tool, sess *session.Session, m *modelsdev.Model, events chan Event) (streamResult, error) {
-	defer stream.Close()
+    defer stream.Close()
 
-	var fullContent strings.Builder
-	var fullReasoningContent strings.Builder
-	var thinkingSignature string
-	var toolCalls []tools.ToolCall
-	// Track which tool call indices we've already emitted partial events for
-	emittedPartialEvents := make(map[string]bool)
+    var fullContent strings.Builder
+    var fullReasoningContent strings.Builder
+    var thinkingSignature string
+    var toolCalls []tools.ToolCall
+    // Track which tool call indices we've already emitted partial events for
+    emittedPartialEvents := make(map[string]bool)
+    // Track the latest observed self usage and cost for this streaming call.
+    // We will add these to lifetime totals once the call completes.
+    var lastSelfInput, lastSelfOutput int
+    var lastCallCost float64
 
 	for {
 		response, err := stream.Recv()
@@ -554,26 +558,31 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 			return streamResult{Stopped: true}, fmt.Errorf("error receiving from stream: %w", err)
 		}
 
-		if response.Usage != nil {
-			childInputTotal, childOutputTotal := childTokenTotals(sess)
+        if response.Usage != nil {
+            childInputTotal, childOutputTotal := childTokenTotals(sess)
 
-			selfInput := response.Usage.InputTokens + response.Usage.CachedInputTokens
-			selfOutput := response.Usage.OutputTokens + response.Usage.CachedOutputTokens + response.Usage.ReasoningTokens
+            selfInput := response.Usage.InputTokens + response.Usage.CachedInputTokens
+            selfOutput := response.Usage.OutputTokens + response.Usage.CachedOutputTokens + response.Usage.ReasoningTokens
 
 			var callCost float64
-			if m != nil {
-				callCost = (float64(response.Usage.InputTokens)*m.Cost.Input +
-					float64(response.Usage.OutputTokens+response.Usage.ReasoningTokens)*m.Cost.Output +
-					float64(response.Usage.CachedInputTokens)*m.Cost.CacheRead +
-					float64(response.Usage.CachedOutputTokens)*m.Cost.CacheWrite) / 1e6
-				sess.Cost += callCost
-			}
+            if m != nil {
+                callCost = (float64(response.Usage.InputTokens)*m.Cost.Input +
+                    float64(response.Usage.OutputTokens+response.Usage.ReasoningTokens)*m.Cost.Output +
+                    float64(response.Usage.CachedInputTokens)*m.Cost.CacheRead +
+                    float64(response.Usage.CachedOutputTokens)*m.Cost.CacheWrite) / 1e6
+                sess.Cost += callCost
+            }
 
-			sess.SelfCost = callCost
-			sess.SelfInputTokens = selfInput
-			sess.SelfOutputTokens = selfOutput
-			sess.InputTokens = childInputTotal + selfInput
-			sess.OutputTokens = childOutputTotal + selfOutput
+            sess.SelfCost = callCost
+            // Update per-call snapshot fields used for UI live view and compaction heuristics
+            sess.SelfInputTokens = selfInput
+            sess.SelfOutputTokens = selfOutput
+            sess.InputTokens = childInputTotal + selfInput
+            sess.OutputTokens = childOutputTotal + selfOutput
+            // Remember latest self snapshot for adding to lifetime totals when the call finishes
+            lastSelfInput = selfInput
+            lastSelfOutput = selfOutput
+            lastCallCost = callCost
 
 			modelName := "unknown"
 			if m != nil {
@@ -582,19 +591,27 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 			telemetry.RecordTokenUsage(ctx, modelName, int64(response.Usage.InputTokens), int64(response.Usage.OutputTokens+response.Usage.ReasoningTokens), sess.Cost)
 		}
 
-		if len(response.Choices) == 0 {
-			continue
-		}
-		choice := response.Choices[0]
-		if choice.FinishReason == chat.FinishReasonStop || choice.FinishReason == chat.FinishReasonLength {
-			return streamResult{
-				Calls:             toolCalls,
-				Content:           fullContent.String(),
-				ReasoningContent:  fullReasoningContent.String(),
-				ThinkingSignature: thinkingSignature,
-				Stopped:           true,
-			}, nil
-		}
+        if len(response.Choices) == 0 {
+            continue
+        }
+        choice := response.Choices[0]
+        if choice.FinishReason == chat.FinishReasonStop || choice.FinishReason == chat.FinishReasonLength {
+            // On finish, fold this call's final self usage into lifetime totals.
+            if lastSelfInput > 0 || lastSelfOutput > 0 {
+                sess.TotalInputTokens += lastSelfInput
+                sess.TotalOutputTokens += lastSelfOutput
+                sess.SelfTotalInputTokens += lastSelfInput
+                sess.SelfTotalOutputTokens += lastSelfOutput
+                sess.SelfTotalCost += lastCallCost
+            }
+            return streamResult{
+                Calls:             toolCalls,
+                Content:           fullContent.String(),
+                ReasoningContent:  fullReasoningContent.String(),
+                ThinkingSignature: thinkingSignature,
+                Stopped:           true,
+            }, nil
+        }
 
 		// Handle tool calls
 		if len(choice.Delta.ToolCalls) > 0 {
@@ -687,23 +704,30 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 
 // buildInclusiveUsageSnapshot captures the session's current inclusive usage in the shared event format.
 func buildInclusiveUsageSnapshot(sess *session.Session, contextLimit int) *Usage {
-	return &Usage{
-		ContextLength: sess.InputTokens + sess.OutputTokens,
-		ContextLimit:  contextLimit,
-		InputTokens:   sess.InputTokens,
-		OutputTokens:  sess.OutputTokens,
-		Cost:          sess.Cost,
-	}
+    // Build a live lifetime-inclusive snapshot: lifetime totals + current in-flight self snapshot
+    liveInput := sess.TotalInputTokens + sess.SelfInputTokens
+    liveOutput := sess.TotalOutputTokens + sess.SelfOutputTokens
+    return &Usage{
+        ContextLength: liveInput + liveOutput,
+        ContextLimit:  contextLimit,
+        InputTokens:   liveInput,
+        OutputTokens:  liveOutput,
+        Cost:          sess.Cost,
+    }
 }
 
 func buildSelfUsageSnapshot(sess *session.Session, contextLimit int) *Usage {
-	return &Usage{
-		ContextLength: sess.SelfInputTokens + sess.SelfOutputTokens,
-		ContextLimit:  contextLimit,
-		InputTokens:   sess.SelfInputTokens,
-		OutputTokens:  sess.SelfOutputTokens,
-		Cost:          sess.SelfCost,
-	}
+    // Build a live self-only lifetime snapshot: cumulative self totals + current in-flight self snapshot
+    liveInput := sess.SelfTotalInputTokens + sess.SelfInputTokens
+    liveOutput := sess.SelfTotalOutputTokens + sess.SelfOutputTokens
+    liveCost := sess.SelfTotalCost + sess.SelfCost
+    return &Usage{
+        ContextLength: liveInput + liveOutput,
+        ContextLimit:  contextLimit,
+        InputTokens:   liveInput,
+        OutputTokens:  liveOutput,
+        Cost:          liveCost,
+    }
 }
 
 func childTokenTotals(sess *session.Session) (int, int) {
@@ -1040,13 +1064,17 @@ func (r *LocalRuntime) handleTaskTransfer(ctx context.Context, sess *session.Ses
 
 	sess.ToolsApproved = s.ToolsApproved
 
-	sess.Cost += s.Cost
-	// Mirror cost behavior: once the child finishes, fold its token usage into the parent totals.
-	childInputTotal, childOutputTotal := childTokenTotals(sess)
-	childInputTotal += s.InputTokens
-	childOutputTotal += s.OutputTokens
-	sess.InputTokens = childInputTotal + sess.SelfInputTokens
-	sess.OutputTokens = childOutputTotal + sess.SelfOutputTokens
+    sess.Cost += s.Cost
+    // Mirror cost behavior: once the child finishes, fold its token usage into the parent.
+    // Keep per-turn inclusive fields for compaction heuristics, and separately track lifetime totals.
+    childInputTotal, childOutputTotal := childTokenTotals(sess)
+    childInputTotal += s.InputTokens
+    childOutputTotal += s.OutputTokens
+    sess.InputTokens = childInputTotal + sess.SelfInputTokens
+    sess.OutputTokens = childOutputTotal + sess.SelfOutputTokens
+    // Lifetime cumulative totals include completed child session totals
+    sess.TotalInputTokens += s.TotalInputTokens
+    sess.TotalOutputTokens += s.TotalOutputTokens
 
 	sess.AddSubSession(s)
 
