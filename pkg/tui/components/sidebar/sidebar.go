@@ -106,8 +106,12 @@ func (m *model) SetTokenUsage(event *runtime.TokenUsageEvent) { // updates usage
 	}
 
 	if event.SessionID != "" {
-		if selfUsage != nil {
-			m.accumulateSessionUsage(event.SessionID, selfUsage)
+		snapshot := cloneUsage(selfUsage)
+		if snapshot == nil {
+			snapshot = cloneUsage(inclusiveUsage)
+		}
+		if snapshot != nil {
+			m.usageState.sessions[event.SessionID] = snapshot
 		}
 
 		if inclusiveUsage != nil { // store inclusive (lifetime) snapshot per session for legacy fallbacks
@@ -316,24 +320,6 @@ func cloneUsage(u *runtime.Usage) *runtime.Usage { // helper to copy runtime usa
 	}
 	clone := *u   // copy by value to detach from original pointer
 	return &clone // return pointer to independent copy
-}
-
-func (m *model) accumulateSessionUsage(sessionID string, delta *runtime.Usage) {
-	if sessionID == "" || delta == nil {
-		return
-	}
-	current := m.usageState.sessions[sessionID]
-	if current == nil {
-		current = &runtime.Usage{}
-		m.usageState.sessions[sessionID] = current
-	}
-	current.InputTokens += delta.InputTokens
-	current.OutputTokens += delta.OutputTokens
-	current.ContextLength += delta.ContextLength
-	if delta.ContextLimit > current.ContextLimit {
-		current.ContextLimit = delta.ContextLimit
-	}
-	current.Cost += delta.Cost
 }
 
 func (m *model) renderTotals() (string, *runtime.Usage) { // resolves label + totals for display

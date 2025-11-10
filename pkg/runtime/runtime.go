@@ -106,9 +106,6 @@ type streamResult struct {
 	ReasoningContent  string
 	ThinkingSignature string // Used with Anthropic's extended thinking feature
 	Stopped           bool
-	SelfInputTokens   int
-	SelfOutputTokens  int
-	SelfCost          float64
 }
 
 type Opt func(*LocalRuntime)
@@ -386,9 +383,9 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 			if m != nil {
 				contextLimit = m.Limit.Context
 			}
-			// Emit a snapshot that downstream components can use for both self delta and inclusive totals.
+			// Emit a snapshot that downstream components can use for both per-session and team totals.
 			inclusiveUsage := buildInclusiveUsageSnapshot(sess, contextLimit)
-			selfUsage := buildSelfUsageDelta(res.SelfInputTokens, res.SelfOutputTokens, res.SelfCost, contextLimit)
+			selfUsage := buildSelfUsageSnapshot(sess, contextLimit)
 			events <- TokenUsage(sess.ID, a.Name(), selfUsage, inclusiveUsage)
 
 			if m != nil && r.sessionCompaction {
@@ -400,7 +397,7 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 						r.Summarize(ctx, sess, events)
 						// Refresh usage after compaction since token counts may have changed.
 						inclusiveUsage := buildInclusiveUsageSnapshot(sess, contextLimit)
-						selfUsage := buildSelfUsageDelta(0, 0, 0, contextLimit)
+						selfUsage := buildSelfUsageSnapshot(sess, contextLimit)
 						events <- TokenUsage(sess.ID, a.Name(), selfUsage, inclusiveUsage)
 						events <- SessionCompaction(sess.ID, "completed", r.currentAgent)
 					}
@@ -417,7 +414,7 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 					r.Summarize(ctx, sess, events)
 					// Emit the post-compaction snapshot as well for consistency.
 					inclusiveUsage := buildInclusiveUsageSnapshot(sess, contextLimit)
-					selfUsage := buildSelfUsageDelta(0, 0, 0, contextLimit)
+					selfUsage := buildSelfUsageSnapshot(sess, contextLimit)
 					events <- TokenUsage(sess.ID, a.Name(), selfUsage, inclusiveUsage)
 					events <- SessionCompaction(sess.ID, "completed", r.currentAgent)
 				}
@@ -562,36 +559,28 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 		}
 
 		if response.Usage != nil {
-			childInputTotal, childOutputTotal := childTokenTotals(sess)
-
 			selfInput := response.Usage.InputTokens + response.Usage.CachedInputTokens
 			selfOutput := response.Usage.OutputTokens + response.Usage.CachedOutputTokens + response.Usage.ReasoningTokens
 
-			var callCost float64
 			if m != nil {
-				callCost = (float64(response.Usage.InputTokens)*m.Cost.Input +
+				lastCallCost = (float64(response.Usage.InputTokens)*m.Cost.Input +
 					float64(response.Usage.OutputTokens+response.Usage.ReasoningTokens)*m.Cost.Output +
 					float64(response.Usage.CachedInputTokens)*m.Cost.CacheRead +
 					float64(response.Usage.CachedOutputTokens)*m.Cost.CacheWrite) / 1e6
-				sess.Cost += callCost
+			} else {
+				lastCallCost = 0
 			}
 
-			sess.SelfCost = callCost
-			// Update per-call snapshot fields used for UI live view and compaction heuristics
-			sess.SelfInputTokens = selfInput
-			sess.SelfOutputTokens = selfOutput
-			sess.InputTokens = childInputTotal + selfInput
-			sess.OutputTokens = childOutputTotal + selfOutput
 			// Remember latest self snapshot for adding to lifetime totals when the call finishes
 			lastSelfInput = selfInput
 			lastSelfOutput = selfOutput
-			lastCallCost = callCost
 
 			modelName := "unknown"
 			if m != nil {
 				modelName = m.Name
 			}
-			telemetry.RecordTokenUsage(ctx, modelName, int64(response.Usage.InputTokens), int64(response.Usage.OutputTokens+response.Usage.ReasoningTokens), sess.Cost)
+			liveCost := sess.Cost + lastCallCost
+			telemetry.RecordTokenUsage(ctx, modelName, int64(response.Usage.InputTokens), int64(response.Usage.OutputTokens+response.Usage.ReasoningTokens), liveCost)
 		}
 
 		if len(response.Choices) == 0 {
@@ -600,9 +589,10 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 		choice := response.Choices[0]
 		if choice.FinishReason == chat.FinishReasonStop || choice.FinishReason == chat.FinishReasonLength {
 			// On finish, fold this call's final self usage into lifetime totals.
-			if lastSelfInput > 0 || lastSelfOutput > 0 {
-				sess.TotalInputTokens += lastSelfInput
-				sess.TotalOutputTokens += lastSelfOutput
+			if lastSelfInput > 0 || lastSelfOutput > 0 || lastCallCost > 0 {
+				sess.InputTokens += lastSelfInput
+				sess.OutputTokens += lastSelfOutput
+				sess.Cost += lastCallCost
 			}
 			return streamResult{
 				Calls:             toolCalls,
@@ -610,9 +600,6 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 				ReasoningContent:  fullReasoningContent.String(),
 				ThinkingSignature: thinkingSignature,
 				Stopped:           true,
-				SelfInputTokens:   lastSelfInput,
-				SelfOutputTokens:  lastSelfOutput,
-				SelfCost:          lastCallCost,
 			}, nil
 		}
 
@@ -707,9 +694,9 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 
 // buildInclusiveUsageSnapshot captures the session's current inclusive usage in the shared event format.
 func buildInclusiveUsageSnapshot(sess *session.Session, contextLimit int) *Usage {
-	// Build a live lifetime-inclusive snapshot: lifetime totals + current in-flight self snapshot
-	liveInput := sess.TotalInputTokens + sess.SelfInputTokens
-	liveOutput := sess.TotalOutputTokens + sess.SelfOutputTokens
+	// Build a lifetime snapshot for this session only.
+	liveInput := sess.InputTokens
+	liveOutput := sess.OutputTokens
 	return &Usage{
 		ContextLength: liveInput + liveOutput,
 		ContextLimit:  contextLimit,
@@ -719,26 +706,14 @@ func buildInclusiveUsageSnapshot(sess *session.Session, contextLimit int) *Usage
 	}
 }
 
-func buildSelfUsageDelta(input, output int, cost float64, contextLimit int) *Usage {
+func buildSelfUsageSnapshot(sess *session.Session, contextLimit int) *Usage {
 	return &Usage{
-		ContextLength: input + output,
+		ContextLength: sess.InputTokens + sess.OutputTokens,
 		ContextLimit:  contextLimit,
-		InputTokens:   input,
-		OutputTokens:  output,
-		Cost:          cost,
+		InputTokens:   sess.InputTokens,
+		OutputTokens:  sess.OutputTokens,
+		Cost:          sess.Cost,
 	}
-}
-
-func childTokenTotals(sess *session.Session) (int, int) {
-	childInput := sess.InputTokens - sess.SelfInputTokens
-	if childInput < 0 {
-		childInput = 0
-	}
-	childOutput := sess.OutputTokens - sess.SelfOutputTokens
-	if childOutput < 0 {
-		childOutput = 0
-	}
-	return childInput, childOutput
 }
 
 // processToolCalls handles the execution of tool calls for an agent
@@ -1063,23 +1038,11 @@ func (r *LocalRuntime) handleTaskTransfer(ctx context.Context, sess *session.Ses
 
 	sess.ToolsApproved = s.ToolsApproved
 
-	sess.Cost += s.Cost
-	// Mirror cost behavior: once the child finishes, fold its token usage into the parent.
-	// Keep per-turn inclusive fields for compaction heuristics, and separately track lifetime totals.
-	childInputTotal, childOutputTotal := childTokenTotals(sess)
-	childInputTotal += s.InputTokens
-	childOutputTotal += s.OutputTokens
-	sess.InputTokens = childInputTotal + sess.SelfInputTokens
-	sess.OutputTokens = childOutputTotal + sess.SelfOutputTokens
-	// Lifetime cumulative totals include completed child session totals
-	sess.TotalInputTokens += s.TotalInputTokens
-	sess.TotalOutputTokens += s.TotalOutputTokens
-
 	sess.AddSubSession(s)
 
 	// Emit an updated token usage snapshot so the UI sees the merged totals immediately.
 	inclusiveUsage := buildInclusiveUsageSnapshot(sess, 0)
-	selfUsage := buildSelfUsageDelta(0, 0, 0, 0)
+	selfUsage := buildSelfUsageSnapshot(sess, 0)
 	parentAgentName := ca
 	evts <- TokenUsage(sess.ID, parentAgentName, selfUsage, inclusiveUsage)
 
