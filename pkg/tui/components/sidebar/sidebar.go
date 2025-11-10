@@ -27,6 +27,9 @@ const (
 	ModeHorizontal
 )
 
+// teamTotalsLabel is the descriptor used when displaying aggregate usage.
+const teamTotalsLabel = "Team Total"
+
 // Model represents a sidebar component.
 type Model interface {
 	layout.Model
@@ -270,7 +273,8 @@ func (m *model) workingIndicator() string {
 
 // tokenUsageSummary generates a condensed usage view for horizontal layout.
 func (m *model) tokenUsageSummary() string {
-	label, totals := m.renderTotals()
+	totals := m.renderTotals()
+	label := teamTotalsLabel
 	totalTokens := formatTokenCount(totals.InputTokens + totals.OutputTokens)
 	cost := fmt.Sprintf("$%.2f", totals.Cost)
 
@@ -286,8 +290,9 @@ func (m *model) tokenUsageSummary() string {
 
 // tokenUsageDetails renders the aggregate usage summary line and breakdown.
 func (m *model) tokenUsageDetails() string {
-	// Determine the display label and aggregate totals.
-	label, totals := m.renderTotals()
+	// Determine the aggregate totals.
+	totals := m.renderTotals()
+	label := teamTotalsLabel
 	// Sum user and assistant tokens for display.
 	totalTokens := totals.InputTokens + totals.OutputTokens
 
@@ -410,16 +415,14 @@ func applyUsageDelta(target *runtime.Usage, next, prev *runtime.Usage) {
 	target.Cost -= prev.Cost
 }
 
-// renderTotals resolves the label and totals for display.
-func (m *model) renderTotals() (string, *runtime.Usage) {
+// renderTotals resolves the totals for display.
+func (m *model) renderTotals() *runtime.Usage {
 	totals := m.computeTeamTotals()
 	if totals == nil {
 		totals = &runtime.Usage{}
 	}
 
-	label := "Team Total"
-
-	return label, totals
+	return totals
 }
 
 // computeTeamTotals derives aggregate totals for the team line.
