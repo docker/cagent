@@ -57,7 +57,6 @@ type usageState struct { // holds aggregated token usage snapshots grouped by ag
 	agentIndex    map[string]int            // quick lookup for agent position
 	rootInclusive *runtime.Usage            // inclusive usage snapshot emitted by root (fallback)
 	rootAgentName string                    // resolved root agent name for comparisons
-	activeAgent   string                    // currently active agent for highlighting
 }
 
 type agentUsage struct {
@@ -102,16 +101,10 @@ func (m *model) SetTokenUsage(event *runtime.TokenUsageEvent) { // updates usage
 		}
 	}
 
-	agentName := event.AgentContext.AgentName
-	if agentName == "" {
-		agentName = event.SessionID
-	}
+	agentName := resolveAgentName(event.AgentContext.AgentName, event.SessionID)
 
 	if event.AgentContext.AgentName != "" && m.usageState.rootAgentName == "" {
 		m.usageState.rootAgentName = event.AgentContext.AgentName
-	}
-	if agentName != "" {
-		m.usageState.activeAgent = agentName
 	}
 
 	if event.SessionID != "" {
@@ -323,6 +316,13 @@ func selectSnapshot(primary, fallback *runtime.Usage) *runtime.Usage {
 	return cloneUsage(fallback)
 }
 
+func resolveAgentName(agentName, sessionID string) string {
+	if agentName != "" {
+		return agentName
+	}
+	return sessionID
+}
+
 func (m *model) updateAgentTotals(agentName, sessionID string, snapshot *runtime.Usage) {
 	if sessionID == "" || snapshot == nil {
 		return
@@ -419,7 +419,7 @@ func (m *model) sessionBreakdownLines() []string { // renders per-agent self usa
 		if agent == nil || agent.name == "" || agent.name == m.usageState.rootAgentName {
 			continue
 		}
-		block := formatSessionBlock(agent.name, &agent.usage, agent.name == m.usageState.activeAgent)
+		block := formatSessionBlock(agent.name, &agent.usage)
 		if block != "" {
 			lines = append(lines, block)
 		}
@@ -447,17 +447,14 @@ func (m *model) rootSessionBlock() string { // formats root agent entry with agg
 	if name == "" {
 		name = "Root"
 	}
-	return formatSessionBlock(name, rootUsage, m.usageState.activeAgent == name)
+	return formatSessionBlock(name, rootUsage)
 }
 
-func formatSessionBlock(agentName string, usage *runtime.Usage, isActive bool) string { // helper to render a single block
+func formatSessionBlock(agentName string, usage *runtime.Usage) string { // helper to render a single block
 	if usage == nil {
 		return ""
 	}
 
 	block := fmt.Sprintf("  %s\n     Tokens: %s | Cost: $%.2f", agentName, formatTokenCount(usage.InputTokens+usage.OutputTokens), usage.Cost)
-	if isActive {
-		return styles.ActiveStyle.Render(block)
-	}
 	return block
 }

@@ -548,6 +548,7 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 	// We will add these to lifetime totals once the call completes.
 	var lastSelfInput, lastSelfOutput int
 	var lastCallCost float64
+	var usageApplied bool
 
 	for {
 		response, err := stream.Recv()
@@ -593,6 +594,7 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 				sess.InputTokens += lastSelfInput
 				sess.OutputTokens += lastSelfOutput
 				sess.Cost += lastCallCost
+				usageApplied = true
 			}
 			return streamResult{
 				Calls:             toolCalls,
@@ -683,6 +685,13 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 	// If the stream completed without producing any content or tool calls, likely because of a token limit, stop to avoid breaking the request loop
 	// NOTE(krissetto): this can likely be removed once compaction works properly with all providers (aka dmr)
 	stoppedDueToNoOutput := fullContent.Len() == 0 && len(toolCalls) == 0
+
+	if !usageApplied && (lastSelfInput > 0 || lastSelfOutput > 0 || lastCallCost > 0) {
+		sess.InputTokens += lastSelfInput
+		sess.OutputTokens += lastSelfOutput
+		sess.Cost += lastCallCost
+	}
+
 	return streamResult{
 		Calls:             toolCalls,
 		Content:           fullContent.String(),
