@@ -104,7 +104,7 @@ func New(a *app.App, sessionState *service.SessionState) Page {
 	}
 
 	return &chatPage{
-		sidebar:      sidebar.New(sessionState.TodoManager),
+		sidebar:      sidebar.New(sessionState.TodoManager, a.AgentCount()),
 		messages:     messages.New(a, sessionState),
 		editor:       editor.New(a, historyStore),
 		focusedPanel: PanelEditor,
@@ -252,7 +252,8 @@ func (p *chatPage) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		cmd := p.messages.AppendToLastMessage(msg.AgentName, types.MessageTypeAssistantReasoning, msg.Content)
 		return p, cmd
 	case *runtime.TokenUsageEvent:
-		p.sidebar.SetTokenUsage(msg.Usage)
+		// Forward the full event so the sidebar can track per-session usage.
+		p.sidebar.SetTokenUsage(msg)
 	case *runtime.StreamStoppedEvent:
 		spinnerCmd := p.setWorking(false)
 		if p.msgCancel != nil {
@@ -338,7 +339,8 @@ func (p *chatPage) setWorking(working bool) tea.Cmd {
 // View renders the chat page
 func (p *chatPage) View() string {
 	// Main chat content area (without input)
-	innerWidth := p.width // subtract app style padding
+	// Subtract app style padding from the available width.
+	innerWidth := p.width
 
 	var bodyContent string
 
@@ -404,13 +406,16 @@ func (p *chatPage) SetSize(width, height int) tea.Cmd {
 	var cmds []tea.Cmd
 
 	// Calculate heights accounting for padding
-	editorHeight := 3 // fixed 3 lines for multi-line input
+	// Use a fixed three-line editor height for multi-line input.
+	editorHeight := 3
 
 	// Calculate available space, ensuring status bar remains visible
-	p.inputHeight = editorHeight + 3 // account for editor padding
+	// Account for editor padding when computing the total input height.
+	p.inputHeight = editorHeight + 3
 
 	// Account for horizontal padding in width
-	innerWidth := width - 2 // subtract left/right padding
+	// Subtract left and right padding from the available width.
+	innerWidth := width - 2
 
 	var mainWidth int
 	if width >= minWindowWidth {
@@ -429,7 +434,8 @@ func (p *chatPage) SetSize(width, height int) tea.Cmd {
 	// Set component sizes
 	cmds = append(cmds,
 		p.messages.SetSize(mainWidth, p.chatHeight),
-		p.editor.SetSize(innerWidth, editorHeight), // Use calculated editor height
+		// Use the calculated editor height.
+		p.editor.SetSize(innerWidth, editorHeight),
 	)
 
 	return tea.Batch(cmds...)

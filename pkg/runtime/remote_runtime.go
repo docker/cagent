@@ -71,6 +71,17 @@ func (r *RemoteRuntime) CurrentWelcomeMessage(ctx context.Context) string {
 	return r.readCurrentAgentConfig(ctx).WelcomeMessage
 }
 
+// AgentCount returns the number of configured agents known to the remote runtime.
+func (r *RemoteRuntime) AgentCount() int {
+	if r.team == nil {
+		return 0
+	}
+	if size := r.team.Size(); size > 0 {
+		return size
+	}
+	return 0
+}
+
 func (r *RemoteRuntime) readCurrentAgentConfig(ctx context.Context) latest.AgentConfig {
 	cfg, err := r.client.GetAgent(ctx, r.agentFilename)
 	if err != nil {

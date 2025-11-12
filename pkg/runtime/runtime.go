@@ -28,6 +28,8 @@ import (
 	"github.com/docker/cagent/pkg/tools/builtin"
 )
 
+const tokenUsageLogFile = "token_usage_chunks.log"
+
 type ResumeType string
 
 type modelStore interface {
@@ -36,8 +38,10 @@ type modelStore interface {
 
 // ElicitationResult represents the result of an elicitation request
 type ElicitationResult struct {
-	Action  string         // "accept", "decline", or "cancel"
-	Content map[string]any // The submitted form data (only present when action is "accept")
+	// Action is "accept", "decline", or "cancel".
+	Action string
+	// Content contains the submitted form data when the action is "accept".
+	Content map[string]any
 }
 
 // ElicitationError represents an error from a declined/cancelled elicitation
@@ -70,6 +74,8 @@ type Runtime interface {
 	CurrentAgentCommands(ctx context.Context) map[string]string
 	// CurrentWelcomeMessage returns the welcome message for the active agent
 	CurrentWelcomeMessage(ctx context.Context) string
+	// AgentCount returns the total number of configured agents.
+	AgentCount() int
 	// RunStream starts the agent's interaction loop and returns a channel of events
 	RunStream(ctx context.Context, sess *session.Session) <-chan Event
 	// Run starts the agent's interaction loop and returns the final messages
@@ -84,25 +90,30 @@ type Runtime interface {
 
 // LocalRuntime manages the execution of agents
 type LocalRuntime struct {
-	toolMap                     map[string]ToolHandler
-	team                        *team.Team
-	currentAgent                string
-	rootSessionID               string // Root session ID for OAuth state encoding (preserved across sub-sessions)
-	resumeChan                  chan ResumeType
-	tracer                      trace.Tracer
-	modelsStore                 modelStore
-	sessionCompaction           bool
-	managedOAuth                bool
-	elicitationRequestCh        chan ElicitationResult // Channel for receiving elicitation responses
-	elicitationEventsChannel    chan Event             // Current events channel for sending elicitation requests
-	elicitationEventsChannelMux sync.RWMutex           // Protects elicitationEventsChannel
+	toolMap      map[string]ToolHandler
+	team         *team.Team
+	currentAgent string
+	// rootSessionID stores the root session ID for OAuth state encoding across sub-sessions.
+	rootSessionID     string
+	resumeChan        chan ResumeType
+	tracer            trace.Tracer
+	modelsStore       modelStore
+	sessionCompaction bool
+	managedOAuth      bool
+	// elicitationRequestCh receives elicitation responses from clients.
+	elicitationRequestCh chan ElicitationResult
+	// elicitationEventsChannel holds the current events channel for elicitation requests.
+	elicitationEventsChannel chan Event
+	// elicitationEventsChannelMux protects access to the elicitation events channel.
+	elicitationEventsChannelMux sync.RWMutex
 }
 
 type streamResult struct {
-	Calls             []tools.ToolCall
-	Content           string
-	ReasoningContent  string
-	ThinkingSignature string // Used with Anthropic's extended thinking feature
+	Calls            []tools.ToolCall
+	Content          string
+	ReasoningContent string
+	// ThinkingSignature is used with Anthropic's extended thinking feature.
+	ThinkingSignature string
 	Stopped           bool
 }
 
@@ -187,6 +198,13 @@ func (r *LocalRuntime) CurrentAgentCommands(context.Context) map[string]string {
 
 func (r *LocalRuntime) CurrentWelcomeMessage(ctx context.Context) string {
 	return r.CurrentAgent().WelcomeMessage()
+}
+
+func (r *LocalRuntime) AgentCount() int {
+	if r.team == nil {
+		return 0
+	}
+	return r.team.Size()
 }
 
 // CurrentAgent returns the current agent
@@ -381,7 +399,10 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 			if m != nil {
 				contextLimit = m.Limit.Context
 			}
-			events <- TokenUsage(sess.InputTokens, sess.OutputTokens, sess.InputTokens+sess.OutputTokens, contextLimit, sess.Cost)
+			// Emit a snapshot that downstream components can use for both per-session and team totals.
+			inclusiveUsage := buildInclusiveUsageSnapshot(sess, contextLimit)
+			selfUsage := buildSelfUsageSnapshot(sess, contextLimit)
+			events <- TokenUsage(sess.ID, a.Name(), selfUsage, inclusiveUsage)
 
 			if m != nil && r.sessionCompaction {
 				if sess.InputTokens+sess.OutputTokens > int(float64(contextLimit)*0.9) {
@@ -390,7 +411,10 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 					if len(res.Calls) == 0 {
 						events <- SessionCompaction(sess.ID, "start", r.currentAgent)
 						r.Summarize(ctx, sess, events)
-						events <- TokenUsage(sess.InputTokens, sess.OutputTokens, sess.InputTokens+sess.OutputTokens, contextLimit, sess.Cost)
+						// Refresh usage after compaction since token counts may have changed.
+						inclusiveUsage := buildInclusiveUsageSnapshot(sess, contextLimit)
+						selfUsage := buildSelfUsageSnapshot(sess, contextLimit)
+						events <- TokenUsage(sess.ID, a.Name(), selfUsage, inclusiveUsage)
 						events <- SessionCompaction(sess.ID, "completed", r.currentAgent)
 					}
 				}
@@ -404,7 +428,10 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 				if sess.InputTokens+sess.OutputTokens > int(float64(contextLimit)*0.9) {
 					events <- SessionCompaction(sess.ID, "start", r.currentAgent)
 					r.Summarize(ctx, sess, events)
-					events <- TokenUsage(sess.InputTokens, sess.OutputTokens, sess.InputTokens+sess.OutputTokens, contextLimit, sess.Cost)
+					// Emit the post-compaction snapshot as well for consistency.
+					inclusiveUsage := buildInclusiveUsageSnapshot(sess, contextLimit)
+					selfUsage := buildSelfUsageSnapshot(sess, contextLimit)
+					events <- TokenUsage(sess.ID, a.Name(), selfUsage, inclusiveUsage)
 					events <- SessionCompaction(sess.ID, "completed", r.currentAgent)
 				}
 			}
@@ -533,6 +560,11 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 	var toolCalls []tools.ToolCall
 	// Track which tool call indices we've already emitted partial events for
 	emittedPartialEvents := make(map[string]bool)
+	// Track the latest observed self usage and cost for this streaming call.
+	// We will add these to lifetime totals once the call completes.
+	var lastSelfInput, lastSelfOutput int
+	var lastCallCost float64
+	var usageApplied bool
 
 	for {
 		response, err := stream.Recv()
@@ -544,21 +576,28 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 		}
 
 		if response.Usage != nil {
+			selfInput := response.Usage.InputTokens + response.Usage.CachedInputTokens
+			selfOutput := response.Usage.OutputTokens + response.Usage.CachedOutputTokens + response.Usage.ReasoningTokens
+
 			if m != nil {
-				sess.Cost += (float64(response.Usage.InputTokens)*m.Cost.Input +
+				lastCallCost = (float64(response.Usage.InputTokens)*m.Cost.Input +
 					float64(response.Usage.OutputTokens+response.Usage.ReasoningTokens)*m.Cost.Output +
 					float64(response.Usage.CachedInputTokens)*m.Cost.CacheRead +
 					float64(response.Usage.CachedOutputTokens)*m.Cost.CacheWrite) / 1e6
+			} else {
+				lastCallCost = 0
 			}
 
-			sess.InputTokens = response.Usage.InputTokens + response.Usage.CachedInputTokens
-			sess.OutputTokens = response.Usage.OutputTokens + response.Usage.CachedOutputTokens + response.Usage.ReasoningTokens
+			// Remember latest self snapshot for adding to lifetime totals when the call finishes
+			lastSelfInput = selfInput
+			lastSelfOutput = selfOutput
 
 			modelName := "unknown"
 			if m != nil {
 				modelName = m.Name
 			}
-			telemetry.RecordTokenUsage(ctx, modelName, int64(response.Usage.InputTokens), int64(response.Usage.OutputTokens+response.Usage.ReasoningTokens), sess.Cost)
+			liveCost := sess.Cost + lastCallCost
+			telemetry.RecordTokenUsage(ctx, modelName, int64(response.Usage.InputTokens), int64(response.Usage.OutputTokens+response.Usage.ReasoningTokens), liveCost)
 		}
 
 		if len(response.Choices) == 0 {
@@ -566,6 +605,13 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 		}
 		choice := response.Choices[0]
 		if choice.FinishReason == chat.FinishReasonStop || choice.FinishReason == chat.FinishReasonLength {
+			// On finish, fold this call's final self usage into lifetime totals.
+			if lastSelfInput > 0 || lastSelfOutput > 0 || lastCallCost > 0 {
+				sess.InputTokens += lastSelfInput
+				sess.OutputTokens += lastSelfOutput
+				sess.Cost += lastCallCost
+				usageApplied = true
+			}
 			return streamResult{
 				Calls:             toolCalls,
 				Content:           fullContent.String(),
@@ -595,9 +641,10 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 
 				// Check if we should emit a partial event for this tool call
 				// We want to emit when we first get the function name
+				// Avoid emitting when the stored function name is already known.
 				shouldEmitPartial := !emittedPartialEvents[deltaToolCall.ID] &&
 					deltaToolCall.Function.Name != "" &&
-					toolCalls[idx].Function.Name == "" // Don't emit if we already have the name
+					toolCalls[idx].Function.Name == ""
 
 				// Update fields based on what's in the delta
 				if deltaToolCall.ID != "" {
@@ -655,6 +702,13 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 	// If the stream completed without producing any content or tool calls, likely because of a token limit, stop to avoid breaking the request loop
 	// NOTE(krissetto): this can likely be removed once compaction works properly with all providers (aka dmr)
 	stoppedDueToNoOutput := fullContent.Len() == 0 && len(toolCalls) == 0
+
+	if !usageApplied && (lastSelfInput > 0 || lastSelfOutput > 0 || lastCallCost > 0) {
+		sess.InputTokens += lastSelfInput
+		sess.OutputTokens += lastSelfOutput
+		sess.Cost += lastCallCost
+	}
+
 	return streamResult{
 		Calls:             toolCalls,
 		Content:           fullContent.String(),
@@ -662,6 +716,30 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 		ThinkingSignature: thinkingSignature,
 		Stopped:           stoppedDueToNoOutput,
 	}, nil
+}
+
+// buildInclusiveUsageSnapshot captures the session's current inclusive usage in the shared event format.
+func buildInclusiveUsageSnapshot(sess *session.Session, contextLimit int) *Usage {
+	// Build a lifetime snapshot for this session only.
+	liveInput := sess.InputTokens
+	liveOutput := sess.OutputTokens
+	return &Usage{
+		ContextLength: liveInput + liveOutput,
+		ContextLimit:  contextLimit,
+		InputTokens:   liveInput,
+		OutputTokens:  liveOutput,
+		Cost:          sess.Cost,
+	}
+}
+
+func buildSelfUsageSnapshot(sess *session.Session, contextLimit int) *Usage {
+	return &Usage{
+		ContextLength: sess.InputTokens + sess.OutputTokens,
+		ContextLimit:  contextLimit,
+		InputTokens:   sess.InputTokens,
+		OutputTokens:  sess.OutputTokens,
+		Cost:          sess.Cost,
+	}
 }
 
 // processToolCalls handles the execution of tool calls for an agent
@@ -985,9 +1063,14 @@ func (r *LocalRuntime) handleTaskTransfer(ctx context.Context, sess *session.Ses
 	}
 
 	sess.ToolsApproved = s.ToolsApproved
-	sess.Cost += s.Cost
 
 	sess.AddSubSession(s)
+
+	// Emit an updated token usage snapshot so the UI sees the merged totals immediately.
+	inclusiveUsage := buildInclusiveUsageSnapshot(sess, 0)
+	selfUsage := buildSelfUsageSnapshot(sess, 0)
+	parentAgentName := ca
+	evts <- TokenUsage(sess.ID, parentAgentName, selfUsage, inclusiveUsage)
 
 	slog.Debug("Task transfer completed", "agent", params.Agent, "task", params.Task)
 
@@ -1079,7 +1162,8 @@ func (r *LocalRuntime) Summarize(ctx context.Context, sess *session.Session, eve
 		case "assistant":
 			role = "Assistant"
 		case "system":
-			continue // Skip system messages for summarization
+			// Skip system messages for summarization.
+			continue
 		}
 		conversationHistory.WriteString(fmt.Sprintf("\n%s: %s", role, messages[i].Message.Content))
 	}
