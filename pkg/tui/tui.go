@@ -193,6 +193,45 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return a, core.CmdHandler(notification.ShowMsg{Text: "Conversation copied to clipboard."})
 
+	case commands.LoadSessionMsg:
+		// Load session from store
+		if err := a.application.LoadSession(context.Background(), msg.SessionID); err != nil {
+			return a, core.CmdHandler(notification.ShowMsg{
+				Text: fmt.Sprintf("Failed to load session: %v", err),
+				Type: notification.TypeError,
+			})
+		}
+
+		// Recreate the chat page with the loaded session
+		a.sessionState = service.NewSessionState()
+		a.chatPage = chat.New(a.application, a.sessionState)
+		a.statusBar = statusbar.New(a.chatPage)
+
+		// Get the loaded session
+		sess := a.application.Session()
+
+		// Convert session messages to TUI messages for display
+		tuiMessages := ConvertSessionToTUIMessages(sess)
+
+		// Create token usage event from loaded session to update sidebar
+		// Note: ContextLength and ContextLimit are set to 0 since they're not stored in sessions
+		// and will be updated on the next interaction
+		tokenUsageEvent := runtime.TokenUsage(
+			sess.InputTokens,
+			sess.OutputTokens,
+			0, // ContextLength - not stored in session
+			0, // ContextLimit - not stored in session
+			sess.Cost,
+		)
+
+		return a, tea.Batch(
+			a.chatPage.Init(),
+			a.chatPage.LoadMessages(tuiMessages),
+			a.handleWindowResize(a.wWidth, a.wHeight),
+			core.CmdHandler(tokenUsageEvent),
+			core.CmdHandler(notification.ShowMsg{Text: "Session loaded successfully"}),
+		)
+
 	case commands.AgentCommandMsg:
 		resolvedCommand := a.application.ResolveCommand(context.Background(), msg.Command)
 		return a, core.CmdHandler(editor.SendMsg{Content: resolvedCommand})

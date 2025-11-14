@@ -31,6 +31,7 @@ type runExecFlags struct {
 	remoteAddress  string
 	modelOverrides []string
 	dryRun         bool
+	sessionDB      string
 	runConfig      config.RuntimeConfig
 }
 
@@ -63,6 +64,7 @@ func addRunOrExecFlags(cmd *cobra.Command, flags *runExecFlags) {
 	cmd.PersistentFlags().StringArrayVar(&flags.modelOverrides, "model", nil, "Override agent model: [agent=]provider/model (repeatable)")
 	cmd.PersistentFlags().BoolVar(&flags.dryRun, "dry-run", false, "Initialize the agent without executing anything")
 	cmd.PersistentFlags().StringVar(&flags.remoteAddress, "remote", "", "Use remote runtime with specified address")
+	cmd.PersistentFlags().StringVar(&flags.sessionDB, "session-db", "sessions.db", "Path to the session database file")
 }
 
 func (f *runExecFlags) runRunCommand(cmd *cobra.Command, args []string) error {
@@ -120,7 +122,17 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 		return f.handleExecMode(ctx, out, agentFileName, rt, sess, args)
 	}
 
-	return handleRunMode(ctx, agentFileName, rt, sess, args)
+	// Create session store for TUI mode (not needed for exec mode)
+	var sessionStore session.Store
+	if f.sessionDB != "" {
+		var err error
+		sessionStore, err = session.NewSQLiteSessionStore(f.sessionDB)
+		if err != nil {
+			return fmt.Errorf("failed to create session store: %w", err)
+		}
+	}
+
+	return handleRunMode(ctx, agentFileName, rt, sess, sessionStore, args)
 }
 
 func (f *runExecFlags) setupWorkingDirectory() error {
@@ -238,13 +250,13 @@ func readInitialMessage(args []string) (*string, error) {
 	return &args[1], nil
 }
 
-func handleRunMode(ctx context.Context, agentFilename string, rt runtime.Runtime, sess *session.Session, args []string) error {
+func handleRunMode(ctx context.Context, agentFilename string, rt runtime.Runtime, sess *session.Session, sessionStore session.Store, args []string) error {
 	firstMessage, err := readInitialMessage(args)
 	if err != nil {
 		return err
 	}
 
-	a := app.New(agentFilename, rt, sess, firstMessage)
+	a := app.New(agentFilename, rt, sess, firstMessage, sessionStore)
 	m := tui.New(a)
 
 	progOpts := []tea.ProgramOption{

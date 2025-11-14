@@ -2,7 +2,10 @@ package app
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -19,9 +22,12 @@ type App struct {
 	events           chan tea.Msg
 	throttleDuration time.Duration
 	cancel           context.CancelFunc
+	sessionStore     session.Store
+	saveTimer        *time.Timer
+	savePending      bool
 }
 
-func New(agentFilename string, rt runtime.Runtime, sess *session.Session, firstMessage *string) *App {
+func New(agentFilename string, rt runtime.Runtime, sess *session.Session, firstMessage *string, sessionStore session.Store) *App {
 	return &App{
 		agentFilename:    agentFilename,
 		runtime:          rt,
@@ -29,11 +35,22 @@ func New(agentFilename string, rt runtime.Runtime, sess *session.Session, firstM
 		firstMessage:     firstMessage,
 		events:           make(chan tea.Msg, 128),
 		throttleDuration: 50 * time.Millisecond, // Throttle rapid events
+		sessionStore:     sessionStore,
 	}
 }
 
 func (a *App) FirstMessage() *string {
 	return a.firstMessage
+}
+
+// SessionStore returns the session store
+func (a *App) SessionStore() session.Store {
+	return a.sessionStore
+}
+
+// AgentFilename returns the agent filename
+func (a *App) AgentFilename() string {
+	return a.agentFilename
 }
 
 // CurrentWelcomeMessage returns the welcome message for the active agent
@@ -56,11 +73,26 @@ func (a *App) Run(ctx context.Context, cancel context.CancelFunc, message string
 	a.cancel = cancel
 	go func() {
 		a.session.AddMessage(session.UserMessage(a.agentFilename, message))
+
+		// Generate title from first user message if not set
+		if a.session.Title == "" && message != "" {
+			a.generateSessionTitle(message)
+		}
+
+		// Save after user message
+		a.scheduleSave(ctx)
+
 		for event := range a.runtime.RunStream(ctx, a.session) {
 			if ctx.Err() != nil {
 				return
 			}
 			a.events <- event
+
+			// Save after certain events
+			switch event.(type) {
+			case *runtime.StreamStoppedEvent, *runtime.ToolCallResponseEvent:
+				a.scheduleSave(ctx)
+			}
 		}
 	}()
 }
@@ -102,6 +134,40 @@ func (a *App) NewSession() {
 
 func (a *App) Session() *session.Session {
 	return a.session
+}
+
+// LoadSession loads a session from the store by ID and replaces the current session
+func (a *App) LoadSession(ctx context.Context, sessionID string) error {
+	if a.sessionStore == nil {
+		return fmt.Errorf("no session store available")
+	}
+
+	// Retrieve the session from store
+	loadedSession, err := a.sessionStore.GetSession(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to get session: %w", err)
+	}
+
+	// Cancel any running context
+	if a.cancel != nil {
+		a.cancel()
+		a.cancel = nil
+	}
+
+	// Replace the current session
+	a.session = loadedSession
+
+	return nil
+}
+
+// SessionExists checks if the current session exists in the store
+func (a *App) SessionExists(ctx context.Context) bool {
+	if a.sessionStore == nil || a.session == nil {
+		return false
+	}
+
+	_, err := a.sessionStore.GetSession(ctx, a.session.ID)
+	return err == nil
 }
 
 func (a *App) CompactSession() {
@@ -273,4 +339,62 @@ func (a *App) mergeEvents(events []tea.Msg) []tea.Msg {
 	}
 
 	return result
+}
+
+// generateSessionTitle creates a title from the first user message
+func (a *App) generateSessionTitle(message string) {
+	// Take first line or first 50 characters
+	title := message
+	if idx := strings.Index(title, "\n"); idx > 0 && idx < 50 {
+		title = title[:idx]
+	} else if len(title) > 50 {
+		title = title[:47] + "..."
+	}
+	a.session.Title = title
+}
+
+// scheduleSave schedules a session save with debouncing
+func (a *App) scheduleSave(ctx context.Context) {
+	if a.sessionStore == nil {
+		return
+	}
+
+	// Mark that a save is pending
+	a.savePending = true
+
+	// Cancel existing timer if any
+	if a.saveTimer != nil {
+		a.saveTimer.Stop()
+	}
+
+	// Schedule new save after 2 seconds
+	a.saveTimer = time.AfterFunc(2*time.Second, func() {
+		if a.savePending {
+			a.saveSession(ctx)
+			a.savePending = false
+		}
+	})
+}
+
+// saveSession saves or updates the session in the store
+func (a *App) saveSession(ctx context.Context) {
+	if a.sessionStore == nil || a.session == nil {
+		return
+	}
+
+	// Check if session exists
+	_, err := a.sessionStore.GetSession(ctx, a.session.ID)
+	switch err {
+	case session.ErrNotFound:
+		// Session doesn't exist, add it
+		if err := a.sessionStore.AddSession(ctx, a.session); err != nil {
+			// Log error but don't interrupt user experience
+			fmt.Fprintf(os.Stderr, "failed to add session: %v\n", err)
+		}
+	case nil:
+		// Session exists, update it
+		if err := a.sessionStore.UpdateSession(ctx, a.session); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to update session: %v\n", err)
+		}
+	}
 }
