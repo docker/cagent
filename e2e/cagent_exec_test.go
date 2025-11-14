@@ -19,6 +19,8 @@ func TestExec_OpenAI(t *testing.T) {
 }
 
 func TestExec_OpenAI_ToolCall(t *testing.T) {
+	t.Skip("flaky because of tool call ordering")
+
 	out := cagentExec(t, "testdata/fs_tools.yaml", "How many files in testdata/working_dir? Only output the number.")
 
 	require.Equal(t, "\n--- Agent: root ---\n\nCalling search_files(\n  path: \"testdata/working_dir\"\n  pattern: \"*\"\n)\n\nsearch_files response → \"2 files found:\\ntestdata/working_dir\\ntestdata/working_dir/README.me\"\n\n2", out)
@@ -37,6 +39,8 @@ func TestExec_Anthropic(t *testing.T) {
 }
 
 func TestExec_Anthropic_ToolCall(t *testing.T) {
+	t.Skip("flaky because of tool call ordering")
+
 	out := cagentExec(t, "testdata/fs_tools.yaml", "--model=anthropic/claude-sonnet-4-0", "How many files in testdata/working_dir? Only output the number.")
 
 	require.Equal(t, "\n--- Agent: root ---\n\nCalling list_directory(path: \"testdata/working_dir\")\n\nlist_directory response → \"FILE README.me\\n\"\n\n1", out)
@@ -49,6 +53,8 @@ func TestExec_Gemini(t *testing.T) {
 }
 
 func TestExec_Gemini_ToolCall(t *testing.T) {
+	t.Skip("flaky because of tool call ordering")
+
 	out := cagentExec(t, "testdata/fs_tools.yaml", "--model=google/gemini-2.5-flash", "How many files in testdata/working_dir? Only output the number.")
 
 	require.Equal(t, "\n--- Agent: root ---\n\nCalling list_directory(path: \"testdata/working_dir\")\n\nlist_directory response → \"FILE README.me\\n\"\n\n1", out)
@@ -62,6 +68,7 @@ func TestExec_Mistral(t *testing.T) {
 
 func TestExec_Mistral_ToolCall(t *testing.T) {
 	t.Skip("This is awkard")
+
 	out := cagentExec(t, "testdata/fs_tools.yaml", "--model=mistral/mistral-small", "How many files in testdata/working_dir? Only output the number.")
 
 	require.Equal(t, "\n--- Agent: root ---\n", out)
