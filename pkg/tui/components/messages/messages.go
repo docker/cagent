@@ -54,6 +54,7 @@ type Model interface {
 	AddToolResult(msg *runtime.ToolCallResponseEvent, status types.ToolStatus) tea.Cmd
 	AppendToLastMessage(agentName string, messageType types.MessageType, content string) tea.Cmd
 	AddShellOutputMessage(content string) tea.Cmd
+	LoadMessages(messages []*types.Message) tea.Cmd
 
 	ScrollToBottom() tea.Cmd
 }
@@ -661,6 +662,40 @@ func (m *model) AppendToLastMessage(agentName string, messageType types.MessageT
 	}
 }
 
+// LoadMessages clears existing messages and loads a batch of messages at once
+// This is useful for loading past sessions from storage
+func (m *model) LoadMessages(messages []*types.Message) tea.Cmd {
+	// Clear existing messages and views
+	m.messages = nil
+	m.views = nil
+	m.invalidateAllItems()
+
+	if len(messages) == 0 {
+		return nil
+	}
+
+	var cmds []tea.Cmd
+
+	// Add each message
+	for _, msg := range messages {
+		m.messages = append(m.messages, msg)
+		view := m.createMessageView(msg)
+		m.views = append(m.views, view)
+
+		if initCmd := view.Init(); initCmd != nil {
+			cmds = append(cmds, initCmd)
+		}
+	}
+
+	// Scroll to bottom after loading all messages
+	cmds = append(cmds, func() tea.Msg {
+		m.scrollToBottom()
+		return nil
+	})
+
+	return tea.Batch(cmds...)
+}
+
 // ScrollToBottom scrolls to the bottom of the chat
 func (m *model) ScrollToBottom() tea.Cmd {
 	return func() tea.Msg {
@@ -678,6 +713,10 @@ func (m *model) createToolCallView(msg *types.Message) layout.Model {
 }
 
 func (m *model) createMessageView(msg *types.Message) layout.Model {
+	// Tool call messages need special handling with the tool component
+	if msg.Type == types.MessageTypeToolCall {
+		return m.createToolCallView(msg)
+	}
 	view := message.New(msg)
 	view.SetSize(m.width, 0)
 	return view

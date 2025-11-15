@@ -68,7 +68,7 @@ func (f *newFlags) runNewCommand(cmd *cobra.Command, args []string) error {
 
 	sess := session.New(opts...)
 
-	a := app.New("", rt, sess, prompt)
+	a := app.New("", rt, sess, prompt, nil)
 	m := tui.New(a)
 
 	progOpts := []tea.ProgramOption{

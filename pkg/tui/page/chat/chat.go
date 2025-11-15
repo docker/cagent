@@ -46,6 +46,7 @@ type Page interface {
 	layout.Help
 	CompactSession() tea.Cmd
 	Cleanup()
+	LoadMessages(messages []*types.Message) tea.Cmd
 }
 
 // chatPage implements Page
@@ -527,6 +528,11 @@ func (p *chatPage) CompactSession() tea.Cmd {
 	p.app.CompactSession()
 
 	return p.messages.ScrollToBottom()
+}
+
+// LoadMessages loads a batch of messages into the chat display
+func (p *chatPage) LoadMessages(msgs []*types.Message) tea.Cmd {
+	return p.messages.LoadMessages(msgs)
 }
 
 func (p *chatPage) Cleanup() {
