@@ -1,0 +1,24 @@
+name: winget
+
+on:
+  release:
+    types: [published]
+
+env:
+  WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN }}
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    steps:
+      - name: publish
+        run: |
+          $Release = '${{ toJSON(github.event.release) }}' | ConvertFrom-Json
+          $Version = $Release.tag_name
+          $PackageId = "Docker.Cagent"
+          $Urls = @(
+            "https://github.com/docker/cagent/releases/download/$Version/cagent-windows-amd64.exe|amd64",
+            "https://github.com/docker/cagent/releases/download/$Version/cagent-windows-arm64.exe|arm64"
+          )
+          & curl.exe -JLO https://aka.ms/wingetcreate/latest
+          & .\wingetcreate.exe update $PackageId -s -v $Version -u $Urls
