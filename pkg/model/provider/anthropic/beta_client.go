@@ -61,6 +61,17 @@ func (c *Client) createBetaStream(
 		params.System = sys
 	}
 
+	// Apply structured output configuration
+	if structuredOutput := c.ModelOptions.StructuredOutput(); structuredOutput != nil {
+		slog.Debug("Anthropic Beta API using structured output", "name", structuredOutput.Name)
+
+		// Add structured outputs beta header
+		params.Betas = append(params.Betas, "structured-outputs-2025-11-13")
+
+		// Configure output format using the SDK helper
+		params.OutputFormat = anthropic.BetaJSONSchemaOutputFormat(structuredOutput.Schema)
+	}
+
 	// For interleaved thinking to make sense, we use a default of 16384 tokens for the thinking budget
 	thinkingTokens := int64(16384)
 	if c.ModelConfig.ThinkingBudget != nil {

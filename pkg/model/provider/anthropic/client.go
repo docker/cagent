@@ -122,10 +122,6 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 
 	slog.Debug("Anthropic client created successfully", "model", cfg.Model)
 
-	if globalOptions.StructuredOutput() != nil {
-		return nil, errors.New("anthropic does not support native structured_output")
-	}
-
 	return &Client{
 		Config: base.Config{
 			ModelConfig:  *cfg,
@@ -158,8 +154,11 @@ func (c *Client) CreateChatCompletionStream(
 		return nil, err
 	}
 
-	// Use Beta API with interleaved thinking only when enabled
-	if c.interleavedThinkingEnabled() {
+	// Use Beta API when:
+	// 1. Interleaved thinking is enabled, or
+	// 2. Structured output is configured
+	// Note: Structured outputs require beta header support (only available on BetaMessageNewParams)
+	if c.interleavedThinkingEnabled() || c.ModelOptions.StructuredOutput() != nil {
 		return c.createBetaStream(ctx, client, messages, requestTools, maxTokens)
 	}
 
