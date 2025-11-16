@@ -1,0 +1,14 @@
+services:
+  cagent:
+    image: ascathleticsinc/cagent:latest
+    env_file:
+      - .env
+    environment:
+      TELEMETRY_ENABLED: "false"
+      OPENAI_API_KEY: ${GROQ_API_KEY}
+    working_dir: /work
+    volumes:
+      - ./:/work
+    command: ["run", "examples/groq_general.yaml", "--debug"]
+    tty: true
+    stdin_open: true

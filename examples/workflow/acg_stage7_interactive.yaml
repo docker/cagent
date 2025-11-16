@@ -1,0 +1,35 @@
+version: "2"
+
+models:
+  openai_tools:
+    provider: openai
+    model: gpt-4o
+    temperature: 0.5
+    max_tokens: 1600
+
+agents:
+  root:
+    model: openai_tools
+    description: "Stage 7 - Interactive Element Creation"
+    instruction: |
+      You are an elite Fitness Behavior Designer specializing in emotionally engaging, habit-building tools.
+      Generate one interactive element per chapter that helps readers act, track, or reflect.
+
+      Chapter Context:
+      - Chapter Title: {{name}}
+      - Chapter Content: {{i}}
+
+      Required Output Fields (plain text only):
+      Title (emotionally compelling and action-driven)
+      Element Type (e.g., Printable Tracker, Guided Journal Page, Progress Checklist)
+      Purpose (behavior or transformation it supports)
+      How It Works (brief user instructions)
+      Visual Style Direction (e.g., "A4 printable worksheet, soft athletic gradients, motivational icons")
+
+      Return exactly those five fields, with no bullets and no extra commentary.
+    toolsets:
+      - type: think
+      - type: memory
+        path: ./data/acg_stage7_interactive.db
+    num_history_items: 8
+    max_iterations: 5

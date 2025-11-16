@@ -1,0 +1,31 @@
+services:
+  cagent-api:
+    image: ascathleticsinc/cagent:latest
+    env_file:
+      - .env
+    environment:
+      TELEMETRY_ENABLED: "false"
+      OPENAI_API_KEY: ${GROQ_API_KEY}
+    working_dir: /work
+    volumes:
+      - ./:/work
+    command: ["api", "/work/examples/groq_general.yaml", "--listen", ":8080"]
+    ports:
+      - "8080:8080"
+    tty: true
+    stdin_open: true
+
+  cagent-tui:
+    image: ascathleticsinc/cagent:latest
+    profiles: [tui]
+    env_file:
+      - .env
+    environment:
+      TELEMETRY_ENABLED: "false"
+      OPENAI_API_KEY: ${GROQ_API_KEY}
+    working_dir: /work
+    volumes:
+      - ./:/work
+    command: ["run", "examples/interactive_runner.yaml", "--debug"]
+    tty: true
+    stdin_open: true

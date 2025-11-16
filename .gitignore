@@ -13,5 +13,6 @@ agent.yaml
 vendor
 
 # Local environment files
-.env.local
+.env
+env.local
 .claude/settings.local.json

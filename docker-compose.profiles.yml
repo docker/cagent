@@ -1,0 +1,28 @@
+services:
+  cagent-groq:
+    image: docker/cagent:latest
+    profiles: [groq]
+    env_file: [.env]
+    environment:
+      TELEMETRY_ENABLED: "false"
+      OPENAI_API_KEY: ${GROQ_API_KEY}
+    working_dir: /work
+    volumes:
+      - ./:/work
+    command: ["run", "examples/groq_general.yaml", "--debug"]
+    tty: true
+    stdin_open: true
+
+  cagent-openrouter:
+    image: docker/cagent:latest
+    profiles: [openrouter]
+    env_file: [.env]
+    environment:
+      TELEMETRY_ENABLED: "false"
+      OPENAI_API_KEY: ${OPENROUTER_API_KEY}
+    working_dir: /work
+    volumes:
+      - ./:/work
+    command: ["run", "examples/openrouter_general.yaml", "--debug"]
+    tty: true
+    stdin_open: true

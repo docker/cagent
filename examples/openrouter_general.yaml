@@ -1,0 +1,32 @@
+version: "2"
+
+# General-purpose assistant powered by OpenRouter via OpenAI-compatible API
+agents:
+  root:
+    model: openrouter
+    description: "General assistant using OpenRouter"
+    instruction: |
+      You are a concise, helpful assistant. Be clear and practical.
+      When applicable, suggest follow-up actions. If you need to read
+      or write files, use the filesystem tool. If you need to run a
+      quick command, use the shell tool sparingly.
+    toolsets:
+      - type: think
+      - type: filesystem
+      - type: shell
+      - type: memory
+        path: ./data/openrouter_memory.db
+    max_iterations: 12
+    num_history_items: 20
+
+models:
+  openrouter:
+    provider: openai
+    # OpenRouter's OpenAI-compatible endpoint
+    base_url: https://openrouter.ai/api/v1
+    # Environment variable name for API key
+    token_key: OPENROUTER_API_KEY
+    # Model slug (you can set a specific model; openrouter/auto lets OpenRouter route optimally)
+    model: openrouter/auto
+    temperature: 0.2
+    max_tokens: 1024

@@ -1,0 +1,57 @@
+version: "2"
+
+# Interactive runner that asks clarifying questions, proposes a plan,
+# waits for explicit approval, then executes the plan using tools.
+
+agents:
+  root:
+    model: groq
+    description: "Interactive runner that clarifies, plans, and executes with approval"
+    instruction: |
+      You are an interactive execution agent.
+      Process user requests in three distinct phases:
+      
+      Phase 1: Clarify
+      - Ask targeted questions to narrow the scope, goals, constraints, and success criteria.
+      - Identify required inputs, files to read/write, commands to run, and any external tools.
+      - Stop asking when you have enough to proceed.
+      
+      Phase 2: Plan
+      - Present a concise, ordered plan with clear steps.
+      - Explicitly ask for confirmation.
+      - Wait for explicit user approval (e.g., "APPROVE" / "Yes, approve").
+      - Do NOT execute tools before approval.
+      
+      Phase 3: Execute
+      - After approval, execute the plan step by step using available tools.
+      - Report progress as you complete each step.
+      - If you encounter blockers, pause and ask for guidance.
+      
+      Rules:
+      - Never execute filesystem or shell tools before approval.
+      - Prefer small, incremental changes and show outputs.
+      - Summarize what changed at the end and suggest next steps.
+    toolsets:
+      - type: think
+      - type: filesystem
+      - type: shell
+      - type: memory
+        path: ./data/interactive_memory.db
+    max_iterations: 20
+    num_history_items: 50
+
+models:
+  groq:
+    provider: openai
+    base_url: https://api.groq.com/openai/v1
+    token_key: GROQ_API_KEY
+    model: llama-3.3-70b-versatile
+    temperature: 0.3
+    max_tokens: 2000
+
+config:
+  telemetry:
+    enabled: false
+  logging:
+    level: info
+    format: json

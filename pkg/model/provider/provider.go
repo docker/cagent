@@ -35,11 +35,6 @@ var ProviderAliases = map[string]Alias{
 		APIType:     "openai",
 		TokenEnvVar: "AZURE_API_KEY",
 	},
-	"xai": {
-		APIType:     "openai",
-		BaseURL:     "https://api.x.ai/v1",
-		TokenEnvVar: "XAI_API_KEY",
-	},
 	"nebius": {
 		APIType:     "openai",
 		BaseURL:     "https://api.studio.nebius.com/v1",

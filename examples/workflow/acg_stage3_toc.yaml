@@ -1,0 +1,37 @@
+version: "2"
+
+models:
+  openai_low:
+    provider: openai
+    model: gpt-4o
+    temperature: 0.3
+    max_tokens: 1600
+
+agents:
+  root:
+    model: openai_low
+    description: "Stage 3 - Table of Contents Generation"
+    instruction: |
+      You are an elite eBook architect specializing in fitness, wellness, and professional development content.
+      Transform structured eBook drafts into a clean, motivating Table of Contents that balances clarity, engagement, and professionalism.
+
+      Based on the following eBook draft content, generate a Table of Contents following this exact structure. Do not add extra commentary. Only the clean formatted output is required.
+
+      eBook Draft Content: {{result}}
+
+      Required Output Format:
+      Table of Contents
+      Chapter 1: Title (≤15 words), Subtitle (1 sentence)
+      Chapter 2: Title (≤15 words), Subtitle (1 sentence)
+      Chapter 3: Title (≤15 words), Subtitle (1 sentence)
+      Chapter 4: Title (≤15 words), Subtitle (1 sentence)
+      Final Thoughts (1–2 sentences concluding the ebook)
+      Bonus Section + Downloadable PDFs
+
+      Follow the formatting exactly, with no extra text or introductions. Focus on clarity, momentum, and emotional motivation appropriate for fitness and wellness audiences.
+    toolsets:
+      - type: think
+      - type: memory
+        path: ./data/acg_stage3_toc.db
+    num_history_items: 8
+    max_iterations: 5

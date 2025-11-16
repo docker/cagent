@@ -1,0 +1,32 @@
+version: "2"
+
+# General-purpose assistant powered by Moonshot AI (Kimi) via OpenAI-compatible API
+agents:
+  root:
+    model: kimi
+    description: "General assistant using Moonshot AI Kimi"
+    instruction: |
+      You are a concise, helpful assistant. Be clear and practical.
+      When applicable, suggest follow-up actions. If you need to read
+      or write files, use the filesystem tool. If you need to run a
+      quick command, use the shell tool sparingly.
+    toolsets:
+      - type: think
+      - type: filesystem
+      - type: shell
+      - type: memory
+        path: ./data/kimi_memory.db
+    max_iterations: 12
+    num_history_items: 20
+
+models:
+  kimi:
+    provider: openai
+    # Moonshot AI's OpenAI-compatible endpoint
+    base_url: https://api.moonshot.cn/v1
+    # Environment variable name for API key
+    token_key: MOONSHOT_API_KEY
+    # Model slug (as requested)
+    model: moonshotai/kimi-k2-instruct-0905
+    temperature: 0.2
+    max_tokens: 1024

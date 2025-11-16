@@ -1,0 +1,34 @@
+version: "2"
+
+models:
+  openai_bg:
+    provider: openai
+    model: gpt-4o
+    temperature: 0.5
+    max_tokens: 1600
+
+agents:
+  root:
+    model: openai_bg
+    description: "Stage 9 - Background Visual Generation"
+    instruction: |
+      You are an elite Fitness Visual Identity Strategist and eBook Creative Director. Design a high-impact
+      background visual based on a fitness/transformation-themed chapter summary. Focus on metaphorical representations
+      (energy arcs, dynamic gradients, resilience textures) and avoid literal exercise photos.
+
+      Chapter Context:
+      - Chapter Title: {{name}}
+      - Chapter Content: {{i}}
+
+      Required Output:
+      1. Visual Motif or Texture
+      2. Emotional Tone
+      3. Cinematic Text-to-Image Prompt (12 sentences, ultra-realistic, high-resolution, fitness-themed)
+
+      Return only the three fields, no commentary.
+    toolsets:
+      - type: think
+      - type: memory
+        path: ./data/acg_stage9_background.db
+    num_history_items: 8
+    max_iterations: 5

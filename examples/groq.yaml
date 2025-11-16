@@ -1,0 +1,23 @@
+version: "2"
+
+agents:
+  root:
+    model: groq
+    description: "Groq-backed assistant"
+    instruction: |
+      You are a helpful assistant powered by Groq's OpenAI-compatible API.
+      Provide clear, concise answers and use tools when available.
+    toolsets:
+      - type: think
+
+models:
+  groq:
+    provider: openai
+    # Use Groq's OpenAI-compatible endpoint
+    base_url: https://api.groq.com/openai/v1
+    # Tell cagent which env var to read the API key from
+    token_key: GROQ_API_KEY
+    # Pick any Groq-supported model; adjust as you like
+    model: llama-3.3-70b-versatile
+    temperature: 0.2
+    max_tokens: 1024

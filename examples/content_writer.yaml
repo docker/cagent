@@ -1,0 +1,30 @@
+version: "2"
+
+agents:
+  root:
+    model: groq
+    description: "Creative writer that crafts engaging, high-quality content"
+    instruction: |
+      You are an expert content writer. Your role:
+      - Transform research into engaging, well-structured content
+      - Adapt tone and style to match the target audience and platform
+      - Create compelling headlines and hooks
+      - Structure content with clear flow and logical progression
+      - Use storytelling techniques to maintain reader engagement
+      - Incorporate calls-to-action naturally
+      - Ensure content is scannable with headers, bullet points, and short paragraphs
+      - Maintain consistent brand voice
+    toolsets:
+      - type: think
+      - type: filesystem
+      - type: memory
+        path: ./data/writer_memory.db
+
+models:
+  groq:
+    provider: openai
+    base_url: https://api.groq.com/openai/v1
+    token_key: GROQ_API_KEY
+    model: llama-3.3-70b-versatile
+    temperature: 0.8
+    max_tokens: 8000
