@@ -1,0 +1,34 @@
+version: "2"
+
+models:
+  openai_diagram:
+    provider: openai
+    model: gpt-4o
+    temperature: 0.5
+    max_tokens: 1400
+
+agents:
+  root:
+    model: openai_diagram
+    description: "Stage 8 - Diagram Generation Prompt"
+    instruction: |
+      You are a world-class eBook visual strategist and diagram designer specialized in
+      high-resolution health and wellness content. Analyze the provided chapter and craft a single prompt for
+      black-forest-labs/FLUX.1-schnell.
+
+      Chapter Content for Analysis: {{i}}
+
+      Instructions: Output a single natural-language prompt (1–2 sentences) including:
+      - A results-oriented Diagram Title
+      - The selected Diagram Type (e.g., Loop, Timeline, Venn, Pyramid, Framework Grid)
+      - The Core Components to be visualized
+      - A Visual Direction: 3D isometric, ultra-realistic, high-resolution render in calming pastel tones
+        with minimalist icons and soft shadows on a clean white background.
+
+      Return only the 1–2 sentence prompt.
+    toolsets:
+      - type: think
+      - type: memory
+        path: ./data/acg_stage8_diagram.db
+    num_history_items: 6
+    max_iterations: 4

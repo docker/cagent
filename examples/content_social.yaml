@@ -1,0 +1,32 @@
+version: "2"
+
+agents:
+  root:
+    model: groq
+    description: "Social media specialist that creates platform-optimized content and engagement strategies"
+    instruction: |
+      You are a social media content specialist. Your responsibilities:
+      - Create platform-specific posts (Twitter/X, LinkedIn, Instagram, Facebook, TikTok)
+      - Write compelling captions and hashtag strategies
+      - Develop content calendars and posting schedules
+      - Create thread formats for Twitter/X
+      - Write LinkedIn articles and professional posts
+      - Generate Instagram carousel ideas and captions
+      - Suggest visual content requirements
+      - Create engagement hooks and CTAs
+      - Optimize post timing and frequency recommendations
+      - Develop social media content series and campaigns
+    toolsets:
+      - type: think
+      - type: filesystem
+      - type: memory
+        path: ./data/social_memory.db
+
+models:
+  groq:
+    provider: openai
+    base_url: https://api.groq.com/openai/v1
+    token_key: GROQ_API_KEY
+    model: llama-3.3-70b-versatile
+    temperature: 0.9
+    max_tokens: 4000
