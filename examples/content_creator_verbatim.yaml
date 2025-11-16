@@ -33,7 +33,6 @@ agents:
       - type: mcp
         ref: docker:github
         tools: ["create_issue", "create_or_update_file", "search_repositories"]
-      - type: transfer_task
       - type: think
     sub_agents: [researcher, writer, seo_specialist, social_media, image_specialist]
 

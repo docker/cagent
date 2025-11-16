@@ -45,7 +45,7 @@ docker run --rm -it `
   -p 8080:8080 `
   -v ${PWD}:/work `
   -w /work `
-  ascathleticsinc/cagent:latest api --listen :8080
+  docker/cagent:latest api --listen :8080
 ```
 
 Verify:
@@ -58,7 +58,7 @@ curl http://localhost:8080/api/sessions
 ```yaml
 services:
   cagent:
-    image: ascathleticsinc/cagent:latest
+    image: docker/cagent:latest
     env_file: [.env]
     environment:
       TELEMETRY_ENABLED: "false"
@@ -84,7 +84,7 @@ docker compose up
 - Port in use: Change the host port mapping, e.g., `-p 8081:8080`.
 - Verify environment:
 ```powershell
-docker run --rm --env-file ".env" -e OPENAI_API_KEY=$Env:GROQ_API_KEY ascathleticsinc/cagent:latest env
+docker run --rm --env-file ".env" -e OPENAI_API_KEY=$Env:GROQ_API_KEY docker/cagent:latest env
 ```
 
 ## Useful PowerShell helpers

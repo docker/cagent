@@ -1,6 +1,6 @@
 services:
   cagent-api:
-    image: ascathleticsinc/cagent:latest
+    image: docker/cagent:latest
     env_file:
       - .env
     environment:
@@ -16,7 +16,7 @@ services:
     stdin_open: true
 
   cagent-tui:
-    image: ascathleticsinc/cagent:latest
+    image: docker/cagent:latest
     profiles: [tui]
     env_file:
       - .env

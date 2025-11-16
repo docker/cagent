@@ -1,6 +1,6 @@
 services:
   cagent:
-    image: ascathleticsinc/cagent:latest
+    image: docker/cagent:latest
     env_file:
       - .env
     environment:
