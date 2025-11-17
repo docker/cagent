@@ -53,9 +53,11 @@ type ModelConfig struct {
 }
 
 type Metadata struct {
-	Author  string `json:"author,omitempty"`
-	License string `json:"license,omitempty"`
-	Readme  string `json:"readme,omitempty"`
+	Author    string `json:"author,omitempty"`
+	License   string `json:"license,omitempty"`
+	Readme    string `json:"readme,omitempty"`
+	Version   string `json:"version,omitempty"`
+	CreatedAt string `json:"created_at,omitempty"`
 }
 
 // Commands represents a set of named prompts for quick-starting conversations.
