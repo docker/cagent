@@ -159,17 +159,32 @@ func (c *Component) renderList() string {
 		var styledLines []string
 		for _, line := range lines {
 			if strings.HasPrefix(line, "- [") {
-				switch {
-				case strings.Contains(line, "(Status: pending)"):
-					icon, style := renderTodoIcon("pending")
-					styledLines = append(styledLines, style.Render(icon)+" "+style.Render(strings.TrimSuffix(strings.TrimSpace(line[2:]), " (Status: pending)")))
-				case strings.Contains(line, "(Status: in-progress)"):
-					icon, style := renderTodoIcon("in-progress")
-					styledLines = append(styledLines, style.Render(icon)+" "+style.Render(strings.TrimSuffix(strings.TrimSpace(line[2:]), " (Status: in-progress)")))
-				case strings.Contains(line, "(Status: completed)"):
-					icon, style := renderTodoIcon("completed")
-					styledLines = append(styledLines, style.Render(icon)+" "+style.Render(strings.TrimSuffix(strings.TrimSpace(line[2:]), " (Status: completed)")))
-				default:
+				// Extract todo content, removing the ID portion
+				// Format: "- [todo_1] Description (Status: pending)"
+				content := strings.TrimSpace(line[2:]) // Remove "- ["
+
+				// Find the closing bracket to extract ID and description
+				if closeIdx := strings.Index(content, "] "); closeIdx > 0 {
+					description := content[closeIdx+2:] // Everything after "] "
+
+					switch {
+					case strings.Contains(description, "(Status: pending)"):
+						icon, style := renderTodoIcon("pending")
+						desc := strings.TrimSuffix(description, " (Status: pending)")
+						styledLines = append(styledLines, style.Render(icon)+" "+style.Render(desc))
+					case strings.Contains(description, "(Status: in-progress)"):
+						icon, style := renderTodoIcon("in-progress")
+						desc := strings.TrimSuffix(description, " (Status: in-progress)")
+						styledLines = append(styledLines, style.Render(icon)+" "+style.Render(desc))
+					case strings.Contains(description, "(Status: completed)"):
+						icon, style := renderTodoIcon("completed")
+						desc := strings.TrimSuffix(description, " (Status: completed)")
+						styledLines = append(styledLines, style.Render(icon)+" "+style.Render(desc))
+					default:
+						styledLines = append(styledLines, description)
+					}
+				} else {
+					// Fallback for unexpected format
 					styledLines = append(styledLines, line)
 				}
 			} else {
@@ -203,10 +218,43 @@ func (c *Component) renderUpdate() string {
 					if todo := c.sessionState.TodoManager.GetTodoByID(updateParams.ID); todo != nil {
 						displayText = todo.Description
 					} else {
-						displayText = updateParams.ID // Fallback to ID if todo not found
+						// Try to extract description from tool result content as fallback
+						if msg.Content != "" && strings.Contains(msg.Content, "Updated todo ") {
+							// Extract description from "Updated todo \"description\" to status: [status]"
+							start := strings.Index(msg.Content, "Updated todo \"")
+							if start >= 0 {
+								start += 14 // length of "Updated todo \""
+								end := strings.Index(msg.Content[start:], "\" to status:")
+								if end > 0 {
+									displayText = msg.Content[start : start+end]
+								} else {
+									displayText = "Task"
+								}
+							} else {
+								displayText = "Task"
+							}
+						} else {
+							displayText = "Task"
+						}
 					}
 				} else {
-					displayText = updateParams.ID // Fallback to ID if no session state
+					// Try to extract from tool result content without session state
+					if msg.Content != "" && strings.Contains(msg.Content, "Updated todo ") {
+						start := strings.Index(msg.Content, "Updated todo \"")
+						if start >= 0 {
+							start += 14 // length of "Updated todo \""
+							end := strings.Index(msg.Content[start:], "\" to status:")
+							if end > 0 {
+								displayText = msg.Content[start : start+end]
+							} else {
+								displayText = "Task"
+							}
+						} else {
+							displayText = "Task"
+						}
+					} else {
+						displayText = "Task"
+					}
 				}
 
 				todoLine := fmt.Sprintf("\n%s %s → %s",
