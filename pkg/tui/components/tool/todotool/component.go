@@ -19,11 +19,12 @@ import (
 // Component represents a unified todo tool component that handles all todo operations.
 // It determines which operation to display based on the tool call name.
 type Component struct {
-	message  *types.Message
-	renderer *glamour.TermRenderer
-	spinner  spinner.Spinner
-	width    int
-	height   int
+	message      *types.Message
+	renderer     *glamour.TermRenderer
+	sessionState *service.SessionState
+	spinner      spinner.Spinner
+	width        int
+	height       int
 }
 
 // New creates a new unified todo component.
@@ -31,14 +32,15 @@ type Component struct {
 func New(
 	msg *types.Message,
 	renderer *glamour.TermRenderer,
-	_ *service.SessionState,
+	sessionState *service.SessionState,
 ) layout.Model {
 	return &Component{
-		message:  msg,
-		renderer: renderer,
-		spinner:  spinner.New(spinner.ModeSpinnerOnly),
-		width:    80,
-		height:   1,
+		message:      msg,
+		renderer:     renderer,
+		sessionState: sessionState,
+		spinner:      spinner.New(spinner.ModeSpinnerOnly),
+		width:        80,
+		height:       1,
 	}
 }
 
@@ -136,9 +138,10 @@ func (c *Component) renderCreateMultiple() string {
 		}
 	}
 
+	// For create operations, don't show redundant tool output since UI already lists todos
 	var resultContent string
 	if (msg.ToolStatus == types.ToolStatusCompleted || msg.ToolStatus == types.ToolStatusError) && msg.Content != "" {
-		resultContent = "\n" + styles.MutedStyle.Render(msg.Content)
+		// Skip showing tool output for createTodos since UI already displays individual todos
 	}
 
 	return styles.BaseStyle.PaddingLeft(2).PaddingTop(1).Render(content + resultContent)
@@ -195,18 +198,33 @@ func (c *Component) renderUpdate() string {
 		if err == nil {
 			if updateParams, ok := params.(builtin.UpdateTodoArgs); ok {
 				icon, style := renderTodoIcon(updateParams.Status)
+
+				// Try to get the todo description from the TodoManager
+				var displayText string
+				if c.sessionState != nil {
+					if todo := c.sessionState.TodoManager.GetTodoByID(updateParams.ID); todo != nil {
+						displayText = todo.Description
+					} else {
+						displayText = updateParams.ID // Fallback to ID if todo not found
+					}
+				} else {
+					displayText = updateParams.ID // Fallback to ID if no session state
+				}
+
 				todoLine := fmt.Sprintf("\n%s %s → %s",
 					style.Render(icon),
-					style.Render(updateParams.ID),
+					style.Render(displayText),
 					style.Render(updateParams.Status))
 				content += todoLine
 			}
 		}
 	}
 
+	// For update operations, don't show redundant tool output since UI already shows the result
 	var resultContent string
 	if (msg.ToolStatus == types.ToolStatusCompleted || msg.ToolStatus == types.ToolStatusError) && msg.Content != "" {
-		resultContent = "\n" + styles.MutedStyle.Render(msg.Content)
+		// Skip showing tool output for update operations as it's redundant
+		// The UI already shows "description → status" which is more informative
 	}
 
 	return styles.BaseStyle.PaddingLeft(2).PaddingTop(1).Render(content + resultContent)
