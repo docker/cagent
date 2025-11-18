@@ -136,7 +136,7 @@ func (h *todoHandler) updateTodo(_ context.Context, toolCall tools.ToolCall) (*t
 	h.todos.Store(params.ID, todo)
 
 	return &tools.ToolCallResult{
-		Output: fmt.Sprintf("Updated todo \"%s\" to status: [%s]", todo.Description, params.Status),
+		Output: fmt.Sprintf("Updated todo %q to status: [%s]", todo.Description, params.Status),
 	}, nil
 }
 

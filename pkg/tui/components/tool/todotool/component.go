@@ -140,9 +140,7 @@ func (c *Component) renderCreateMultiple() string {
 
 	// For create operations, don't show redundant tool output since UI already lists todos
 	var resultContent string
-	if (msg.ToolStatus == types.ToolStatusCompleted || msg.ToolStatus == types.ToolStatusError) && msg.Content != "" {
-		// Skip showing tool output for createTodos since UI already displays individual todos
-	}
+	// Skip showing tool output for createTodos since UI already displays individual todos
 
 	return styles.BaseStyle.PaddingLeft(2).PaddingTop(1).Render(content + resultContent)
 }
@@ -222,10 +220,8 @@ func (c *Component) renderUpdate() string {
 
 	// For update operations, don't show redundant tool output since UI already shows the result
 	var resultContent string
-	if (msg.ToolStatus == types.ToolStatusCompleted || msg.ToolStatus == types.ToolStatusError) && msg.Content != "" {
-		// Skip showing tool output for update operations as it's redundant
-		// The UI already shows "description → status" which is more informative
-	}
+	// Skip showing tool output for update operations as it's redundant
+	// The UI already shows "description → status" which is more informative
 
 	return styles.BaseStyle.PaddingLeft(2).PaddingTop(1).Render(content + resultContent)
 }
