@@ -138,11 +138,7 @@ func (c *Component) renderCreateMultiple() string {
 		}
 	}
 
-	// For create operations, don't show redundant tool output since UI already lists todos
-	var resultContent string
-	// Skip showing tool output for createTodos since UI already displays individual todos
-
-	return styles.BaseStyle.PaddingLeft(2).PaddingTop(1).Render(content + resultContent)
+	return styles.BaseStyle.PaddingLeft(2).PaddingTop(1).Render(content)
 }
 
 func (c *Component) renderList() string {
@@ -232,12 +228,7 @@ func (c *Component) renderUpdate() string {
 		}
 	}
 
-	// For update operations, don't show redundant tool output since UI already shows the result
-	var resultContent string
-	// Skip showing tool output for update operations as it's redundant
-	// The UI already shows "description → status" which is more informative
-
-	return styles.BaseStyle.PaddingLeft(2).PaddingTop(1).Render(content + resultContent)
+	return styles.BaseStyle.PaddingLeft(2).PaddingTop(1).Render(content)
 }
 
 func (c *Component) renderDefault() string {

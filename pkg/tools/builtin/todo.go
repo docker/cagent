@@ -116,8 +116,16 @@ func (h *todoHandler) createTodos(_ context.Context, toolCall tools.ToolCall) (*
 		ids[i] = id
 	}
 
+	output := fmt.Sprintf("Created %d todos: ", len(params.Descriptions))
+	for i, id := range ids {
+		if i > 0 {
+			output += ", "
+		}
+		output += fmt.Sprintf("[%s]", id)
+	}
+
 	return &tools.ToolCallResult{
-		Output: fmt.Sprintf("Created %d todos", len(params.Descriptions)),
+		Output: output,
 	}, nil
 }
 

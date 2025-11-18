@@ -178,7 +178,7 @@ func TestTodoTool_CreateTodos(t *testing.T) {
 	result, err := createTodosHandler(t.Context(), toolCall)
 
 	require.NoError(t, err)
-	assert.Equal(t, "Created 3 todos", result.Output)
+	assert.Equal(t, "Created 3 todos: [todo_1], [todo_2], [todo_3]", result.Output)
 
 	assert.Equal(t, 3, tool.handler.todos.Length())
 
@@ -200,7 +200,7 @@ func TestTodoTool_CreateTodos(t *testing.T) {
 	result, err = createTodosHandler(t.Context(), toolCall)
 
 	require.NoError(t, err)
-	assert.Equal(t, "Created 1 todos", result.Output)
+	assert.Equal(t, "Created 1 todos: [todo_4]", result.Output)
 	assert.Equal(t, 4, tool.handler.todos.Length())
 }
 
