@@ -241,7 +241,7 @@ This is not a todo line
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := parser.ParseTodoList(tt.input)
 			require.NoError(t, err)
-			assert.Equal(t, len(tt.expected), len(result))
+			assert.Len(t, result, len(tt.expected))
 
 			for i, expected := range tt.expected {
 				if i < len(result) {
@@ -285,7 +285,7 @@ func TestParseTodoListWithFallback(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			todos, err := parser.ParseTodoListWithFallback(tt.input)
 			require.NoError(t, err)
-			assert.Equal(t, tt.expectedCount, len(todos))
+			assert.Len(t, todos, tt.expectedCount)
 
 			// Check that expected descriptions are present
 			descriptions := make([]string, len(todos))
@@ -313,7 +313,7 @@ func TestRenderParsedTodo(t *testing.T) {
 	assert.Contains(t, result, "Test todo")
 
 	// Should contain some styled content (icon + description)
-	assert.True(t, len(result) > len("Test todo"))
+	assert.Greater(t, len(result), len("Test todo"))
 }
 
 func TestParsedTodo_ToTodoType(t *testing.T) {

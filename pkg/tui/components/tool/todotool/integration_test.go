@@ -190,7 +190,7 @@ Some random text
 			}
 
 			// Verify output contains some basic formatting
-			assert.True(t, len(output) > 0, "Output should contain some content")
+			assert.NotEmpty(t, output, "Output should contain some content")
 		})
 	}
 }
