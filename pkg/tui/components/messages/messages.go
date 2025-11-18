@@ -770,6 +770,7 @@ func (m *model) extractSelectedText() string {
 		switch i {
 		case startLine:
 			if startLine == endLine {
+				// Single line selection - preserve original trimming behavior
 				startIdx := displayWidthToRuneIndex(line, startCol)
 				endIdx := min(displayWidthToRuneIndex(line, endCol), len(runes))
 				if startIdx < len(runes) && startIdx < endIdx {
@@ -777,25 +778,31 @@ func (m *model) extractSelectedText() string {
 				}
 				break
 			}
-			// First line: from startCol to end
+			// First line: from startCol to end - keep right side, trim left
 			startIdx := displayWidthToRuneIndex(line, startCol)
 			if startIdx < len(runes) {
-				lineText = strings.TrimSpace(string(runes[startIdx:]))
+				lineText = strings.TrimLeft(string(runes[startIdx:]), " \t")
 			}
 		case endLine:
-			// Last line: from start to endCol
+			// Last line: from start to endCol - keep left side, trim right
 			endIdx := min(displayWidthToRuneIndex(line, endCol), len(runes))
-			lineText = strings.TrimSpace(string(runes[:endIdx]))
+			lineText = strings.TrimRight(string(runes[:endIdx]), " \t")
 		default:
-			// Middle lines: entire line
+			// Middle lines: entire line - trim both sides
 			lineText = strings.TrimSpace(line)
 		}
 
+		// Write line text if not empty or if it's the last line
+		// (to preserve trailing newlines in multi-line selections)
 		if lineText != "" {
 			result.WriteString(lineText)
+			if i < endLine {
+				result.WriteString("\n")
+			}
+		} else if i < endLine {
+			// Empty line in the middle - preserve it
+			result.WriteString("\n")
 		}
-
-		result.WriteString("\n")
 	}
 
 	return result.String()
