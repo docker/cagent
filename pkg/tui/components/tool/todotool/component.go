@@ -212,49 +212,15 @@ func (c *Component) renderUpdate() string {
 			if updateParams, ok := params.(builtin.UpdateTodoArgs); ok {
 				icon, style := renderTodoIcon(updateParams.Status)
 
-				// Try to get the todo description from the TodoManager
 				var displayText string
 				if c.sessionState != nil {
 					if todo := c.sessionState.TodoManager.GetTodoByID(updateParams.ID); todo != nil {
 						displayText = todo.Description
 					} else {
-						// Try to extract description from tool result content as fallback
-						if msg.Content != "" && strings.Contains(msg.Content, "Updated todo ") {
-							// Extract description from "Updated todo \"description\" to status: [status]"
-							start := strings.Index(msg.Content, "Updated todo \"")
-							if start >= 0 {
-								start += 14 // length of "Updated todo \""
-								end := strings.Index(msg.Content[start:], "\" to status:")
-								if end > 0 {
-									displayText = msg.Content[start : start+end]
-								} else {
-									displayText = "Task"
-								}
-							} else {
-								displayText = "Task"
-							}
-						} else {
-							displayText = "Task"
-						}
+						displayText = extractTaskNumber(updateParams.ID)
 					}
 				} else {
-					// Try to extract from tool result content without session state
-					if msg.Content != "" && strings.Contains(msg.Content, "Updated todo ") {
-						start := strings.Index(msg.Content, "Updated todo \"")
-						if start >= 0 {
-							start += 14 // length of "Updated todo \""
-							end := strings.Index(msg.Content[start:], "\" to status:")
-							if end > 0 {
-								displayText = msg.Content[start : start+end]
-							} else {
-								displayText = "Task"
-							}
-						} else {
-							displayText = "Task"
-						}
-					} else {
-						displayText = "Task"
-					}
+					displayText = extractTaskNumber(updateParams.ID)
 				}
 
 				todoLine := fmt.Sprintf("\n%s %s → %s",
@@ -289,4 +255,17 @@ func (c *Component) renderDefault() string {
 	}
 
 	return styles.BaseStyle.PaddingLeft(2).PaddingTop(1).Render(content + resultContent)
+}
+
+// extractTaskNumber extracts a task number from todo ID and formats it as "Task1", "Task2", etc.
+func extractTaskNumber(id string) string {
+	// Handle common formats: "todo_1", "todo_2", etc.
+	if strings.HasPrefix(id, "todo_") {
+		if num := strings.TrimPrefix(id, "todo_"); num != "" {
+			return fmt.Sprintf("Task%s", num)
+		}
+	}
+
+	// For UUIDs or other formats, just return "Task"
+	return "Task"
 }
