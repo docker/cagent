@@ -151,43 +151,22 @@ func (c *Component) renderList() string {
 	}
 
 	if (msg.ToolStatus == types.ToolStatusCompleted || msg.ToolStatus == types.ToolStatusError) && msg.Content != "" {
-		lines := strings.Split(msg.Content, "\n")
-		var styledLines []string
-		for _, line := range lines {
-			if strings.HasPrefix(line, "- [") {
-				// Extract todo content, removing the ID portion
-				// Format: "- [todo_1] Description (Status: pending)"
-				content := strings.TrimSpace(line[2:]) // Remove "- ["
+		// Use robust parsing with fallback to string-based parsing
+		parser := NewTodoOutputParser()
+		todos, err := parser.ParseTodoListWithFallback(msg.Content)
 
-				// Find the closing bracket to extract ID and description
-				if closeIdx := strings.Index(content, "] "); closeIdx > 0 {
-					description := content[closeIdx+2:] // Everything after "] "
-
-					switch {
-					case strings.Contains(description, "(Status: pending)"):
-						icon, style := renderTodoIcon("pending")
-						desc := strings.TrimSuffix(description, " (Status: pending)")
-						styledLines = append(styledLines, style.Render(icon)+" "+style.Render(desc))
-					case strings.Contains(description, "(Status: in-progress)"):
-						icon, style := renderTodoIcon("in-progress")
-						desc := strings.TrimSuffix(description, " (Status: in-progress)")
-						styledLines = append(styledLines, style.Render(icon)+" "+style.Render(desc))
-					case strings.Contains(description, "(Status: completed)"):
-						icon, style := renderTodoIcon("completed")
-						desc := strings.TrimSuffix(description, " (Status: completed)")
-						styledLines = append(styledLines, style.Render(icon)+" "+style.Render(desc))
-					default:
-						styledLines = append(styledLines, description)
-					}
-				} else {
-					// Fallback for unexpected format
-					styledLines = append(styledLines, line)
-				}
-			} else {
-				styledLines = append(styledLines, line)
+		if err != nil || len(todos) == 0 {
+			// Final fallback to showing raw content if all parsing fails
+			content += "\n" + styles.MutedStyle.Render(msg.Content)
+		} else {
+			var styledLines []string
+			for _, todo := range todos {
+				styledLines = append(styledLines, RenderParsedTodo(todo))
+			}
+			if len(styledLines) > 0 {
+				content += "\n" + strings.Join(styledLines, "\n")
 			}
 		}
-		content += "\n" + strings.Join(styledLines, "\n")
 	}
 
 	return styles.BaseStyle.PaddingLeft(2).PaddingTop(1).Render(content)
