@@ -238,6 +238,15 @@ func (e *editor) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		return e, nil
 	case tea.KeyPressMsg:
 		switch msg.String() {
+		case "ctrl+enter":
+			// Insert a newline instead of submitting
+			if e.textarea.Focused() {
+				currentValue := e.textarea.Value()
+				e.textarea.SetValue(currentValue + "\n")
+				e.textarea.MoveToEnd()
+				e.refreshSuggestion()
+			}
+			return e, nil
 		case "enter":
 			if !e.textarea.Focused() {
 				return e, nil
