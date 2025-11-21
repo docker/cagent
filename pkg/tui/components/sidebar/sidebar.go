@@ -26,27 +26,6 @@ const (
 	ModeHorizontal
 )
 
-// usageTotals holds simple token/cost sums.
-type usageTotals struct {
-	Tokens int
-	Cost   float64
-}
-
-// agentUsage is a friendly view for rendering per-agent usage.
-type agentUsage struct {
-	Agent  string
-	Totals usageTotals
-}
-
-// sessionUsageState tracks usage for a single session.
-// It keeps the last cumulative Usage per agent so we can turn cumulative events into deltas.
-type sessionUsageState struct {
-	title  string
-	last   map[string]runtime.Usage
-	totals usageTotals
-	agents map[string]usageTotals
-}
-
 // Model represents a sidebar component
 type Model interface {
 	layout.Model
@@ -92,12 +71,6 @@ type model struct {
 	availableTools   int
 	activeTools      []string
 	toolExecutions   map[string]string // tool name -> status (running, completed, failed)
-
-	// Usage tracking (kept simple and local to the sidebar)
-	sessionStack []string
-	lastSession  string
-	sessions     map[string]*sessionUsageState
-	globalUsage  usageTotals
 }
 
 func New(manager *service.TodoManager) Model {
@@ -111,7 +84,6 @@ func New(manager *service.TodoManager) Model {
 		sessionTitle:   "New session",
 		ragIndexing:    make(map[string]*ragIndexingState),
 		toolExecutions: make(map[string]string),
-		sessions:       make(map[string]*sessionUsageState),
 	}
 }
 
@@ -197,6 +169,20 @@ func formatCost(cost float64) string {
 	return fmt.Sprintf("%.2f", cost)
 }
 
+// contextPercent returns a context usage percentage string when a single session has a limit.
+func (m *model) contextPercent() (string, bool) {
+	if len(m.sessionUsage) != 1 {
+		return "", false
+	}
+	for _, usage := range m.sessionUsage {
+		if usage.ContextLimit > 0 {
+			percent := (float64(usage.ContextLength) / float64(usage.ContextLimit)) * 100
+			return fmt.Sprintf("Context: %.0f%%", percent), true
+		}
+	}
+	return "", false
+}
+
 // getCurrentWorkingDirectory returns the current working directory with home directory replaced by ~/
 func getCurrentWorkingDirectory() string {
 	pwd, err := os.Getwd()
@@ -210,138 +196,6 @@ func getCurrentWorkingDirectory() string {
 	}
 
 	return pwd
-}
-
-// trackStreamStarted pushes a session onto the stack and initializes bookkeeping.
-func (m *model) trackStreamStarted(sessionID, title string) {
-	m.sessionStack = append(m.sessionStack, sessionID)
-	m.lastSession = sessionID
-	if _, ok := m.sessions[sessionID]; !ok {
-		m.sessions[sessionID] = &sessionUsageState{
-			title:  title,
-			last:   make(map[string]runtime.Usage),
-			agents: make(map[string]usageTotals),
-		}
-	}
-}
-
-// trackStreamStopped pops sessions until the given sessionID is removed.
-func (m *model) trackStreamStopped(sessionID string) {
-	for len(m.sessionStack) > 0 {
-		top := m.sessionStack[len(m.sessionStack)-1]
-		m.sessionStack = m.sessionStack[:len(m.sessionStack)-1]
-		if top == sessionID {
-			if len(m.sessionStack) > 0 {
-				m.lastSession = m.sessionStack[len(m.sessionStack)-1]
-			} else {
-				m.lastSession = sessionID
-			}
-			return
-		}
-	}
-}
-
-// trackSessionTitle updates the stored title for a session.
-func (m *model) trackSessionTitle(sessionID, title string) {
-	sess, ok := m.sessions[sessionID]
-	if !ok {
-		sess = &sessionUsageState{
-			title:  title,
-			last:   make(map[string]runtime.Usage),
-			agents: make(map[string]usageTotals),
-		}
-		m.sessions[sessionID] = sess
-		return
-	}
-	sess.title = title
-}
-
-// trackTokenUsage aggregates usage for the active session/agent.
-// - Token counts from Usage represent the current model call; we add them directly.
-// - Cost is cumulative in Usage, so we convert it to a delta against the last seen value.
-func (m *model) trackTokenUsage(agentName string, usage *runtime.Usage) {
-	if usage == nil {
-		return
-	}
-
-	currentSessionID := m.currentSessionID()
-	if currentSessionID == "" {
-		return
-	}
-
-	sess := m.ensureSession(currentSessionID)
-	last := sess.last[agentName]
-
-	// Tokens are per-call; add this event's tokens directly.
-	eventTokens := usage.InputTokens + usage.OutputTokens
-
-	deltaCost := usage.Cost - last.Cost
-	if deltaCost < 0 {
-		deltaCost = 0
-	}
-
-	sess.last[agentName] = *usage
-
-	sess.totals.Tokens += eventTokens
-	m.globalUsage.Tokens += eventTokens
-
-	sess.totals.Cost += deltaCost
-	m.globalUsage.Cost += deltaCost
-
-	agentTotals := sess.agents[agentName]
-	agentTotals.Tokens += eventTokens
-	agentTotals.Cost += deltaCost
-	sess.agents[agentName] = agentTotals
-
-}
-
-// currentSessionID returns the active session ID (top of stack), or the last seen session if none active.
-func (m *model) currentSessionID() string {
-	if len(m.sessionStack) == 0 {
-		return m.lastSession
-	}
-	return m.sessionStack[len(m.sessionStack)-1]
-}
-
-// ensureSession returns the sessionUsageState for sessionID, creating it if missing.
-func (m *model) ensureSession(sessionID string) *sessionUsageState {
-	sess, ok := m.sessions[sessionID]
-	if !ok {
-		sess = &sessionUsageState{
-			title:  "",
-			last:   make(map[string]runtime.Usage),
-			agents: make(map[string]usageTotals),
-		}
-		m.sessions[sessionID] = sess
-	}
-	return sess
-}
-
-// globalAgentUsage aggregates usage across all sessions per agent.
-func (m *model) globalAgentUsage() []agentUsage {
-	perAgent := make(map[string]usageTotals)
-	for _, sess := range m.sessions {
-		for agent, totals := range sess.agents {
-			current := perAgent[agent]
-			current.Tokens += totals.Tokens
-			current.Cost += totals.Cost
-			perAgent[agent] = current
-		}
-	}
-
-	var agents []agentUsage
-	for agent, totals := range perAgent {
-		agents = append(agents, agentUsage{Agent: agent, Totals: totals})
-	}
-
-	sort.Slice(agents, func(i, j int) bool {
-		if agents[i].Totals.Tokens != agents[j].Totals.Tokens {
-			return agents[i].Totals.Tokens > agents[j].Totals.Tokens
-		}
-		return agents[i].Agent < agents[j].Agent
-	})
-
-	return agents
 }
 
 // Update handles messages and updates the component state.
@@ -393,7 +247,6 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		return m, nil
 	case *runtime.SessionTitleEvent:
 		m.sessionTitle = msg.Title
-		m.trackSessionTitle(msg.SessionID, msg.Title)
 		return m, nil
 	case *runtime.AgentInfoEvent:
 		m.SetAgentInfo(msg.AgentName, msg.Model, msg.Description)
@@ -409,12 +262,6 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		return m, nil
 	case *runtime.ToolStatusEvent:
 		m.SetToolStatus(msg.ToolName, msg.Status)
-		return m, nil
-	case *runtime.StreamStartedEvent:
-		m.trackStreamStarted(msg.SessionID, m.sessionTitle)
-		return m, nil
-	case *runtime.StreamStoppedEvent:
-		m.trackStreamStopped(msg.SessionID)
 		return m, nil
 	default:
 		var cmds []tea.Cmd
@@ -687,7 +534,11 @@ func (m *model) tokenUsage() string {
 	var b strings.Builder
 	b.WriteString(styles.HighlightStyle.Render("TOTAL USAGE"))
 	b.WriteString("\n  ")
-	b.WriteString(fmt.Sprintf("Tokens: %s | Cost: $%s", formatTokenCount(totalTokens), formatCost(totalCost)))
+	line := fmt.Sprintf("Tokens: %s | Cost: $%s", formatTokenCount(totalTokens), formatCost(totalCost))
+	if ctxText, ok := m.contextPercent(); ok {
+		line = fmt.Sprintf("%s | %s", line, ctxText)
+	}
+	b.WriteString(line)
 
 	b.WriteString("\n--------------------------------\n")
 	b.WriteString(styles.HighlightStyle.Render("SESSION BREAKDOWN"))
@@ -712,6 +563,26 @@ func (m *model) tokenUsage() string {
 	}
 
 	return b.String()
+}
+
+// tokenUsageSummary returns a single-line summary for horizontal layout.
+func (m *model) tokenUsageSummary() string {
+	if len(m.sessionUsage) == 0 {
+		return ""
+	}
+
+	var totalTokens int
+	var totalCost float64
+	for _, usage := range m.sessionUsage {
+		totalTokens += usage.InputTokens + usage.OutputTokens
+		totalCost += usage.Cost
+	}
+
+	if ctxText, ok := m.contextPercent(); ok {
+		return fmt.Sprintf("Tokens: %s | Cost: $%s | %s", formatTokenCount(totalTokens), formatCost(totalCost), ctxText)
+	}
+
+	return fmt.Sprintf("Tokens: %s | Cost: $%s", formatTokenCount(totalTokens), formatCost(totalCost))
 }
 
 // agentInfo renders the current agent information
