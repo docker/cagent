@@ -1181,9 +1181,12 @@ func (s *Server) runAgent(c echo.Context) error {
 	p := addYamlExt(agentFilename)
 
 	// Copy runConfig and inject per-session working dir override
-	rc := s.runConfig
+	rc := *s.runConfig // Dereference to create a proper copy
 	rc.WorkingDir = sess.WorkingDir
 
+	t, err := teamloader.Load(c.Request().Context(), filepath.Join(s.agentsDir, p), &rc)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to load agent for session")
 	// Load team - either reload from disk (local) or use in-memory team (OCI refs)
 	var t *team.Team
 
