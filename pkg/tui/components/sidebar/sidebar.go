@@ -248,8 +248,9 @@ func (m *model) trackSessionTitle(sessionID, title string) {
 	sess.title = title
 }
 
-// trackTokenUsage converts a cumulative Usage event into deltas and aggregates them.
-// Cost deltas are applied; if the runtime ever resets, negative deltas are clamped to zero.
+// trackTokenUsage aggregates usage for the active session/agent.
+// - Token counts from Usage represent the current model call; we add them directly.
+// - Cost is cumulative in Usage, so we convert it to a delta against the last seen value.
 func (m *model) trackTokenUsage(agentName string, usage *runtime.Usage) {
 	if usage == nil {
 		return
@@ -263,13 +264,8 @@ func (m *model) trackTokenUsage(agentName string, usage *runtime.Usage) {
 	sess := m.ensureSession(currentSessionID)
 	last := sess.last[agentName]
 
-	newTokens := usage.InputTokens + usage.OutputTokens
-	lastTokens := last.InputTokens + last.OutputTokens
-
-	deltaTokens := newTokens - lastTokens
-	if deltaTokens < 0 {
-		deltaTokens = newTokens
-	}
+	// Tokens are per-call; add this event's tokens directly.
+	eventTokens := usage.InputTokens + usage.OutputTokens
 
 	deltaCost := usage.Cost - last.Cost
 	if deltaCost < 0 {
@@ -278,14 +274,14 @@ func (m *model) trackTokenUsage(agentName string, usage *runtime.Usage) {
 
 	sess.last[agentName] = *usage
 
-	sess.totals.Tokens += deltaTokens
-	m.globalUsage.Tokens += deltaTokens
+	sess.totals.Tokens += eventTokens
+	m.globalUsage.Tokens += eventTokens
 
 	sess.totals.Cost += deltaCost
 	m.globalUsage.Cost += deltaCost
 
 	agentTotals := sess.agents[agentName]
-	agentTotals.Tokens += deltaTokens
+	agentTotals.Tokens += eventTokens
 	agentTotals.Cost += deltaCost
 	sess.agents[agentName] = agentTotals
 
