@@ -263,7 +263,7 @@ func (p *chatPage) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		cmd := p.messages.AppendToLastMessage(msg.AgentName, types.MessageTypeAssistantReasoning, msg.Content)
 		return p, cmd
 	case *runtime.TokenUsageEvent:
-		p.sidebar.SetTokenUsage(msg.AgentName, msg.Usage)
+		p.sidebar.SetTokenUsage(msg)
 	case *runtime.AgentInfoEvent:
 		p.sidebar.SetAgentInfo(msg.AgentName, msg.Model, msg.Description)
 	case *runtime.TeamInfoEvent:

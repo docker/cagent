@@ -52,8 +52,7 @@ type Model interface {
 	layout.Model
 	layout.Sizeable
 
-	// SetTokenUsage records token usage for the given agent (defaults to current agent when empty).
-	SetTokenUsage(agentName string, usage *runtime.Usage)
+	SetTokenUsage(event *runtime.TokenUsageEvent)
 	SetTodos(toolCall tools.ToolCall) error
 	SetWorking(working bool) tea.Cmd
 	SetMode(mode Mode)
@@ -76,6 +75,8 @@ type ragIndexingState struct {
 type model struct {
 	width            int
 	height           int
+	sessionUsage     map[string]*runtime.Usage // sessionID -> latest usage snapshot
+	sessionAgent     map[string]string         // sessionID -> agent name
 	todoComp         *todotool.SidebarComponent
 	working          bool
 	mcpInit          bool
@@ -103,6 +104,8 @@ func New(manager *service.TodoManager) Model {
 	return &model{
 		width:          20,
 		height:         24,
+		sessionUsage:   make(map[string]*runtime.Usage),
+		sessionAgent:   make(map[string]string),
 		todoComp:       todotool.NewSidebarComponent(manager),
 		spinner:        spinner.New(spinner.ModeSpinnerOnly),
 		sessionTitle:   "New session",
@@ -116,11 +119,15 @@ func (m *model) Init() tea.Cmd {
 	return nil
 }
 
-func (m *model) SetTokenUsage(agentName string, usage *runtime.Usage) {
-	if agentName == "" {
-		agentName = m.currentAgent
+func (m *model) SetTokenUsage(event *runtime.TokenUsageEvent) {
+	if event == nil || event.Usage == nil || event.SessionID == "" || event.AgentContext.AgentName == "" {
+		return
 	}
-	m.trackTokenUsage(agentName, usage)
+
+	// Store/replace by session ID (each event has cumulative totals for that session)
+	usage := *event.Usage
+	m.sessionUsage[event.SessionID] = &usage
+	m.sessionAgent[event.SessionID] = event.AgentContext.AgentName
 }
 
 func (m *model) SetTodos(toolCall tools.ToolCall) error {
@@ -186,12 +193,11 @@ func formatTokenCount(count int) string {
 	return fmt.Sprintf("%d", count)
 }
 
-// formatCost formats a cost value to two decimal places.
 func formatCost(cost float64) string {
 	return fmt.Sprintf("%.2f", cost)
 }
 
-// getCurrentWorkingDirectory returns the current working directory with home directory replaced by ~/.
+// getCurrentWorkingDirectory returns the current working directory with home directory replaced by ~/
 func getCurrentWorkingDirectory() string {
 	pwd, err := os.Getwd()
 	if err != nil {
@@ -344,6 +350,9 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		cmd := m.SetSize(msg.Width, msg.Height)
 		return m, cmd
+	case *runtime.TokenUsageEvent:
+		m.SetTokenUsage(msg)
+		return m, nil
 	case *runtime.MCPInitStartedEvent:
 		m.mcpInit = true
 		return m, m.spinner.Init()
@@ -648,38 +657,61 @@ func (m *model) workingIndicatorHorizontal() string {
 }
 
 func (m *model) tokenUsage() string {
-	global := m.globalUsage
-	agents := m.globalAgentUsage()
+	if len(m.sessionUsage) == 0 {
+		return ""
+	}
+
+	var totalTokens int
+	var totalCost float64
+	for _, usage := range m.sessionUsage {
+		totalTokens += usage.InputTokens + usage.OutputTokens
+		totalCost += usage.Cost
+	}
+
+	agentTotals := make(map[string]*runtime.Usage)
+	for sessionID, usage := range m.sessionUsage {
+		agent := m.sessionAgent[sessionID]
+		if agent == "" {
+			continue
+		}
+		if existing, ok := agentTotals[agent]; ok {
+			existing.InputTokens += usage.InputTokens
+			existing.OutputTokens += usage.OutputTokens
+			existing.Cost += usage.Cost
+		} else {
+			u := *usage
+			agentTotals[agent] = &u
+		}
+	}
 
 	var b strings.Builder
-
 	b.WriteString(styles.HighlightStyle.Render("TOTAL USAGE"))
 	b.WriteString("\n  ")
-	b.WriteString(fmt.Sprintf("Tokens: %s | Cost: $%s", formatTokenCount(global.Tokens), formatCost(global.Cost)))
+	b.WriteString(fmt.Sprintf("Tokens: %s | Cost: $%s", formatTokenCount(totalTokens), formatCost(totalCost)))
 
 	b.WriteString("\n--------------------------------\n")
 	b.WriteString(styles.HighlightStyle.Render("SESSION BREAKDOWN"))
 
-	if len(agents) == 0 {
+	agentNames := make([]string, 0, len(agentTotals))
+	for name := range agentTotals {
+		agentNames = append(agentNames, name)
+	}
+	sort.Strings(agentNames)
+
+	if len(agentNames) == 0 {
 		b.WriteString("\n  ")
 		b.WriteString(styles.SubtleStyle.Render("No usage yet"))
 		return b.String()
 	}
 
-	for _, a := range agents {
-		b.WriteString("\n  ")
-		b.WriteString(styles.SubtleStyle.Render(a.Agent))
-		b.WriteString("\n    ")
-		b.WriteString(fmt.Sprintf("Tokens: %s | Cost: $%s", formatTokenCount(a.Totals.Tokens), formatCost(a.Totals.Cost)))
+	for _, name := range agentNames {
+		usage := agentTotals[name]
+		tokens := usage.InputTokens + usage.OutputTokens
+		b.WriteString(fmt.Sprintf("\n  %s", styles.SubtleStyle.Render(name)))
+		b.WriteString(fmt.Sprintf("\n    Tokens: %s | Cost: $%s", formatTokenCount(tokens), formatCost(usage.Cost)))
 	}
 
 	return b.String()
-}
-
-// tokenUsageSummary renders condensed usage totals for horizontal layout.
-func (m *model) tokenUsageSummary() string {
-	global := m.globalUsage
-	return fmt.Sprintf("Tokens: %s | Cost: $%s", formatTokenCount(global.Tokens), formatCost(global.Cost))
 }
 
 // agentInfo renders the current agent information
