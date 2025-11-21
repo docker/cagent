@@ -1265,7 +1265,6 @@ func (r *LocalRuntime) handleTaskTransfer(ctx context.Context, sess *session.Ses
 	}
 
 	sess.ToolsApproved = s.ToolsApproved
-	sess.Cost += s.Cost
 
 	sess.AddSubSession(s)
 
