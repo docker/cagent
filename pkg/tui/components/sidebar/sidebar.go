@@ -52,6 +52,7 @@ type Model interface {
 	layout.Model
 	layout.Sizeable
 
+	// SetTokenUsage records token usage for the given agent (defaults to current agent when empty).
 	SetTokenUsage(agentName string, usage *runtime.Usage)
 	SetTodos(toolCall tools.ToolCall) error
 	SetWorking(working bool) tea.Cmd
@@ -185,6 +186,7 @@ func formatTokenCount(count int) string {
 	return fmt.Sprintf("%d", count)
 }
 
+// formatCost formats a cost value to two decimal places.
 func formatCost(cost float64) string {
 	return fmt.Sprintf("%.2f", cost)
 }
@@ -674,6 +676,7 @@ func (m *model) tokenUsage() string {
 	return b.String()
 }
 
+// tokenUsageSummary renders condensed usage totals for horizontal layout.
 func (m *model) tokenUsageSummary() string {
 	global := m.globalUsage
 	return fmt.Sprintf("Tokens: %s | Cost: $%s", formatTokenCount(global.Tokens), formatCost(global.Cost))
