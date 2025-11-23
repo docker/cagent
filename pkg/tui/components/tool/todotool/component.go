@@ -19,11 +19,12 @@ import (
 // Component represents a unified todo tool component that handles all todo operations.
 // It determines which operation to display based on the tool call name.
 type Component struct {
-	message  *types.Message
-	renderer *glamour.TermRenderer
-	spinner  spinner.Spinner
-	width    int
-	height   int
+	message      *types.Message
+	renderer     *glamour.TermRenderer
+	sessionState *service.SessionState
+	spinner      spinner.Spinner
+	width        int
+	height       int
 }
 
 // New creates a new unified todo component.
@@ -31,14 +32,15 @@ type Component struct {
 func New(
 	msg *types.Message,
 	renderer *glamour.TermRenderer,
-	_ *service.SessionState,
+	sessionState *service.SessionState,
 ) layout.Model {
 	return &Component{
-		message:  msg,
-		renderer: renderer,
-		spinner:  spinner.New(spinner.ModeSpinnerOnly),
-		width:    80,
-		height:   1,
+		message:      msg,
+		renderer:     renderer,
+		sessionState: sessionState,
+		spinner:      spinner.New(spinner.ModeSpinnerOnly),
+		width:        80,
+		height:       1,
 	}
 }
 
@@ -136,12 +138,7 @@ func (c *Component) renderCreateMultiple() string {
 		}
 	}
 
-	var resultContent string
-	if (msg.ToolStatus == types.ToolStatusCompleted || msg.ToolStatus == types.ToolStatusError) && msg.Content != "" {
-		resultContent = "\n" + styles.MutedStyle.Render(msg.Content)
-	}
-
-	return styles.BaseStyle.PaddingLeft(2).PaddingTop(1).Render(content + resultContent)
+	return styles.BaseStyle.PaddingLeft(2).PaddingTop(1).Render(content)
 }
 
 func (c *Component) renderList() string {
@@ -154,28 +151,22 @@ func (c *Component) renderList() string {
 	}
 
 	if (msg.ToolStatus == types.ToolStatusCompleted || msg.ToolStatus == types.ToolStatusError) && msg.Content != "" {
-		lines := strings.Split(msg.Content, "\n")
-		var styledLines []string
-		for _, line := range lines {
-			if strings.HasPrefix(line, "- [") {
-				switch {
-				case strings.Contains(line, "(Status: pending)"):
-					icon, style := renderTodoIcon("pending")
-					styledLines = append(styledLines, style.Render(icon)+" "+style.Render(strings.TrimSuffix(strings.TrimSpace(line[2:]), " (Status: pending)")))
-				case strings.Contains(line, "(Status: in-progress)"):
-					icon, style := renderTodoIcon("in-progress")
-					styledLines = append(styledLines, style.Render(icon)+" "+style.Render(strings.TrimSuffix(strings.TrimSpace(line[2:]), " (Status: in-progress)")))
-				case strings.Contains(line, "(Status: completed)"):
-					icon, style := renderTodoIcon("completed")
-					styledLines = append(styledLines, style.Render(icon)+" "+style.Render(strings.TrimSuffix(strings.TrimSpace(line[2:]), " (Status: completed)")))
-				default:
-					styledLines = append(styledLines, line)
-				}
-			} else {
-				styledLines = append(styledLines, line)
+		// Use robust parsing with fallback to string-based parsing
+		parser := NewTodoOutputParser()
+		todos, err := parser.ParseTodoListWithFallback(msg.Content)
+
+		if err != nil || len(todos) == 0 {
+			// Final fallback to showing raw content if all parsing fails
+			content += "\n" + styles.MutedStyle.Render(msg.Content)
+		} else {
+			var styledLines []string
+			for _, todo := range todos {
+				styledLines = append(styledLines, RenderParsedTodo(todo))
+			}
+			if len(styledLines) > 0 {
+				content += "\n" + strings.Join(styledLines, "\n")
 			}
 		}
-		content += "\n" + strings.Join(styledLines, "\n")
 	}
 
 	return styles.BaseStyle.PaddingLeft(2).PaddingTop(1).Render(content)
@@ -195,21 +186,28 @@ func (c *Component) renderUpdate() string {
 		if err == nil {
 			if updateParams, ok := params.(builtin.UpdateTodoArgs); ok {
 				icon, style := renderTodoIcon(updateParams.Status)
+
+				var displayText string
+				if c.sessionState != nil {
+					if todo := c.sessionState.TodoManager.GetTodoByID(updateParams.ID); todo != nil {
+						displayText = todo.Description
+					} else {
+						displayText = extractTaskNumber(updateParams.ID)
+					}
+				} else {
+					displayText = extractTaskNumber(updateParams.ID)
+				}
+
 				todoLine := fmt.Sprintf("\n%s %s → %s",
 					style.Render(icon),
-					style.Render(updateParams.ID),
+					style.Render(displayText),
 					style.Render(updateParams.Status))
 				content += todoLine
 			}
 		}
 	}
 
-	var resultContent string
-	if (msg.ToolStatus == types.ToolStatusCompleted || msg.ToolStatus == types.ToolStatusError) && msg.Content != "" {
-		resultContent = "\n" + styles.MutedStyle.Render(msg.Content)
-	}
-
-	return styles.BaseStyle.PaddingLeft(2).PaddingTop(1).Render(content + resultContent)
+	return styles.BaseStyle.PaddingLeft(2).PaddingTop(1).Render(content)
 }
 
 func (c *Component) renderDefault() string {
@@ -227,4 +225,17 @@ func (c *Component) renderDefault() string {
 	}
 
 	return styles.BaseStyle.PaddingLeft(2).PaddingTop(1).Render(content + resultContent)
+}
+
+// extractTaskNumber extracts a task number from todo ID and formats it as "Task1", "Task2", etc.
+func extractTaskNumber(id string) string {
+	// Handle common formats: "todo_1", "todo_2", etc.
+	if strings.HasPrefix(id, "todo_") {
+		if num := strings.TrimPrefix(id, "todo_"); num != "" {
+			return fmt.Sprintf("Task%s", num)
+		}
+	}
+
+	// For UUIDs or other formats, just return "Task"
+	return "Task"
 }

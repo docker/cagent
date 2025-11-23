@@ -39,3 +39,13 @@ func (tm *TodoManager) UpdateTodo(id, status string) bool {
 func (tm *TodoManager) GetTodos() []types.Todo {
 	return tm.todos
 }
+
+// GetTodoByID returns a todo by its ID, or nil if not found
+func (tm *TodoManager) GetTodoByID(id string) *types.Todo {
+	for _, todo := range tm.todos {
+		if todo.ID == id {
+			return &todo
+		}
+	}
+	return nil
+}

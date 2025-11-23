@@ -178,10 +178,7 @@ func TestTodoTool_CreateTodos(t *testing.T) {
 	result, err := createTodosHandler(t.Context(), toolCall)
 
 	require.NoError(t, err)
-	assert.Contains(t, result.Output, "Created 3 todos:")
-	assert.Contains(t, result.Output, "todo_1")
-	assert.Contains(t, result.Output, "todo_2")
-	assert.Contains(t, result.Output, "todo_3")
+	assert.Equal(t, "Created 3 todos: [todo_1], [todo_2], [todo_3]", result.Output)
 
 	assert.Equal(t, 3, tool.handler.todos.Length())
 
@@ -203,8 +200,7 @@ func TestTodoTool_CreateTodos(t *testing.T) {
 	result, err = createTodosHandler(t.Context(), toolCall)
 
 	require.NoError(t, err)
-	assert.Contains(t, result.Output, "Created 1 todos:")
-	assert.Contains(t, result.Output, "todo_4")
+	assert.Equal(t, "Created 1 todos: [todo_4]", result.Output)
 	assert.Equal(t, 4, tool.handler.todos.Length())
 }
 
@@ -253,7 +249,7 @@ func TestTodoTool_UpdateTodo(t *testing.T) {
 	result, err := updateHandler(t.Context(), updateToolCall)
 
 	require.NoError(t, err)
-	assert.Contains(t, result.Output, "Updated todo [todo_1] to status: [completed]")
+	assert.Contains(t, result.Output, "Updated todo \"Test todo item\" to status: [completed]")
 
 	todo, exists := tool.handler.todos.Load("todo_1")
 	assert.True(t, exists)
