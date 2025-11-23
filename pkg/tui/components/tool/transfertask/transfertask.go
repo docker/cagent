@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/glamour/v2"
 
 	"github.com/docker/cagent/pkg/tools/builtin"
 	"github.com/docker/cagent/pkg/tui/core/layout"
@@ -15,18 +14,15 @@ import (
 
 // Component is a specialized component for rendering transfer_task tool calls.
 type Component struct {
-	message  *types.Message
-	renderer *glamour.TermRenderer
+	message *types.Message
 }
 
 func New(
 	msg *types.Message,
-	renderer *glamour.TermRenderer,
 	_ *service.SessionState,
 ) layout.Model {
 	return &Component{
-		message:  msg,
-		renderer: renderer,
+		message: msg,
 	}
 }
 
@@ -49,6 +45,6 @@ func (c *Component) View() string {
 	}
 
 	badge := styles.TransferBadgeStyle.Render(c.message.Sender + " -> " + params.Agent + ": ")
-	content := styles.MutedStyle.PaddingLeft(2).Render(params.Task)
+	content := styles.MutedStyle.Render(params.Task)
 	return badge + "\n" + content
 }

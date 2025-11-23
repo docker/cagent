@@ -2,10 +2,8 @@ package writefile
 
 import (
 	"encoding/json"
-	"fmt"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/glamour/v2"
 
 	"github.com/docker/cagent/pkg/tools/builtin"
 	"github.com/docker/cagent/pkg/tui/components/spinner"
@@ -18,24 +16,21 @@ import (
 
 // Component is a specialized component for rendering write_file tool calls.
 type Component struct {
-	message  *types.Message
-	renderer *glamour.TermRenderer
-	spinner  spinner.Spinner
-	width    int
-	height   int
+	message *types.Message
+	spinner spinner.Spinner
+	width   int
+	height  int
 }
 
 func New(
 	msg *types.Message,
-	renderer *glamour.TermRenderer,
 	_ *service.SessionState,
 ) layout.Model {
 	return &Component{
-		message:  msg,
-		renderer: renderer,
-		spinner:  spinner.New(spinner.ModeSpinnerOnly),
-		width:    80,
-		height:   1,
+		message: msg,
+		spinner: spinner.New(spinner.ModeSpinnerOnly),
+		width:   80,
+		height:  1,
 	}
 }
 
@@ -68,24 +63,8 @@ func (c *Component) View() string {
 	msg := c.message
 	var args builtin.WriteFileArgs
 	if err := json.Unmarshal([]byte(msg.ToolCall.Function.Arguments), &args); err != nil {
-		return ""
+		return toolcommon.RenderTool(toolcommon.Icon(msg.ToolStatus), msg.ToolDefinition.DisplayName(), c.spinner.View(), "", c.width)
 	}
 
-	displayName := msg.ToolDefinition.DisplayName()
-	content := fmt.Sprintf("%s %s %s", toolcommon.Icon(msg.ToolStatus), styles.HighlightStyle.Render(displayName), styles.MutedStyle.Render(args.Path))
-
-	if msg.ToolStatus == types.ToolStatusPending || msg.ToolStatus == types.ToolStatusRunning {
-		content += " " + c.spinner.View()
-	}
-
-	if msg.ToolCall.Function.Arguments != "" {
-		content += "\n\n" + styles.ToolCallResult.Render(toolcommon.RenderFile(args.Path, args.Content, c.renderer))
-	}
-
-	var resultContent string
-	if (msg.ToolStatus == types.ToolStatusCompleted || msg.ToolStatus == types.ToolStatusError) && msg.Content != "" {
-		resultContent = toolcommon.FormatToolResult(msg.Content, c.width)
-	}
-
-	return styles.BaseStyle.PaddingLeft(2).Render(content + resultContent)
+	return toolcommon.RenderTool(toolcommon.Icon(msg.ToolStatus), msg.ToolDefinition.DisplayName(), styles.MutedStyle.Render(args.Path), "", c.width)
 }

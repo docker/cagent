@@ -1,4 +1,4 @@
-package readfile
+package shell
 
 import (
 	"encoding/json"
@@ -14,7 +14,6 @@ import (
 	"github.com/docker/cagent/pkg/tui/types"
 )
 
-// Component is a specialized component for rendering read_file tool calls.
 type Component struct {
 	message *types.Message
 	spinner spinner.Spinner
@@ -22,7 +21,6 @@ type Component struct {
 	height  int
 }
 
-// New creates a new read file component.
 func New(
 	msg *types.Message,
 	_ *service.SessionState,
@@ -62,10 +60,10 @@ func (c *Component) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 
 func (c *Component) View() string {
 	msg := c.message
-	var args builtin.ReadFileArgs
+	var args builtin.RunShellArgs
 	if err := json.Unmarshal([]byte(msg.ToolCall.Function.Arguments), &args); err != nil {
 		return toolcommon.RenderTool(toolcommon.Icon(msg.ToolStatus), msg.ToolDefinition.DisplayName(), c.spinner.View(), "", c.width)
 	}
 
-	return toolcommon.RenderTool(toolcommon.Icon(msg.ToolStatus), msg.ToolDefinition.DisplayName(), styles.MutedStyle.Render(args.Path), "", c.width)
+	return toolcommon.RenderTool(toolcommon.Icon(msg.ToolStatus), msg.ToolDefinition.DisplayName(), styles.MutedStyle.Render(args.Cmd), "", c.width)
 }

@@ -3,8 +3,6 @@ package tool
 import (
 	"sync"
 
-	"github.com/charmbracelet/glamour/v2"
-
 	"github.com/docker/cagent/pkg/tui/core/layout"
 	"github.com/docker/cagent/pkg/tui/service"
 	"github.com/docker/cagent/pkg/tui/types"
@@ -13,7 +11,6 @@ import (
 // ComponentBuilder is a function that creates a tool component.
 type ComponentBuilder func(
 	msg *types.Message,
-	renderer *glamour.TermRenderer,
 	sessionState *service.SessionState,
 ) layout.Model
 

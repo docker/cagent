@@ -314,21 +314,28 @@ var (
 
 // Tool Call Styles
 var (
+	ToolMessageStyle = BaseStyle.
+				Padding(1).
+				BorderLeft(true).
+				BorderStyle(lipgloss.ThickBorder()).
+				BorderForeground(BorderSecondary).
+				Background(BackgroundAlt)
+
 	ToolCallArgs = BaseStyle.
-		// PaddingLeft(1).
-		BorderLeft(true).
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(BorderSecondary)
+			BorderLeft(true).
+			BorderStyle(lipgloss.RoundedBorder()).
+			BorderForeground(BorderSecondary)
 
 	ToolCallArgKey = BaseStyle.Bold(true).Foreground(TextSecondary)
 
 	ToolCallResult = BaseStyle.
-		// PaddingLeft(1).
-		BorderLeft(true).
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(BorderSecondary)
+			BorderLeft(true).
+			BorderStyle(lipgloss.RoundedBorder()).
+			BorderForeground(BorderSecondary)
 
-	ToolCallResultKey = BaseStyle.Bold(true).Foreground(TextSecondary)
+	ToolCallResultKey = BaseStyle.
+				Bold(true).
+				Foreground(TextSecondary)
 )
 
 // Input Styles

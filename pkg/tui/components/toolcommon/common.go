@@ -2,6 +2,7 @@ package toolcommon
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/docker/cagent/pkg/tui/styles"
@@ -54,6 +55,14 @@ func FormatToolResult(content string, width int) string {
 	}
 
 	return ""
+}
+
+func RenderTool(icon, name, params, result string, width int) string {
+	content := fmt.Sprintf("%s %s %s", icon, styles.HighlightStyle.Render(name), styles.MutedStyle.Render(params))
+	if result != "" {
+		content += "\n" + result
+	}
+	return styles.RenderComposite(styles.ToolMessageStyle.Width(width-1), content)
 }
 
 func wrapLines(text string, width int) []string {

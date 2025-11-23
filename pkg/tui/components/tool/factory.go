@@ -7,6 +7,7 @@ import (
 	"github.com/docker/cagent/pkg/tui/components/tool/defaulttool"
 	"github.com/docker/cagent/pkg/tui/components/tool/editfile"
 	"github.com/docker/cagent/pkg/tui/components/tool/readfile"
+	"github.com/docker/cagent/pkg/tui/components/tool/shell"
 	"github.com/docker/cagent/pkg/tui/components/tool/todotool"
 	"github.com/docker/cagent/pkg/tui/components/tool/transfertask"
 	"github.com/docker/cagent/pkg/tui/components/tool/writefile"
@@ -36,10 +37,10 @@ func (f *Factory) Create(
 	toolName := msg.ToolCall.Function.Name
 
 	if builder, ok := f.registry.Get(toolName); ok {
-		return builder(msg, renderer, sessionState)
+		return builder(msg, sessionState)
 	}
 
-	return defaulttool.New(msg, renderer, sessionState)
+	return defaulttool.New(msg, sessionState)
 }
 
 var (
@@ -58,6 +59,7 @@ func newDefaultRegistry() *Registry {
 	registry.Register(builtin.ToolNameCreateTodos, todotool.New)
 	registry.Register(builtin.ToolNameUpdateTodo, todotool.New)
 	registry.Register(builtin.ToolNameListTodos, todotool.New)
+	registry.Register(builtin.ToolNameShell, shell.New)
 
 	return registry
 }

@@ -1,10 +1,7 @@
 package defaulttool
 
 import (
-	"fmt"
-
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/glamour/v2"
 
 	"github.com/docker/cagent/pkg/tui/components/spinner"
 	"github.com/docker/cagent/pkg/tui/components/toolcommon"
@@ -18,25 +15,22 @@ import (
 // that don't have a specialized component registered.
 // It provides a standard visualization with tool name, arguments, and results.
 type Component struct {
-	message  *types.Message
-	renderer *glamour.TermRenderer
-	spinner  spinner.Spinner
-	width    int
-	height   int
+	message *types.Message
+	spinner spinner.Spinner
+	width   int
+	height  int
 }
 
 // New creates a new default tool component.
 func New(
 	msg *types.Message,
-	renderer *glamour.TermRenderer,
 	_ *service.SessionState,
 ) layout.Model {
 	return &Component{
-		message:  msg,
-		renderer: renderer,
-		spinner:  spinner.New(spinner.ModeSpinnerOnly),
-		width:    80,
-		height:   1,
+		message: msg,
+		spinner: spinner.New(spinner.ModeSpinnerOnly),
+		width:   80,
+		height:  1,
 	}
 }
 
@@ -68,14 +62,14 @@ func (c *Component) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 func (c *Component) View() string {
 	msg := c.message
 	displayName := msg.ToolDefinition.DisplayName()
-	content := fmt.Sprintf("%s %s", toolcommon.Icon(msg.ToolStatus), styles.HighlightStyle.Render(displayName))
 
-	if msg.ToolStatus == types.ToolStatusPending || msg.ToolStatus == types.ToolStatusRunning {
-		content += " " + c.spinner.View()
+	var argsContent string
+	if msg.ToolCall.Function.Arguments != "" {
+		argsContent = renderToolArgs(msg.ToolCall, c.width-3)
 	}
 
-	if msg.ToolCall.Function.Arguments != "" {
-		content += "\n" + renderToolArgs(msg.ToolCall, c.width-3)
+	if argsContent == "" {
+		return toolcommon.RenderTool(toolcommon.Icon(msg.ToolStatus), msg.ToolDefinition.DisplayName(), c.spinner.View(), "", c.width)
 	}
 
 	var resultContent string
@@ -83,5 +77,5 @@ func (c *Component) View() string {
 		resultContent = toolcommon.FormatToolResult(msg.Content, c.width)
 	}
 
-	return styles.BaseStyle.PaddingLeft(2).PaddingTop(1).Render(content + resultContent)
+	return toolcommon.RenderTool(toolcommon.Icon(msg.ToolStatus), styles.HighlightStyle.Render(displayName), argsContent, resultContent, c.width)
 }
