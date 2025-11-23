@@ -173,6 +173,34 @@ func (c *remoteMCPClient) CallTool(ctx context.Context, params *mcp.CallToolPara
 	return session.CallTool(ctx, params)
 }
 
+// ListPrompts retrieves available prompts from the remote MCP server
+func (c *remoteMCPClient) ListPrompts(ctx context.Context, request *mcp.ListPromptsParams) iter.Seq2[*mcp.Prompt, error] {
+	c.mu.RLock()
+	session := c.session
+	c.mu.RUnlock()
+
+	if session == nil {
+		return func(yield func(*mcp.Prompt, error) bool) {
+			yield(nil, fmt.Errorf("session not initialized"))
+		}
+	}
+
+	return session.Prompts(ctx, request)
+}
+
+// GetPrompt retrieves a specific prompt with arguments from the remote MCP server
+func (c *remoteMCPClient) GetPrompt(ctx context.Context, request *mcp.GetPromptParams) (*mcp.GetPromptResult, error) {
+	c.mu.RLock()
+	session := c.session
+	c.mu.RUnlock()
+
+	if session == nil {
+		return nil, fmt.Errorf("session not initialized")
+	}
+
+	return session.GetPrompt(ctx, request)
+}
+
 // SetElicitationHandler sets the elicitation handler for remote MCP clients
 // This allows the runtime to provide a handler that propagates elicitation requests
 func (c *remoteMCPClient) SetElicitationHandler(handler tools.ElicitationHandler) {

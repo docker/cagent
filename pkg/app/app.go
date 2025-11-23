@@ -2,14 +2,17 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/tools"
+	mcptools "github.com/docker/cagent/pkg/tools/mcp"
 )
 
 type App struct {
@@ -56,6 +59,60 @@ func (a *App) CurrentWelcomeMessage(ctx context.Context) string {
 // CurrentAgentCommands returns the commands for the active agent
 func (a *App) CurrentAgentCommands(ctx context.Context) map[string]string {
 	return a.runtime.CurrentAgentCommands(ctx)
+}
+
+// CurrentMCPPrompts returns the available MCP prompts for the active agent
+func (a *App) CurrentMCPPrompts(ctx context.Context) map[string]mcptools.PromptInfo {
+	if localRuntime, ok := a.runtime.(*runtime.LocalRuntime); ok {
+		return localRuntime.CurrentMCPPrompts(ctx)
+	}
+	return make(map[string]mcptools.PromptInfo)
+}
+
+// ExecuteMCPPrompt executes an MCP prompt with provided arguments and returns the content
+func (a *App) ExecuteMCPPrompt(ctx context.Context, promptName string, arguments map[string]string) (string, error) {
+	localRuntime, ok := a.runtime.(*runtime.LocalRuntime)
+	if !ok {
+		return "", fmt.Errorf("MCP prompts are only supported with local runtime")
+	}
+
+	currentAgent := localRuntime.CurrentAgent()
+	if currentAgent == nil {
+		return "", fmt.Errorf("no current agent available")
+	}
+
+	for _, toolset := range currentAgent.ToolSets() {
+		if mcpToolset := runtime.UnwrapMCPToolset(toolset); mcpToolset != nil {
+			result, err := mcpToolset.GetPrompt(ctx, promptName, arguments)
+			if err == nil {
+				// Convert the MCP result to a string format suitable for the editor
+				// The result contains Messages which are the prompt content
+				if len(result.Messages) == 0 {
+					return "No content returned from MCP prompt", nil
+				}
+
+				var content string
+				for i, message := range result.Messages {
+					if i > 0 {
+						content += "\n\n"
+					}
+					if textContent, ok := message.Content.(*mcp.TextContent); ok {
+						content += textContent.Text
+					} else {
+						content += fmt.Sprintf("[Non-text content: %T]", message.Content)
+					}
+				}
+				return content, nil
+			}
+			// If error is "prompt not found", continue to next toolset
+			// Otherwise, return the error
+			if err.Error() != "prompt not found" {
+				return "", fmt.Errorf("error executing prompt '%s': %w", promptName, err)
+			}
+		}
+	}
+
+	return "", fmt.Errorf("MCP prompt '%s' not found in any active toolset", promptName)
 }
 
 // ResolveCommand converts /command to its prompt text

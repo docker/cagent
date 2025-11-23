@@ -20,6 +20,8 @@ type mcpClient interface {
 	Initialize(ctx context.Context, request *mcp.InitializeRequest) (*mcp.InitializeResult, error)
 	ListTools(ctx context.Context, request *mcp.ListToolsParams) iter.Seq2[*mcp.Tool, error]
 	CallTool(ctx context.Context, request *mcp.CallToolParams) (*mcp.CallToolResult, error)
+	ListPrompts(ctx context.Context, request *mcp.ListPromptsParams) iter.Seq2[*mcp.Prompt, error]
+	GetPrompt(ctx context.Context, request *mcp.GetPromptParams) (*mcp.GetPromptResult, error)
 	SetElicitationHandler(handler tools.ElicitationHandler)
 	SetOAuthSuccessHandler(handler func())
 	SetManagedOAuth(managed bool)
@@ -245,4 +247,77 @@ func (ts *Toolset) SetOAuthSuccessHandler(handler func()) {
 
 func (ts *Toolset) SetManagedOAuth(managed bool) {
 	ts.mcpClient.SetManagedOAuth(managed)
+}
+
+// ListPrompts retrieves available prompts from the MCP server.
+// Returns a slice of PromptInfo containing metadata about each available prompt
+// including name, description, and argument specifications.
+func (ts *Toolset) ListPrompts(ctx context.Context) ([]PromptInfo, error) {
+	if !ts.started.Load() {
+		return nil, errors.New("toolset not started")
+	}
+
+	slog.Debug("Listing MCP prompts")
+
+	// Call the underlying MCP client to list prompts
+	resp := ts.mcpClient.ListPrompts(ctx, &mcp.ListPromptsParams{})
+
+	var promptsList []PromptInfo
+	for prompt, err := range resp {
+		if err != nil {
+			slog.Warn("Error listing MCP prompt", "error", err)
+			return promptsList, err
+		}
+
+		// Convert MCP prompt to our internal PromptInfo format
+		promptInfo := PromptInfo{
+			Name:        prompt.Name,
+			Description: prompt.Description,
+			Arguments:   make([]PromptArgument, 0),
+		}
+
+		// Convert arguments if they exist
+		if prompt.Arguments != nil {
+			for _, arg := range prompt.Arguments {
+				promptArg := PromptArgument{
+					Name:        arg.Name,
+					Description: arg.Description,
+					Required:    arg.Required,
+				}
+				promptInfo.Arguments = append(promptInfo.Arguments, promptArg)
+			}
+		}
+
+		promptsList = append(promptsList, promptInfo)
+		slog.Debug("Added MCP prompt", "prompt", prompt.Name, "args_count", len(promptInfo.Arguments))
+	}
+
+	slog.Debug("Listed MCP prompts", "count", len(promptsList))
+	return promptsList, nil
+}
+
+// GetPrompt retrieves a specific prompt with provided arguments from the MCP server.
+// This method executes the prompt and returns the result content.
+func (ts *Toolset) GetPrompt(ctx context.Context, name string, arguments map[string]string) (*mcp.GetPromptResult, error) {
+	if !ts.started.Load() {
+		return nil, errors.New("toolset not started")
+	}
+
+	slog.Debug("Getting MCP prompt", "prompt", name, "arguments", arguments)
+
+	// Prepare the request parameters
+	request := &mcp.GetPromptParams{
+		Name:      name,
+		Arguments: arguments,
+	}
+
+	// Call the underlying MCP client to get the prompt
+	result, err := ts.mcpClient.GetPrompt(ctx, request)
+	if err != nil {
+		slog.Error("Failed to get MCP prompt", "prompt", name, "error", err)
+		return nil, fmt.Errorf("failed to get prompt %s: %w", name, err)
+	}
+
+	slog.Debug("Retrieved MCP prompt", "prompt", name, "messages_count", len(result.Messages))
+	return result, nil
 }

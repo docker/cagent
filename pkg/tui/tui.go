@@ -14,6 +14,7 @@ import (
 	"github.com/docker/cagent/pkg/browser"
 	"github.com/docker/cagent/pkg/evaluation"
 	"github.com/docker/cagent/pkg/runtime"
+	mcptools "github.com/docker/cagent/pkg/tools/mcp"
 	"github.com/docker/cagent/pkg/tui/commands"
 	"github.com/docker/cagent/pkg/tui/components/completion"
 	"github.com/docker/cagent/pkg/tui/components/editor"
@@ -21,6 +22,7 @@ import (
 	"github.com/docker/cagent/pkg/tui/components/statusbar"
 	"github.com/docker/cagent/pkg/tui/core"
 	"github.com/docker/cagent/pkg/tui/dialog"
+	"github.com/docker/cagent/pkg/tui/messages"
 	"github.com/docker/cagent/pkg/tui/page/chat"
 	"github.com/docker/cagent/pkg/tui/service"
 	"github.com/docker/cagent/pkg/tui/styles"
@@ -192,7 +194,7 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.chatPage = updated.(chat.Page)
 		return a, cmd
 
-	case commands.NewSessionMsg:
+	case messages.NewSessionMsg:
 		a.application.NewSession()
 		a.sessionState = service.NewSessionState()
 		a.chatPage = chat.New(a.application, a.sessionState)
@@ -201,14 +203,14 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return a, tea.Batch(a.Init(), a.handleWindowResize(a.wWidth, a.wHeight))
 
-	case commands.EvalSessionMsg:
+	case messages.EvalSessionMsg:
 		evalFile, _ := evaluation.Save(a.application.Session())
 		return a, core.CmdHandler(notification.ShowMsg{Text: fmt.Sprintf("Eval saved to file %s", evalFile)})
 
-	case commands.CompactSessionMsg:
+	case messages.CompactSessionMsg:
 		return a, a.chatPage.CompactSession()
 
-	case commands.CopySessionToClipboardMsg:
+	case messages.CopySessionToClipboardMsg:
 		transcript := a.application.PlainTextTranscript()
 		if transcript == "" {
 			return a, core.CmdHandler(notification.ShowMsg{Text: "Conversation is empty; nothing copied."})
@@ -220,7 +222,7 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return a, core.CmdHandler(notification.ShowMsg{Text: "Conversation copied to clipboard."})
 
-	case commands.ToggleYoloMsg:
+	case messages.ToggleYoloMsg:
 		sess := a.application.Session()
 		sess.ToolsApproved = !sess.ToolsApproved
 		var statusText string
@@ -231,11 +233,31 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, core.CmdHandler(notification.ShowMsg{Text: statusText})
 
-	case commands.AgentCommandMsg:
+	case messages.AgentCommandMsg:
 		resolvedCommand := a.application.ResolveCommand(context.Background(), msg.Command)
 		return a, core.CmdHandler(editor.SendMsg{Content: resolvedCommand})
 
-	case commands.OpenURLMsg:
+	case messages.ShowMCPPromptInputMsg:
+		// Convert the interface{} back to mcptools.PromptInfo
+		promptInfo, ok := msg.PromptInfo.(mcptools.PromptInfo)
+		if !ok {
+			return a, core.CmdHandler(notification.ShowMsg{Text: "Invalid prompt info"})
+		}
+		// Show the MCP prompt input dialog
+		return a, core.CmdHandler(dialog.OpenDialogMsg{
+			Model: dialog.NewMCPPromptInputDialog(msg.PromptName, promptInfo),
+		})
+
+	case messages.MCPPromptMsg:
+		// Execute MCP prompt and send the result as editor content
+		promptContent, err := a.application.ExecuteMCPPrompt(context.Background(), msg.PromptName, msg.Arguments)
+		if err != nil {
+			errorMsg := fmt.Sprintf("Error executing MCP prompt '%s': %v", msg.PromptName, err)
+			return a, core.CmdHandler(notification.ShowMsg{Text: errorMsg})
+		}
+		return a, core.CmdHandler(editor.SendMsg{Content: promptContent})
+
+	case messages.OpenURLMsg:
 		_ = browser.Open(context.Background(), msg.URL)
 		return a, nil
 

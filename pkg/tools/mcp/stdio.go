@@ -78,6 +78,26 @@ func (c *stdioMCPClient) CallTool(ctx context.Context, request *mcp.CallToolPara
 	return c.session.CallTool(ctx, request)
 }
 
+// ListPrompts retrieves available prompts from the MCP server via stdio transport
+func (c *stdioMCPClient) ListPrompts(ctx context.Context, request *mcp.ListPromptsParams) iter.Seq2[*mcp.Prompt, error] {
+	if c.session == nil {
+		return func(yield func(*mcp.Prompt, error) bool) {
+			yield(nil, fmt.Errorf("session not initialized"))
+		}
+	}
+
+	return c.session.Prompts(ctx, request)
+}
+
+// GetPrompt retrieves a specific prompt with arguments from the MCP server via stdio transport
+func (c *stdioMCPClient) GetPrompt(ctx context.Context, request *mcp.GetPromptParams) (*mcp.GetPromptResult, error) {
+	if c.session == nil {
+		return nil, fmt.Errorf("session not initialized")
+	}
+
+	return c.session.GetPrompt(ctx, request)
+}
+
 func (c *stdioMCPClient) SetElicitationHandler(tools.ElicitationHandler) {}
 
 func (c *stdioMCPClient) SetOAuthSuccessHandler(func()) {}
