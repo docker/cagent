@@ -255,7 +255,9 @@ func (p *chatPage) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		spinnerCmd := p.setWorking(true)
 		cmd := p.messages.AddAssistantMessage()
 		p.startProgressBar()
-		return p, tea.Batch(cmd, spinnerCmd)
+		sidebarModel, sidebarCmd := p.sidebar.Update(msg)
+		p.sidebar = sidebarModel.(sidebar.Model)
+		return p, tea.Batch(cmd, spinnerCmd, sidebarCmd)
 	case *runtime.AgentChoiceEvent:
 		if p.streamCancelled {
 			return p, nil
@@ -269,7 +271,7 @@ func (p *chatPage) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		cmd := p.messages.AppendToLastMessage(msg.AgentName, types.MessageTypeAssistantReasoning, msg.Content)
 		return p, cmd
 	case *runtime.TokenUsageEvent:
-		p.sidebar.SetTokenUsage(msg.Usage)
+		p.sidebar.SetTokenUsage(msg)
 	case *runtime.AgentInfoEvent:
 		p.sidebar.SetAgentInfo(msg.AgentName, msg.Model, msg.Description)
 	case *runtime.TeamInfoEvent:
@@ -287,7 +289,13 @@ func (p *chatPage) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		}
 		p.streamCancelled = false
 		p.stopProgressBar()
-		return p, tea.Batch(p.messages.ScrollToBottom(), spinnerCmd)
+		sidebarModel, sidebarCmd := p.sidebar.Update(msg)
+		p.sidebar = sidebarModel.(sidebar.Model)
+		return p, tea.Batch(p.messages.ScrollToBottom(), spinnerCmd, sidebarCmd)
+	case *runtime.SessionTitleEvent:
+		sidebarModel, sidebarCmd := p.sidebar.Update(msg)
+		p.sidebar = sidebarModel.(sidebar.Model)
+		return p, sidebarCmd
 	case *runtime.PartialToolCallEvent:
 		// When we first receive a tool call, show it immediately in pending state
 		spinnerCmd := p.setWorking(true)

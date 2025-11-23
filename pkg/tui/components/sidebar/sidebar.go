@@ -31,7 +31,7 @@ type Model interface {
 	layout.Model
 	layout.Sizeable
 
-	SetTokenUsage(usage *runtime.Usage)
+	SetTokenUsage(event *runtime.TokenUsageEvent)
 	SetTodos(toolCall tools.ToolCall) error
 	SetWorking(working bool) tea.Cmd
 	SetMode(mode Mode)
@@ -54,7 +54,8 @@ type ragIndexingState struct {
 type model struct {
 	width            int
 	height           int
-	usage            *runtime.Usage
+	sessionUsage     map[string]*runtime.Usage // sessionID -> latest usage snapshot
+	sessionAgent     map[string]string         // sessionID -> agent name
 	todoComp         *todotool.SidebarComponent
 	working          bool
 	mcpInit          bool
@@ -76,7 +77,8 @@ func New(manager *service.TodoManager) Model {
 	return &model{
 		width:          20,
 		height:         24,
-		usage:          &runtime.Usage{},
+		sessionUsage:   make(map[string]*runtime.Usage),
+		sessionAgent:   make(map[string]string),
 		todoComp:       todotool.NewSidebarComponent(manager),
 		spinner:        spinner.New(spinner.ModeSpinnerOnly),
 		sessionTitle:   "New session",
@@ -89,8 +91,15 @@ func (m *model) Init() tea.Cmd {
 	return nil
 }
 
-func (m *model) SetTokenUsage(usage *runtime.Usage) {
-	m.usage = usage
+func (m *model) SetTokenUsage(event *runtime.TokenUsageEvent) {
+	if event == nil || event.Usage == nil || event.SessionID == "" || event.AgentContext.AgentName == "" {
+		return
+	}
+
+	// Store/replace by session ID (each event has cumulative totals for that session)
+	usage := *event.Usage
+	m.sessionUsage[event.SessionID] = &usage
+	m.sessionAgent[event.SessionID] = event.AgentContext.AgentName
 }
 
 func (m *model) SetTodos(toolCall tools.ToolCall) error {
@@ -156,6 +165,24 @@ func formatTokenCount(count int) string {
 	return fmt.Sprintf("%d", count)
 }
 
+func formatCost(cost float64) string {
+	return fmt.Sprintf("%.2f", cost)
+}
+
+// contextPercent returns a context usage percentage string when a single session has a limit.
+func (m *model) contextPercent() (string, bool) {
+	if len(m.sessionUsage) != 1 {
+		return "", false
+	}
+	for _, usage := range m.sessionUsage {
+		if usage.ContextLimit > 0 {
+			percent := (float64(usage.ContextLength) / float64(usage.ContextLimit)) * 100
+			return fmt.Sprintf("Context: %.0f%%", percent), true
+		}
+	}
+	return "", false
+}
+
 // getCurrentWorkingDirectory returns the current working directory with home directory replaced by ~/
 func getCurrentWorkingDirectory() string {
 	pwd, err := os.Getwd()
@@ -171,12 +198,15 @@ func getCurrentWorkingDirectory() string {
 	return pwd
 }
 
-// Update handles messages and updates the component state
+// Update handles messages and updates the component state.
 func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		cmd := m.SetSize(msg.Width, msg.Height)
 		return m, cmd
+	case *runtime.TokenUsageEvent:
+		m.SetTokenUsage(msg)
+		return m, nil
 	case *runtime.MCPInitStartedEvent:
 		m.mcpInit = true
 		return m, m.spinner.Init()
@@ -272,13 +302,14 @@ func (m *model) View() string {
 
 func (m *model) horizontalView() string {
 	pwd := getCurrentWorkingDirectory()
+	usageSummary := m.tokenUsageSummary()
 
 	wi := m.workingIndicatorHorizontal()
 	titleGapWidth := m.width - lipgloss.Width(m.sessionTitle) - lipgloss.Width(wi) - 2
 	title := fmt.Sprintf("%s%*s%s", m.sessionTitle, titleGapWidth, "", wi)
 
-	gapWidth := m.width - lipgloss.Width(pwd) - lipgloss.Width(m.tokenUsage()) - 2
-	return lipgloss.JoinVertical(lipgloss.Top, title, fmt.Sprintf("%s%*s%s", styles.MutedStyle.Render(pwd), gapWidth, "", m.tokenUsage()))
+	gapWidth := m.width - lipgloss.Width(pwd) - lipgloss.Width(usageSummary) - 2
+	return lipgloss.JoinVertical(lipgloss.Top, title, fmt.Sprintf("%s%*s%s", styles.MutedStyle.Render(pwd), gapWidth, "", usageSummary))
 }
 
 func (m *model) verticalView() string {
@@ -473,17 +504,85 @@ func (m *model) workingIndicatorHorizontal() string {
 }
 
 func (m *model) tokenUsage() string {
-	totalTokens := m.usage.InputTokens + m.usage.OutputTokens
-	var usagePercent float64
-	if m.usage.ContextLimit > 0 {
-		usagePercent = (float64(m.usage.ContextLength) / float64(m.usage.ContextLimit)) * 100
+	if len(m.sessionUsage) == 0 {
+		return ""
 	}
 
-	percentageText := styles.MutedStyle.Render(fmt.Sprintf("%.0f%%", usagePercent))
-	totalTokensText := styles.SubtleStyle.Render(fmt.Sprintf("(%s)", formatTokenCount(totalTokens)))
-	costText := styles.MutedStyle.Render(fmt.Sprintf("$%.2f", m.usage.Cost))
+	var totalTokens int
+	var totalCost float64
+	for _, usage := range m.sessionUsage {
+		totalTokens += usage.InputTokens + usage.OutputTokens
+		totalCost += usage.Cost
+	}
 
-	return fmt.Sprintf("%s %s %s", percentageText, totalTokensText, costText)
+	agentTotals := make(map[string]*runtime.Usage)
+	for sessionID, usage := range m.sessionUsage {
+		agent := m.sessionAgent[sessionID]
+		if agent == "" {
+			continue
+		}
+		if existing, ok := agentTotals[agent]; ok {
+			existing.InputTokens += usage.InputTokens
+			existing.OutputTokens += usage.OutputTokens
+			existing.Cost += usage.Cost
+		} else {
+			u := *usage
+			agentTotals[agent] = &u
+		}
+	}
+
+	var b strings.Builder
+	b.WriteString(styles.HighlightStyle.Render("TOTAL USAGE"))
+	b.WriteString("\n  ")
+	line := fmt.Sprintf("Tokens: %s | Cost: $%s", formatTokenCount(totalTokens), formatCost(totalCost))
+	if ctxText, ok := m.contextPercent(); ok {
+		line = fmt.Sprintf("%s | %s", line, ctxText)
+	}
+	b.WriteString(line)
+
+	b.WriteString("\n--------------------------------\n")
+	b.WriteString(styles.HighlightStyle.Render("SESSION BREAKDOWN"))
+
+	agentNames := make([]string, 0, len(agentTotals))
+	for name := range agentTotals {
+		agentNames = append(agentNames, name)
+	}
+	sort.Strings(agentNames)
+
+	if len(agentNames) == 0 {
+		b.WriteString("\n  ")
+		b.WriteString(styles.SubtleStyle.Render("No usage yet"))
+		return b.String()
+	}
+
+	for _, name := range agentNames {
+		usage := agentTotals[name]
+		tokens := usage.InputTokens + usage.OutputTokens
+		b.WriteString(fmt.Sprintf("\n  %s", styles.SubtleStyle.Render(name)))
+		b.WriteString(fmt.Sprintf("\n    Tokens: %s | Cost: $%s", formatTokenCount(tokens), formatCost(usage.Cost)))
+	}
+
+	return b.String()
+}
+
+// tokenUsageSummary returns a single-line summary for horizontal layout.
+func (m *model) tokenUsageSummary() string {
+	if len(m.sessionUsage) == 0 {
+		return ""
+	}
+
+	var totalTokens int
+	var totalCost float64
+	for _, usage := range m.sessionUsage {
+		totalTokens += usage.InputTokens + usage.OutputTokens
+		totalCost += usage.Cost
+	}
+
+	if ctxText, ok := m.contextPercent(); ok {
+		return fmt.Sprintf("Tokens: %s | Cost: $%s | %s", formatTokenCount(totalTokens), formatCost(totalCost), ctxText)
+	}
+
+	return fmt.Sprintf("Tokens: %s | Cost: $%s", formatTokenCount(totalTokens), formatCost(totalCost))
 }
 
 // agentInfo renders the current agent information

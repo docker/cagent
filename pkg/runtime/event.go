@@ -183,8 +183,9 @@ func Warning(message, agentName string) Event {
 }
 
 type TokenUsageEvent struct {
-	Type  string `json:"type"`
-	Usage *Usage `json:"usage"`
+	Type      string `json:"type"`
+	SessionID string `json:"session_id"`
+	Usage     *Usage `json:"usage"`
 	AgentContext
 }
 
@@ -196,9 +197,10 @@ type Usage struct {
 	Cost          float64 `json:"cost"`
 }
 
-func TokenUsage(inputTokens, outputTokens, contextLength, contextLimit int, cost float64, agentName string) Event {
+func TokenUsage(sessionID, agentName string, inputTokens, outputTokens, contextLength, contextLimit int, cost float64) Event {
 	return &TokenUsageEvent{
-		Type: "token_usage",
+		Type:      "token_usage",
+		SessionID: sessionID,
 		Usage: &Usage{
 			ContextLength: contextLength,
 			ContextLimit:  contextLimit,
