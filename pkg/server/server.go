@@ -30,13 +30,13 @@ import (
 
 type Server struct {
 	e              *echo.Echo
-	runtimes       map[string]runtime.Runtime
-	runtimeCancels map[string]context.CancelFunc
 	cancelsMu      sync.RWMutex
 	sessionStore   session.Store
 	runConfig      *config.RuntimeConfig
 	teams          map[string]*team.Team
 	teamsMu        sync.RWMutex
+	runtimes       map[string]runtime.Runtime
+	runtimeCancels map[string]context.CancelFunc
 	ociRef         string // OCI reference, set once at startup for OCI-based servers
 	ociTeamKey     string
 	agentsDir      string
@@ -320,6 +320,7 @@ func (s *Server) refreshAgentsFromDisk(ctx context.Context) error {
 // ReloadTeams loads teams from the specified path and replaces the current teams.
 // This method is thread-safe and ensures ongoing requests are not interrupted.
 func (s *Server) ReloadTeams(ctx context.Context, agentPath string) error {
+	// TODO(rumpl): this is completely broken and needs fixing, it is only reloading teams but it's IS NOT reloading runtimes.
 	newTeams, err := teamloader.LoadTeams(ctx, agentPath, s.runConfig)
 	if err != nil {
 		return fmt.Errorf("failed to load teams: %w", err)
@@ -526,43 +527,13 @@ func (s *Server) runAgent(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, fmt.Sprintf("session not found: %v", err))
 	}
 
-	p := addYamlExt(agentFilename)
-
 	// Copy runConfig and inject per-session working dir override
 	rc := s.runConfig.Clone()
 	rc.WorkingDir = sess.WorkingDir
 
-	// Load team - either reload from disk (local) or use in-memory team (OCI refs)
-	t, err := s.loadTeamForSession(c.Request().Context(), p, sess, rc)
+	rt, err := s.runtimeForSession(c.Request().Context(), sess, agentFilename, currentAgent, rc)
 	if err != nil {
 		return err
-	}
-
-	agent, err := t.Agent(currentAgent)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, fmt.Sprintf("agent not found: %v", err))
-	}
-
-	// Only set max iterations the first time the session is run
-	// since on creation we can accept an empty sessionTemplate
-	if len(sess.Messages) == 0 && sess.MaxIterations == 0 && agent.MaxIterations() > 0 {
-		sess.MaxIterations = agent.MaxIterations()
-	}
-
-	rt, exists := s.runtimes[sess.ID]
-	if !exists {
-		opts := []runtime.Opt{
-			runtime.WithCurrentAgent(currentAgent),
-			runtime.WithManagedOAuth(false),
-			runtime.WithRootSessionID(sess.ID),
-		}
-		rt, err = runtime.New(t, opts...)
-		if err != nil {
-			slog.Error("Failed to create runtime", "error", err)
-			return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("failed to create runtime: %v", err))
-		}
-		s.runtimes[sess.ID] = rt
-		slog.Debug("Runtime created for session", "session_id", sess.ID)
 	}
 
 	// Receive messages from the API client
@@ -611,6 +582,45 @@ func (s *Server) runAgent(c echo.Context) error {
 	}
 
 	return nil
+}
+
+func (s *Server) runtimeForSession(ctx context.Context, sess *session.Session, agentFilename, currentAgent string, rc *config.RuntimeConfig) (runtime.Runtime, error) {
+	rt, exists := s.runtimes[sess.ID]
+	if exists {
+		return rt, nil
+	}
+
+	// Load team - either reload from disk (local) or use in-memory team (OCI refs)
+	t, err := s.loadTeamForSession(ctx, agentFilename, sess, rc)
+	if err != nil {
+		return nil, err
+	}
+
+	agent, err := t.Agent(currentAgent)
+	if err != nil {
+		return nil, echo.NewHTTPError(http.StatusNotFound, fmt.Sprintf("agent not found: %v", err))
+	}
+
+	// Only set max iterations the first time the session is run
+	// since on creation we can accept an empty sessionTemplate
+	if len(sess.Messages) == 0 && sess.MaxIterations == 0 && agent.MaxIterations() > 0 {
+		sess.MaxIterations = agent.MaxIterations()
+	}
+
+	opts := []runtime.Opt{
+		runtime.WithCurrentAgent(currentAgent),
+		runtime.WithManagedOAuth(false),
+		runtime.WithRootSessionID(sess.ID),
+	}
+	rt, err = runtime.New(t, opts...)
+	if err != nil {
+		slog.Error("Failed to create runtime", "error", err)
+		return nil, echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("failed to create runtime: %v", err))
+	}
+	s.runtimes[sess.ID] = rt
+	slog.Debug("Runtime created for session", "session_id", sess.ID)
+
+	return rt, nil
 }
 
 // loadTeamForSession loads the appropriate team for a session, handling both
