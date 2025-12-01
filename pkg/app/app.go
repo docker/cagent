@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"time"
 
@@ -40,6 +41,16 @@ func New(ctx context.Context, rt runtime.Runtime, sess *session.Session, firstMe
 		go ragRuntime.StartBackgroundRAGInit(ctx, func(event runtime.Event) {
 			app.events <- event
 		})
+	}
+
+	// If the runtime is local, start config file watching
+	if localRuntime, ok := rt.(*runtime.LocalRuntime); ok {
+		if err := localRuntime.StartConfigWatching(ctx, func(event runtime.Event) {
+			app.events <- event
+		}); err != nil {
+			// Log error but don't fail - config watching is optional
+			slog.Warn("Failed to start config watching", "error", err)
+		}
 	}
 
 	return app

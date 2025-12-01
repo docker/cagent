@@ -19,6 +19,7 @@ import (
 
 	"github.com/docker/cagent/pkg/agent"
 	"github.com/docker/cagent/pkg/chat"
+	"github.com/docker/cagent/pkg/config"
 	"github.com/docker/cagent/pkg/model/provider"
 	"github.com/docker/cagent/pkg/model/provider/options"
 	"github.com/docker/cagent/pkg/modelsdev"
@@ -132,7 +133,9 @@ type LocalRuntime struct {
 	elicitationEventsChannel    chan Event             // Current events channel for sending elicitation requests
 	elicitationEventsChannelMux sync.RWMutex           // Protects elicitationEventsChannel
 	ragInitialized              atomic.Bool
-	titleGenerationWg           sync.WaitGroup // Wait group for title generation
+	titleGenerationWg           sync.WaitGroup  // Wait group for title generation
+	configSource                config.Source   // Source for reloading configuration
+	configWatcher               *config.Watcher // Watches config file for changes
 }
 
 type streamResult struct {
@@ -183,6 +186,12 @@ func WithModelStore(store ModelStore) Opt {
 	}
 }
 
+func WithConfigSource(source config.Source) Opt {
+	return func(r *LocalRuntime) {
+		r.configSource = source
+	}
+}
+
 // New creates a new runtime for an agent and its team
 func New(agents *team.Team, opts ...Opt) (*LocalRuntime, error) {
 	modelsStore, err := modelsdev.NewStore()
@@ -213,6 +222,120 @@ func New(agents *team.Team, opts ...Opt) (*LocalRuntime, error) {
 	slog.Debug("Creating new runtime", "agent", r.currentAgent, "available_agents", agents.Size())
 
 	return r, nil
+}
+
+// StartConfigWatching initializes config file watching if a config source is provided
+func (r *LocalRuntime) StartConfigWatching(ctx context.Context, sendEvent func(Event)) error {
+	// Only start watching if we have a file-based config source
+	if r.configSource == nil {
+		slog.Debug("No config source provided, skipping config watching")
+		return nil
+	}
+
+	// Only watch file sources (not OCI or bytes sources)
+	sourceName := r.configSource.Name()
+	if sourceName == "" {
+		slog.Debug("Config source has no file path, skipping config watching")
+		return nil
+	}
+
+	// Create watcher
+	watcher, err := config.NewConfigWatcher()
+	if err != nil {
+		return fmt.Errorf("failed to create config watcher: %w", err)
+	}
+
+	// Watch the config file
+	if err := watcher.Watch(sourceName); err != nil {
+		watcher.Close()
+		return fmt.Errorf("failed to watch config file: %w", err)
+	}
+
+	r.configWatcher = watcher
+
+	// Start processing events
+	watcher.Start(ctx)
+
+	// Start background goroutine to handle config reload events
+	go r.processConfigChanges(ctx, watcher.Events(), sendEvent)
+
+	slog.Info("Config file watching enabled", "path", sourceName)
+	return nil
+}
+
+// processConfigChanges handles config file change events and reloads configuration
+func (r *LocalRuntime) processConfigChanges(ctx context.Context, events <-chan config.ChangeEvent, sendEvent func(Event)) {
+	for {
+		select {
+		case <-ctx.Done():
+			slog.Debug("Config watcher context cancelled")
+			if r.configWatcher != nil {
+				r.configWatcher.Close()
+			}
+			return
+
+		case event, ok := <-events:
+			if !ok {
+				slog.Debug("Config watcher events channel closed")
+				return
+			}
+
+			slog.Info("Config file changed, reloading", "path", event.Path)
+			sendEvent(ConfigReloadStarted(event.Path, r.currentAgent))
+
+			// Reload configuration
+			if err := r.reloadConfig(ctx, sendEvent); err != nil {
+				slog.Error("Failed to reload config", "error", err)
+				sendEvent(ConfigReloadFailed(event.Path, err.Error(), r.currentAgent))
+			}
+		}
+	}
+}
+
+// reloadConfig reloads the configuration from the source and applies changes
+func (r *LocalRuntime) reloadConfig(ctx context.Context, sendEvent func(Event)) error {
+	if r.configSource == nil {
+		return fmt.Errorf("no config source available for reload")
+	}
+
+	// Load new configuration
+	newCfg, err := config.Load(ctx, r.configSource)
+	if err != nil {
+		return fmt.Errorf("failed to load new config: %w", err)
+	}
+
+	// Track which agents were reloaded
+	reloadedAgents := []string{}
+
+	// Apply configuration updates to each agent
+	for agentName, agentConfig := range newCfg.Agents {
+		// Check if agent exists in current team
+		if _, err := r.team.Agent(agentName); err != nil {
+			slog.Debug("Skipping new agent in config (not adding new agents during reload)", "agent", agentName)
+			continue
+		}
+
+		// Get the agent and apply updates directly
+		ag, _ := r.team.Agent(agentName)
+
+		// Update agent properties (instruction, description, etc.)
+		if agentConfig.Instruction != "" {
+			ag.UpdateInstruction(agentConfig.Instruction)
+		}
+		if agentConfig.Description != "" {
+			ag.UpdateDescription(agentConfig.Description)
+		}
+		if len(agentConfig.Commands) > 0 {
+			ag.UpdateCommands(agentConfig.Commands)
+		}
+
+		reloadedAgents = append(reloadedAgents, agentName)
+	}
+
+	slog.Info("Configuration reloaded successfully", "reloaded_agents", reloadedAgents)
+	sendEvent(ConfigReloaded(r.configSource.Name(), reloadedAgents, r.currentAgent))
+
+	return nil
 }
 
 // StartBackgroundRAGInit initializes RAG in background and forwards events

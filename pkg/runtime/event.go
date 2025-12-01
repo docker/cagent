@@ -479,3 +479,52 @@ func RAGIndexingCompleted(ragName, strategyName, agentName string) Event {
 		AgentContext: AgentContext{AgentName: agentName},
 	}
 }
+
+// ConfigReloadStartedEvent is sent when configuration reload begins
+type ConfigReloadStartedEvent struct {
+	Type       string `json:"type"`
+	ConfigPath string `json:"config_path"`
+	AgentContext
+}
+
+func ConfigReloadStarted(configPath, agentName string) Event {
+	return &ConfigReloadStartedEvent{
+		Type:         "config_reload_started",
+		ConfigPath:   configPath,
+		AgentContext: AgentContext{AgentName: agentName},
+	}
+}
+
+// ConfigReloadedEvent is sent when configuration reload completes successfully
+type ConfigReloadedEvent struct {
+	Type           string   `json:"type"`
+	ConfigPath     string   `json:"config_path"`
+	ReloadedAgents []string `json:"reloaded_agents"`
+	AgentContext
+}
+
+func ConfigReloaded(configPath string, reloadedAgents []string, agentName string) Event {
+	return &ConfigReloadedEvent{
+		Type:           "config_reloaded",
+		ConfigPath:     configPath,
+		ReloadedAgents: reloadedAgents,
+		AgentContext:   AgentContext{AgentName: agentName},
+	}
+}
+
+// ConfigReloadFailedEvent is sent when configuration reload fails
+type ConfigReloadFailedEvent struct {
+	Type       string `json:"type"`
+	ConfigPath string `json:"config_path"`
+	Error      string `json:"error"`
+	AgentContext
+}
+
+func ConfigReloadFailed(configPath, errorMsg, agentName string) Event {
+	return &ConfigReloadFailedEvent{
+		Type:         "config_reload_failed",
+		ConfigPath:   configPath,
+		Error:        errorMsg,
+		AgentContext: AgentContext{AgentName: agentName},
+	}
+}

@@ -293,6 +293,18 @@ func (p *chatPage) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		model, cmd = p.sidebar.Update(msg)
 		p.sidebar = model.(sidebar.Model)
 		return p, cmd
+	case *runtime.ConfigReloadStartedEvent:
+		cmd := core.CmdHandler(notification.ShowMsg{Text: "Reloading configuration...", Type: notification.TypeInfo})
+		return p, cmd
+	case *runtime.ConfigReloadedEvent:
+		agentList := strings.Join(msg.ReloadedAgents, ", ")
+		notifText := fmt.Sprintf("✓ Configuration reloaded (%s)", agentList)
+		cmd := core.CmdHandler(notification.ShowMsg{Text: notifText, Type: notification.TypeSuccess})
+		return p, cmd
+	case *runtime.ConfigReloadFailedEvent:
+		notifText := fmt.Sprintf("✗ Config reload failed: %s", msg.Error)
+		cmd := core.CmdHandler(notification.ShowMsg{Text: notifText, Type: notification.TypeError})
+		return p, cmd
 	case *runtime.UserMessageEvent:
 		cmd := p.messages.AddUserMessage(msg.Message)
 		return p, cmd

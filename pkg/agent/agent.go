@@ -201,3 +201,21 @@ func (a *Agent) StopToolSets(ctx context.Context) error {
 
 	return nil
 }
+
+// UpdateInstruction updates the agent's instruction prompt
+func (a *Agent) UpdateInstruction(instruction string) {
+	a.instruction = instruction
+	slog.Debug("Updated agent instruction", "agent", a.name)
+}
+
+// UpdateDescription updates the agent's description
+func (a *Agent) UpdateDescription(description string) {
+	a.description = description
+	slog.Debug("Updated agent description", "agent", a.name)
+}
+
+// UpdateCommands updates the agent's named commands
+func (a *Agent) UpdateCommands(commands map[string]string) {
+	a.commands = commands
+	slog.Debug("Updated agent commands", "agent", a.name, "command_count", len(commands))
+}

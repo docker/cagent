@@ -81,9 +81,10 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 	}
 
 	var (
-		rt   runtime.Runtime
-		sess *session.Session
-		err  error
+		rt          runtime.Runtime
+		sess        *session.Session
+		err         error
+		agentSource config.Source
 	)
 	if f.remoteAddress != "" {
 		rt, sess, err = f.createRemoteRuntimeAndSession(ctx, agentFileName)
@@ -91,7 +92,7 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 			return err
 		}
 	} else {
-		agentSource, err := config.Resolve(agentFileName)
+		agentSource, err = config.Resolve(agentFileName)
 		if err != nil {
 			return err
 		}
@@ -101,7 +102,7 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 			return err
 		}
 
-		rt, sess, err = f.createLocalRuntimeAndSession(t)
+		rt, sess, err = f.createLocalRuntimeAndSession(t, agentSource)
 		if err != nil {
 			return err
 		}
@@ -162,7 +163,7 @@ func (f *runExecFlags) createRemoteRuntimeAndSession(ctx context.Context, origin
 	return remoteRt, sess, nil
 }
 
-func (f *runExecFlags) createLocalRuntimeAndSession(t *team.Team) (runtime.Runtime, *session.Session, error) {
+func (f *runExecFlags) createLocalRuntimeAndSession(t *team.Team, agentSource config.Source) (runtime.Runtime, *session.Session, error) {
 	agent, err := t.Agent(f.agentName)
 	if err != nil {
 		return nil, nil, err
@@ -177,6 +178,7 @@ func (f *runExecFlags) createLocalRuntimeAndSession(t *team.Team) (runtime.Runti
 		runtime.WithCurrentAgent(f.agentName),
 		runtime.WithTracer(otel.Tracer(AppName)),
 		runtime.WithRootSessionID(sess.ID),
+		runtime.WithConfigSource(agentSource),
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create runtime: %w", err)
