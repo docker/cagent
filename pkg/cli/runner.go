@@ -232,16 +232,23 @@ func Run(ctx context.Context, out *Printer, cfg Config, rt runtime.Runtime, sess
 // runUserCommand handles built-in session commands
 // TODO: This is a duplication of builtInSessionCommands() in pkg/tui/tui.go
 func runUserCommand(out *Printer, userInput string, sess *session.Session, rt runtime.Runtime, ctx context.Context) (bool, error) {
-	switch userInput {
-	case "/exit":
-		os.Exit(0)
-	case "/eval":
-		evalFile, err := evaluation.Save(sess)
+	// Handle /eval with optional filename
+	if userInput == "/eval" || strings.HasPrefix(userInput, "/eval ") {
+		var filename string
+		if strings.HasPrefix(userInput, "/eval ") {
+			filename = strings.TrimSpace(strings.TrimPrefix(userInput, "/eval "))
+		}
+		evalFile, err := evaluation.Save(sess, filename)
 		if err == nil {
 			out.Println("Evaluation saved to file:", evalFile)
 			return true, err
 		}
 		return true, nil
+	}
+
+	switch userInput {
+	case "/exit":
+		os.Exit(0)
 	case "/usage":
 		out.Println("Input tokens:", sess.InputTokens)
 		out.Println("Output tokens:", sess.OutputTokens)

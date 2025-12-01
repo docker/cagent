@@ -209,7 +209,7 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(a.Init(), a.handleWindowResize(a.wWidth, a.wHeight))
 
 	case messages.EvalSessionMsg:
-		evalFile, _ := evaluation.Save(a.application.Session())
+		evalFile, _ := evaluation.Save(a.application.Session(), msg.Filename)
 		return a, core.CmdHandler(notification.ShowMsg{Text: fmt.Sprintf("Eval saved to file %s", evalFile)})
 
 	case messages.CompactSessionMsg:

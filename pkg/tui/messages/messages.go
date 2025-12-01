@@ -2,8 +2,10 @@ package messages
 
 // Session command messages
 type (
-	NewSessionMsg             struct{}
-	EvalSessionMsg            struct{}
+	NewSessionMsg  struct{}
+	EvalSessionMsg struct {
+		Filename string
+	}
 	CompactSessionMsg         struct{}
 	CopySessionToClipboardMsg struct{}
 	ToggleYoloMsg             struct{}

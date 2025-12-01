@@ -20,6 +20,7 @@ import (
 	"github.com/docker/cagent/pkg/tui/components/notification"
 	"github.com/docker/cagent/pkg/tui/components/sidebar"
 	"github.com/docker/cagent/pkg/tui/components/tool/editfile"
+	tcommands "github.com/docker/cagent/pkg/tui/commands"
 	"github.com/docker/cagent/pkg/tui/core"
 	"github.com/docker/cagent/pkg/tui/core/layout"
 	"github.com/docker/cagent/pkg/tui/dialog"
@@ -613,6 +614,15 @@ func (p *chatPage) processMessage(content string) tea.Cmd {
 	if strings.HasPrefix(content, "!") {
 		p.app.RunBangCommand(ctx, content[1:])
 		return p.messages.ScrollToBottom()
+	}
+
+	// Handle /eval command with optional filename
+	if content == "/eval" || strings.HasPrefix(content, "/eval ") {
+		var filename string
+		if strings.HasPrefix(content, "/eval ") {
+			filename = strings.TrimSpace(strings.TrimPrefix(content, "/eval "))
+		}
+		return core.CmdHandler(tcommands.EvalSessionMsg{Filename: filename})
 	}
 
 	// Persist to history
