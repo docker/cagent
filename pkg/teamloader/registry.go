@@ -159,7 +159,7 @@ func createFilesystemTool(_ context.Context, toolset latest.Toolset, _ string, r
 		opts = append(opts, builtin.WithPostEditCommands(postEditConfigs))
 	}
 
-	return builtin.NewFilesystemTool([]string{wd}, opts...), nil
+	return builtin.NewFilesystemTool(wd, opts...), nil
 }
 
 func createAPITool(ctx context.Context, toolset latest.Toolset, _ string, runConfig *config.RuntimeConfig) (tools.ToolSet, error) {

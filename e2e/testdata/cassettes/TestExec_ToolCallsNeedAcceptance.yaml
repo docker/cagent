@@ -1,43 +1,85 @@
 ---
 version: 2
 interactions:
-- id: 0
-  request:
-    proto: HTTP/1.1
-    proto_major: 1
-    proto_minor: 1
-    content_length: 0
-    host: api.openai.com
-    body: "{\"messages\":[{\"content\":\"You are a knowledgeable assistant that can write test files.\",\"role\":\"system\"},{\"content\":\"## Filesystem Tool Instructions\\n\\nThis toolset provides comprehensive filesystem operations with built-in security restrictions.\\n\\n### Security Model\\n- All operations are restricted to allowed directories only\\n- Use list_allowed_directories to see available paths\\n- Subdirectories within allowed directories are accessible\\n- Use add_allowed_directory to request access to new directories (requires user consent)\\n\\n### Directory Access Management\\n- If you need access to a directory outside the allowed list, use add_allowed_directory\\n- This will request user consent before expanding filesystem access\\n- Always provide a clear reason when requesting new directory access\\n\\n### Common Patterns\\n- Always check if directories exist before creating files\\n- Prefer read_multiple_files for batch operations\\n- Use search_files_content for finding specific code or text\\n\\n### Performance Tips\\n- Use read_multiple_files instead of multiple read_file calls\\n- Use directory_tree with max_depth to limit large traversals\\n- Use appropriate exclude patterns in search operations\",\"role\":\"system\"},{\"content\":\"Create a hello.txt file with \\\"Hello, World!\\\" content. Try only once. On error, exit without further message.\",\"role\":\"user\"}],\"model\":\"gpt-5-mini\",\"stream_options\":{\"include_usage\":true},\"tools\":[{\"function\":{\"name\":\"write_file\",\"description\":\"Create a new file or completely overwrite an existing file with new content.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"content\":{\"description\":\"The content to write to the file\",\"type\":\"string\"},\"path\":{\"description\":\"The file path to write\",\"type\":\"string\"}},\"required\":[\"path\",\"content\"],\"type\":\"object\"}},\"type\":\"function\"}],\"stream\":true}"
-    url: https://api.openai.com/v1/chat/completions
-    method: POST
-  response:
-    proto: HTTP/2.0
-    proto_major: 2
-    proto_minor: 0
-    content_length: -1
-    body: "data: {\"id\":\"chatcmpl-Cb8MUtC2PobrUHw0UtSPhX3iE5564\",\"object\":\"chat.completion.chunk\",\"created\":1762966314,\"model\":\"gpt-5-mini-2025-08-07\",\"service_tier\":\"default\",\"system_fingerprint\":null,\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"index\":0,\"id\":\"call_snIEkFn2HskTWWJP0O9oX1ab\",\"type\":\"function\",\"function\":{\"name\":\"write_file\",\"arguments\":\"\"}}],\"refusal\":null},\"finish_reason\":null}],\"usage\":null,\"obfuscation\":\"Q\"}\n\ndata: {\"id\":\"chatcmpl-Cb8MUtC2PobrUHw0UtSPhX3iE5564\",\"object\":\"chat.completion.chunk\",\"created\":1762966314,\"model\":\"gpt-5-mini-2025-08-07\",\"service_tier\":\"default\",\"system_fingerprint\":null,\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"\"}}]},\"finish_reason\":null}],\"usage\":null,\"obfuscation\":\"5oFUqME8lY\"}\n\ndata: {\"id\":\"chatcmpl-Cb8MUtC2PobrUHw0UtSPhX3iE5564\",\"object\":\"chat.completion.chunk\",\"created\":1762966314,\"model\":\"gpt-5-mini-2025-08-07\",\"service_tier\":\"default\",\"system_fingerprint\":null,\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"path\"}}]},\"finish_reason\":null}],\"usage\":null,\"obfuscation\":\"ZUqsNGLMO\"}\n\ndata: {\"id\":\"chatcmpl-Cb8MUtC2PobrUHw0UtSPhX3iE5564\",\"object\":\"chat.completion.chunk\",\"created\":1762966314,\"model\":\"gpt-5-mini-2025-08-07\",\"service_tier\":\"default\",\"system_fingerprint\":null,\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\\\":\\\"\"}}]},\"finish_reason\":null}],\"usage\":null,\"obfuscation\":\"QhqPPCID\"}\n\ndata: {\"id\":\"chatcmpl-Cb8MUtC2PobrUHw0UtSPhX3iE5564\",\"object\":\"chat.completion.chunk\",\"created\":1762966314,\"model\":\"gpt-5-mini-2025-08-07\",\"service_tier\":\"default\",\"system_fingerprint\":null,\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"hello\"}}]},\"finish_reason\":null}],\"usage\":null,\"obfuscation\":\"k5eSrCml\"}\n\ndata: {\"id\":\"chatcmpl-Cb8MUtC2PobrUHw0UtSPhX3iE5564\",\"object\":\"chat.completion.chunk\",\"created\":1762966314,\"model\":\"gpt-5-mini-2025-08-07\",\"service_tier\":\"default\",\"system_fingerprint\":null,\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\".txt\"}}]},\"finish_reason\":null}],\"usage\":null,\"obfuscation\":\"NYlhtpEWt\"}\n\ndata: {\"id\":\"chatcmpl-Cb8MUtC2PobrUHw0UtSPhX3iE5564\",\"object\":\"chat.completion.chunk\",\"created\":1762966314,\"model\":\"gpt-5-mini-2025-08-07\",\"service_tier\":\"default\",\"system_fingerprint\":null,\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\\\",\\\"\"}}]},\"finish_reason\":null}],\"usage\":null,\"obfuscation\":\"MWkPjZZ9\"}\n\ndata: {\"id\":\"chatcmpl-Cb8MUtC2PobrUHw0UtSPhX3iE5564\",\"object\":\"chat.completion.chunk\",\"created\":1762966314,\"model\":\"gpt-5-mini-2025-08-07\",\"service_tier\":\"default\",\"system_fingerprint\":null,\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"content\"}}]},\"finish_reason\":null}],\"usage\":null,\"obfuscation\":\"jxlGCa\"}\n\ndata: {\"id\":\"chatcmpl-Cb8MUtC2PobrUHw0UtSPhX3iE5564\",\"object\":\"chat.completion.chunk\",\"created\":1762966314,\"model\":\"gpt-5-mini-2025-08-07\",\"service_tier\":\"default\",\"system_fingerprint\":null,\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\\\":\\\"\"}}]},\"finish_reason\":null}],\"usage\":null,\"obfuscation\":\"ppFlDOQ0\"}\n\ndata: {\"id\":\"chatcmpl-Cb8MUtC2PobrUHw0UtSPhX3iE5564\",\"object\":\"chat.completion.chunk\",\"created\":1762966314,\"model\":\"gpt-5-mini-2025-08-07\",\"service_tier\":\"default\",\"system_fingerprint\":null,\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"Hello\"}}]},\"finish_reason\":null}],\"usage\":null,\"obfuscation\":\"LvLsOX6T\"}\n\ndata: {\"id\":\"chatcmpl-Cb8MUtC2PobrUHw0UtSPhX3iE5564\",\"object\":\"chat.completion.chunk\",\"created\":1762966314,\"model\":\"gpt-5-mini-2025-08-07\",\"service_tier\":\"default\",\"system_fingerprint\":null,\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\",\"}}]},\"finish_reason\":null}],\"usage\":null,\"obfuscation\":\"fp2njXvVzGCV\"}\n\ndata: {\"id\":\"chatcmpl-Cb8MUtC2PobrUHw0UtSPhX3iE5564\",\"object\":\"chat.completion.chunk\",\"created\":1762966314,\"model\":\"gpt-5-mini-2025-08-07\",\"service_tier\":\"default\",\"system_fingerprint\":null,\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\" World\"}}]},\"finish_reason\":null}],\"usage\":null,\"obfuscation\":\"EGzxBzl\"}\n\ndata: {\"id\":\"chatcmpl-Cb8MUtC2PobrUHw0UtSPhX3iE5564\",\"object\":\"chat.completion.chunk\",\"created\":1762966314,\"model\":\"gpt-5-mini-2025-08-07\",\"service_tier\":\"default\",\"system_fingerprint\":null,\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"!\\\"\"}}]},\"finish_reason\":null}],\"usage\":null,\"obfuscation\":\"2zFfDIzfeC\"}\n\ndata: {\"id\":\"chatcmpl-Cb8MUtC2PobrUHw0UtSPhX3iE5564\",\"object\":\"chat.completion.chunk\",\"created\":1762966314,\"model\":\"gpt-5-mini-2025-08-07\",\"service_tier\":\"default\",\"system_fingerprint\":null,\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"}\"}}]},\"finish_reason\":null}],\"usage\":null,\"obfuscation\":\"fI8BNyoeo5KL\"}\n\ndata: {\"id\":\"chatcmpl-Cb8MUtC2PobrUHw0UtSPhX3iE5564\",\"object\":\"chat.completion.chunk\",\"created\":1762966314,\"model\":\"gpt-5-mini-2025-08-07\",\"service_tier\":\"default\",\"system_fingerprint\":null,\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}],\"usage\":null,\"obfuscation\":\"T1JzDiG1Lyz\"}\n\ndata: {\"id\":\"chatcmpl-Cb8MUtC2PobrUHw0UtSPhX3iE5564\",\"object\":\"chat.completion.chunk\",\"created\":1762966314,\"model\":\"gpt-5-mini-2025-08-07\",\"service_tier\":\"default\",\"system_fingerprint\":null,\"choices\":[],\"usage\":{\"prompt_tokens\":381,\"completion_tokens\":607,\"total_tokens\":988,\"prompt_tokens_details\":{\"cached_tokens\":0,\"audio_tokens\":0},\"completion_tokens_details\":{\"reasoning_tokens\":576,\"audio_tokens\":0,\"accepted_prediction_tokens\":0,\"rejected_prediction_tokens\":0}},\"obfuscation\":\"g\"}\n\ndata: [DONE]\n\n"
-    headers: {}
-    status: 200 OK
-    code: 200
-    duration: 22.720729833s
-- id: 1
-  request:
-    proto: HTTP/1.1
-    proto_major: 1
-    proto_minor: 1
-    content_length: 0
-    host: api.openai.com
-    body: "{\"messages\":[{\"content\":\"You are a knowledgeable assistant that can write test files.\",\"role\":\"system\"},{\"content\":\"## Filesystem Tool Instructions\\n\\nThis toolset provides comprehensive filesystem operations with built-in security restrictions.\\n\\n### Security Model\\n- All operations are restricted to allowed directories only\\n- Use list_allowed_directories to see available paths\\n- Subdirectories within allowed directories are accessible\\n- Use add_allowed_directory to request access to new directories (requires user consent)\\n\\n### Directory Access Management\\n- If you need access to a directory outside the allowed list, use add_allowed_directory\\n- This will request user consent before expanding filesystem access\\n- Always provide a clear reason when requesting new directory access\\n\\n### Common Patterns\\n- Always check if directories exist before creating files\\n- Prefer read_multiple_files for batch operations\\n- Use search_files_content for finding specific code or text\\n\\n### Performance Tips\\n- Use read_multiple_files instead of multiple read_file calls\\n- Use directory_tree with max_depth to limit large traversals\\n- Use appropriate exclude patterns in search operations\",\"role\":\"system\"},{\"content\":\"Create a hello.txt file with \\\"Hello, World!\\\" content. Try only once. On error, exit without further message.\",\"role\":\"user\"},{\"tool_calls\":[{\"id\":\"call_snIEkFn2HskTWWJP0O9oX1ab\",\"function\":{\"arguments\":\"{\\\"path\\\":\\\"hello.txt\\\",\\\"content\\\":\\\"Hello, World!\\\"}\",\"name\":\"write_file\"},\"type\":\"function\"}],\"role\":\"assistant\"},{\"content\":\"The user rejected the tool call.\",\"tool_call_id\":\"call_snIEkFn2HskTWWJP0O9oX1ab\",\"role\":\"tool\"}],\"model\":\"gpt-5-mini\",\"stream_options\":{\"include_usage\":true},\"tools\":[{\"function\":{\"name\":\"write_file\",\"description\":\"Create a new file or completely overwrite an existing file with new content.\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"content\":{\"description\":\"The content to write to the file\",\"type\":\"string\"},\"path\":{\"description\":\"The file path to write\",\"type\":\"string\"}},\"required\":[\"path\",\"content\"],\"type\":\"object\"}},\"type\":\"function\"}],\"stream\":true}"
-    url: https://api.openai.com/v1/chat/completions
-    method: POST
-  response:
-    proto: HTTP/2.0
-    proto_major: 2
-    proto_minor: 0
-    content_length: -1
-    body: "data: {\"id\":\"chatcmpl-Cb8MsMQbU96ynPbtS37zKFLp0Q25o\",\"object\":\"chat.completion.chunk\",\"created\":1762966338,\"model\":\"gpt-5-mini-2025-08-07\",\"service_tier\":\"default\",\"system_fingerprint\":null,\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\",\"refusal\":null},\"finish_reason\":null}],\"usage\":null,\"obfuscation\":\"mqZJh\"}\n\ndata: {\"id\":\"chatcmpl-Cb8MsMQbU96ynPbtS37zKFLp0Q25o\",\"object\":\"chat.completion.chunk\",\"created\":1762966338,\"model\":\"gpt-5-mini-2025-08-07\",\"service_tier\":\"default\",\"system_fingerprint\":null,\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":null,\"obfuscation\":\"1\"}\n\ndata: {\"id\":\"chatcmpl-Cb8MsMQbU96ynPbtS37zKFLp0Q25o\",\"object\":\"chat.completion.chunk\",\"created\":1762966338,\"model\":\"gpt-5-mini-2025-08-07\",\"service_tier\":\"default\",\"system_fingerprint\":null,\"choices\":[],\"usage\":{\"prompt_tokens\":424,\"completion_tokens\":265,\"total_tokens\":689,\"prompt_tokens_details\":{\"cached_tokens\":0,\"audio_tokens\":0},\"completion_tokens_details\":{\"reasoning_tokens\":256,\"audio_tokens\":0,\"accepted_prediction_tokens\":0,\"rejected_prediction_tokens\":0}},\"obfuscation\":\"E\"}\n\ndata: [DONE]\n\n"
-    headers: {}
-    status: 200 OK
-    code: 200
-    duration: 5.614764333s
+    - id: 0
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: api.openai.com
+        body: '{"messages":[{"content":"You are a knowledgeable assistant that can write test files.","role":"system"},{"content":"Create a hello.txt file with \"Hello, World!\" content. Try only once. On error, exit without further message.","role":"user"}],"model":"gpt-5-mini","stream_options":{"include_usage":true},"tools":[{"function":{"name":"write_file","description":"Create a new file or completely overwrite an existing file with new content.","parameters":{"additionalProperties":false,"properties":{"content":{"description":"The content to write to the file","type":"string"},"path":{"description":"The file path to write","type":"string"}},"required":["path","content"],"type":"object"}},"type":"function"}],"stream":true}'
+        url: https://api.openai.com/v1/chat/completions
+        method: POST
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        body: |+
+            data: {"id":"chatcmpl-CjSFM6j5lOe0A5GdFhDkp6k7r2GP4","object":"chat.completion.chunk","created":1764949376,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"role":"assistant","content":null,"tool_calls":[{"index":0,"id":"call_Xy75zcAp6Tjq6GcWNBDP2CUb","type":"function","function":{"name":"write_file","arguments":""}}],"refusal":null},"finish_reason":null}],"usage":null,"obfuscation":"1"}
+
+            data: {"id":"chatcmpl-CjSFM6j5lOe0A5GdFhDkp6k7r2GP4","object":"chat.completion.chunk","created":1764949376,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\""}}]},"finish_reason":null}],"usage":null,"obfuscation":"O5MCVGDot3"}
+
+            data: {"id":"chatcmpl-CjSFM6j5lOe0A5GdFhDkp6k7r2GP4","object":"chat.completion.chunk","created":1764949376,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"path"}}]},"finish_reason":null}],"usage":null,"obfuscation":"2HyIJbq2E"}
+
+            data: {"id":"chatcmpl-CjSFM6j5lOe0A5GdFhDkp6k7r2GP4","object":"chat.completion.chunk","created":1764949376,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\":\""}}]},"finish_reason":null}],"usage":null,"obfuscation":"9TApMrCa"}
+
+            data: {"id":"chatcmpl-CjSFM6j5lOe0A5GdFhDkp6k7r2GP4","object":"chat.completion.chunk","created":1764949376,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"hello"}}]},"finish_reason":null}],"usage":null,"obfuscation":"oX3oBLZT"}
+
+            data: {"id":"chatcmpl-CjSFM6j5lOe0A5GdFhDkp6k7r2GP4","object":"chat.completion.chunk","created":1764949376,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":".txt"}}]},"finish_reason":null}],"usage":null,"obfuscation":"5GIIXnhBo"}
+
+            data: {"id":"chatcmpl-CjSFM6j5lOe0A5GdFhDkp6k7r2GP4","object":"chat.completion.chunk","created":1764949376,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\",\""}}]},"finish_reason":null}],"usage":null,"obfuscation":"g6qDRzfD"}
+
+            data: {"id":"chatcmpl-CjSFM6j5lOe0A5GdFhDkp6k7r2GP4","object":"chat.completion.chunk","created":1764949376,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"content"}}]},"finish_reason":null}],"usage":null,"obfuscation":"rWO4Yr"}
+
+            data: {"id":"chatcmpl-CjSFM6j5lOe0A5GdFhDkp6k7r2GP4","object":"chat.completion.chunk","created":1764949376,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\":\""}}]},"finish_reason":null}],"usage":null,"obfuscation":"bC6hXbxu"}
+
+            data: {"id":"chatcmpl-CjSFM6j5lOe0A5GdFhDkp6k7r2GP4","object":"chat.completion.chunk","created":1764949376,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"Hello"}}]},"finish_reason":null}],"usage":null,"obfuscation":"OuPCthaf"}
+
+            data: {"id":"chatcmpl-CjSFM6j5lOe0A5GdFhDkp6k7r2GP4","object":"chat.completion.chunk","created":1764949376,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":","}}]},"finish_reason":null}],"usage":null,"obfuscation":"ihrQ3dmzCRhV"}
+
+            data: {"id":"chatcmpl-CjSFM6j5lOe0A5GdFhDkp6k7r2GP4","object":"chat.completion.chunk","created":1764949376,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":" World"}}]},"finish_reason":null}],"usage":null,"obfuscation":"d6VUcsS"}
+
+            data: {"id":"chatcmpl-CjSFM6j5lOe0A5GdFhDkp6k7r2GP4","object":"chat.completion.chunk","created":1764949376,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"!\""}}]},"finish_reason":null}],"usage":null,"obfuscation":"bpfNzPGFMc"}
+
+            data: {"id":"chatcmpl-CjSFM6j5lOe0A5GdFhDkp6k7r2GP4","object":"chat.completion.chunk","created":1764949376,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"}"}}]},"finish_reason":null}],"usage":null,"obfuscation":"utPj7ku6FfWu"}
+
+            data: {"id":"chatcmpl-CjSFM6j5lOe0A5GdFhDkp6k7r2GP4","object":"chat.completion.chunk","created":1764949376,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":null,"obfuscation":"ZwJC4hKLqnN"}
+
+            data: {"id":"chatcmpl-CjSFM6j5lOe0A5GdFhDkp6k7r2GP4","object":"chat.completion.chunk","created":1764949376,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[],"usage":{"prompt_tokens":190,"completion_tokens":415,"total_tokens":605,"prompt_tokens_details":{"cached_tokens":0,"audio_tokens":0},"completion_tokens_details":{"reasoning_tokens":384,"audio_tokens":0,"accepted_prediction_tokens":0,"rejected_prediction_tokens":0}},"obfuscation":"4"}
+
+            data: [DONE]
+
+        headers: {}
+        status: 200 OK
+        code: 200
+        duration: 6.740004708s
+    - id: 1
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: api.openai.com
+        body: '{"messages":[{"content":"You are a knowledgeable assistant that can write test files.","role":"system"},{"content":"Create a hello.txt file with \"Hello, World!\" content. Try only once. On error, exit without further message.","role":"user"},{"tool_calls":[{"id":"call_Xy75zcAp6Tjq6GcWNBDP2CUb","function":{"arguments":"{\"path\":\"hello.txt\",\"content\":\"Hello, World!\"}","name":"write_file"},"type":"function"}],"role":"assistant"},{"content":"The user rejected the tool call.","tool_call_id":"call_Xy75zcAp6Tjq6GcWNBDP2CUb","role":"tool"}],"model":"gpt-5-mini","stream_options":{"include_usage":true},"tools":[{"function":{"name":"write_file","description":"Create a new file or completely overwrite an existing file with new content.","parameters":{"additionalProperties":false,"properties":{"content":{"description":"The content to write to the file","type":"string"},"path":{"description":"The file path to write","type":"string"}},"required":["path","content"],"type":"object"}},"type":"function"}],"stream":true}'
+        url: https://api.openai.com/v1/chat/completions
+        method: POST
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        body: |+
+            data: {"id":"chatcmpl-CjSFTjFNSvzha8UTYAYBd0k0GfVVd","object":"chat.completion.chunk","created":1764949383,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"role":"assistant","content":"","refusal":null},"finish_reason":null}],"usage":null,"obfuscation":"83xvX"}
+
+            data: {"id":"chatcmpl-CjSFTjFNSvzha8UTYAYBd0k0GfVVd","object":"chat.completion.chunk","created":1764949383,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":null,"obfuscation":"L"}
+
+            data: {"id":"chatcmpl-CjSFTjFNSvzha8UTYAYBd0k0GfVVd","object":"chat.completion.chunk","created":1764949383,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[],"usage":{"prompt_tokens":233,"completion_tokens":201,"total_tokens":434,"prompt_tokens_details":{"cached_tokens":0,"audio_tokens":0},"completion_tokens_details":{"reasoning_tokens":192,"audio_tokens":0,"accepted_prediction_tokens":0,"rejected_prediction_tokens":0}},"obfuscation":"O"}
+
+            data: [DONE]
+
+        headers: {}
+        status: 200 OK
+        code: 200
+        duration: 3.533116875s

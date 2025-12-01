@@ -11,12 +11,12 @@ type TreeNode struct {
 	Children []*TreeNode `json:"children,omitempty"`
 }
 
-func DirectoryTree(path string, isPathAllowed func(string) error, shouldIgnore func(string) bool, maxItems int) (*TreeNode, error) {
+func DirectoryTree(path string, shouldIgnore func(string) bool, maxItems int) (*TreeNode, error) {
 	itemCount := 0
-	return directoryTree(path, isPathAllowed, shouldIgnore, maxItems, &itemCount)
+	return directoryTree(path, shouldIgnore, maxItems, &itemCount)
 }
 
-func directoryTree(path string, isPathAllowed func(string) error, shouldIgnore func(string) bool, maxItems int, itemCount *int) (*TreeNode, error) {
+func directoryTree(path string, shouldIgnore func(string) bool, maxItems int, itemCount *int) (*TreeNode, error) {
 	if maxItems > 0 && *itemCount >= maxItems {
 		return nil, nil
 	}
@@ -44,16 +44,12 @@ func directoryTree(path string, isPathAllowed func(string) error, shouldIgnore f
 
 		for _, entry := range entries {
 			childPath := filepath.Join(path, entry.Name())
-			if err := isPathAllowed(childPath); err != nil {
-				continue // Skip disallowed paths
-			}
-
 			// Skip if should be ignored (VCS, gitignore, etc.)
 			if shouldIgnore != nil && shouldIgnore(childPath) {
 				continue
 			}
 
-			childNode, err := directoryTree(childPath, isPathAllowed, shouldIgnore, maxItems, itemCount)
+			childNode, err := directoryTree(childPath, shouldIgnore, maxItems, itemCount)
 			if err != nil || childNode == nil {
 				continue
 			}
@@ -65,7 +61,7 @@ func directoryTree(path string, isPathAllowed func(string) error, shouldIgnore f
 }
 
 func ListDirectory(path string, shouldIgnore func(string) bool) ([]string, error) {
-	tree, err := DirectoryTree(path, func(string) error { return nil }, shouldIgnore, 0)
+	tree, err := DirectoryTree(path, shouldIgnore, 0)
 	if err != nil {
 		return nil, err
 	}

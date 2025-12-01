@@ -41,7 +41,7 @@ var _ tools.ToolSet = (*FilesystemToolset)(nil)
 // NewFilesystemToolset creates a new ACP-specific filesystem toolset
 func NewFilesystemToolset(agent *Agent, workingDir string, opts ...builtin.FileSystemOpt) *FilesystemToolset {
 	return &FilesystemToolset{
-		FilesystemTool: builtin.NewFilesystemTool([]string{workingDir}, opts...),
+		FilesystemTool: builtin.NewFilesystemTool(workingDir, opts...),
 		agent:          agent,
 		workindgDir:    workingDir,
 	}

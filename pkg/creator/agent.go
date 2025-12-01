@@ -111,7 +111,7 @@ Can you explain to me what the agent will be used for?`,
 
 	// Custom tool registry to include fsToolset
 	fsToolset := fsToolset{
-		inner: builtin.NewFilesystemTool([]string{runConfig.WorkingDir}),
+		inner: builtin.NewFilesystemTool(runConfig.WorkingDir),
 	}
 
 	registry := teamloader.NewDefaultToolsetRegistry()

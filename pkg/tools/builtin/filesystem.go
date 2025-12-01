@@ -19,16 +19,14 @@ import (
 )
 
 const (
-	ToolNameReadFile               = "read_file"
-	ToolNameReadMultipleFiles      = "read_multiple_files"
-	ToolNameEditFile               = "edit_file"
-	ToolNameWriteFile              = "write_file"
-	ToolNameListAllowedDirectories = "list_allowed_directories"
-	ToolNameAddAllowedDirectory    = "add_allowed_directory"
-	ToolNameDirectoryTree          = "directory_tree"
-	ToolNameListDirectory          = "list_directory"
-	ToolNameSearchFiles            = "search_files"
-	ToolNameSearchFilesContent     = "search_files_content"
+	ToolNameReadFile           = "read_file"
+	ToolNameReadMultipleFiles  = "read_multiple_files"
+	ToolNameEditFile           = "edit_file"
+	ToolNameWriteFile          = "write_file"
+	ToolNameDirectoryTree      = "directory_tree"
+	ToolNameListDirectory      = "list_directory"
+	ToolNameSearchFiles        = "search_files"
+	ToolNameSearchFilesContent = "search_files_content"
 )
 
 // PostEditConfig represents a post-edit command configuration
@@ -40,10 +38,10 @@ type PostEditConfig struct {
 type FilesystemTool struct {
 	tools.ElicitationTool
 
-	allowedDirectories []string
-	postEditCommands   []PostEditConfig
-	ignoreVCS          bool
-	repoMatchers       map[string]*fsx.VCSMatcher // map from repo root to matcher
+	workingDirectory string
+	postEditCommands []PostEditConfig
+	ignoreVCS        bool
+	repoMatchers     map[string]*fsx.VCSMatcher // map from repo root to matcher
 }
 
 var _ tools.ToolSet = (*FilesystemTool)(nil)
@@ -62,10 +60,10 @@ func WithIgnoreVCS(ignoreVCS bool) FileSystemOpt {
 	}
 }
 
-func NewFilesystemTool(allowedDirectories []string, opts ...FileSystemOpt) *FilesystemTool {
+func NewFilesystemTool(workingDirectory string, opts ...FileSystemOpt) *FilesystemTool {
 	t := &FilesystemTool{
-		allowedDirectories: allowedDirectories,
-		repoMatchers:       make(map[string]*fsx.VCSMatcher),
+		workingDirectory: workingDirectory,
+		repoMatchers:     make(map[string]*fsx.VCSMatcher),
 	}
 	for _, opt := range opts {
 		opt(t)
@@ -80,30 +78,7 @@ func NewFilesystemTool(allowedDirectories []string, opts ...FileSystemOpt) *File
 }
 
 func (t *FilesystemTool) Instructions() string {
-	return `## Filesystem Tool Instructions
-
-This toolset provides comprehensive filesystem operations with built-in security restrictions.
-
-### Security Model
-- All operations are restricted to allowed directories only
-- Use list_allowed_directories to see available paths
-- Subdirectories within allowed directories are accessible
-- Use add_allowed_directory to request access to new directories (requires user consent)
-
-### Directory Access Management
-- If you need access to a directory outside the allowed list, use add_allowed_directory
-- This will request user consent before expanding filesystem access
-- Always provide a clear reason when requesting new directory access
-
-### Common Patterns
-- Always check if directories exist before creating files
-- Prefer read_multiple_files for batch operations
-- Use search_files_content for finding specific code or text
-
-### Performance Tips
-- Use read_multiple_files instead of multiple read_file calls
-- Use directory_tree with max_depth to limit large traversals
-- Use appropriate exclude patterns in search operations`
+	return ""
 }
 
 type DirectoryTreeArgs struct {
@@ -201,28 +176,6 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			Handler:      NewHandler(t.handleEditFile),
 			Annotations: tools.ToolAnnotations{
 				Title: "Edit File",
-			},
-		},
-		{
-			Name:         ToolNameListAllowedDirectories,
-			Category:     "filesystem",
-			Description:  "Returns a list of directories that the server has permission to access. Don't call if you access only the current working directory. It's always allowed.",
-			OutputSchema: tools.MustSchemaFor[string](),
-			Handler:      NewHandler(t.handleListAllowedDirectories),
-			Annotations: tools.ToolAnnotations{
-				ReadOnlyHint: true,
-				Title:        "List Allowed Directories",
-			},
-		},
-		{
-			Name:         ToolNameAddAllowedDirectory,
-			Category:     "filesystem",
-			Description:  "Request to add a new directory to the allowed directories list. This requires explicit user consent for security reasons.",
-			Parameters:   tools.MustSchemaFor[AddAllowedDirectoryArgs](),
-			OutputSchema: tools.MustSchemaFor[string](),
-			Handler:      NewHandler(t.handleAddAllowedDirectory),
-			Annotations: tools.ToolAnnotations{
-				Title: "Add Allowed Directory",
 			},
 		},
 		{
@@ -328,39 +281,10 @@ func (t *FilesystemTool) executePostEditCommands(ctx context.Context, filePath s
 	return nil
 }
 
-// Security helper to check if path is allowed
-func (t *FilesystemTool) isPathAllowed(path string) error {
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return fmt.Errorf("unable to resolve absolute path: %w", err)
-	}
-
-	if len(t.allowedDirectories) == 0 {
-		return fmt.Errorf("no allowed directories configured")
-	}
-
-	for _, allowedDir := range t.allowedDirectories {
-		allowedAbs, err := filepath.Abs(allowedDir)
-		if err != nil {
-			continue
-		}
-
-		if strings.HasPrefix(absPath, allowedAbs) {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("path %s is not within allowed directories", path)
-}
-
 // initGitignoreMatchers initializes gitignore matchers for each allowed directory
 func (t *FilesystemTool) initGitignoreMatchers() {
-	for _, allowedDir := range t.allowedDirectories {
-		absDir, err := filepath.Abs(allowedDir)
-		if err != nil {
-			slog.Warn("Failed to get absolute path for allowed directory", "dir", allowedDir, "error", err)
-			continue
-		}
+	absDir, err := filepath.Abs(t.workingDirectory)
+	if err == nil {
 		t.loadMatcherForDirectory(absDir)
 	}
 }
@@ -414,11 +338,7 @@ func (t *FilesystemTool) shouldIgnorePath(path string) bool {
 // Handler implementations
 
 func (t *FilesystemTool) handleDirectoryTree(_ context.Context, args DirectoryTreeArgs) (*tools.ToolCallResult, error) {
-	if err := t.isPathAllowed(args.Path); err != nil {
-		return &tools.ToolCallResult{Output: fmt.Sprintf("Error: %s", err)}, nil
-	}
-
-	tree, err := fsx.DirectoryTree(args.Path, t.isPathAllowed, t.shouldIgnorePath, maxFiles)
+	tree, err := fsx.DirectoryTree(args.Path, t.shouldIgnorePath, maxFiles)
 	if err != nil {
 		return &tools.ToolCallResult{Output: fmt.Sprintf("Error building directory tree: %s", err)}, nil
 	}
@@ -432,10 +352,6 @@ func (t *FilesystemTool) handleDirectoryTree(_ context.Context, args DirectoryTr
 }
 
 func (t *FilesystemTool) handleEditFile(ctx context.Context, args EditFileArgs) (*tools.ToolCallResult, error) {
-	if err := t.isPathAllowed(args.Path); err != nil {
-		return &tools.ToolCallResult{Output: fmt.Sprintf("Error: %s", err)}, nil
-	}
-
 	content, err := os.ReadFile(args.Path)
 	if err != nil {
 		return &tools.ToolCallResult{Output: fmt.Sprintf("Error reading file: %s", err)}, nil
@@ -469,76 +385,7 @@ func (t *FilesystemTool) handleEditFile(ctx context.Context, args EditFileArgs) 
 	return &tools.ToolCallResult{Output: fmt.Sprintf("File edited successfully. Changes:\n%s", strings.Join(changes, "\n"))}, nil
 }
 
-func (t *FilesystemTool) handleListAllowedDirectories(context.Context, map[string]any) (*tools.ToolCallResult, error) {
-	result, err := json.Marshal(t.allowedDirectories)
-	if err != nil {
-		return &tools.ToolCallResult{Output: fmt.Sprintf("Error formatting directories: %s", err)}, nil
-	}
-
-	return &tools.ToolCallResult{Output: string(result)}, nil
-}
-
-func (t *FilesystemTool) handleAddAllowedDirectory(_ context.Context, args AddAllowedDirectoryArgs) (*tools.ToolCallResult, error) {
-	// Validate the path exists and is a directory
-	absPath, err := filepath.Abs(args.Path)
-	if err != nil {
-		return &tools.ToolCallResult{Output: fmt.Sprintf("Error resolving path: %s", err)}, nil
-	}
-
-	info, err := os.Stat(absPath)
-	if err != nil {
-		return &tools.ToolCallResult{Output: fmt.Sprintf("Error accessing path: %s", err)}, nil
-	}
-
-	if !info.IsDir() {
-		return &tools.ToolCallResult{Output: fmt.Sprintf("Error: %s is not a directory", absPath)}, nil
-	}
-
-	// Check if the directory is already allowed
-	for _, allowedDir := range t.allowedDirectories {
-		allowedAbs, err := filepath.Abs(allowedDir)
-		if err != nil {
-			continue
-		}
-		if allowedAbs == absPath {
-			return &tools.ToolCallResult{Output: fmt.Sprintf("Directory %s is already in allowed directories list", absPath)}, nil
-		}
-		// Check if the requested path is already covered by an existing allowed directory
-		if strings.HasPrefix(absPath, allowedAbs) {
-			return &tools.ToolCallResult{Output: fmt.Sprintf("Directory %s is already accessible (covered by %s)", absPath, allowedAbs)}, nil
-		}
-	}
-
-	// User has confirmed, add the directory
-	return t.addAllowedDirectory(absPath)
-}
-
-// addAllowedDirectory adds a directory to the allowed directories list
-func (t *FilesystemTool) addAllowedDirectory(absPath string) (*tools.ToolCallResult, error) {
-	t.allowedDirectories = append(t.allowedDirectories, absPath)
-
-	// Load gitignore matcher for the new directory if VCS ignoring is enabled
-	if t.ignoreVCS {
-		t.loadMatcherForDirectory(absPath)
-	}
-
-	successMsg := fmt.Sprintf(`Directory successfully added to allowed directories list.
-
-Added: %s
-
-The agent now has filesystem access to this directory and all its subdirectories.
-
-Updated allowed directories:
-%s`, absPath, strings.Join(t.allowedDirectories, "\n"))
-
-	return &tools.ToolCallResult{Output: successMsg}, nil
-}
-
 func (t *FilesystemTool) handleListDirectory(_ context.Context, args ListDirectoryArgs) (*tools.ToolCallResult, error) {
-	if err := t.isPathAllowed(args.Path); err != nil {
-		return &tools.ToolCallResult{Output: fmt.Sprintf("Error: %s", err)}, nil
-	}
-
 	entries, err := os.ReadDir(args.Path)
 	if err != nil {
 		return &tools.ToolCallResult{Output: fmt.Sprintf("Error reading directory: %s", err)}, nil
@@ -569,10 +416,6 @@ func (t *FilesystemTool) handleListDirectory(_ context.Context, args ListDirecto
 }
 
 func (t *FilesystemTool) handleReadFile(_ context.Context, args ReadFileArgs) (*tools.ToolCallResult, error) {
-	if err := t.isPathAllowed(args.Path); err != nil {
-		return &tools.ToolCallResult{Output: fmt.Sprintf("Error: %s", err)}, nil
-	}
-
 	content, err := os.ReadFile(args.Path)
 	if err != nil {
 		return &tools.ToolCallResult{Output: fmt.Sprintf("Error reading file: %s", err)}, nil
@@ -592,14 +435,6 @@ func (t *FilesystemTool) handleReadMultipleFiles(ctx context.Context, args ReadM
 	for _, path := range args.Paths {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
-		}
-
-		if err := t.isPathAllowed(path); err != nil {
-			contents = append(contents, PathContent{
-				Path:    path,
-				Content: fmt.Sprintf("Error: %s", err),
-			})
-			continue
 		}
 
 		content, err := os.ReadFile(path)
@@ -639,19 +474,11 @@ func (t *FilesystemTool) handleReadMultipleFiles(ctx context.Context, args ReadM
 }
 
 func (t *FilesystemTool) handleSearchFiles(_ context.Context, args SearchFilesArgs) (*tools.ToolCallResult, error) {
-	if err := t.isPathAllowed(args.Path); err != nil {
-		return &tools.ToolCallResult{Output: fmt.Sprintf("Error: %s", err)}, nil
-	}
-
 	var matches []string
 
 	err := filepath.WalkDir(args.Path, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil // Skip errors and continue
-		}
-
-		if err := t.isPathAllowed(path); err != nil {
-			return nil // Skip disallowed paths
 		}
 
 		// Check VCS ignore rules
@@ -696,10 +523,6 @@ func (t *FilesystemTool) handleSearchFiles(_ context.Context, args SearchFilesAr
 }
 
 func (t *FilesystemTool) handleSearchFilesContent(_ context.Context, args SearchFilesContentArgs) (*tools.ToolCallResult, error) {
-	if err := t.isPathAllowed(args.Path); err != nil {
-		return &tools.ToolCallResult{Output: fmt.Sprintf("Error: %s", err)}, nil
-	}
-
 	var regex *regexp.Regexp
 	if args.IsRegex {
 		var err error
@@ -713,10 +536,6 @@ func (t *FilesystemTool) handleSearchFilesContent(_ context.Context, args Search
 
 	err := filepath.WalkDir(args.Path, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil
-		}
-
-		if err := t.isPathAllowed(path); err != nil {
 			return nil
 		}
 
@@ -798,10 +617,6 @@ func (t *FilesystemTool) handleSearchFilesContent(_ context.Context, args Search
 }
 
 func (t *FilesystemTool) handleWriteFile(ctx context.Context, args WriteFileArgs) (*tools.ToolCallResult, error) {
-	if err := t.isPathAllowed(args.Path); err != nil {
-		return &tools.ToolCallResult{Output: fmt.Sprintf("Error: %s", err)}, nil
-	}
-
 	// Create parent directory structure if it doesn't exist
 	dir := filepath.Dir(args.Path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {

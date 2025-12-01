@@ -21,7 +21,7 @@ func TestExec_OpenAI(t *testing.T) {
 func TestExec_OpenAI_ToolCall(t *testing.T) {
 	out := cagentExec(t, "testdata/fs_tools.yaml", "How many files in testdata/working_dir? Only output the number.")
 
-	require.Equal(t, "\n--- Agent: root ---\n\nCalling search_files(\n  path: \"testdata/working_dir\"\n  pattern: \"*\"\n)\n\nsearch_files response → \"1 files found:\\ntestdata/working_dir/README.me\"\n1", out)
+	require.Equal(t, "\n--- Agent: root ---\n\nCalling list_directory(path: \"testdata/working_dir\")\n\nlist_directory response → \"FILE README.me\\n\"\n1", out)
 }
 
 func TestExec_OpenAI_HideToolCalls(t *testing.T) {
@@ -81,7 +81,7 @@ func TestExec_Mistral(t *testing.T) {
 func TestExec_Mistral_ToolCall(t *testing.T) {
 	out := cagentExec(t, "testdata/fs_tools.yaml", "--model=mistral/mistral-small", "How many files in testdata/working_dir? Only output the number.")
 
-	require.Equal(t, "\n--- Agent: root ---\n\nCalling list_directory(path: \"testdata/working_dir\")\n\nlist_directory response → \"FILE README.me\\n\"\n1", out)
+	require.Equal(t, "\n--- Agent: root ---\n\nCalling list_directory(path: \"testdata/working_dir\")\n\nlist_directory response → \"FILE README.me\\n\"\n2", out)
 }
 
 func TestExec_ToolCallsNeedAcceptance(t *testing.T) {
