@@ -44,7 +44,7 @@ func CollectFiles(paths []string, shouldIgnore func(path string) bool) ([]string
 
 			if info.IsDir() {
 				// Use DirectoryTree to collect files from directory
-				tree, err := DirectoryTree(normalized, func(string) error { return nil }, shouldIgnore, 0)
+				tree, err := DirectoryTree(normalized, shouldIgnore, 0)
 				if err != nil {
 					return nil, fmt.Errorf("failed to read directory %s: %w", normalized, err)
 				}
