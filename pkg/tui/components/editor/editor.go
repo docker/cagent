@@ -1,19 +1,23 @@
 package editor
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/atotto/clipboard"
 	"github.com/mattn/go-runewidth"
 
 	"github.com/docker/cagent/pkg/app"
 	"github.com/docker/cagent/pkg/history"
+	"github.com/docker/cagent/pkg/paths"
 	"github.com/docker/cagent/pkg/tui/components/completion"
 	"github.com/docker/cagent/pkg/tui/components/editor/completions"
 	"github.com/docker/cagent/pkg/tui/core"
@@ -25,10 +29,33 @@ import (
 // computing layout measurements.
 var ansiRegexp = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
 
+const (
+	// maxInlinePasteLines is the maximum number of lines for inline paste.
+	// Pastes exceeding this are buffered to a temp file attachment.
+	maxInlinePasteLines = 5
+	// maxInlinePasteChars is the character limit for inline pastes.
+	// This catches very long single-line pastes that would clutter the editor.
+	maxInlinePasteChars = 500
+)
+
+type attachment struct {
+	path        string // Path to file (temp for pastes, real for file refs)
+	placeholder string // @paste-1 or @filename
+	label       string // Display label like "paste-1 (21.1 KB)"
+	sizeBytes   int
+	isTemp      bool // True for paste temp files that need cleanup
+}
+
+// AttachmentPreview describes an attachment and its contents for dialog display.
+type AttachmentPreview struct {
+	Title   string
+	Content string
+}
+
 // SendMsg represents a message to send
 type SendMsg struct {
-	Content     string            // Full content sent to the agent (with file contents expanded)
-	Attachments map[string]string // Map of filename to content for attachments
+	Content        string // Full content sent to the agent (with file contents and pastes expanded)
+	DisplayContent string // Compact version for UI display (with @filename and @paste-X placeholders)
 }
 
 // Editor represents an input editor component
@@ -38,6 +65,10 @@ type Editor interface {
 	layout.Focusable
 	SetWorking(working bool) tea.Cmd
 	AcceptSuggestion() bool
+	Cleanup()
+	GetSize() (width, height int)
+	BannerHeight() int
+	AttachmentAt(x int) (AttachmentPreview, bool)
 }
 
 // editor implements [Editor]
@@ -61,11 +92,15 @@ type editor struct {
 	userTyped bool
 	// keyboardEnhancementsSupported tracks whether the terminal supports keyboard enhancements
 	keyboardEnhancementsSupported bool
-	// fileRefs tracks @filename placeholders inserted via completion (handles spaces in filenames).
-	fileRefs []string
 	// pendingFileRef tracks the current @word being typed (for manual file ref detection).
 	// Only set when cursor is in a word starting with @, cleared when cursor leaves.
 	pendingFileRef string
+	// banner renders pending attachments so the user can see what's queued.
+	banner *attachmentBanner
+	// attachments tracks all file attachments (pastes and file refs).
+	attachments []attachment
+	// pasteCounter tracks the next paste number for display purposes.
+	pasteCounter int
 }
 
 // New creates a new editor component
@@ -86,6 +121,7 @@ func New(a *app.App, hist *history.History) Editor {
 		completions: completions.Completions(a),
 		// Default to no keyboard enhancements; ctrl+j will be used until we know otherwise
 		keyboardEnhancementsSupported: false,
+		banner:                        newAttachmentBanner(),
 	}
 
 	// Configure initial keybinding (ctrl+j for legacy terminals)
@@ -241,8 +277,14 @@ func (e *editor) configureNewlineKeybinding() {
 
 // Update handles messages and updates the component state
 func (e *editor) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
+	defer e.updateBanner()
+
 	var cmds []tea.Cmd
 	switch msg := msg.(type) {
+	case tea.PasteMsg:
+		if e.handlePaste(msg.Content) {
+			return e, nil
+		}
 	case tea.KeyboardEnhancementsMsg:
 		// Track keyboard enhancement support and configure newline keybinding accordingly
 		e.keyboardEnhancementsSupported = msg.Flags != 0
@@ -293,10 +335,9 @@ func (e *editor) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 				e.textarea.SetValue(newValue)
 				e.textarea.MoveToEnd()
 			}
-			// Track file references when using @ completion, so we can distinguish from
-			// normal user input that may contain @smth as literal text to send (not a file reference)
-			if e.currentCompletion != nil && e.currentCompletion.Trigger() == "@" {
-				e.fileRefs = append(e.fileRefs, msg.Value)
+			// Track file references when using @ completion (but not paste placeholders)
+			if e.currentCompletion != nil && e.currentCompletion.Trigger() == "@" && !strings.HasPrefix(msg.Value, "@paste-") {
+				e.addFileAttachment(msg.Value)
 			}
 			// Clear history suggestion after selecting a completion
 			e.clearSuggestion()
@@ -307,6 +348,10 @@ func (e *editor) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		e.completionWord = ""
 		return e, nil
 	case tea.KeyPressMsg:
+		if key.Matches(msg, e.textarea.KeyMap.Paste) {
+			return e.handleClipboardPaste()
+		}
+
 		switch msg.String() {
 		// Handle send/newline keys:
 		// - Enter: submit current input (if textarea inserted a newline, submit previous buffer).
@@ -334,13 +379,14 @@ func (e *editor) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 				if prev != "" && !e.working {
 					e.tryAddFileRef(e.pendingFileRef) // Add any pending @filepath before send
 					e.pendingFileRef = ""
-					attachments := e.fileParts(prev)
+					displayContent := prev
+					sendContent := e.expandAllAttachments(prev)
 					e.textarea.SetValue(prev)
 					e.textarea.MoveToEnd()
 					e.textarea.Reset()
 					e.userTyped = false
 					e.refreshSuggestion()
-					return e, core.CmdHandler(SendMsg{Content: prev, Attachments: attachments})
+					return e, core.CmdHandler(SendMsg{Content: sendContent, DisplayContent: displayContent})
 				}
 				return e, nil
 			}
@@ -350,11 +396,12 @@ func (e *editor) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 				slog.Debug(value)
 				e.tryAddFileRef(e.pendingFileRef) // Add any pending @filepath before send
 				e.pendingFileRef = ""
-				attachments := e.fileParts(value)
+				displayContent := value
+				sendContent := e.expandAllAttachments(value)
 				e.textarea.Reset()
 				e.userTyped = false
 				e.refreshSuggestion()
-				return e, core.CmdHandler(SendMsg{Content: value, Attachments: attachments})
+				return e, core.CmdHandler(SendMsg{Content: sendContent, DisplayContent: displayContent})
 			}
 
 			return e, nil
@@ -443,11 +490,54 @@ func (e *editor) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	return e, tea.Batch(cmds...)
 }
 
+func (e *editor) handleClipboardPaste() (layout.Model, tea.Cmd) {
+	content, err := clipboard.ReadAll()
+	if err != nil {
+		slog.Warn("failed to read clipboard", "error", err)
+		return e, nil
+	}
+
+	// handlePaste returns true if content was buffered to disk (large paste),
+	// false if it's small enough for inline insertion.
+	if !e.handlePaste(content) {
+		e.textarea.InsertString(content)
+	}
+	return e, textarea.Blink
+}
+
 func (e *editor) startCompletion(c completions.Completion) tea.Cmd {
 	e.currentCompletion = c
+	items := c.Items()
+
+	// Prepend paste placeholders for @ trigger so users can easily reference them
+	if c.Trigger() == "@" {
+		pasteItems := e.getPasteCompletionItems()
+		if len(pasteItems) > 0 {
+			items = append(pasteItems, items...)
+		}
+	}
+
 	return core.CmdHandler(completion.OpenMsg{
-		Items: c.Items(),
+		Items: items,
 	})
+}
+
+// getPasteCompletionItems returns completion items for paste attachments only.
+func (e *editor) getPasteCompletionItems() []completion.Item {
+	var items []completion.Item
+	for _, att := range e.attachments {
+		if !att.isTemp {
+			continue // Only show pastes, not file refs
+		}
+		name := strings.TrimPrefix(att.placeholder, "@")
+		items = append(items, completion.Item{
+			Label:       name,
+			Description: formatBytes(att.sizeBytes),
+			Value:       att.placeholder,
+			Pinned:      true,
+		})
+	}
+	return items
 }
 
 // View renders the component
@@ -458,27 +548,81 @@ func (e *editor) View() string {
 		view = e.applySuggestionOverlay(view)
 	}
 
+	bannerView := e.banner.View()
+	if bannerView != "" {
+		// Banner is shown - no extra top padding needed
+		view = lipgloss.JoinVertical(lipgloss.Left, bannerView, view)
+	}
+
 	return styles.EditorStyle.Render(view)
 }
 
 // SetSize sets the dimensions of the component
 func (e *editor) SetSize(width, height int) tea.Cmd {
 	e.width = width
-	e.height = height
+	e.height = max(height, 1)
 
-	// Account for border and padding
-	contentWidth := max(width, 10)
-	contentHeight := max(height, 3) // Minimum 3 lines, but respect height parameter
-
-	e.textarea.SetWidth(contentWidth)
-	e.textarea.SetHeight(contentHeight)
+	e.textarea.SetWidth(max(width, 10))
+	e.updateTextareaHeight()
 
 	return nil
 }
 
-// GetSize returns the current dimensions
+func (e *editor) updateTextareaHeight() {
+	available := e.height
+	if e.banner != nil {
+		available -= e.banner.Height()
+	}
+
+	if available < 1 {
+		available = 1
+	}
+
+	e.textarea.SetHeight(available)
+}
+
+// BannerHeight returns the current height of the attachment banner (0 if hidden)
+func (e *editor) BannerHeight() int {
+	if e.banner == nil {
+		return 0
+	}
+	return e.banner.Height()
+}
+
+// GetSize returns the total dimensions allocated for the editor (banner + textarea).
 func (e *editor) GetSize() (width, height int) {
 	return e.width, e.height
+}
+
+// AttachmentAt returns preview information for the attachment rendered at the given X position.
+func (e *editor) AttachmentAt(x int) (AttachmentPreview, bool) {
+	if e.banner == nil || e.banner.Height() == 0 {
+		return AttachmentPreview{}, false
+	}
+
+	item, ok := e.banner.HitTest(x)
+	if !ok {
+		return AttachmentPreview{}, false
+	}
+
+	for _, att := range e.attachments {
+		if att.placeholder != item.placeholder {
+			continue
+		}
+
+		data, err := os.ReadFile(att.path)
+		if err != nil {
+			slog.Warn("failed to read attachment preview", "path", att.path, "error", err)
+			return AttachmentPreview{}, false
+		}
+
+		return AttachmentPreview{
+			Title:   item.label,
+			Content: string(data),
+		}, true
+	}
+
+	return AttachmentPreview{}, false
 }
 
 // Focus gives focus to the component
@@ -497,11 +641,16 @@ func (e *editor) SetWorking(working bool) tea.Cmd {
 	return nil
 }
 
-// tryAddFileRef checks if word is a valid @filepath and adds it to fileRefs.
+// tryAddFileRef checks if word is a valid @filepath and adds it as attachment.
 // Called when cursor leaves a word to detect manually-typed file references.
 func (e *editor) tryAddFileRef(word string) {
 	// Must start with @ and look like a path (contains / or .)
 	if !strings.HasPrefix(word, "@") || len(word) < 2 {
+		return
+	}
+
+	// Don't track paste placeholders as file refs
+	if strings.HasPrefix(word, "@paste-") {
 		return
 	}
 
@@ -510,6 +659,13 @@ func (e *editor) tryAddFileRef(word string) {
 		return // not a path-like reference (e.g., @username)
 	}
 
+	e.addFileAttachment(word)
+}
+
+// addFileAttachment adds a file reference as an attachment if valid.
+func (e *editor) addFileAttachment(placeholder string) {
+	path := strings.TrimPrefix(placeholder, "@")
+
 	// Check if it's an existing file (not directory)
 	info, err := os.Stat(path)
 	if err != nil || info.IsDir() {
@@ -517,41 +673,155 @@ func (e *editor) tryAddFileRef(word string) {
 	}
 
 	// Avoid duplicates
-	if slices.Contains(e.fileRefs, word) {
+	for _, att := range e.attachments {
+		if att.placeholder == placeholder {
+			return
+		}
+	}
+
+	e.attachments = append(e.attachments, attachment{
+		path:        path,
+		placeholder: placeholder,
+		label:       fmt.Sprintf("%s (%s)", filepath.Base(path), formatBytes(int(info.Size()))),
+		sizeBytes:   int(info.Size()),
+		isTemp:      false,
+	})
+}
+
+// expandAllAttachments collects attachments, keeping placeholders in the message
+// and appending contents in an <attachments> section.
+func (e *editor) expandAllAttachments(content string) string {
+	var expanded []string
+
+	for _, att := range e.attachments {
+		if !strings.Contains(content, att.placeholder) {
+			if att.isTemp {
+				_ = os.Remove(att.path)
+			}
+			continue
+		}
+
+		data, err := os.ReadFile(att.path)
+		if err != nil {
+			slog.Warn("failed to read attachment", "path", att.path, "error", err)
+			if att.isTemp {
+				_ = os.Remove(att.path)
+			}
+			continue
+		}
+
+		expanded = append(expanded, fmt.Sprintf("<%s>\n%s\n</%s>",
+			att.placeholder, string(data), att.placeholder))
+
+		if att.isTemp {
+			_ = os.Remove(att.path)
+		}
+	}
+	e.attachments = nil
+
+	if len(expanded) > 0 {
+		content += "\n\n<attachments>\n" + strings.Join(expanded, "\n\n") + "\n</attachments>"
+	}
+
+	return content
+}
+
+// Cleanup removes any temporary paste files that haven't been sent yet.
+func (e *editor) Cleanup() {
+	for _, att := range e.attachments {
+		if att.isTemp {
+			_ = os.Remove(att.path)
+		}
+	}
+	e.attachments = nil
+}
+
+func (e *editor) handlePaste(content string) bool {
+	// Count lines (newlines + 1 for content without trailing newline)
+	lines := strings.Count(content, "\n") + 1
+	if strings.HasSuffix(content, "\n") {
+		lines-- // Don't count trailing newline as extra line
+	}
+
+	// Allow inline if within both limits
+	if lines <= maxInlinePasteLines && len(content) <= maxInlinePasteChars {
+		return false
+	}
+
+	e.pasteCounter++
+	att, err := createPasteAttachment(content, e.pasteCounter)
+	if err != nil {
+		slog.Warn("failed to buffer paste", "error", err)
+		// Still return true to prevent the large paste from falling through
+		// to textarea.Update(), which would block the UI for seconds.
+		return true
+	}
+
+	e.textarea.InsertString(att.placeholder)
+	e.attachments = append(e.attachments, att)
+
+	return true
+}
+
+func (e *editor) updateBanner() {
+	if e.banner == nil {
 		return
 	}
 
-	e.fileRefs = append(e.fileRefs, word)
+	value := e.textarea.Value()
+	var items []bannerItem
+
+	for _, att := range e.attachments {
+		if strings.Contains(value, att.placeholder) {
+			items = append(items, bannerItem{
+				label:       att.label,
+				placeholder: att.placeholder,
+			})
+		}
+	}
+
+	e.banner.SetItems(items)
+	e.updateTextareaHeight()
 }
 
-// appendFileAttachments appends file contents as a structured attachments section.
-// Returns the original content unchanged if no valid file references exist.
-func (e *editor) fileParts(content string) map[string]string {
-	if len(e.fileRefs) == 0 {
-		return nil
+func createPasteAttachment(content string, num int) (attachment, error) {
+	pasteDir := filepath.Join(paths.GetDataDir(), "pastes")
+	if err := os.MkdirAll(pasteDir, 0o755); err != nil {
+		return attachment{}, fmt.Errorf("create paste dir: %w", err)
 	}
 
-	attachments := make(map[string]string)
-	for _, ref := range e.fileRefs {
-		if !strings.Contains(content, ref) {
-			continue
-		}
+	file, err := os.CreateTemp(pasteDir, "paste-*.txt")
+	if err != nil {
+		return attachment{}, fmt.Errorf("create paste file: %w", err)
+	}
+	defer file.Close()
 
-		filename := strings.TrimPrefix(ref, "@")
-		info, err := os.Stat(filename)
-		if err != nil || info.IsDir() {
-			continue
-		}
-
-		data, err := os.ReadFile(filename)
-		if err != nil {
-			slog.Warn("failed to read file attachment", "path", filename, "error", err)
-			continue
-		}
-		attachments[ref] = string(data)
+	if _, err := file.WriteString(content); err != nil {
+		return attachment{}, fmt.Errorf("write paste file: %w", err)
 	}
 
-	e.fileRefs = nil
+	displayName := fmt.Sprintf("paste-%d", num)
+	return attachment{
+		path:        file.Name(),
+		placeholder: "@" + displayName,
+		label:       fmt.Sprintf("%s (%s)", displayName, formatBytes(len(content))),
+		sizeBytes:   len(content),
+		isTemp:      true,
+	}, nil
+}
 
-	return attachments
+func formatBytes(n int) string {
+	const (
+		kb = 1024
+		mb = 1024 * kb
+	)
+
+	switch {
+	case n >= mb:
+		return fmt.Sprintf("%.1f MB", float64(n)/float64(mb))
+	case n >= kb:
+		return fmt.Sprintf("%.1f KB", float64(n)/float64(kb))
+	default:
+		return fmt.Sprintf("%d B", n)
+	}
 }

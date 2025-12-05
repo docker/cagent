@@ -145,9 +145,11 @@ var (
 )
 
 // Base Styles
+const AppPaddingLeft = 1 // Keep in sync with AppStyle padding
+
 var (
 	BaseStyle = lipgloss.NewStyle().Foreground(TextPrimary)
-	AppStyle  = BaseStyle.Padding(0, 1, 0, 1)
+	AppStyle  = BaseStyle.Padding(0, 1, 0, AppPaddingLeft)
 )
 
 // Text Styles
@@ -346,10 +348,25 @@ var (
 			Color: Accent,
 		},
 	}
-	EditorStyle = BaseStyle.Padding(2, 0, 0, 0)
+	EditorStyle = BaseStyle.Padding(0, 0, 0, 0)
 	// SuggestionGhostStyle renders inline auto-complete hints in a muted tone.
 	// Use a distinct grey so suggestion text is visually separate from the user's input.
 	SuggestionGhostStyle = BaseStyle.Foreground(lipgloss.Color(ColorSuggestionGhost))
+
+	// Attachment banner styles - polished look with subtle border
+	AttachmentBannerStyle = BaseStyle.
+				Foreground(TextSecondary)
+
+	AttachmentBadgeStyle = BaseStyle.
+				Foreground(lipgloss.Color(ColorInfoCyan)).
+				Bold(true)
+
+	AttachmentSizeStyle = BaseStyle.
+				Foreground(TextMuted).
+				Italic(true)
+
+	AttachmentIconStyle = BaseStyle.
+				Foreground(lipgloss.Color(ColorInfoCyan))
 )
 
 // Scrollbar

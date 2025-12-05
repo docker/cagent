@@ -3,16 +3,37 @@ package editor
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestFileParts(t *testing.T) {
+func TestExpandAllAttachments(t *testing.T) {
 	t.Parallel()
 
-	t.Run("appends file content as attachment", func(t *testing.T) {
+	t.Run("no attachments returns content unchanged", func(t *testing.T) {
+		t.Parallel()
+		e := &editor{attachments: nil}
+		content := "hello world"
+
+		result := e.expandAllAttachments(content)
+
+		assert.Equal(t, content, result)
+	})
+
+	t.Run("empty refs returns content unchanged", func(t *testing.T) {
+		t.Parallel()
+		e := &editor{attachments: []attachment{}}
+		content := "hello world"
+
+		result := e.expandAllAttachments(content)
+
+		assert.Equal(t, content, result)
+	})
+
+	t.Run("file content in attachments section", func(t *testing.T) {
 		t.Parallel()
 
 		// Create a temp file
@@ -21,16 +42,28 @@ func TestFileParts(t *testing.T) {
 		require.NoError(t, os.WriteFile(tmpFile, []byte("file content here"), 0o644))
 
 		ref := "@" + tmpFile
-		e := &editor{fileRefs: []string{ref}}
+		e := &editor{attachments: []attachment{{
+			path:        tmpFile,
+			placeholder: ref,
+			label:       "test.txt (17 B)",
+			isTemp:      false,
+		}}}
 		content := "analyze " + ref
 
-		result := e.fileParts(content)
+		result := e.expandAllAttachments(content)
 
-		assert.Contains(t, result[ref], "file content here")
-		assert.Nil(t, e.fileRefs, "fileRefs should be cleared after expansion")
+		// Placeholder stays in message
+		assert.True(t, strings.HasPrefix(result, "analyze "+ref), "placeholder should stay in message")
+		// Content is in attachments section
+		assert.Contains(t, result, "<attachments>")
+		assert.Contains(t, result, "</attachments>")
+		assert.Contains(t, result, "<"+ref+">")
+		assert.Contains(t, result, "</"+ref+">")
+		assert.Contains(t, result, "file content here")
+		assert.Nil(t, e.attachments, "attachments should be cleared after expansion")
 	})
 
-	t.Run("multiple file attachments", func(t *testing.T) {
+	t.Run("multiple file references", func(t *testing.T) {
 		t.Parallel()
 
 		tmpDir := t.TempDir()
@@ -41,26 +74,57 @@ func TestFileParts(t *testing.T) {
 
 		ref1 := "@" + file1
 		ref2 := "@" + file2
-		e := &editor{fileRefs: []string{ref1, ref2}}
+		e := &editor{attachments: []attachment{
+			{path: file1, placeholder: ref1, isTemp: false},
+			{path: file2, placeholder: ref2, isTemp: false},
+		}}
 		content := "compare " + ref1 + " with " + ref2
 
-		result := e.fileParts(content)
+		result := e.expandAllAttachments(content)
 
-		assert.Contains(t, result[ref1], "package first")
-		assert.Contains(t, result[ref2], "package second")
+		assert.Contains(t, result, "<"+ref1+">")
+		assert.Contains(t, result, "package first")
+		assert.Contains(t, result, "<"+ref2+">")
+		assert.Contains(t, result, "package second")
+	})
+
+	t.Run("skips refs not in content", func(t *testing.T) {
+		t.Parallel()
+
+		tmpDir := t.TempDir()
+		tmpFile := filepath.Join(tmpDir, "test.txt")
+		require.NoError(t, os.WriteFile(tmpFile, []byte("content"), 0o644))
+
+		ref := "@" + tmpFile
+		e := &editor{attachments: []attachment{{
+			path:        tmpFile,
+			placeholder: ref,
+			isTemp:      false,
+		}}}
+		content := "message without the reference"
+
+		result := e.expandAllAttachments(content)
+
+		assert.Equal(t, content, result, "should return unchanged when ref not in content")
+		assert.Nil(t, e.attachments, "attachments should be cleared after expansion")
 	})
 
 	t.Run("skips nonexistent files", func(t *testing.T) {
 		t.Parallel()
 
 		ref := "@/nonexistent/path/file.txt"
-		e := &editor{fileRefs: []string{ref}}
+		e := &editor{attachments: []attachment{{
+			path:        "/nonexistent/path/file.txt",
+			placeholder: ref,
+			isTemp:      false,
+		}}}
 		content := "analyze " + ref
 
-		result := e.fileParts(content)
+		result := e.expandAllAttachments(content)
 
-		assert.Empty(t, result)
-		assert.Nil(t, e.fileRefs, "fileRefs should still be cleared")
+		// Ref stays in content since file doesn't exist, no attachments section
+		assert.Equal(t, content, result)
+		assert.Nil(t, e.attachments, "attachments should still be cleared")
 	})
 
 	t.Run("skips directories", func(t *testing.T) {
@@ -68,13 +132,20 @@ func TestFileParts(t *testing.T) {
 
 		tmpDir := t.TempDir()
 		ref := "@" + tmpDir
-		e := &editor{fileRefs: []string{ref}}
+		// Note: addFileAttachment would normally reject directories, but we test
+		// expandAllAttachments directly here - it will fail to read as file
+		e := &editor{attachments: []attachment{{
+			path:        tmpDir,
+			placeholder: ref,
+			isTemp:      false,
+		}}}
 		content := "analyze " + ref
 
-		result := e.fileParts(content)
+		result := e.expandAllAttachments(content)
 
-		assert.Empty(t, result)
-		assert.Nil(t, e.fileRefs, "fileRefs should be cleared after expansion")
+		// os.ReadFile on a directory returns an error, so no attachment added
+		assert.Equal(t, content, result)
+		assert.Nil(t, e.attachments, "attachments should be cleared after expansion")
 	})
 
 	t.Run("mixed valid and invalid refs", func(t *testing.T) {
@@ -86,14 +157,19 @@ func TestFileParts(t *testing.T) {
 
 		validRef := "@" + validFile
 		invalidRef := "@/nonexistent/file.txt"
-		e := &editor{fileRefs: []string{validRef, invalidRef}}
+		e := &editor{attachments: []attachment{
+			{path: validFile, placeholder: validRef, isTemp: false},
+			{path: "/nonexistent/file.txt", placeholder: invalidRef, isTemp: false},
+		}}
 		content := "check " + validRef + " and " + invalidRef
 
-		result := e.fileParts(content)
+		result := e.expandAllAttachments(content)
 
-		assert.Contains(t, result[validRef], "valid content")
-		assert.NotContains(t, result, invalidRef)
-		assert.Nil(t, e.fileRefs, "fileRefs should be cleared after expansion")
+		assert.Contains(t, result, "<"+validRef+">")
+		assert.Contains(t, result, "valid content")
+		// Invalid ref stays as-is in content (no attachment for it)
+		assert.Contains(t, result, invalidRef)
+		assert.Nil(t, e.attachments, "attachments should be cleared after expansion")
 	})
 }
 
@@ -107,39 +183,41 @@ func TestTryAddFileRef(t *testing.T) {
 		tmpFile := filepath.Join(tmpDir, "manual.txt")
 		require.NoError(t, os.WriteFile(tmpFile, []byte("content"), 0o644))
 
-		e := &editor{fileRefs: nil}
+		e := &editor{attachments: nil}
 		e.tryAddFileRef("@" + tmpFile)
 
-		require.Len(t, e.fileRefs, 1)
-		assert.Equal(t, "@"+tmpFile, e.fileRefs[0])
+		require.Len(t, e.attachments, 1)
+		assert.Equal(t, "@"+tmpFile, e.attachments[0].placeholder)
+		assert.Equal(t, tmpFile, e.attachments[0].path)
+		assert.False(t, e.attachments[0].isTemp)
 	})
 
 	t.Run("ignores @mentions without path characters", func(t *testing.T) {
 		t.Parallel()
 
-		e := &editor{fileRefs: nil}
+		e := &editor{attachments: nil}
 		e.tryAddFileRef("@username")
 
-		assert.Nil(t, e.fileRefs, "@mentions without / or . should be ignored")
+		assert.Nil(t, e.attachments, "@mentions without / or . should be ignored")
 	})
 
 	t.Run("ignores nonexistent files", func(t *testing.T) {
 		t.Parallel()
 
-		e := &editor{fileRefs: nil}
+		e := &editor{attachments: nil}
 		e.tryAddFileRef("@/nonexistent/file.txt")
 
-		assert.Nil(t, e.fileRefs, "nonexistent files should be ignored")
+		assert.Nil(t, e.attachments, "nonexistent files should be ignored")
 	})
 
 	t.Run("ignores directories", func(t *testing.T) {
 		t.Parallel()
 
 		tmpDir := t.TempDir()
-		e := &editor{fileRefs: nil}
+		e := &editor{attachments: nil}
 		e.tryAddFileRef("@" + tmpDir)
 
-		assert.Nil(t, e.fileRefs, "directories should be ignored")
+		assert.Nil(t, e.attachments, "directories should be ignored")
 	})
 
 	t.Run("avoids duplicates", func(t *testing.T) {
@@ -150,10 +228,14 @@ func TestTryAddFileRef(t *testing.T) {
 		require.NoError(t, os.WriteFile(tmpFile, []byte("content"), 0o644))
 
 		ref := "@" + tmpFile
-		e := &editor{fileRefs: []string{ref}}
+		e := &editor{attachments: []attachment{{
+			path:        tmpFile,
+			placeholder: ref,
+			isTemp:      false,
+		}}}
 		e.tryAddFileRef(ref)
 
-		assert.Len(t, e.fileRefs, 1, "should not add duplicate")
+		assert.Len(t, e.attachments, 1, "should not add duplicate")
 	})
 
 	t.Run("combines with completion refs", func(t *testing.T) {
@@ -166,19 +248,21 @@ func TestTryAddFileRef(t *testing.T) {
 		require.NoError(t, os.WriteFile(manualFile, []byte("package manual"), 0o644))
 
 		// completedFile was selected via completion
-		e := &editor{fileRefs: []string{"@" + completedFile}}
+		e := &editor{attachments: []attachment{{
+			path:        completedFile,
+			placeholder: "@" + completedFile,
+			isTemp:      false,
+		}}}
 		// User typed manualFile and cursor left the word
 		e.tryAddFileRef("@" + manualFile)
 
-		require.Len(t, e.fileRefs, 2)
-		assert.Contains(t, e.fileRefs, "@"+completedFile)
-		assert.Contains(t, e.fileRefs, "@"+manualFile)
+		require.Len(t, e.attachments, 2)
 
-		// Verify both get attached
+		// Verify both get expanded
 		content := "compare @" + completedFile + " with @" + manualFile
-		result := e.fileParts(content)
+		result := e.expandAllAttachments(content)
 
-		assert.Contains(t, result["@"+completedFile], "package completed")
-		assert.Contains(t, result["@"+manualFile], "package manual")
+		assert.Contains(t, result, "package completed")
+		assert.Contains(t, result, "package manual")
 	})
 }

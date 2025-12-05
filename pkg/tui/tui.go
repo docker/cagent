@@ -101,8 +101,10 @@ func (a *appModel) Init() tea.Cmd {
 
 	if firstMessage := a.application.FirstMessage(); firstMessage != nil {
 		cmds = append(cmds, func() tea.Msg {
+			resolved := a.application.ResolveCommand(context.Background(), *firstMessage)
 			return editor.SendMsg{
-				Content: a.application.ResolveCommand(context.Background(), *firstMessage),
+				Content:        resolved,
+				DisplayContent: resolved,
 			}
 		})
 	}
@@ -240,7 +242,7 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messages.AgentCommandMsg:
 		resolvedCommand := a.application.ResolveCommand(context.Background(), msg.Command)
-		return a, core.CmdHandler(editor.SendMsg{Content: resolvedCommand})
+		return a, core.CmdHandler(editor.SendMsg{Content: resolvedCommand, DisplayContent: resolvedCommand})
 
 	case messages.ShowMCPPromptInputMsg:
 		// Convert the interface{} back to mcptools.PromptInfo
@@ -260,7 +262,7 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			errorMsg := fmt.Sprintf("Error executing MCP prompt '%s': %v", msg.PromptName, err)
 			return a, core.CmdHandler(notification.ShowMsg{Text: errorMsg})
 		}
-		return a, core.CmdHandler(editor.SendMsg{Content: promptContent})
+		return a, core.CmdHandler(editor.SendMsg{Content: promptContent, DisplayContent: promptContent})
 
 	case messages.OpenURLMsg:
 		_ = browser.Open(context.Background(), msg.URL)

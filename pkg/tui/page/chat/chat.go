@@ -259,9 +259,18 @@ func (p *chatPage) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		return p, cmd
 
 	case editor.SendMsg:
-		slog.Debug(msg.Content)
-		cmd := p.processMessage(msg)
-		return p, cmd
+		// Add user message to UI immediately using the display content (compact placeholders)
+		displayCmd := p.messages.AddUserMessage(msg.DisplayContent)
+		// Persist display content to history (not expanded file contents)
+		if p.history != nil {
+			if err := p.history.Add(msg.DisplayContent); err != nil {
+				fmt.Fprintf(os.Stderr, "failed to persist command history: %v\n", err)
+			}
+		}
+		// Process the full content (with expanded files and pastes) for the agent
+		processCmd := p.processMessage(msg.Content)
+		return p, tea.Batch(displayCmd, processCmd)
+
 	case messages.StreamCancelledMsg:
 		model, cmd := p.messages.Update(msg)
 		p.messages = model.(messages.Model)
@@ -419,19 +428,24 @@ func (p *chatPage) View() string {
 	// Main chat content area (without input)
 	innerWidth := p.width // subtract app style padding
 
+	// Get editor's actual height (includes banner if visible)
+	_, editorHeight := p.editor.GetSize()
+
 	var bodyContent string
+	var chatHeight int
 
 	if p.width >= minWindowWidth {
 		chatWidth := innerWidth - sidebarWidth
+		chatHeight = p.height - editorHeight - 1 // -1 for resize handle
 
 		chatView := styles.ChatStyle.
-			Height(p.chatHeight).
+			Height(chatHeight).
 			Width(chatWidth).
 			Render(p.messages.View())
 
 		sidebarView := lipgloss.NewStyle().
 			Width(sidebarWidth).
-			Height(p.chatHeight).
+			Height(chatHeight).
 			Align(lipgloss.Left, lipgloss.Top).
 			Render(p.sidebar.View())
 
@@ -442,9 +456,10 @@ func (p *chatPage) View() string {
 		)
 	} else {
 		sidebarWidth, sidebarHeight := p.sidebar.GetSize()
+		chatHeight = p.height - editorHeight - sidebarHeight - 1 // -1 for resize handle
 
 		chatView := styles.ChatStyle.
-			Height(p.chatHeight).
+			Height(chatHeight).
 			Width(innerWidth).
 			Render(p.messages.View())
 
@@ -487,37 +502,50 @@ func (p *chatPage) SetSize(width, height int) tea.Cmd {
 	var cmds []tea.Cmd
 
 	// Calculate heights accounting for padding
-	// Clamp editor lines between 3 (min) and half screen (max)
-	minLines := 3
-	maxLines := max(3, (height-6)/2) // Leave room for messages
+	// Clamp editor lines between 4 (min) and half screen (max)
+	minLines := 4
+	maxLines := max(minLines, (height-6)/2) // Leave room for messages
 	p.editorLines = max(minLines, min(p.editorLines, maxLines))
-
-	editorHeight := p.editorLines
-
-	// Calculate available space, ensuring status bar remains visible
-	p.inputHeight = editorHeight + 3 // account for editor padding
 
 	// Account for horizontal padding in width
 	innerWidth := width - 2 // subtract left/right padding
 
+	targetEditorHeight := p.editorLines
+	editorCmd := p.editor.SetSize(innerWidth, targetEditorHeight)
+	cmds = append(cmds, editorCmd)
+
+	_, actualEditorHeight := p.editor.GetSize()
+	p.inputHeight = actualEditorHeight
+
 	var mainWidth int
 	if width >= minWindowWidth {
 		mainWidth = innerWidth - sidebarWidth
-		p.chatHeight = height - p.inputHeight - 1 // -1 for resize handle
+		if mainWidth < 1 {
+			mainWidth = 1
+		}
+		p.chatHeight = max(1, height-actualEditorHeight-1) // -1 for resize handle
 		p.sidebar.SetMode(sidebar.ModeVertical)
-		cmds = append(cmds, p.sidebar.SetSize(sidebarWidth, p.chatHeight), p.messages.SetPosition(0, 0))
+		cmds = append(cmds,
+			p.sidebar.SetSize(sidebarWidth, p.chatHeight),
+			p.messages.SetPosition(0, 0),
+		)
 	} else {
 		const horizontalSidebarHeight = 3
 		mainWidth = innerWidth
-		p.chatHeight = height - p.inputHeight - horizontalSidebarHeight - 1 // -1 for resize handle
+		if mainWidth < 1 {
+			mainWidth = 1
+		}
+		p.chatHeight = max(1, height-actualEditorHeight-horizontalSidebarHeight-1) // -1 for resize handle
 		p.sidebar.SetMode(sidebar.ModeHorizontal)
-		cmds = append(cmds, p.sidebar.SetSize(width, horizontalSidebarHeight), p.messages.SetPosition(0, horizontalSidebarHeight))
+		cmds = append(cmds,
+			p.sidebar.SetSize(width, horizontalSidebarHeight),
+			p.messages.SetPosition(0, horizontalSidebarHeight),
+		)
 	}
 
 	// Set component sizes
 	cmds = append(cmds,
 		p.messages.SetSize(mainWidth, p.chatHeight),
-		p.editor.SetSize(innerWidth, editorHeight), // Use calculated editor height
 	)
 
 	return tea.Batch(cmds...)
@@ -602,7 +630,7 @@ func (p *chatPage) cancelStream(showCancelMessage bool) tea.Cmd {
 }
 
 // processMessage processes a message with the runtime
-func (p *chatPage) processMessage(msg editor.SendMsg) tea.Cmd {
+func (p *chatPage) processMessage(content string) tea.Cmd {
 	if p.msgCancel != nil {
 		p.msgCancel()
 	}
@@ -610,12 +638,12 @@ func (p *chatPage) processMessage(msg editor.SendMsg) tea.Cmd {
 	var ctx context.Context
 	ctx, p.msgCancel = context.WithCancel(context.Background())
 
-	if strings.HasPrefix(msg.Content, "!") {
-		p.app.RunBangCommand(ctx, msg.Content[1:])
+	if strings.HasPrefix(content, "!") {
+		p.app.RunBangCommand(ctx, content[1:])
 		return p.messages.ScrollToBottom()
 	}
 
-	p.app.Run(ctx, p.msgCancel, msg.Content, msg.Attachments)
+	p.app.Run(ctx, p.msgCancel, content, nil)
 
 	return p.messages.ScrollToBottom()
 }
@@ -632,11 +660,26 @@ func (p *chatPage) CompactSession() tea.Cmd {
 
 func (p *chatPage) Cleanup() {
 	p.stopProgressBar()
+	p.editor.Cleanup()
 }
 
 // routeMouseEvent routes mouse events to editor (bottom) or messages (top) based on Y.
 func (p *chatPage) routeMouseEvent(msg tea.Msg, y int) tea.Cmd {
-	if y >= p.height-p.inputHeight {
+	editorTop := p.height - p.inputHeight
+	if y >= editorTop {
+		if click, ok := msg.(tea.MouseClickMsg); ok && click.Button == tea.MouseLeft {
+			localY := y - editorTop
+			if localY >= 0 && localY < p.editor.BannerHeight() {
+				localX := click.X - styles.AppPaddingLeft
+				if localX < 0 {
+					localX = 0
+				}
+				if preview, ok := p.editor.AttachmentAt(localX); ok {
+					return p.openAttachmentPreview(preview)
+				}
+			}
+		}
+
 		model, cmd := p.editor.Update(msg)
 		p.editor = model.(editor.Editor)
 		return cmd
@@ -664,6 +707,12 @@ func (p *chatPage) handleResize(y int) tea.Cmd {
 // renderResizeHandle renders the draggable separator between messages and editor.
 func (p *chatPage) renderResizeHandle(width int) string {
 	return styles.ResizeHandleStyle.Render(strings.Repeat("─", width))
+}
+
+func (p *chatPage) openAttachmentPreview(preview editor.AttachmentPreview) tea.Cmd {
+	return core.CmdHandler(dialog.OpenDialogMsg{
+		Model: dialog.NewAttachmentPreviewDialog(preview),
+	})
 }
 
 // See: https://conemu.github.io/en/AnsiEscapeCodes.html#ConEmu_specific_OSC

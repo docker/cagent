@@ -120,6 +120,12 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 		return f.handleExecMode(ctx, out, rt, sess, args)
 	}
 
+	// For TUI mode with local runtime, the editor already displays user messages
+	// via editor.SendMsg, so we don't need the runtime to emit UserMessageEvent.
+	if f.remoteAddress == "" {
+		sess.SendUserMessage = false
+	}
+
 	return handleRunMode(ctx, rt, sess, args)
 }
 
