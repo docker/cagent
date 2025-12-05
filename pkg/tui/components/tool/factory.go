@@ -5,7 +5,9 @@ import (
 	"github.com/docker/cagent/pkg/tui/components/tool/defaulttool"
 	"github.com/docker/cagent/pkg/tui/components/tool/editfile"
 	"github.com/docker/cagent/pkg/tui/components/tool/handoff"
+	"github.com/docker/cagent/pkg/tui/components/tool/listdirectory"
 	"github.com/docker/cagent/pkg/tui/components/tool/readfile"
+	"github.com/docker/cagent/pkg/tui/components/tool/readmultiplefiles"
 	"github.com/docker/cagent/pkg/tui/components/tool/shell"
 	"github.com/docker/cagent/pkg/tui/components/tool/todotool"
 	"github.com/docker/cagent/pkg/tui/components/tool/transfertask"
@@ -60,6 +62,8 @@ func newDefaultRegistry() *Registry {
 	registry.Register(builtin.ToolNameEditFile, editfile.New)
 	registry.Register(builtin.ToolNameWriteFile, writefile.New)
 	registry.Register(builtin.ToolNameReadFile, readfile.New)
+	registry.Register(builtin.ToolNameReadMultipleFiles, readmultiplefiles.New)
+	registry.Register(builtin.ToolNameListDirectory, listdirectory.New)
 	registry.Register(builtin.ToolNameCreateTodo, todotool.New)
 	registry.Register(builtin.ToolNameCreateTodos, todotool.New)
 	registry.Register(builtin.ToolNameUpdateTodo, todotool.New)
