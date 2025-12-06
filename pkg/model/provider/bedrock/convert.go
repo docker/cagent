@@ -1,0 +1,239 @@
+package bedrock
+
+import (
+	"encoding/base64"
+	"encoding/json"
+	"strings"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
+	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
+
+	"github.com/docker/cagent/pkg/chat"
+	"github.com/docker/cagent/pkg/tools"
+)
+
+// convertMessages converts chat.Messages to Bedrock Message format
+// Returns (messages, system content blocks)
+func convertMessages(messages []chat.Message) ([]types.Message, []types.SystemContentBlock) {
+	var bedrockMessages []types.Message
+	var systemBlocks []types.SystemContentBlock
+
+	for i := range messages {
+		msg := &messages[i]
+
+		switch msg.Role {
+		case chat.MessageRoleSystem:
+			// Extract system messages into separate system blocks
+			if len(msg.MultiContent) > 0 {
+				for _, part := range msg.MultiContent {
+					if part.Type == chat.MessagePartTypeText && strings.TrimSpace(part.Text) != "" {
+						systemBlocks = append(systemBlocks, &types.SystemContentBlockMemberText{
+							Value: part.Text,
+						})
+					}
+				}
+			} else if strings.TrimSpace(msg.Content) != "" {
+				systemBlocks = append(systemBlocks, &types.SystemContentBlockMemberText{
+					Value: msg.Content,
+				})
+			}
+
+		case chat.MessageRoleUser:
+			contentBlocks := convertUserContent(msg)
+			if len(contentBlocks) > 0 {
+				bedrockMessages = append(bedrockMessages, types.Message{
+					Role:    types.ConversationRoleUser,
+					Content: contentBlocks,
+				})
+			}
+
+		case chat.MessageRoleAssistant:
+			contentBlocks := convertAssistantContent(msg)
+			if len(contentBlocks) > 0 {
+				bedrockMessages = append(bedrockMessages, types.Message{
+					Role:    types.ConversationRoleAssistant,
+					Content: contentBlocks,
+				})
+			}
+
+		case chat.MessageRoleTool:
+			// Tool results in Bedrock are user messages with ToolResultBlock
+			if msg.ToolCallID != "" {
+				bedrockMessages = append(bedrockMessages, types.Message{
+					Role: types.ConversationRoleUser,
+					Content: []types.ContentBlock{
+						&types.ContentBlockMemberToolResult{
+							Value: types.ToolResultBlock{
+								ToolUseId: aws.String(msg.ToolCallID),
+								Content: []types.ToolResultContentBlock{
+									&types.ToolResultContentBlockMemberText{
+										Value: msg.Content,
+									},
+								},
+							},
+						},
+					},
+				})
+			}
+		}
+	}
+
+	return bedrockMessages, systemBlocks
+}
+
+// convertUserContent converts user message content to Bedrock ContentBlocks
+func convertUserContent(msg *chat.Message) []types.ContentBlock {
+	var blocks []types.ContentBlock
+
+	if len(msg.MultiContent) > 0 {
+		for _, part := range msg.MultiContent {
+			switch part.Type {
+			case chat.MessagePartTypeText:
+				if strings.TrimSpace(part.Text) != "" {
+					blocks = append(blocks, &types.ContentBlockMemberText{
+						Value: part.Text,
+					})
+				}
+			case chat.MessagePartTypeImageURL:
+				if part.ImageURL != nil {
+					if imageBlock := convertImageURL(part.ImageURL); imageBlock != nil {
+						blocks = append(blocks, imageBlock)
+					}
+				}
+			}
+		}
+	} else if strings.TrimSpace(msg.Content) != "" {
+		blocks = append(blocks, &types.ContentBlockMemberText{
+			Value: msg.Content,
+		})
+	}
+
+	return blocks
+}
+
+// convertImageURL converts an image URL to Bedrock ImageBlock
+func convertImageURL(imageURL *chat.MessageImageURL) types.ContentBlock {
+	if !strings.HasPrefix(imageURL.URL, "data:") {
+		return nil
+	}
+
+	parts := strings.SplitN(imageURL.URL, ",", 2)
+	if len(parts) != 2 {
+		return nil
+	}
+
+	// Decode base64 data
+	imageData, err := base64.StdEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil
+	}
+
+	// Determine format from media type
+	var format types.ImageFormat
+	switch {
+	case strings.Contains(parts[0], "image/jpeg"):
+		format = types.ImageFormatJpeg
+	case strings.Contains(parts[0], "image/png"):
+		format = types.ImageFormatPng
+	case strings.Contains(parts[0], "image/gif"):
+		format = types.ImageFormatGif
+	case strings.Contains(parts[0], "image/webp"):
+		format = types.ImageFormatWebp
+	default:
+		format = types.ImageFormatJpeg
+	}
+
+	return &types.ContentBlockMemberImage{
+		Value: types.ImageBlock{
+			Format: format,
+			Source: &types.ImageSourceMemberBytes{
+				Value: imageData,
+			},
+		},
+	}
+}
+
+// convertAssistantContent converts assistant message to Bedrock ContentBlocks
+func convertAssistantContent(msg *chat.Message) []types.ContentBlock {
+	var blocks []types.ContentBlock
+
+	// Add text content if present
+	if strings.TrimSpace(msg.Content) != "" {
+		blocks = append(blocks, &types.ContentBlockMemberText{
+			Value: msg.Content,
+		})
+	}
+
+	// Add tool use blocks for tool calls
+	for _, tc := range msg.ToolCalls {
+		var input map[string]any
+		if tc.Function.Arguments != "" {
+			_ = json.Unmarshal([]byte(tc.Function.Arguments), &input)
+		}
+		if input == nil {
+			input = make(map[string]any)
+		}
+
+		// Convert input map to document (required by Bedrock)
+		inputDoc := mapToDocument(input)
+
+		blocks = append(blocks, &types.ContentBlockMemberToolUse{
+			Value: types.ToolUseBlock{
+				ToolUseId: aws.String(tc.ID),
+				Name:      aws.String(tc.Function.Name),
+				Input:     inputDoc,
+			},
+		})
+	}
+
+	return blocks
+}
+
+// mapToDocument converts a map to Bedrock document format
+func mapToDocument(m map[string]any) document.Interface {
+	return document.NewLazyDocument(m)
+}
+
+// convertToolConfig converts tools to Bedrock ToolConfiguration
+func convertToolConfig(requestTools []tools.Tool) *types.ToolConfiguration {
+	if len(requestTools) == 0 {
+		return nil
+	}
+
+	toolSpecs := make([]types.Tool, len(requestTools))
+	for i, tool := range requestTools {
+		// Convert parameters to JSON schema format
+		schema := convertToolSchema(tool.Parameters)
+
+		toolSpecs[i] = &types.ToolMemberToolSpec{
+			Value: types.ToolSpecification{
+				Name:        aws.String(tool.Name),
+				Description: aws.String(tool.Description),
+				InputSchema: &types.ToolInputSchemaMemberJson{
+					Value: schema,
+				},
+			},
+		}
+	}
+
+	return &types.ToolConfiguration{
+		Tools: toolSpecs,
+		// Auto tool choice lets the model decide
+		ToolChoice: &types.ToolChoiceMemberAuto{
+			Value: types.AutoToolChoice{},
+		},
+	}
+}
+
+// convertToolSchema converts tool parameters to Bedrock-compatible JSON schema
+func convertToolSchema(params any) document.Interface {
+	schema, err := tools.SchemaToMap(params)
+	if err != nil {
+		schema = map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		}
+	}
+	return document.NewLazyDocument(schema)
+}

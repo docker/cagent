@@ -13,6 +13,7 @@ var DefaultModels = map[string]string{
 	"google":    "gemini-2.5-flash",
 	"dmr":       "ai/qwen3:latest",
 	"mistral":   "mistral-small-latest",
+	"bedrock":   "anthropic.claude-3-5-sonnet-20241022-v2:0",
 }
 
 func AvailableProviders(ctx context.Context, modelsGateway string, env environment.Provider) []string {
@@ -28,6 +29,10 @@ func AvailableProviders(ctx context.Context, modelsGateway string, env environme
 			providers = append(providers, "google")
 		case env.Get(ctx, "MISTRAL_API_KEY") != "":
 			providers = append(providers, "mistral")
+		case env.Get(ctx, "AWS_ACCESS_KEY_ID") != "" ||
+			env.Get(ctx, "AWS_PROFILE") != "" ||
+			env.Get(ctx, "AWS_ROLE_ARN") != "":
+			providers = append(providers, "bedrock")
 		default:
 			providers = append(providers, "dmr")
 		}

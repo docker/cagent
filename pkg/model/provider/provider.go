@@ -10,6 +10,7 @@ import (
 	"github.com/docker/cagent/pkg/environment"
 	"github.com/docker/cagent/pkg/model/provider/anthropic"
 	"github.com/docker/cagent/pkg/model/provider/base"
+	"github.com/docker/cagent/pkg/model/provider/bedrock"
 	"github.com/docker/cagent/pkg/model/provider/dmr"
 	"github.com/docker/cagent/pkg/model/provider/gemini"
 	"github.com/docker/cagent/pkg/model/provider/openai"
@@ -120,6 +121,9 @@ func New(ctx context.Context, cfg *latest.ModelConfig, env environment.Provider,
 
 	case "dmr":
 		return dmr.NewClient(ctx, enhancedCfg, opts...)
+
+	case "bedrock":
+		return bedrock.NewClient(ctx, enhancedCfg, env, opts...)
 
 	default:
 		slog.Error("Unknown provider type", "type", providerType)

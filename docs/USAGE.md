@@ -15,7 +15,7 @@ agents with specialized capabilities and tools. It features:
 - **📦 Agent distribution** via Docker registry integration
 - **🔒 Security-first design** with proper client scoping and resource isolation
 - **⚡ Event-driven streaming** for real-time interactions
-- **🧠 Multi-model support** (OpenAI, Anthropic, Gemini, [Docker Model Runner (DMR)](https://docs.docker.com/ai/model-runner/))
+- **🧠 Multi-model support** (OpenAI, Anthropic, Gemini, [AWS Bedrock](https://aws.amazon.com/bedrock/), [Docker Model Runner (DMR)](https://docs.docker.com/ai/model-runner/))
 
 
 ## Why?
@@ -193,7 +193,7 @@ cagent run ./agent.yaml /analyze
 
 | Property            | Type       | Description                                                                  | Required |
 |---------------------|------------|------------------------------------------------------------------------------|----------|
-| `provider`          | string     | Provider: `openai`, `anthropic`, `google`, `dmr`                             | ✓        |
+| `provider`          | string     | Provider: `openai`, `anthropic`, `google`, `bedrock`, `dmr`                  | ✓        |
 | `model`             | string     | Model name (e.g., `gpt-4o`, `claude-sonnet-4-0`, `gemini-2.5-flash`)         | ✓        |
 | `temperature`       | float      | Randomness (0.0-1.0)                                                         | ✗        |
 | `max_tokens`        | integer    | Response length limit                                                        | ✗        |
@@ -208,7 +208,7 @@ cagent run ./agent.yaml /analyze
 ```yaml
 models:
   model_name:
-    provider: string # Provider: openai, anthropic, google, dmr
+    provider: string # Provider: openai, anthropic, google, bedrock, dmr
     model: string # Model name: gpt-4o, claude-3-7-sonnet-latest, gemini-2.5-flash, qwen3:4B, ...
     temperature: float # Randomness (0.0-1.0)
     max_tokens: integer # Response length limit
@@ -334,11 +334,83 @@ models:
     provider: google
     model: gemini-2.5-flash
 
+# AWS Bedrock
+models:
+  claude-bedrock:
+    provider: bedrock
+    model: us.anthropic.claude-3-5-sonnet-20241022-v2:0  # Cross-region inference profile
+
 # Docker Model Runner (DMR)
 models:
   qwen:
     provider: dmr
     model: ai/qwen3
+```
+
+#### AWS Bedrock provider usage
+
+Bedrock uses the AWS SDK default credential chain for authentication:
+
+1. Environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`)
+2. Shared credentials file (`~/.aws/credentials`)
+3. Shared config file (`~/.aws/config`)
+4. IAM roles (EC2, ECS, Lambda)
+5. Explicit `role_arn` in `provider_opts` for role assumption
+
+**Basic usage with AWS profile:**
+
+```yaml
+models:
+  claude-bedrock:
+    provider: bedrock
+    model: us.anthropic.claude-3-5-sonnet-20241022-v2:0
+    max_tokens: 64000
+    provider_opts:
+      profile: my-aws-profile
+      region: us-east-1
+```
+
+**With IAM role assumption:**
+
+```yaml
+models:
+  claude-bedrock:
+    provider: bedrock
+    model: anthropic.claude-3-sonnet-20240229-v1:0
+    provider_opts:
+      role_arn: "arn:aws:iam::123456789012:role/BedrockAccessRole"
+      external_id: "my-external-id"
+```
+
+**provider_opts for Bedrock:**
+
+| Option | Type | Description | Default |
+|--------|------|-------------|---------|
+| `region` | string | AWS region | us-east-1 |
+| `profile` | string | AWS profile name | (default chain) |
+| `role_arn` | string | IAM role ARN for assume role | (none) |
+| `role_session_name` | string | Session name for assumed role | cagent-bedrock-session |
+| `external_id` | string | External ID for role assumption | (none) |
+| `endpoint_url` | string | Custom endpoint (VPC/testing) | (none) |
+
+**Supported models (via Converse API):**
+
+All Bedrock models that support the Converse API work with cagent, including:
+
+- **Anthropic Claude**: `anthropic.claude-3-5-sonnet-20241022-v2:0`, `anthropic.claude-3-haiku-20240307-v1:0`
+- **Amazon Titan**: `amazon.titan-text-premier-v1:0`
+- **Meta Llama**: `meta.llama3-2-90b-instruct-v1:0`
+- **Mistral**: `mistral.mistral-large-2407-v1:0`
+
+**Cross-region inference profiles:**
+
+Use region prefixes for cross-region inference: `us.`, `eu.`, etc.
+
+```yaml
+models:
+  claude-cross-region:
+    provider: bedrock
+    model: us.anthropic.claude-3-5-sonnet-20241022-v2:0  # Routes to available US region
 ```
 
 #### DMR (Docker Model Runner) provider usage
@@ -396,7 +468,7 @@ Requirements and notes:
 - Docker Model plugin must be available for auto-configure/auto-discovery
   - Verify with: `docker model status --json`
 - Configuration is best-effort; failures fall back to the default base URL
-- `provider_opts` currently apply to `dmr` and `anthropic` providers
+- `provider_opts` currently apply to `dmr`, `anthropic`, and `bedrock` providers
 - `runtime_flags` are passed after `--` to the inference runtime (e.g., llama.cpp)
 
 Parameter mapping and precedence (DMR):
