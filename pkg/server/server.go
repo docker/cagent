@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"time"
 
@@ -37,6 +38,8 @@ func New(ctx context.Context, sessionStore session.Store, runConfig *config.Runt
 
 	// List all available agents
 	group.GET("/agents", s.getAgents)
+	// Get a specific agent configuration by ID
+	group.GET("/agents/:id", s.getAgent)
 
 	// List all sessions
 	group.GET("/sessions", s.getSessions)
@@ -120,6 +123,34 @@ func (s *Server) getAgents(c echo.Context) error {
 	})
 
 	return c.JSON(http.StatusOK, agents)
+}
+
+func (s *Server) getAgent(c echo.Context) error {
+	id := c.Param("id")
+
+	src, ok := s.sm.sources[id]
+	if !ok {
+		for k, source := range s.sm.sources {
+			if k == id || source.Name() == id || filepath.Base(k) == filepath.Base(id) || filepath.Base(source.Name()) == filepath.Base(id) {
+				src = source
+				ok = true
+				break
+			}
+		}
+	}
+
+	if !ok {
+		slog.Error("Agent not found", "key", id)
+		return echo.NewHTTPError(http.StatusNotFound, fmt.Sprintf("agent not found: %s", id))
+	}
+
+	cfg, err := config.Load(c.Request().Context(), src)
+	if err != nil {
+		slog.Error("Failed to load agent", "key", id, "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("failed to load agent: %v", err))
+	}
+
+	return c.JSON(http.StatusOK, cfg)
 }
 
 func (s *Server) getSessions(c echo.Context) error {
