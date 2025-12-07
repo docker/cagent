@@ -70,8 +70,8 @@ func New(sessionStore session.Store, runConfig *config.RuntimeConfig, agentSourc
 	// Delete a session
 	group.DELETE("/sessions/:id", s.deleteSession)
 	// Run an agent loop
-	group.POST("/sessions/:id/agent/:agent", s.runAgent)
-	group.POST("/sessions/:id/agent/:agent/:agent_name", s.runAgent)
+	// Use wildcard to capture agent path which may contain slashes
+	group.POST("/sessions/:id/agent/*", s.runAgent)
 	group.POST("/sessions/:id/elicitation", s.elicitation)
 
 	// Health check endpoint
@@ -289,10 +289,67 @@ func (s *Server) deleteSession(c echo.Context) error {
 
 func (s *Server) runAgent(c echo.Context) error {
 	sessionID := c.Param("id")
-	agentFilename := c.Param("agent")
-	currentAgent := c.Param("agent_name")
-	if currentAgent == "" {
+
+	// Parse wildcard parameter which contains agent path and optional agent_name
+	// Format: agent_path or agent_path/agent_name (may or may not have leading /)
+	wildcardPath := c.Param("*")
+
+	// Split into agent path and agent name
+	// The agent name (if present) is always the last segment after the final /
+	// We need to check if the last segment is a valid agent file path or an agent name
+	var agentFilename, currentAgent string
+
+	// Helper function to try both with and without leading slash
+	tryFindAgent := func(path string) (string, bool) {
+		// Try as-is
+		if _, found := s.agentSources[path]; found {
+			return path, true
+		}
+		// Try with leading slash
+		withSlash := "/" + path
+		if _, found := s.agentSources[withSlash]; found {
+			return withSlash, true
+		}
+		// Try without leading slash
+		withoutSlash := strings.TrimPrefix(path, "/")
+		if _, found := s.agentSources[withoutSlash]; found {
+			return withoutSlash, true
+		}
+		return "", false
+	}
+
+	// Try looking up the full path in agentSources
+	if found, ok := tryFindAgent(wildcardPath); ok {
+		agentFilename = found
 		currentAgent = "root"
+	} else {
+		// Try splitting off the last segment as agent_name
+		lastSlash := strings.LastIndex(wildcardPath, "/")
+		if lastSlash >= 0 {
+			possibleAgentPath := wildcardPath[:lastSlash]
+			possibleAgentName := wildcardPath[lastSlash+1:]
+
+			if found, ok := tryFindAgent(possibleAgentPath); ok {
+				agentFilename = found
+				currentAgent = possibleAgentName
+			} else {
+				// Fallback: use full path as agent, default agent name
+				if found, ok := tryFindAgent(wildcardPath); ok {
+					agentFilename = found
+				} else {
+					agentFilename = wildcardPath
+				}
+				currentAgent = "root"
+			}
+		} else {
+			// No slashes, just use as agent filename
+			if found, ok := tryFindAgent(wildcardPath); ok {
+				agentFilename = found
+			} else {
+				agentFilename = wildcardPath
+			}
+			currentAgent = "root"
+		}
 	}
 
 	slog.Debug("Running agent", "agent_filename", agentFilename, "session_id", sessionID, "current_agent", currentAgent)

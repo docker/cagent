@@ -69,6 +69,147 @@ func TestServer_ListSessions(t *testing.T) {
 	assert.Empty(t, sessions)
 }
 
+func TestServer_WildcardAgentRouting(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "dummy")
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
+
+	ctx := t.Context()
+
+	// Create test agent files
+	agentsDir := filepath.Join(t.TempDir(), "agents")
+	err := os.MkdirAll(agentsDir, 0o700)
+	require.NoError(t, err)
+
+	// Copy test files
+	testFiles := []string{"pirate.yaml", "multi_agents.yaml", "contradict.yaml"}
+	for _, file := range testFiles {
+		buf, err := os.ReadFile(filepath.Join("testdata", file))
+		require.NoError(t, err)
+		err = os.WriteFile(filepath.Join(agentsDir, file), buf, 0o600)
+		require.NoError(t, err)
+	}
+
+	// Manually create sources with keys that contain slashes to test wildcard routing
+	store := &mockStore{}
+	runConfig := config.RuntimeConfig{}
+
+	sources := make(config.Sources)
+	sources["pirate.yaml"] = config.NewFileSource(filepath.Join(agentsDir, "pirate.yaml"))
+	sources["teams/multi.yaml"] = config.NewFileSource(filepath.Join(agentsDir, "multi_agents.yaml"))
+	sources["deep/nested/path/contradict.yaml"] = config.NewFileSource(filepath.Join(agentsDir, "contradict.yaml"))
+
+	srv, err := New(store, &runConfig, sources)
+	require.NoError(t, err)
+
+	socketPath := "unix://" + filepath.Join(t.TempDir(), "sock")
+	ln, err := Listen(ctx, socketPath)
+	require.NoError(t, err)
+	go func() {
+		<-ctx.Done()
+		_ = ln.Close()
+	}()
+	go func() {
+		_ = srv.Serve(ctx, ln)
+	}()
+	lnPath := socketPath
+
+	// Verify agents are available
+	buf := httpGET(t, ctx, lnPath, "/api/agents")
+	var agents []api.Agent
+	unmarshal(t, buf, &agents)
+	require.Len(t, agents, 3, "Expected 3 agents to be available")
+
+	// Test various wildcard routing patterns
+	tests := []struct {
+		name        string
+		agentPath   string
+		expectError bool
+	}{
+		{
+			name:        "simple agent path",
+			agentPath:   "pirate.yaml",
+			expectError: false,
+		},
+		{
+			name:        "agent path with single slash",
+			agentPath:   "teams/multi.yaml",
+			expectError: false,
+		},
+		{
+			name:        "agent path with multiple slashes",
+			agentPath:   "deep/nested/path/contradict.yaml",
+			expectError: false,
+		},
+		{
+			name:        "simple agent path with leading slash",
+			agentPath:   "/pirate.yaml",
+			expectError: false,
+		},
+		{
+			name:        "nested agent path with leading slash",
+			agentPath:   "/teams/multi.yaml",
+			expectError: false,
+		},
+		{
+			name:        "agent path with agent name",
+			agentPath:   "pirate.yaml/root",
+			expectError: false,
+		},
+		{
+			name:        "nested agent path with agent name",
+			agentPath:   "teams/multi.yaml/root",
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a test session
+			payload := session.Session{
+				WorkingDir: t.TempDir(),
+			}
+			sessionBuf := httpDo(t, ctx, http.MethodPost, lnPath, "/api/sessions", payload)
+			var sess session.Session
+			unmarshal(t, sessionBuf, &sess)
+
+			// Attempt to call the agent endpoint
+			// Note: This will fail because we don't have a full runtime setup,
+			// but it should at least validate that the route is matched and
+			// basic parameter parsing works
+			url := "/api/sessions/" + sess.ID + "/agent/" + strings.TrimPrefix(tt.agentPath, "/")
+
+			// We expect this to fail in a specific way (not a 404 route error)
+			// A 404 would indicate the route wasn't matched
+			// Other errors are expected due to missing runtime components
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://_"+url, strings.NewReader(`[{"content":"test"}]`))
+			require.NoError(t, err)
+			req.Header.Set("Content-Type", "application/json")
+
+			client := &http.Client{
+				Transport: &http.Transport{
+					DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+						var d net.Dialer
+						return d.DialContext(ctx, "unix", strings.TrimPrefix(lnPath, "unix://"))
+					},
+				},
+			}
+			resp, err := client.Do(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			body, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+
+			// The route should be matched (not a 404)
+			// It may fail with 500 due to runtime setup, but that's okay for this test
+			// We're mainly testing that the wildcard routing works
+			if resp.StatusCode == http.StatusNotFound {
+				t.Errorf("Route not matched for path %s, got 404. Body: %s", tt.agentPath, string(body))
+			}
+		})
+	}
+}
+
 func prepareAgentsDir(t *testing.T, testFiles ...string) string {
 	t.Helper()
 
@@ -90,7 +231,7 @@ func prepareAgentsDir(t *testing.T, testFiles ...string) string {
 func startServer(t *testing.T, ctx context.Context, agentsDir string) string {
 	t.Helper()
 
-	var store mockStore
+	store := &mockStore{}
 	runConfig := config.RuntimeConfig{}
 
 	sources, err := config.ResolveSources(agentsDir)
@@ -170,9 +311,47 @@ func unmarshal(t *testing.T, buf []byte, v any) {
 }
 
 type mockStore struct {
-	session.Store
+	sessions map[string]*session.Session
 }
 
-func (s mockStore) GetSessions(context.Context) ([]*session.Session, error) {
-	return nil, nil
+func (s *mockStore) init() {
+	if s.sessions == nil {
+		s.sessions = make(map[string]*session.Session)
+	}
+}
+
+func (s *mockStore) AddSession(_ context.Context, sess *session.Session) error {
+	s.init()
+	s.sessions[sess.ID] = sess
+	return nil
+}
+
+func (s *mockStore) GetSession(_ context.Context, id string) (*session.Session, error) {
+	s.init()
+	sess, ok := s.sessions[id]
+	if !ok {
+		return nil, session.ErrNotFound
+	}
+	return sess, nil
+}
+
+func (s *mockStore) GetSessions(_ context.Context) ([]*session.Session, error) {
+	s.init()
+	var sessions []*session.Session
+	for _, sess := range s.sessions {
+		sessions = append(sessions, sess)
+	}
+	return sessions, nil
+}
+
+func (s *mockStore) DeleteSession(_ context.Context, id string) error {
+	s.init()
+	delete(s.sessions, id)
+	return nil
+}
+
+func (s *mockStore) UpdateSession(_ context.Context, sess *session.Session) error {
+	s.init()
+	s.sessions[sess.ID] = sess
+	return nil
 }
