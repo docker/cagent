@@ -478,3 +478,18 @@ func RAGIndexingCompleted(ragName, strategyName, agentName string) Event {
 		AgentContext: AgentContext{AgentName: agentName},
 	}
 }
+
+// FollowUpSuggestionsEvent is sent when follow-up suggestions are available
+type FollowUpSuggestionsEvent struct {
+	Type        string   `json:"type"`
+	Suggestions []string `json:"suggestions"`
+	AgentContext
+}
+
+func FollowUpSuggestions(suggestions []string, agentName string) Event {
+	return &FollowUpSuggestionsEvent{
+		Type:         "follow_up_suggestions",
+		Suggestions:  suggestions,
+		AgentContext: AgentContext{AgentName: agentName},
+	}
+}

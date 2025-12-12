@@ -6,29 +6,31 @@ import (
 	"log/slog"
 	"math/rand"
 
+	"github.com/docker/cagent/pkg/config/latest"
 	"github.com/docker/cagent/pkg/model/provider"
 	"github.com/docker/cagent/pkg/tools"
 )
 
 // Agent represents an AI agent
 type Agent struct {
-	name               string
-	description        string
-	welcomeMessage     string
-	instruction        string
-	toolsets           []*StartableToolSet
-	models             []provider.Provider
-	subAgents          []*Agent
-	handoffs           []*Agent
-	parents            []*Agent
-	addDate            bool
-	addEnvironmentInfo bool
-	maxIterations      int
-	numHistoryItems    int
-	addPromptFiles     []string
-	tools              []tools.Tool
-	commands           map[string]string
-	pendingWarnings    []string
+	name                    string
+	description             string
+	welcomeMessage          string
+	instruction             string
+	toolsets                []*StartableToolSet
+	models                  []provider.Provider
+	subAgents               []*Agent
+	handoffs                []*Agent
+	parents                 []*Agent
+	addDate                 bool
+	addEnvironmentInfo      bool
+	maxIterations           int
+	numHistoryItems         int
+	addPromptFiles          []string
+	tools                   []tools.Tool
+	commands                map[string]string
+	pendingWarnings         []string
+	followUpSuggestionsConf *latest.FollowUpSuggestionsConfig
 }
 
 // New creates a new agent
@@ -112,6 +114,11 @@ func (a *Agent) Model() provider.Provider {
 // Commands returns the named commands configured for this agent.
 func (a *Agent) Commands() map[string]string {
 	return a.commands
+}
+
+// FollowUpSuggestionsConfig returns the follow-up suggestions configuration for this agent.
+func (a *Agent) FollowUpSuggestionsConfig() *latest.FollowUpSuggestionsConfig {
+	return a.followUpSuggestionsConf
 }
 
 // Tools returns the tools available to this agent

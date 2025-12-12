@@ -138,6 +138,7 @@ type LocalRuntime struct {
 	elicitationEventsChannelMux sync.RWMutex           // Protects elicitationEventsChannel
 	ragInitialized              atomic.Bool
 	titleGen                    *titleGenerator
+	suggestionsGen              *suggestionsGenerator
 	sessionStore                SessionStore
 }
 
@@ -498,6 +499,12 @@ func (r *LocalRuntime) registerDefaultTools() {
 func (r *LocalRuntime) finalizeEventChannel(ctx context.Context, sess *session.Session, events chan Event) {
 	defer close(events)
 
+	// Generate follow-up suggestions before stopping stream (if enabled)
+	if r.suggestionsGen != nil {
+		r.suggestionsGen.Generate(ctx, sess, events, r.currentAgent)
+		r.suggestionsGen.Wait()
+	}
+
 	events <- StreamStopped(sess.ID, r.currentAgent)
 
 	telemetry.RecordSessionEnd(ctx)
@@ -528,10 +535,16 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 
 		// Emit agent information for sidebar display
 		var modelID string
-		if model := a.Model(); model != nil {
+		model := a.Model()
+		if model != nil {
 			modelID = model.ID()
 		}
 		events <- AgentInfo(a.Name(), modelID, a.Description())
+
+		// Initialize suggestions generator if enabled for this agent
+		if cfg := a.FollowUpSuggestionsConfig(); cfg != nil && cfg.Enabled && model != nil {
+			r.suggestionsGen = newSuggestionsGenerator(model, cfg)
+		}
 
 		// Emit team information
 		availableAgents := r.team.AgentNames()

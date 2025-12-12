@@ -3,6 +3,7 @@ package agent
 import (
 	"sync/atomic"
 
+	"github.com/docker/cagent/pkg/config/latest"
 	"github.com/docker/cagent/pkg/model/provider"
 	"github.com/docker/cagent/pkg/tools"
 )
@@ -114,6 +115,12 @@ func WithLoadTimeWarnings(warnings []string) Opt {
 		for _, w := range warnings {
 			a.addToolWarning(w)
 		}
+	}
+}
+
+func WithFollowUpSuggestions(config *latest.FollowUpSuggestionsConfig) Opt {
+	return func(a *Agent) {
+		a.followUpSuggestionsConf = config
 	}
 }
 

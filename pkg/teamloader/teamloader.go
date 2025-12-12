@@ -106,6 +106,7 @@ func Load(ctx context.Context, agentSource config.Source, runConfig *config.Runt
 			agent.WithMaxIterations(agentConfig.MaxIterations),
 			agent.WithNumHistoryItems(agentConfig.NumHistoryItems),
 			agent.WithCommands(expander.ExpandMap(ctx, agentConfig.Commands)),
+			agent.WithFollowUpSuggestions(agentConfig.FollowUpSuggestions),
 		}
 
 		models, err := getModelsForAgent(ctx, cfg, &agentConfig, autoModel, runConfig)
