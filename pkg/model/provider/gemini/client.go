@@ -41,6 +41,11 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 		return nil, errors.New("model type must be 'google'")
 	}
 
+	// Ensure env is not nil - use default provider if nil
+	if env == nil {
+		env = environment.NewDefaultProvider()
+	}
+
 	var globalOptions options.ModelOptions
 	for _, opt := range opts {
 		opt(&globalOptions)
