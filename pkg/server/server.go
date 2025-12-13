@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"time"
 
@@ -35,8 +36,8 @@ func New(ctx context.Context, sessionStore session.Store, runConfig *config.Runt
 
 	group := e.Group("/api")
 
-	// List all available agents
-	group.GET("/agents", s.getAgents)
+	// List all available agents or get a specific agent by ID
+	group.GET("/agents/*", s.getAgents)
 
 	// List all sessions
 	group.GET("/sessions", s.getSessions)
@@ -77,49 +78,94 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 }
 
 func (s *Server) getAgents(c echo.Context) error {
-	agents := []api.Agent{}
-	for k, agentSource := range s.sm.sources {
-		slog.Debug("API source", "source", agentSource.Name())
+	// Parse wildcard parameter
+	wildcardPath := c.Param("*")
 
-		c, err := config.Load(c.Request().Context(), agentSource)
-		if err != nil {
-			slog.Error("Failed to load config from API source", "key", k, "error", err)
-			continue
-		}
+	// If wildcard is empty or just "/", list all agents
+	if wildcardPath == "" || wildcardPath == "/" {
+		agents := []api.Agent{}
+		for k, agentSource := range s.sm.sources {
+			slog.Debug("API source", "source", agentSource.Name())
 
-		var desc string
-		if a, ok := c.Agents["root"]; ok {
-			desc = a.Description
-		} else {
-			for _, agent := range c.Agents {
-				desc = agent.Description
-				break
+			cfg, err := config.Load(c.Request().Context(), agentSource)
+			if err != nil {
+				slog.Error("Failed to load config from API source", "key", k, "error", err)
+				continue
+			}
+
+			var desc string
+			if a, ok := cfg.Agents["root"]; ok {
+				desc = a.Description
+			} else {
+				for _, agent := range cfg.Agents {
+					desc = agent.Description
+					break
+				}
+			}
+			switch {
+			case len(cfg.Agents) > 1:
+				agents = append(agents, api.Agent{
+					Name:        k,
+					Multi:       true,
+					Description: desc,
+				})
+			case len(cfg.Agents) == 1:
+				agents = append(agents, api.Agent{
+					Name:        k,
+					Multi:       false,
+					Description: desc,
+				})
+			default:
+				slog.Warn("No agents found in config from API source", "key", k)
+				continue
 			}
 		}
-		switch {
-		case len(c.Agents) > 1:
-			agents = append(agents, api.Agent{
-				Name:        k,
-				Multi:       true,
-				Description: desc,
-			})
-		case len(c.Agents) == 1:
-			agents = append(agents, api.Agent{
-				Name:        k,
-				Multi:       false,
-				Description: desc,
-			})
-		default:
-			slog.Warn("No agents found in config from API source", "key", k)
-			continue
-		}
+
+		sort.Slice(agents, func(i, j int) bool {
+			return agents[i].Name < agents[j].Name
+		})
+
+		return c.JSON(http.StatusOK, agents)
 	}
 
-	sort.Slice(agents, func(i, j int) bool {
-		return agents[i].Name < agents[j].Name
-	})
+	// get specific agent by ID
+	tryFindAgent := func(path string) (config.Source, string) {
+		// Try as-is
+		if src, found := s.sm.sources[path]; found {
+			return src, path
+		}
+		// Try with leading slash
+		withSlash := "/" + path
+		if src, found := s.sm.sources[withSlash]; found {
+			return src, withSlash
+		}
+		// Try without leading slash
+		withoutSlash := ""
+		if len(path) > 0 && path[0] == '/' {
+			withoutSlash = path[1:]
+		}
+		if withoutSlash != "" {
+			if src, found := s.sm.sources[withoutSlash]; found {
+				return src, withoutSlash
+			}
+		}
+		// Try matching by name or basename
+		for k, source := range s.sm.sources {
+			if k == path || source.Name() == path || filepath.Base(k) == filepath.Base(path) || filepath.Base(source.Name()) == filepath.Base(path) {
+				return source, k
+			}
+		}
+		return nil, ""
+	}
 
-	return c.JSON(http.StatusOK, agents)
+	src, id := tryFindAgent(wildcardPath)
+	cfg, err := config.Load(c.Request().Context(), src)
+	if err != nil {
+		slog.Error("Failed to load agent", "key", id, "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("failed to load agent: %v", err))
+	}
+
+	return c.JSON(http.StatusOK, cfg)
 }
 
 func (s *Server) getSessions(c echo.Context) error {

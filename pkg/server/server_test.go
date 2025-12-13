@@ -27,7 +27,7 @@ func TestServer_ListAgents(t *testing.T) {
 	ctx := t.Context()
 	lnPath := startServer(t, ctx, prepareAgentsDir(t, "contradict.yaml", "multi_agents.yaml", "pirate.yaml"))
 
-	buf := httpGET(t, ctx, lnPath, "/api/agents")
+	buf := httpGET(t, ctx, lnPath, "/api/agents/")
 
 	var agents []api.Agent
 	unmarshal(t, buf, &agents)
@@ -51,7 +51,7 @@ func TestServer_EmptyList(t *testing.T) {
 	ctx := t.Context()
 	lnPath := startServer(t, ctx, prepareAgentsDir(t))
 
-	buf := httpGET(t, ctx, lnPath, "/api/agents")
+	buf := httpGET(t, ctx, lnPath, "/api/agents/")
 	assert.Equal(t, "[]\n", string(buf)) // We don't want null, but an empty array
 }
 
@@ -67,6 +67,27 @@ func TestServer_ListSessions(t *testing.T) {
 	unmarshal(t, buf, &sessions)
 
 	assert.Empty(t, sessions)
+}
+
+func TestServer_GetAgentByPath(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "dummy")
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
+
+	ctx := t.Context()
+	agentsDir := prepareAgentsDir(t, "pirate.yaml", "multi_agents.yaml")
+	lnPath := startServer(t, ctx, agentsDir)
+
+	// Test getting a specific agent by path
+	buf := httpGET(t, ctx, lnPath, "/api/agents/pirate.yaml")
+
+	var response map[string]any
+	unmarshal(t, buf, &response)
+
+	assert.NotEmpty(t, response)
+	agents, ok := response["agents"].(map[string]any)
+	assert.True(t, ok, "Response should contain 'agents' field")
+	assert.NotEmpty(t, agents)
+	assert.Contains(t, agents, "root")
 }
 
 func prepareAgentsDir(t *testing.T, testFiles ...string) string {
