@@ -432,6 +432,26 @@ func (r *LocalRuntime) CurrentAgent() *agent.Agent {
 	return current
 }
 
+// GetContextLimit returns the context limit for the current agent's model
+func (r *LocalRuntime) GetContextLimit(ctx context.Context) int64 {
+	a := r.CurrentAgent()
+	if a == nil {
+		return 0
+	}
+
+	model := a.Model()
+	if model == nil {
+		return 0
+	}
+
+	m, err := r.modelsStore.GetModel(ctx, model.ID())
+	if err != nil || m == nil {
+		return 0
+	}
+
+	return int64(m.Limit.Context)
+}
+
 // EmitStartupInfo emits initial agent, team, and toolset information for immediate sidebar display
 func (r *LocalRuntime) EmitStartupInfo(ctx context.Context, events chan Event) {
 	// Prevent duplicate emissions
@@ -439,6 +459,18 @@ func (r *LocalRuntime) EmitStartupInfo(ctx context.Context, events chan Event) {
 		return
 	}
 
+	r.emitStartupInfoInternal(ctx, events)
+	r.startupInfoEmitted = true
+}
+
+// ForceEmitStartupInfo emits startup info regardless of whether it was already emitted
+// This is used when loading a session to refresh the sidebar
+func (r *LocalRuntime) ForceEmitStartupInfo(ctx context.Context, events chan Event) {
+	r.emitStartupInfoInternal(ctx, events)
+}
+
+// emitStartupInfoInternal contains the actual logic for emitting startup info
+func (r *LocalRuntime) emitStartupInfoInternal(ctx context.Context, events chan Event) {
 	a := r.CurrentAgent()
 
 	// Emit agent information for sidebar display
@@ -460,13 +492,11 @@ func (r *LocalRuntime) EmitStartupInfo(ctx context.Context, events chan Event) {
 		slog.Warn("Failed to get agent tools during startup", "agent", a.Name(), "error", err)
 		// Emit toolset info with 0 tools if we can't get them
 		events <- ToolsetInfo(0, r.currentAgent)
-		r.startupInfoEmitted = true
 		return
 	}
 
 	// Emit toolset information
 	events <- ToolsetInfo(len(agentTools), r.currentAgent)
-	r.startupInfoEmitted = true
 }
 
 // registerDefaultTools registers the default tool handlers

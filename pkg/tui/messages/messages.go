@@ -1,5 +1,7 @@
 package messages
 
+import "github.com/docker/cagent/pkg/session"
+
 // Session command messages
 type (
 	NewSessionMsg             struct{}
@@ -7,6 +9,8 @@ type (
 	CompactSessionMsg         struct{}
 	CopySessionToClipboardMsg struct{}
 	ToggleYoloMsg             struct{}
+	OpenSessionsDialogMsg     struct{}
+	LoadSessionMsg            struct{ Session *session.Session }
 )
 
 // AgentCommandMsg command message

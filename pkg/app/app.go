@@ -23,15 +23,17 @@ type App struct {
 	events           chan tea.Msg
 	throttleDuration time.Duration
 	cancel           context.CancelFunc
+	sessionStore     session.Store
 }
 
-func New(ctx context.Context, rt runtime.Runtime, sess *session.Session, firstMessage *string) *App {
+func New(ctx context.Context, rt runtime.Runtime, sess *session.Session, firstMessage *string, store session.Store) *App {
 	app := &App{
 		runtime:          rt,
 		session:          sess,
 		firstMessage:     firstMessage,
 		events:           make(chan tea.Msg, 128),
 		throttleDuration: 50 * time.Millisecond, // Throttle rapid events
+		sessionStore:     store,
 	}
 
 	// If the runtime supports background RAG initialization, start it
@@ -124,6 +126,45 @@ func (a *App) EmitStartupInfo(ctx context.Context, events chan runtime.Event) {
 	a.runtime.EmitStartupInfo(ctx, events)
 }
 
+// EmitSessionInfo emits session-specific information (token usage) to the provided channel
+// This is used when loading an existing session to restore the sidebar state
+// It also forces re-emission of startup info (agent, tools) since we're loading a new session
+func (a *App) EmitSessionInfo(ctx context.Context, events chan runtime.Event) {
+	if a.session == nil {
+		return
+	}
+
+	var contextLimit int64
+
+	// Force emit startup info (agent, team, tools) - needed because the flag may already be set
+	if localRuntime, ok := a.runtime.(*runtime.LocalRuntime); ok {
+		localRuntime.ForceEmitStartupInfo(ctx, events)
+		// Get context limit from the current agent's model
+		contextLimit = localRuntime.GetContextLimit(ctx)
+	} else {
+		// For other runtime types, just call the regular emit
+		a.runtime.EmitStartupInfo(ctx, events)
+	}
+
+	// Emit token usage if the session has any
+	if a.session.InputTokens > 0 || a.session.OutputTokens > 0 || a.session.Cost > 0 {
+		events <- runtime.TokenUsage(
+			a.session.ID,
+			a.runtime.CurrentAgentName(),
+			a.session.InputTokens,
+			a.session.OutputTokens,
+			a.session.InputTokens+a.session.OutputTokens,
+			contextLimit,
+			a.session.Cost,
+		)
+	}
+
+	// Emit session title if available
+	if a.session.Title != "" {
+		events <- runtime.SessionTitle(a.session.ID, a.session.Title)
+	}
+}
+
 // Run one agent loop
 func (a *App) Run(ctx context.Context, cancel context.CancelFunc, message string, attachments map[string]string) {
 	a.cancel = cancel
@@ -210,6 +251,28 @@ func (a *App) CompactSession() {
 
 func (a *App) PlainTextTranscript() string {
 	return transcript(a.session)
+}
+
+func (a *App) LoadSession(sess *session.Session) {
+	if a.cancel != nil {
+		a.cancel()
+		a.cancel = nil
+	}
+	a.session = sess
+}
+
+func (a *App) GetSessions(ctx context.Context) ([]*session.Session, error) {
+	if a.sessionStore == nil {
+		return nil, nil
+	}
+	return a.sessionStore.GetSessions(ctx)
+}
+
+func (a *App) CurrentSessionID() string {
+	if a.session == nil {
+		return ""
+	}
+	return a.session.ID
 }
 
 // throttleEvents buffers and merges rapid events to prevent UI flooding

@@ -54,6 +54,11 @@ type Model interface {
 	AppendToLastMessage(agentName string, messageType types.MessageType, content string) tea.Cmd
 	AddShellOutputMessage(content string) tea.Cmd
 
+	// Sync methods for loading session history
+	AddUserMessageSync(content string)
+	AddAssistantMessageSync(agentName, content string)
+	AddToolCallSync(agentName string, toolCall tools.ToolCall, result string)
+
 	ScrollToBottom() tea.Cmd
 }
 
@@ -754,6 +759,35 @@ func (m *model) removePendingToolCallMessages() {
 		// Invalidate all items since we've removed messages
 		m.invalidateAllItems()
 	}
+}
+
+// AddUserMessageSync adds a user message synchronously (for loading history)
+func (m *model) AddUserMessageSync(content string) {
+	msg := types.User(content)
+	m.messages = append(m.messages, msg)
+	view := m.createMessageView(msg)
+	m.views = append(m.views, view)
+}
+
+// AddAssistantMessageSync adds an assistant message synchronously (for loading history)
+func (m *model) AddAssistantMessageSync(agentName, content string) {
+	msg := types.Agent(types.MessageTypeAssistant, agentName, content)
+	m.messages = append(m.messages, msg)
+	view := m.createMessageView(msg)
+	m.views = append(m.views, view)
+}
+
+// AddToolCallSync adds a completed tool call synchronously (for loading history)
+func (m *model) AddToolCallSync(agentName string, toolCall tools.ToolCall, result string) {
+	// Create tool definition with just the name (we don't have the full definition when loading history)
+	toolDef := tools.Tool{
+		Name: toolCall.Function.Name,
+	}
+	msg := types.ToolCallMessage(agentName, toolCall, toolDef, types.ToolStatusCompleted)
+	msg.Content = result
+	m.messages = append(m.messages, msg)
+	view := m.createToolCallView(msg)
+	m.views = append(m.views, view)
 }
 
 // mouseToLineCol converts mouse position to line/column in rendered content

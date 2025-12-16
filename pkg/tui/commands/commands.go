@@ -21,6 +21,7 @@ type (
 	AgentCommandMsg           = messages.AgentCommandMsg
 	MCPPromptMsg              = messages.MCPPromptMsg
 	OpenURLMsg                = messages.OpenURLMsg
+	OpenSessionsDialogMsg     = messages.OpenSessionsDialogMsg
 )
 
 // Category represents a category of commands
@@ -49,6 +50,16 @@ func BuiltInSessionCommands() []Item {
 			Category:     "Session",
 			Execute: func() tea.Cmd {
 				return core.CmdHandler(NewSessionMsg{})
+			},
+		},
+		{
+			ID:           "session.history",
+			Label:        "Sessions",
+			SlashCommand: "/sessions",
+			Description:  "Browse and load past sessions",
+			Category:     "Session",
+			Execute: func() tea.Cmd {
+				return core.CmdHandler(OpenSessionsDialogMsg{})
 			},
 		},
 		{

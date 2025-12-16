@@ -69,11 +69,11 @@ func (f *newFlags) runNewCommand(cmd *cobra.Command, args []string) error {
 
 	sess := session.New(opts...)
 
-	return runTUI(ctx, rt, sess, firstMessage)
+	return runTUI(ctx, rt, sess, firstMessage, nil)
 }
 
-func runTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, firstMessage *string) error {
-	a := app.New(ctx, rt, sess, firstMessage)
+func runTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, firstMessage *string, store session.Store) error {
+	a := app.New(ctx, rt, sess, firstMessage, store)
 	m := tui.New(ctx, a)
 
 	progOpts := []tea.ProgramOption{

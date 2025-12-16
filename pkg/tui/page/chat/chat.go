@@ -13,8 +13,10 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/docker/cagent/pkg/app"
+	"github.com/docker/cagent/pkg/chat"
 	"github.com/docker/cagent/pkg/history"
 	"github.com/docker/cagent/pkg/runtime"
+	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/tui/components/editor"
 	"github.com/docker/cagent/pkg/tui/components/messages"
 	"github.com/docker/cagent/pkg/tui/components/notification"
@@ -153,6 +155,82 @@ func New(a *app.App, sessionState *service.SessionState) Page {
 	p.updateNewlineHelp()
 
 	return p
+}
+
+// NewWithSession creates a new chat page with session history loaded
+func NewWithSession(a *app.App, sessionState *service.SessionState, sess *session.Session) Page {
+	historyStore, err := history.New()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to initialize command history: %v\n", err)
+	}
+
+	msg := messages.New(a, sessionState)
+
+	p := &chatPage{
+		sidebar:      sidebar.New(),
+		messages:     msg,
+		editor:       editor.New(a, historyStore),
+		focusedPanel: PanelEditor,
+		app:          a,
+		keyMap:       defaultKeyMap(),
+		history:      historyStore,
+		sessionState: sessionState,
+		// Default to no keyboard enhancements (will be updated if msg is received)
+		keyboardEnhancementsSupported: false,
+		editorLines:                   3,
+	}
+
+	// Initialize help text with default (ctrl+j)
+	p.updateNewlineHelp()
+
+	// Load session history
+	if sess != nil && len(sess.Messages) > 0 {
+		p.loadSessionHistory(sess)
+	}
+
+	return p
+}
+
+// loadSessionHistory populates the messages component with historical session data
+func (p *chatPage) loadSessionHistory(sess *session.Session) {
+	// Build a map of tool call IDs to their results for matching
+	toolResults := make(map[string]string)
+	for _, item := range sess.Messages {
+		if item.IsMessage() {
+			msg := item.Message
+			if msg.Message.Role == chat.MessageRoleTool && msg.Message.ToolCallID != "" {
+				toolResults[msg.Message.ToolCallID] = msg.Message.Content
+			}
+		}
+	}
+
+	for _, item := range sess.Messages {
+		if item.IsMessage() {
+			msg := item.Message
+			switch msg.Message.Role {
+			case chat.MessageRoleUser:
+				if !msg.Implicit {
+					p.messages.AddUserMessageSync(msg.Message.Content)
+				}
+			case chat.MessageRoleAssistant:
+				// Add any text content first
+				if msg.Message.Content != "" {
+					p.messages.AddAssistantMessageSync(msg.AgentName, msg.Message.Content)
+				}
+				// Then add tool calls
+				for _, toolCall := range msg.Message.ToolCalls {
+					result := toolResults[toolCall.ID]
+					p.messages.AddToolCallSync(msg.AgentName, toolCall, result)
+				}
+			// Skip tool messages - they are handled above with the assistant message's tool calls
+			case chat.MessageRoleTool:
+				continue
+			}
+		} else if item.IsSubSession() {
+			// Recursively load sub-session messages
+			p.loadSessionHistory(item.SubSession)
+		}
+	}
 }
 
 // Init initializes the chat page
@@ -672,6 +750,8 @@ func (p *chatPage) processMessage(msg editor.SendMsg) tea.Cmd {
 			return core.CmdHandler(msgtypes.CopySessionToClipboardMsg{})
 		case "/yolo":
 			return core.CmdHandler(msgtypes.ToggleYoloMsg{})
+		case "/sessions":
+			return core.CmdHandler(msgtypes.OpenSessionsDialogMsg{})
 		}
 		// If not a built-in command, fall through to let the app handle it (e.g., agent commands)
 	}

@@ -130,6 +130,26 @@ func (a *appModel) emitStartupInfo() tea.Cmd {
 	}
 }
 
+// emitSessionInfo creates a command that emits session-specific events (token usage, title)
+func (a *appModel) emitSessionInfo() tea.Cmd {
+	return func() tea.Msg {
+		// a buffered channel to collect session events
+		events := make(chan runtime.Event, 10)
+
+		go func() {
+			defer close(events)
+			a.application.EmitSessionInfo(context.Background(), events)
+		}()
+
+		var collectedEvents []runtime.Event
+		for event := range events {
+			collectedEvents = append(collectedEvents, event)
+		}
+
+		return StartupEventsMsg{Events: collectedEvents}
+	}
+}
+
 // StartupEventsMsg carries startup events to be processed by the UI
 type StartupEventsMsg struct {
 	Events []runtime.Event
@@ -207,6 +227,51 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.statusBar = statusbar.New(a.chatPage)
 
 		return a, tea.Batch(a.Init(), a.handleWindowResize(a.wWidth, a.wHeight))
+
+	case messages.OpenSessionsDialogMsg:
+		sessions, err := a.application.GetSessions(context.Background())
+		if err != nil {
+			return a, core.CmdHandler(notification.ShowMsg{
+				Text: "Failed to load sessions: " + err.Error(),
+				Type: notification.TypeError,
+			})
+		}
+		if len(sessions) == 0 {
+			return a, core.CmdHandler(notification.ShowMsg{
+				Text: "No past sessions found",
+			})
+		}
+		// Filter out current session (the dialog will do this, but double-check here)
+		currentID := a.application.CurrentSessionID()
+		var filteredCount int
+		for _, s := range sessions {
+			if s.ID != currentID {
+				filteredCount++
+			}
+		}
+		if filteredCount == 0 {
+			return a, core.CmdHandler(notification.ShowMsg{
+				Text: "No past sessions found",
+			})
+		}
+		return a, core.CmdHandler(dialog.OpenDialogMsg{
+			Model: dialog.NewSessionsListDialog(sessions, currentID),
+		})
+
+	case dialog.SessionSelectedMsg:
+		// Close dialog and load session
+		a.application.LoadSession(msg.Session)
+		a.sessionState = service.NewSessionState()
+		a.chatPage = chat.NewWithSession(a.application, a.sessionState, msg.Session)
+		a.dialog = dialog.New()
+		a.statusBar = statusbar.New(a.chatPage)
+		// Initialize components and emit session info (which includes forced startup info)
+		return a, tea.Batch(
+			a.dialog.Init(),
+			a.chatPage.Init(),
+			a.emitSessionInfo(),
+			a.handleWindowResize(a.wWidth, a.wHeight),
+		)
 
 	case messages.EvalSessionMsg:
 		evalFile, _ := evaluation.Save(a.application.Session(), msg.Filename)

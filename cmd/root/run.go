@@ -103,9 +103,10 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 	}
 
 	var (
-		rt   runtime.Runtime
-		sess *session.Session
-		err  error
+		rt    runtime.Runtime
+		sess  *session.Session
+		store session.Store
+		err   error
 	)
 	if f.remoteAddress != "" {
 		rt, sess, err = f.createRemoteRuntimeAndSession(ctx, agentFileName)
@@ -123,7 +124,7 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 			return err
 		}
 
-		rt, sess, err = f.createLocalRuntimeAndSession(ctx, t)
+		rt, sess, store, err = f.createLocalRuntimeAndSession(ctx, t)
 		if err != nil {
 			return err
 		}
@@ -138,7 +139,7 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 		return f.handleExecMode(ctx, out, rt, sess, args)
 	}
 
-	return handleRunMode(ctx, rt, sess, args)
+	return handleRunMode(ctx, rt, sess, store, args)
 }
 
 func (f *runExecFlags) loadAgentFrom(ctx context.Context, agentSource config.Source) (*team.Team, error) {
@@ -184,15 +185,15 @@ func (f *runExecFlags) createRemoteRuntimeAndSession(ctx context.Context, origin
 	return remoteRt, sess, nil
 }
 
-func (f *runExecFlags) createLocalRuntimeAndSession(ctx context.Context, t *team.Team) (runtime.Runtime, *session.Session, error) {
+func (f *runExecFlags) createLocalRuntimeAndSession(ctx context.Context, t *team.Team) (runtime.Runtime, *session.Session, session.Store, error) {
 	agent, err := t.Agent(f.agentName)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	sessStore, err := session.NewSQLiteSessionStore(f.sessionDB)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create session store: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to create session store: %w", err)
 	}
 
 	localRt, err := runtime.New(t,
@@ -201,7 +202,7 @@ func (f *runExecFlags) createLocalRuntimeAndSession(ctx context.Context, t *team
 		runtime.WithTracer(otel.Tracer(AppName)),
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create runtime: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to create runtime: %w", err)
 	}
 
 	sess := session.New(
@@ -210,11 +211,11 @@ func (f *runExecFlags) createLocalRuntimeAndSession(ctx context.Context, t *team
 	)
 
 	if err := sessStore.AddSession(ctx, sess); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	slog.Debug("Using local runtime", "agent", f.agentName)
-	return localRt, sess, nil
+	return localRt, sess, sessStore, nil
 }
 
 func (f *runExecFlags) handleExecMode(ctx context.Context, out *cli.Printer, rt runtime.Runtime, sess *session.Session, args []string) error {
@@ -255,11 +256,11 @@ func readInitialMessage(args []string) (*string, error) {
 	return &args[1], nil
 }
 
-func handleRunMode(ctx context.Context, rt runtime.Runtime, sess *session.Session, args []string) error {
+func handleRunMode(ctx context.Context, rt runtime.Runtime, sess *session.Session, store session.Store, args []string) error {
 	firstMessage, err := readInitialMessage(args)
 	if err != nil {
 		return err
 	}
 
-	return runTUI(ctx, rt, sess, firstMessage)
+	return runTUI(ctx, rt, sess, firstMessage, store)
 }
