@@ -109,3 +109,29 @@ func TestStoreResolution(t *testing.T) {
 		assert.NotNil(t, img)
 	}
 }
+
+func TestCreateReferenceLink(t *testing.T) {
+	store, err := NewStore(WithBaseDir(t.TempDir()))
+	require.NoError(t, err)
+
+	testData := []byte("Test artifact")
+	layer := static.NewLayer(testData, types.OCIUncompressedLayer)
+	img := empty.Image
+	img, err = mutate.AppendLayers(img, layer)
+	require.NoError(t, err)
+
+	localRef := "org/repo:latest"
+	digest, err := store.StoreArtifact(img, localRef)
+	require.NoError(t, err)
+
+	// Create an additional reference link (simulates non-Docker Hub registry)
+	fullRef := "ghcr.io/org/repo:latest"
+	err = store.CreateReferenceLink(fullRef, digest)
+	require.NoError(t, err)
+
+	// Verify both references resolve to the same artifact
+	_, err = store.GetArtifactImage(localRef)
+	require.NoError(t, err)
+	_, err = store.GetArtifactImage(fullRef)
+	require.NoError(t, err)
+}
