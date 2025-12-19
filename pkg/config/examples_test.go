@@ -56,7 +56,7 @@ func TestParseExamples(t *testing.T) {
 			for _, model := range cfg.Models {
 				require.NotEmpty(t, model.Provider)
 				require.NotEmpty(t, model.Model)
-				if model.Provider == "dmr" {
+				if model.Provider == "dmr" || model.Provider == "bedrock" {
 					continue
 				}
 

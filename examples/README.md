@@ -57,3 +57,4 @@ A coordinator agent usually makes them work together and checks that the work is
 | [writer.yaml](writer.yaml)           | Story writing workflow supervisor       |            |       |      | ✓     |        |                                                                                | ✓          |
 | [finance.yaml](finance.yaml)         | Financial research and analysis         |            |       |      | ✓     |        | [duckduckgo](https://hub.docker.com/mcp/server/duckduckgo/overview) | ✓          |
 | [shared-todo.yaml](shared-todo.yaml) | Shared todo item manager                |            |       | ✓    |       |        |                                                                                | ✓          |
+| [pr-reviewer-bedrock.yaml](pr-reviewer-bedrock.yaml) | PR review toolkit (Bedrock) | ✓          | ✓     |      |       |        |                                                                                | ✓          |
