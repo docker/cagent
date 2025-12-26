@@ -59,6 +59,14 @@ func Pull(ctx context.Context, registryRef string, force bool, opts ...crane.Opt
 		return "", fmt.Errorf("storing artifact in content store: %w", err)
 	}
 
+	// Create an additional reference link for the full registry reference if it differ from the local reference
+	fullRef := ref.String()
+	if fullRef != localRef {
+		if err := store.CreateReferenceLink(fullRef, digest); err != nil {
+			return "", fmt.Errorf("creating reference link for full registry reference: %w", err)
+		}
+	}
+
 	return digest, nil
 }
 

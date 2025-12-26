@@ -102,7 +102,7 @@ func (s *Store) StoreArtifact(img v1.Image, reference string) (string, error) {
 		return "", fmt.Errorf("saving metadata: %w", err)
 	}
 
-	if err := s.createReferenceLink(reference, digestStr); err != nil {
+	if err := s.CreateReferenceLink(reference, digestStr); err != nil {
 		return "", fmt.Errorf("creating reference link: %w", err)
 	}
 
@@ -261,8 +261,8 @@ func (s *Store) resolveReference(reference string) (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
-// createReferenceLink creates a link from reference to digest
-func (s *Store) createReferenceLink(reference, digest string) error {
+// CreateReferenceLink creates a link from reference to digest.
+func (s *Store) CreateReferenceLink(reference, digest string) error {
 	refsDir := filepath.Join(s.baseDir, "refs")
 	if err := os.MkdirAll(refsDir, 0o755); err != nil {
 		return fmt.Errorf("creating refs directory: %w", err)
