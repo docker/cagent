@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 
@@ -12,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/atotto/clipboard"
+	"github.com/charmbracelet/colorprofile"
 
 	"github.com/docker/cagent/pkg/app"
 	"github.com/docker/cagent/pkg/browser"
@@ -226,6 +228,22 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.currentAgent = msg.AgentName
 		a.sessionState.SetCurrentAgent(msg.AgentName)
 		return a, notification.SuccessCmd(fmt.Sprintf("Switched to agent '%s'", msg.AgentName))
+
+	case tea.ColorProfileMsg:
+		// When the terminal's color profile is detected, check if we need to
+		// request TrueColor capability upgrades. Some terminals support TrueColor
+		// but don't properly advertise it through environment variables or terminfo.
+		// By requesting RGB and Tc capabilities, we can potentially upgrade the
+		// color profile for better styling.
+		slog.Debug("Color profile detected", "profile", msg.String())
+		if msg.Profile != colorprofile.TrueColor {
+			slog.Debug("Requesting TrueColor capability upgrade")
+			return a, tea.Batch(
+				tea.RequestCapability("RGB"),
+				tea.RequestCapability("Tc"),
+			)
+		}
+		return a, nil
 
 	case tea.WindowSizeMsg:
 		a.wWidth, a.wHeight = msg.Width, msg.Height
