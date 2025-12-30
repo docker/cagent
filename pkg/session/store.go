@@ -108,7 +108,8 @@ func NewSQLiteSessionStore(path string) (Store, error) {
 	// Add query parameters for better concurrency handling
 	// _busy_timeout: Wait up to 5 seconds if database is locked
 	// _journal_mode=WAL: Enable Write-Ahead Logging for better concurrent access
-	db, err := sql.Open("sqlite", path+"?_busy_timeout=5000&_journal_mode=WAL")
+	// _foreign_keys=1: Enable foreign key constraint enforcement
+	db, err := sql.Open("sqlite", path+"?_busy_timeout=5000&_journal_mode=WAL&_foreign_keys=1")
 	if err != nil {
 		return nil, err
 	}
