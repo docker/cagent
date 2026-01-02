@@ -231,9 +231,11 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 
 		switch buttonStr {
 		case "wheelup":
-			m.userHasScrolled = true
-			for range mouseScrollAmount {
-				m.setScrollOffset(max(0, m.scrollOffset-defaultScrollAmount))
+			if m.scrollOffset > 0 {
+				m.userHasScrolled = true
+				for range mouseScrollAmount {
+					m.setScrollOffset(m.scrollOffset - defaultScrollAmount)
+				}
 			}
 		case "wheeldown":
 			m.userHasScrolled = true
@@ -243,22 +245,6 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 			// Reset userHasScrolled if we've reached the bottom
 			if m.isAtBottom() {
 				m.userHasScrolled = false
-			}
-		default:
-			if msg.Y < 0 {
-				m.userHasScrolled = true
-				for range min(-msg.Y, mouseScrollAmount) {
-					m.setScrollOffset(max(0, m.scrollOffset-defaultScrollAmount))
-				}
-			} else if msg.Y > 0 {
-				m.userHasScrolled = true
-				for range min(msg.Y, mouseScrollAmount) {
-					m.setScrollOffset(m.scrollOffset + defaultScrollAmount)
-				}
-				// Reset userHasScrolled if we've reached the bottom
-				if m.isAtBottom() {
-					m.userHasScrolled = false
-				}
 			}
 		}
 		// Sync scrollbar with new scroll offset
@@ -654,8 +640,10 @@ func (m *model) copySelectedMessageToClipboard() tea.Cmd {
 
 // setScrollOffset updates scroll offset and syncs with scrollbar
 func (m *model) setScrollOffset(offset int) {
-	m.scrollOffset = offset
-	m.scrollbar.SetScrollOffset(offset)
+	// Clamp offset to valid range to prevent "dead zones" during overscroll
+	maxOffset := max(0, m.totalHeight-m.height)
+	m.scrollOffset = max(0, min(offset, maxOffset))
+	m.scrollbar.SetScrollOffset(m.scrollOffset)
 }
 
 // shouldCacheMessage determines if a message should be cached based on its type and content.
@@ -782,8 +770,7 @@ func (m *model) isAtBottom() bool {
 		return true
 	}
 
-	totalHeight := lipgloss.Height(m.rendered) - 1
-	maxScrollOffset := max(0, totalHeight-m.height)
+	maxScrollOffset := max(0, m.totalHeight-m.height)
 	return m.scrollOffset >= maxScrollOffset
 }
 
