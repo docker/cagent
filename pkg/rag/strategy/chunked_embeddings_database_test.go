@@ -1,7 +1,6 @@
 package strategy
 
 import (
-	"context"
 	"os"
 	"testing"
 
@@ -22,7 +21,7 @@ func TestChunkedVectorDB_ForeignKeyCascadeDelete(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Add a document with embedding
 	doc := database.Document{
@@ -50,7 +49,7 @@ func TestChunkedVectorDB_ForeignKeyCascadeDelete(t *testing.T) {
 	// Verify the chunk was also deleted due to CASCADE
 	results, err = db.SearchSimilarVectors(ctx, embedding, 10)
 	require.NoError(t, err)
-	assert.Len(t, results, 0, "Chunks should be cascade deleted when file metadata is deleted")
+	assert.Empty(t, results, "Chunks should be cascade deleted when file metadata is deleted")
 }
 
 func TestChunkedVectorDB_ForeignKeyConstraintEnforced(t *testing.T) {
@@ -63,7 +62,7 @@ func TestChunkedVectorDB_ForeignKeyConstraintEnforced(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Try to insert a chunk directly without a parent file entry
 	// This should fail if foreign keys are enabled
