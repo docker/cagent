@@ -1,0 +1,21 @@
+#!/usr/bin/env cagent run
+
+# Demonstrates the `commands` toolset which exposes agent commands as tools.
+
+agents:
+  root:
+    model: openai/gpt-5-mini
+    description: A helpful AI assistant with quick commands
+    instruction: |
+      You are a helpful assistant with predefined commands.
+      Use the command tools when the user's request matches one of them.
+
+    commands:
+      check-disk: "Check the disk space usage on the system"
+      list-files: "List all files in the current directory"
+      git-status: "Show the current git repository status"
+
+    toolsets:
+      - type: commands
+      - type: shell
+      - type: filesystem

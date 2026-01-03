@@ -69,6 +69,7 @@ func NewDefaultToolsetRegistry() *ToolsetRegistry {
 	r.Register("api", createAPITool)
 	r.Register("a2a", createA2ATool)
 	r.Register("lsp", createLSPTool)
+	r.Register("commands", createCommandsTool)
 	return r
 }
 
@@ -254,4 +255,11 @@ func createLSPTool(ctx context.Context, toolset latest.Toolset, _ string, runCon
 	}
 	env = append(env, os.Environ()...)
 	return builtin.NewLSPTool(toolset.Command, toolset.Args, env, runConfig.WorkingDir), nil
+}
+
+func createCommandsTool(_ context.Context, toolset latest.Toolset, _ string, _ *config.RuntimeConfig) (tools.ToolSet, error) {
+	if len(toolset.Commands) == 0 {
+		return nil, fmt.Errorf("commands toolset requires commands to be configured on the agent")
+	}
+	return builtin.NewCommandsTool(toolset.Commands), nil
 }

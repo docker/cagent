@@ -107,6 +107,9 @@ func (t *Toolset) validate() error {
 		if t.Command == "" {
 			return errors.New("lsp toolset requires a command to be set")
 		}
+	case "commands":
+		// The commands field is populated from the agent's commands at load time.
+		// Validation happens in the teamloader when creating the toolset.
 	}
 
 	return nil

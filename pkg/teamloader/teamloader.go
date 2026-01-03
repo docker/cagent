@@ -237,6 +237,11 @@ func getToolsForAgent(ctx context.Context, a *latest.AgentConfig, parentDir stri
 	for i := range a.Toolsets {
 		toolset := a.Toolsets[i]
 
+		// For "commands" toolset, populate the Commands field from the agent's commands
+		if toolset.Type == "commands" {
+			toolset.Commands = a.Commands
+		}
+
 		tool, err := registry.CreateTool(ctx, toolset, parentDir, runConfig)
 		if err != nil {
 			// Collect error but continue loading other toolsets

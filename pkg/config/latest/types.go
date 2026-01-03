@@ -160,6 +160,9 @@ type Toolset struct {
 
 	// For the `fetch` tool
 	Timeout int `json:"timeout,omitempty"`
+
+	// For the `commands` tool (populated from agent config at load time)
+	Commands map[string]string `json:"-" yaml:"-"`
 }
 
 func (t *Toolset) UnmarshalYAML(unmarshal func(any) error) error {
