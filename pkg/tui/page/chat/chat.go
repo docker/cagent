@@ -362,6 +362,8 @@ func (p *chatPage) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		p.sidebar.SetTeamInfo(msg.AvailableAgents)
 	case *runtime.AgentSwitchingEvent:
 		p.sidebar.SetAgentSwitching(msg.Switching)
+		// Track sub-agent execution for transfer_task tree view
+		p.messages.SetSubAgentActive(msg.Switching, msg.ToAgent)
 	case *runtime.ToolsetInfoEvent:
 		p.sidebar.SetToolsetInfo(msg.AvailableTools, msg.Loading)
 	case *runtime.StreamStoppedEvent:

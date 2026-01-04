@@ -25,6 +25,7 @@ import (
 	"github.com/docker/cagent/pkg/tui/components/completion"
 	"github.com/docker/cagent/pkg/tui/components/editor"
 	"github.com/docker/cagent/pkg/tui/components/notification"
+	"github.com/docker/cagent/pkg/tui/components/spinner"
 	"github.com/docker/cagent/pkg/tui/components/statusbar"
 	"github.com/docker/cagent/pkg/tui/core"
 	"github.com/docker/cagent/pkg/tui/dialog"
@@ -375,6 +376,23 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			updated, cmd := a.chatPage.Update(msg)
 			a.chatPage = updated.(chat.Page)
 			return a, cmd
+		}
+
+		// Spinner tick messages should always be forwarded to chat page
+		// to keep animations running even when dialogs are open
+		if spinner.IsTickMsg(msg) {
+			var cmds []tea.Cmd
+			updated, cmd := a.chatPage.Update(msg)
+			a.chatPage = updated.(chat.Page)
+			cmds = append(cmds, cmd)
+
+			// Also forward to dialog if open (dialogs may have spinners too)
+			if a.dialog.Open() {
+				u, dialogCmd := a.dialog.Update(msg)
+				a.dialog = u.(dialog.Manager)
+				cmds = append(cmds, dialogCmd)
+			}
+			return a, tea.Batch(cmds...)
 		}
 
 		// For other messages, check if dialogs should handle them first

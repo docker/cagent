@@ -17,11 +17,13 @@ import (
 	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/tools"
+	"github.com/docker/cagent/pkg/tools/builtin"
 	"github.com/docker/cagent/pkg/tui/components/message"
 	"github.com/docker/cagent/pkg/tui/components/notification"
 	"github.com/docker/cagent/pkg/tui/components/scrollbar"
 	"github.com/docker/cagent/pkg/tui/components/tool"
 	"github.com/docker/cagent/pkg/tui/components/tool/editfile"
+	"github.com/docker/cagent/pkg/tui/components/tool/subagent"
 	"github.com/docker/cagent/pkg/tui/core"
 	"github.com/docker/cagent/pkg/tui/core/layout"
 	"github.com/docker/cagent/pkg/tui/service"
@@ -64,6 +66,10 @@ type Model interface {
 	LoadFromSession(sess *session.Session) tea.Cmd
 
 	ScrollToBottom() tea.Cmd
+
+	// Sub-agent tracking
+	SetSubAgentActive(active bool, subAgentName string)
+	IsSubAgentActive() bool
 }
 
 // renderedItem represents a cached rendered message with position information
@@ -136,6 +142,10 @@ type model struct {
 	// Message selection state
 	selectedMessageIndex int  // Index of selected message (-1 = no selection)
 	focused              bool // Whether the messages component is focused
+
+	// Sub-agent tracking
+	subAgentActive bool   // True when a sub-agent is executing (transfer_task)
+	subAgentName   string // Name of the active sub-agent
 }
 
 // New creates a new message list component
@@ -964,6 +974,56 @@ func (m *model) LoadFromSession(sess *session.Session) tea.Cmd {
 
 // AddOrUpdateToolCall adds a tool call or updates existing one with the given status
 func (m *model) AddOrUpdateToolCall(agentName string, toolCall tools.ToolCall, toolDef tools.Tool, status types.ToolStatus) tea.Cmd {
+	// Check if this is a transfer_task - if so, the subagent view will be created
+	// and we'll track sub-agent execution
+	if toolCall.Function.Name == builtin.ToolNameTransferTask {
+		// This starts a transfer task - the subagent view will handle it
+		// First try to update existing tool by ID
+		for i := len(m.messages) - 1; i >= 0; i-- {
+			msg := m.messages[i]
+			if msg.ToolCall.ID == toolCall.ID {
+				msg.ToolStatus = status
+				if toolCall.Function.Arguments != "" {
+					msg.ToolCall.Function.Arguments = toolCall.Function.Arguments
+				}
+				// Update the subagent view with the new arguments (task info may have been streamed)
+				if sa, ok := m.views[i].(*subagent.Model); ok {
+					sa.UpdateFromMessage()
+				}
+				m.invalidateItem(i)
+				return nil
+			}
+		}
+
+		// If not found by ID, remove last empty assistant message
+		m.removeSpinner()
+
+		// Create new tool call with subagent view
+		msg := types.ToolCallMessage(agentName, toolCall, toolDef, status)
+		m.messages = append(m.messages, msg)
+
+		view := m.createToolCallView(msg)
+		m.views = append(m.views, view)
+
+		return view.Init()
+	}
+
+	// Check if this tool call is from a sub-agent - if so, add to the subagent tree
+	if m.isSubAgentToolCall(agentName) {
+		if subAgentView := m.findActiveSubAgentView(); subAgentView != nil {
+			// Add the tool to the sub-agent's tree view
+			subAgentView.AddTool(toolCall.ID, toolCall.Function.Name, status, false)
+			// Invalidate the subagent view to re-render
+			for i, view := range m.views {
+				if view == subAgentView {
+					m.invalidateItem(i)
+					break
+				}
+			}
+			return nil
+		}
+	}
+
 	// First try to update existing tool by ID
 	for i := len(m.messages) - 1; i >= 0; i-- {
 		msg := m.messages[i]
@@ -992,6 +1052,23 @@ func (m *model) AddOrUpdateToolCall(agentName string, toolCall tools.ToolCall, t
 
 // AddToolResult adds tool result to the most recent matching tool call
 func (m *model) AddToolResult(msg *runtime.ToolCallResponseEvent, status types.ToolStatus) tea.Cmd {
+	// Check if this result is from a sub-agent - if so, update the subagent tree
+	if m.isSubAgentToolCall(msg.AgentName) {
+		if subAgentView := m.findActiveSubAgentView(); subAgentView != nil {
+			isError := status == types.ToolStatusError
+			hasContent := msg.Response != ""
+			subAgentView.UpdateTool(msg.ToolCall.ID, status, isError, hasContent)
+			// Invalidate the subagent view to re-render
+			for i, view := range m.views {
+				if view == subAgentView {
+					m.invalidateItem(i)
+					break
+				}
+			}
+			return nil
+		}
+	}
+
 	for i := len(m.messages) - 1; i >= 0; i-- {
 		toolMessage := m.messages[i]
 		if toolMessage.ToolCall.ID == msg.ToolCall.ID {
@@ -999,6 +1076,15 @@ func (m *model) AddToolResult(msg *runtime.ToolCallResponseEvent, status types.T
 			toolMessage.ToolStatus = status
 			toolMessage.ToolResult = msg.Result
 			m.invalidateItem(i)
+
+			// For transfer_task, don't recreate the view - it has accumulated tool calls
+			// Just update the existing subagent view's status
+			if toolMessage.ToolCall.Function.Name == builtin.ToolNameTransferTask {
+				if sa, ok := m.views[i].(*subagent.Model); ok {
+					sa.SetRunning(false)
+					return nil
+				}
+			}
 
 			view := m.createToolCallView(toolMessage)
 			m.views[i] = view
@@ -1010,6 +1096,11 @@ func (m *model) AddToolResult(msg *runtime.ToolCallResponseEvent, status types.T
 
 // AppendToLastMessage appends content to the last message (for streaming)
 func (m *model) AppendToLastMessage(agentName string, messageType types.MessageType, content string) tea.Cmd {
+	// Skip sub-agent text output - we only show tool calls in the tree view
+	if m.isSubAgentToolCall(agentName) {
+		return nil
+	}
+
 	m.removeSpinner()
 
 	if len(m.messages) == 0 {
@@ -1458,4 +1549,52 @@ func (m *model) handleScrollbarUpdate(msg tea.Msg) (layout.Model, tea.Cmd) {
 	m.scrollbar = sb
 	m.scrollOffset = m.scrollbar.GetScrollOffset()
 	return m, cmd
+}
+
+// SetSubAgentActive sets whether a sub-agent is currently executing
+func (m *model) SetSubAgentActive(active bool, subAgentName string) {
+	m.subAgentActive = active
+	m.subAgentName = subAgentName
+
+	if !active {
+		// When sub-agent finishes, mark the subagent view as complete
+		if subAgentView := m.findActiveSubAgentView(); subAgentView != nil {
+			subAgentView.SetRunning(false)
+			// Invalidate to re-render with completed state
+			for i, view := range m.views {
+				if view == subAgentView {
+					m.invalidateItem(i)
+					break
+				}
+			}
+		}
+		m.subAgentName = ""
+	}
+}
+
+// IsSubAgentActive returns whether a sub-agent is currently executing
+func (m *model) IsSubAgentActive() bool {
+	return m.subAgentActive
+}
+
+// findActiveSubAgentView finds the currently running subagent view
+func (m *model) findActiveSubAgentView() *subagent.Model {
+	for i := len(m.views) - 1; i >= 0; i-- {
+		if sa, ok := m.views[i].(*subagent.Model); ok {
+			if sa.IsRunning() {
+				return sa
+			}
+		}
+	}
+	return nil
+}
+
+// isSubAgentToolCall checks if a tool call is from the active sub-agent
+func (m *model) isSubAgentToolCall(agentName string) bool {
+	if !m.subAgentActive {
+		return false
+	}
+	// Tool calls from the sub-agent should be routed to the subagent tree
+	// The sub-agent's name should match the agent making the tool call
+	return agentName == m.subAgentName
 }

@@ -32,6 +32,13 @@ type tickMsg struct {
 	ID   int
 }
 
+// IsTickMsg returns true if the message is a spinner tick message.
+// This is used to allow spinner animations to continue even when dialogs are open.
+func IsTickMsg(msg tea.Msg) bool {
+	_, ok := msg.(tickMsg)
+	return ok
+}
+
 type Spinner struct {
 	dotsStyle      lipgloss.Style
 	messages       []string
