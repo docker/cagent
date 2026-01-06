@@ -1,30 +1,84 @@
-# 🤖 `cagent` 🤖
+<div align="center">
 
-> A powerful, easy-to-use, customizable multi-agent runtime that orchestrates AI
-> agents with specialized capabilities and tools, and the interactions between
-> agents.
+# 🤖 cagent
+
+### Build AI agent teams that actually get things done
+
+[![GitHub release](https://img.shields.io/github/v/release/docker/cagent?style=flat-square)](https://github.com/docker/cagent/releases)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square)](LICENSE)
+[![Go Report Card](https://goreportcard.com/badge/github.com/docker/cagent?style=flat-square)](https://goreportcard.com/report/github.com/docker/cagent)
+
+[Getting Started](#-quick-start) •
+[Examples](./examples/README.md) •
+[Documentation](./docs/USAGE.md) •
+[Contributing](./docs/CONTRIBUTING.md)
 
 ![cagent in action](docs/demo.gif)
 
-## ✨ What is `cagent`? ✨
+</div>
 
-`cagent` lets you create and run intelligent AI agents, where each agent has
-specialized knowledge, tools and capabilities.
+---
 
-Think of it as allowing you to quickly build, share and run a team of virtual
-experts that collaborate to solve complex problems for you.
+**cagent** is a multi-agent runtime that lets you create teams of AI agents with specialized capabilities. Each agent can have its own tools, knowledge, and expertise—and they collaborate to solve complex problems.
 
-And it's dead easy to use!
+```bash
+brew install cagent && cagent run creek/pirate
+```
 
-⚠️ Note: `cagent` is in active development, **breaking changes are to be
-expected** ⚠️
+> ⚠️ **Active Development** — Breaking changes may occur between releases
+
+---
+
+## ✨ Features
+
+| Feature | Description |
+|---------|-------------|
+| **Multi-Agent Teams** | Create specialized agents that collaborate and delegate tasks |
+| **MCP Tool Support** | Connect to any MCP server for external tools and APIs |
+| **RAG Built-in** | Vector search, BM25, hybrid retrieval with result fusion |
+| **YAML Config** | Declarative, version-controllable agent definitions |
+| **Multiple Providers** | OpenAI, Anthropic, Gemini, xAI, Mistral, Nebius, and local models via Docker Model Runner |
+| **Push & Pull** | Share agents via Docker Hub as OCI artifacts |
+| **Agent as MCP** | Expose your agents as MCP tools for other clients |
+
+---
+
+## 🚀 Quick Start
+
+### Installation
+
+<details>
+<summary><b>Homebrew (macOS/Linux)</b></summary>
+
+```bash
+brew install cagent
+```
+</details>
+
+<details>
+<summary><b>Binary Releases</b></summary>
+
+Download from [GitHub Releases](https://github.com/docker/cagent/releases) for Windows, macOS, or Linux.
+
+```bash
+chmod +x cagent-*  # Make executable on macOS/Linux
+```
+</details>
+
+### Set API Keys
+
+```bash
+export OPENAI_API_KEY=sk-...      # OpenAI
+export ANTHROPIC_API_KEY=sk-...   # Anthropic
+export GOOGLE_API_KEY=...         # Gemini
+export XAI_API_KEY=...            # xAI
+export MISTRAL_API_KEY=...        # Mistral
+export NEBIUS_API_KEY=...         # Nebius
+```
 
 ### Your First Agent
 
-Example [basic_agent.yaml](/examples/basic_agent.yaml):
-
-Creating agents with cagent is straightforward. They are described in a short .yaml
-file, like this one:
+Create `my_agent.yaml`:
 
 ```yaml
 agents:
@@ -36,269 +90,86 @@ agents:
       Be helpful, accurate, and concise in your responses.
 ```
 
-Run it in a terminal with `cagent run basic_agent.yaml`.
+```bash
+cagent run my_agent.yaml
+```
 
-Many more examples can be found [here](/examples/README.md)!
+💡 **Explore more examples** in the [examples directory](./examples/README.md)
 
-### Improving an agent with MCP tools
+---
 
-`cagent` supports MCP servers, enabling agents to use a wide variety of external
-tools and services.
+## 🔧 Adding Tools with MCP
 
-It supports three transport types: `stdio`, `http` and `sse`.
+cagent supports [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) servers (`stdio`, `http`, `sse`), giving your agents access to external tools and services.
 
-Giving an agent access to tools via MCP is a quick way to greatly improve its
-capabilities, the quality of its results and its general usefulness.
+### Docker MCP Catalog
 
-Get started quickly with the [Docker MCP
-Toolkit](https://docs.docker.com/ai/mcp-catalog-and-toolkit/toolkit/) and
-[catalog](https://docs.docker.com/ai/mcp-catalog-and-toolkit/catalog/)
-
-Here, we're giving the same basic agent from the example above access to a
-**containerized** `duckduckgo` mcp server and its tools by using Docker's MCP
-Gateway:
+The easiest way to add tools—use containerized MCP servers via the [Docker MCP Toolkit](https://docs.docker.com/ai/mcp-catalog-and-toolkit/):
 
 ```yaml
 agents:
   root:
     model: openai/gpt-5-mini
-    description: A helpful AI assistant
-    instruction: |
-      You are a knowledgeable assistant that helps users with various tasks.
-      Be helpful, accurate, and concise in your responses.
+    instruction: You are a helpful assistant with web search capabilities.
     toolsets:
       - type: mcp
-        ref: docker:duckduckgo # stdio transport
+        ref: docker:duckduckgo
 ```
 
-When using a containerized server via the Docker MCP gateway, you can configure
-any required settings/secrets/authentication using the [Docker MCP
-Toolkit](https://docs.docker.com/ai/mcp-catalog-and-toolkit/toolkit/#example-use-the-github-official-mcp-server)
-in Docker Desktop.
+### Standard MCP Servers
 
-Aside from the containerized MCP servers the Docker MCP Gateway provides, any
-standard MCP server can be used with cagent!
-
-Here's an example similar to the above but adding `read_file` and `write_file`
-tools from the `rust-mcp-filesystem` MCP server:
+Use any MCP server directly:
 
 ```yaml
 agents:
   root:
     model: openai/gpt-5-mini
-    description: A helpful AI assistant
-    instruction: |
-      You are a knowledgeable assistant that helps users with various tasks.
-      Be helpful, accurate, and concise in your responses. Write your search results to disk.
+    instruction: You are a helpful assistant. Write your results to disk.
     toolsets:
       - type: mcp
         ref: docker:duckduckgo
       - type: mcp
-        command: rust-mcp-filesystem # installed with `cargo install rust-mcp-filesystem`
+        command: rust-mcp-filesystem
         args: ["--allow-write", "."]
-        tools: ["read_file", "write_file"] # Optional: specific tools only
-        env:
-          - "RUST_LOG=debug"
+        tools: ["read_file", "write_file"]  # Optional: filter tools
 ```
 
-See [the USAGE docs](./docs/USAGE.md#tool-configuration) for more detailed
-information and examples
+📖 See [Tool Configuration](./docs/USAGE.md#tool-configuration) for more details
 
-### Exposing agents as MCP tools
+---
 
-`cagent` can expose agents as MCP tools via the `cagent mcp` command, allowing other MCP clients to use your agents.
+## 👥 Multi-Agent Teams
 
-Each agent in your configuration becomes an MCP tool with its description.
-
-```bash
-# Start MCP server with local file
-cagent mcp ./examples/dev-team.yaml
-
-# Or use an OCI artifact
-cagent mcp agentcatalog/pirate
-```
-
-This exposes each agent as a tool (e.g., `root`, `designer`, `awesome_engineer`) that MCP clients can call:
-
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "designer",
-    "arguments": {
-      "message": "Design a login page"
-    }
-  }
-}
-```
-
-See [MCP Mode documentation](./docs/MCP-MODE.md) for detailed instructions on exposing your agents through MCP with Claude Desktop, Claude Code, and other MCP clients.
-
-### 🎯 Key Features
-
-- **🏗️ Multi-agent architecture** - Create specialized agents for different
-  domains.
-- **🔧 Rich tool ecosystem** - Agents can use external tools and APIs via the
-  MCP protocol.
-- **🔄 Smart delegation** - Agents can automatically route tasks to the most
-  suitable specialist.
-- **📝 YAML configuration** - Declarative model and agent configuration.
-- **💭 Advanced reasoning** - Built-in "think", "todo" and "memory" tools for
-  complex problem-solving.
-- **🔍 RAG (Retrieval-Augmented Generation)** - Pluggable retrieval strategies
-  (BM25, chunked-embeddings, semantic-embeddings) with hybrid retrieval, result fusion and reranking support.
-- **🌐 Multiple AI providers** - Support for OpenAI, Anthropic, Gemini, xAI,
-  Mistral, Nebius and [Docker Model
-  Runner](https://docs.docker.com/ai/model-runner/).
-
-## 🚀 Quick Start 🚀
-
-### Installation
-
-#### Using Homebrew
-
-Install `cagent` with a single command using [homebrew](https://brew.sh/)!
-
-```sh
-$ brew install cagent
-```
-
-#### Using binary releases
-
-[Prebuilt binaries](https://github.com/docker/cagent/releases) for Windows,
-macOS and Linux can be found on the release page of the [project's GitHub
-repository](https://github.com/docker/cagent/releases)
-
-Once you've downloaded the appropriate binary for your platform, you may need to
-give it executable permissions. On macOS and Linux, this is done with the
-following command:
-
-```sh
-# linux amd64 build example
-chmod +x /path/to/downloads/cagent-linux-amd64
-```
-
-You can then rename the binary to `cagent` and configure your `PATH` to be able
-to find it (configuration varies by platform).
-
-### **Set your API keys**
-
-Based on the models you configure your agents to use, you will need to set the
-corresponding provider API key accordingly, all these keys are optional, you
-will likely need at least one of these, though:
-
-```bash
-# For OpenAI models
-export OPENAI_API_KEY=your_api_key_here
-
-# For Anthropic models
-export ANTHROPIC_API_KEY=your_api_key_here
-
-# For Gemini models
-export GOOGLE_API_KEY=your_api_key_here
-
-# For xAI models
-export XAI_API_KEY=your_api_key_here
-
-# For Nebius models
-export NEBIUS_API_KEY=your_api_key_here
-
-# For Mistral models
-export MISTRAL_API_KEY=your_api_key_here
-```
-
-### Run Agents!
-
-```bash
-# Run an agent!
-cagent run ./examples/pirate.yaml
-
-# or specify a different starting agent from the config, useful for agent teams
-cagent run ./examples/pirate.yaml -a root
-
-# or run directly from an image reference here I'm pulling the pirate agent from the creek repository
-cagent run creek/pirate
-```
-
-### Multi-agent team example
+Create teams of specialized agents that collaborate:
 
 ```yaml
 agents:
   root:
-    model: claude
-    description: "Main coordinator agent that delegates tasks and manages workflow"
+    model: anthropic/claude-sonnet-4-0
+    description: Main coordinator that delegates tasks
     instruction: |
-      You are the root coordinator agent. Your job is to:
-      1. Understand user requests and break them down into manageable tasks
-      2. Delegate appropriate tasks to your helper agent
-      3. Coordinate responses and ensure tasks are completed properly
-      4. Provide final responses to the user
-      When you receive a request, analyze what needs to be done and decide whether to:
-      - Handle it yourself if it's simple
-      - Delegate to the helper agent if it requires specific assistance
-      - Break complex requests into multiple sub-tasks
-    sub_agents: ["helper"]
+      You are the coordinator. Break down complex requests
+      and delegate to specialists as needed.
+    sub_agents: ["researcher", "writer"]
 
-  helper:
-    model: claude
-    description: "Assistant agent that helps with various tasks as directed by the root agent"
-    instruction: |
-      You are a helpful assistant agent. Your role is to:
-      1. Complete specific tasks assigned by the root agent
-      2. Provide detailed and accurate responses
-      3. Ask for clarification if tasks are unclear
-      4. Report back to the root agent with your results
+  researcher:
+    model: anthropic/claude-sonnet-4-0
+    description: Research specialist for gathering information
+    instruction: You gather and analyze information thoroughly.
 
-      Focus on being thorough and helpful in whatever task you're given.
-
-models:
-  claude:
-    provider: anthropic
-    model: claude-sonnet-4-0
-    max_tokens: 64000
+  writer:
+    model: anthropic/claude-sonnet-4-0
+    description: Writing specialist for creating content
+    instruction: You write clear, engaging content.
 ```
 
-You'll find a curated list of agents examples, spread into 3 categories,
-[Basic](https://github.com/docker/cagent/tree/main/examples#basic-configurations),
-[Advanced](https://github.com/docker/cagent/tree/main/examples#advanced-configurations)
-and
-[multi-agents](https://github.com/docker/cagent/tree/main/examples#multi-agent-configurations)
-in the `/examples/` directory.
+Browse [multi-agent examples](https://github.com/docker/cagent/tree/main/examples#multi-agent-configurations) for more patterns.
 
-### DMR (Docker Model Runner) provider options
+---
 
-When using the `dmr` provider, you can use the `provider_opts` key for DMR
-runtime-specific (e.g. llama.cpp/vllm) options and speculative decoding:
+## 📚 RAG (Retrieval-Augmented Generation)
 
-```yaml
-models:
-  local-qwen:
-    provider: dmr
-    model: ai/qwen3
-    max_tokens: 8192
-    provider_opts:
-      # general flags passed to the underlying model runtime
-      runtime_flags: ["--ngl=33", "--repeat-penalty=1.2", ...] # or comma/space-separated string
-      # speculative decoding for faster inference
-      speculative_draft_model: ai/qwen3:1B
-      speculative_num_tokens: 5
-      speculative_acceptance_rate: 0.8
-```
-
-The default base_url `cagent` will use for DMR providers is
-`http://localhost:12434/engines/llama.cpp/v1`. DMR itself might need to be
-enabled via [Docker Desktop's
-settings](https://docs.docker.com/ai/model-runner/get-started/#enable-dmr-in-docker-desktop)
-on macOS and Windows, and via the command-line on [Docker CE on
-Linux](https://docs.docker.com/ai/model-runner/get-started/#enable-dmr-in-docker-engine).
-
-See the [DMR Provider documentation](docs/USAGE.md#dmr-docker-model-runner-provider-usage) for more details on runtime flags and speculative decoding options.
-
-## RAG (Retrieval-Augmented Generation)
-
-Give your agents access to your documents with cagent's modular RAG system. It supports multiple retrieval strategies that can be used individually or combined for hybrid search.
-
-### Quick RAG Example
+Give your agents access to your documents:
 
 ```yaml
 models:
@@ -307,78 +178,51 @@ models:
     model: text-embedding-3-small
 
 rag:
-  my_knowledge_base:
+  knowledge_base:
     docs: [./documents, ./pdfs]
     strategies:
       - type: chunked-embeddings
         model: embedder
         threshold: 0.5
-        chunking:
-          size: 1000
-          overlap: 100
     results:
       limit: 5
 
 agents:
   root:
     model: openai/gpt-4o
-    instruction: |
-      You are an assistant with access to an internal knowledge base.
-      Use the knowledge base to gather context before answering user questions
-    rag: [my_knowledge_base]
+    instruction: Use the knowledge base to answer questions.
+    rag: [knowledge_base]
 ```
 
-### Hybrid Retrieval (Chunked-Embeddings + BM25)
+<details>
+<summary><b>Hybrid Retrieval (Embeddings + BM25)</b></summary>
 
-Combine semantic search (chunked-embeddings) with keyword search (BM25) for best results:
+Combine semantic and keyword search:
 
 ```yaml
 rag:
   hybrid_search:
-    docs: [./shared_docs]
-    
+    docs: [./documents]
     strategies:
       - type: chunked-embeddings
         model: embedder
-        threshold: 0.5
         limit: 20
-        chunking:
-          size: 1000
-          overlap: 100
-      
       - type: bm25
         k1: 1.5
         b: 0.75
-        threshold: 0.3
         limit: 15
-        chunking:
-          size: 1000
-          overlap: 100
-    
     results:
       fusion:
-        strategy: rrf  # Reciprocal Rank Fusion
+        strategy: rrf
         k: 60
-      deduplicate: true
       limit: 5
-
-agents:
-  root:
-    model: openai/gpt-4o
-    rag: [hybrid_search]
 ```
+</details>
 
-**Features:**
-- **Multiple strategies**: Vector embeddings, semantic embeddings, BM25 (keyword), or combinations
-- **Parallel execution**: Strategies run concurrently for fast results
-- **Pluggable fusion**: RRF, weighted, or max score combining
-- **Result reranking**: Re-score results with specialized models for improved relevance
-- **Per-strategy configuration**: Different thresholds, limits, and documents
-- **Auto file watching**: Reindex automatically on file changes
+<details>
+<summary><b>Result Reranking</b></summary>
 
-### Result Reranking
-
-Improve search quality by re-scoring retrieved results with a reranking model:
+Re-score results for improved relevance:
 
 ```yaml
 rag:
@@ -386,150 +230,116 @@ rag:
     docs: [./documents]
     strategies:
       - type: chunked-embeddings
-        model: openai/text-embedding-3-small
-        limit: 20  # Retrieve more candidates for reranking
-    
+        model: embedder
+        limit: 20
     results:
       reranking:
-        model: openai/gpt-4.1-mini   # Any chat model or DMR reranker
-        top_k: 10                   # Only rerank top 10 (optional)
-        threshold: 0.3              # Filter low-scoring results (optional)
-        criteria: |                 # Domain-specific relevance guidance (optional, not used with DMR reranking specific models)
-          Prioritize recent documentation and practical examples.
-          Documents from official sources are more relevant.
-      limit: 5  # Final top results after reranking
+        model: openai/gpt-4.1-mini
+        top_k: 10
+        threshold: 0.3
+      limit: 5
+```
+</details>
+
+📖 See [RAG documentation](./docs/USAGE.md#rag-configuration) for complete details
+
+---
+
+## 🏃 Local Models with Docker Model Runner
+
+Run models locally with zero setup:
+
+```yaml
+models:
+  local:
+    provider: dmr
+    model: ai/qwen3
+    max_tokens: 8192
+    provider_opts:
+      runtime_flags: ["--ngl=33"]
+      speculative_draft_model: ai/qwen3:1B  # Optional: faster inference
 ```
 
-**Supported providers:** DMR (native `/rerank` endpoint), OpenAI, Anthropic, Gemini (via structured outputs)  
-**Note:** Temperature defaults to 0.0 for more deterministic scoring when not explicitly set.
+Enable DMR in [Docker Desktop](https://docs.docker.com/ai/model-runner/get-started/#enable-dmr-in-docker-desktop) or [Docker CE](https://docs.docker.com/ai/model-runner/get-started/#enable-dmr-in-docker-engine).
 
-See the [RAG documentation in USAGE.md](docs/USAGE.md#rag-configuration) for complete details, examples, and debugging guides.
+---
 
-## Quickly generate agents and agent teams with `cagent new`
+## 🎨 Generate Agents with AI
 
-Using the command `cagent new` you can quickly generate agents or multi-agent
-teams using a single prompt!  
-`cagent` has a built-in agent dedicated to this task.
+Let cagent create agents for you:
 
-To use the feature, you must have an Anthropic, OpenAI or Google API key
-available in your environment or specify a local model to run with DMR (Docker
-Model Runner).
-
-You can choose what provider and model gets used by passing the `--model
-provider/modelname` flag to `cagent new`
-
-If `--model` is unspecified, `cagent new` will automatically choose between
-these three providers in order based on the first api key it finds in your
-environment.
-
-```sh
-export ANTHROPIC_API_KEY=your_api_key_here  # first choice. default model claude-sonnet-4-0
-export OPENAI_API_KEY=your_api_key_here     # if anthropic key not set. default model gpt-5-mini
-export GOOGLE_API_KEY=your_api_key_here     # if anthropic and openai keys are not set. default model gemini-2.5-flash
+```bash
+cagent new
 ```
 
-`--max-tokens` can be specified to override the context limit used.  
-When using DMR, the default is 16k to limit memory usage. With all other
-providers the default is 64k
+```
+------- Welcome to cagent! -------
+What should your agent/agent team do? (describe its purpose):
+> I need an agent team that reviews PRs and suggests improvements...
+```
 
-`--max-iterations` can be specified to override how many times the agent is
-allowed to loop when doing tool calling etc. When using DMR, the default is set
-to 20 (small local models have the highest chance of getting confused and
-looping endlessly). For all other providers, the default is 0 (unlimited).
+Options:
+- `--model openai/gpt-5` — Choose provider/model
+- `--model dmr/ai/qwen3` — Use local model
+- `--max-tokens 32000` — Override context limit
 
-Example of provider, model, context size and max iterations overriding:
+---
 
-```sh
-# Use GPT-5 via OpenAI
-cagent new --model openai/gpt-5
+## 📤 Share Agents via Docker Hub
 
-# Use a local model (ai/gemma3-qat:12B) via DMR
-cagent new --model dmr/ai/gemma3-qat:12B
+```bash
+# Push an agent
+cagent push ./my_agent.yaml myuser/my-agent
 
-# Override the max_tokens used during generation, default is 64k, 16k when using the dmr provider
-cagent new --model openai/gpt-5-mini --max-tokens 32000
+# Pull and run an agent
+cagent pull creek/pirate
+cagent run creek.yaml
 
-# Override max_iterations to limit how much the model can loop autonomously when tool calling
-cagent new --model dmr/ai/gemma3n:2B-F16 --max-iterations 15
+# Or run directly from registry
+cagent run creek/pirate
 ```
 
 ---
 
-```
-$ cagent new
+## 🔌 Expose Agents as MCP Tools
 
-------- Welcome to cagent! -------
-(Ctrl+C to stop the agent and exit)
+Let other MCP clients use your agents:
 
-What should your agent/agent team do? (describe its purpose):
-
-> I need an agent team that connects to <some-service> and does...
+```bash
+cagent mcp ./my_agent.yaml
 ```
 
-## Pushing and pulling agents from Docker Hub
+Each agent becomes an MCP tool. Works with Claude Desktop, Claude Code, and other MCP clients.
 
-### `cagent push`
+📖 See [MCP Mode documentation](./docs/MCP-MODE.md) for setup instructions
 
-Agent configurations can be packaged and shared to Docker Hub using the `cagent
-push` command
+---
 
-```sh
-cagent push ./<agent-file>.yaml namespace/reponame
-```
+## 📖 Documentation
 
-`cagent` will automatically build an OCI image and push it to the desired
-repository using your Docker credentials
+| Resource | Description |
+|----------|-------------|
+| [Usage Guide](./docs/USAGE.md) | Complete configuration reference |
+| [Examples](./examples/README.md) | Curated agent configurations |
+| [MCP Mode](./docs/MCP-MODE.md) | Exposing agents as MCP tools |
+| [Contributing](./docs/CONTRIBUTING.md) | Build from source, contribute |
+| [Telemetry](./docs/TELEMETRY.md) | Anonymous usage data details |
 
-### `cagent pull`
+---
 
-Pulling agents from Docker Hub is also just one `cagent pull` command away.
+## 🐕 Dogfooding
 
-```sh
-cagent pull creek/pirate
-```
+We use cagent to develop cagent:
 
-`cagent` will pull the image, extract the .yaml file and place it in your working
-directory for ease of use.
-
-`cagent run creek.yaml` will run your newly pulled agent
-
-## Usage
-
-More details on the usage and configuration of `cagent` can be found in
-[USAGE.md](/docs/USAGE.md)
-
-## Telemetry
-
-We track anonymous usage data to improve the tool. See
-[TELEMETRY.md](/docs/TELEMETRY.md) for details.
-
-## Contributing
-
-Want to hack on `cagent`, or help us fix bugs and build out some features? 🔧
-
-Read the information on how to build from source and contribute to the project
-in [CONTRIBUTING.md](/docs/CONTRIBUTING.md)
-
-## DogFooding: using `cagent` to code on `cagent`
-
-A smart way to improve `cagent`'s codebase and feature set is to do it with the
-help of a `cagent` agent!
-
-We have one that we use and that you should use too:
-
-```sh
+```bash
 cd cagent
 cagent run ./golang_developer.yaml
 ```
 
-This agent is an _expert Golang developer specializing in the cagent multi-agent
-AI system architecture_.
+This agent is an expert Go developer specialized in the cagent codebase. Use it to explore the code, fix issues, or implement features.
 
-Ask it anything about `cagent`. It can be questions about the current code or
-about improvements to the code. It can also fix issues and implement new
-features!
+---
 
-## Share your feedback
+## 💬 Community
 
-We’d love to hear your thoughts on this project. You can find us on
-[Slack](https://dockercommunity.slack.com/archives/C09DASHHRU4)
+Questions? Feedback? Find us on [Slack](https://dockercommunity.slack.com/archives/C09DASHHRU4)
