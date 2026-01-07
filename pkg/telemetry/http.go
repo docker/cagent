@@ -24,7 +24,7 @@ func (tc *Client) createEvent(eventName string, properties map[string]any) Event
 
 	// Add system metadata to properties
 	allProperties["user_uuid"] = tc.userUUID
-	allProperties["version"] = tc.version
+	allProperties["version"] = tc.getVersion()
 	allProperties["os"] = osInfo
 	allProperties["os_language"] = osLanguage
 
@@ -50,6 +50,9 @@ func (tc *Client) printEvent(event *EventPayload) {
 
 // sendEvent sends a single event to Docker events API and handles logging
 func (tc *Client) sendEvent(event *EventPayload) {
+	// Get version before acquiring lock to avoid deadlock
+	version := tc.getVersion()
+
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
 
@@ -58,7 +61,7 @@ func (tc *Client) sendEvent(event *EventPayload) {
 		tc.logger.Debug("Sending telemetry event via HTTP", "event_type", event.Event, "endpoint", tc.endpoint)
 
 		// Perform HTTP request inline
-		if err := tc.performHTTPRequest(event); err != nil {
+		if err := tc.performHTTPRequest(event, version); err != nil {
 			tc.logger.Debug("Failed to send telemetry event to Docker API", "error", err, "event_type", event.Event)
 		} else {
 			tc.logger.Debug("Successfully sent telemetry event via HTTP", "event_type", event.Event)
@@ -97,7 +100,7 @@ func (tc *Client) sendEvent(event *EventPayload) {
 }
 
 // performHTTPRequest handles the actual HTTP request to the telemetry API
-func (tc *Client) performHTTPRequest(event *EventPayload) error {
+func (tc *Client) performHTTPRequest(event *EventPayload, version string) error {
 	// Wrap event in records array to match MarlinRequest format
 	requestBody := map[string]any{
 		"records": []any{event},
@@ -117,7 +120,7 @@ func (tc *Client) performHTTPRequest(event *EventPayload) error {
 
 	// Set headers
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", fmt.Sprintf("cagent/%s", tc.version))
+	req.Header.Set("User-Agent", fmt.Sprintf("cagent/%s", version))
 	if tc.apiKey != "" && tc.header != "" {
 		req.Header.Set(tc.header, tc.apiKey)
 	}

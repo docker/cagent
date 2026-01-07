@@ -272,3 +272,17 @@ type Client struct {
 	// Session tracking
 	session SessionState
 }
+
+// setVersion safely sets the version with proper locking
+func (tc *Client) setVersion(version string) {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	tc.version = version
+}
+
+// getVersion safely gets the version with proper locking
+func (tc *Client) getVersion() string {
+	tc.mu.RLock()
+	defer tc.mu.RUnlock()
+	return tc.version
+}

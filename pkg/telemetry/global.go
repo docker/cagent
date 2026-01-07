@@ -28,6 +28,7 @@ var (
 	globalTelemetryOnce       sync.Once
 	globalTelemetryVersion    = "unknown"
 	globalTelemetryDebugMode  = false
+	globalMu                  sync.RWMutex // protects globalTelemetryVersion and globalTelemetryDebugMode
 )
 
 // GetGlobalTelemetryClient returns the global telemetry client for adding to context
@@ -39,9 +40,12 @@ func GetGlobalTelemetryClient() *Client {
 // SetGlobalTelemetryVersion sets the version for automatic telemetry initialization
 // This should be called by the root package to provide the correct version
 func SetGlobalTelemetryVersion(version string) {
+	globalMu.Lock()
+	defer globalMu.Unlock()
+
 	// If telemetry is already initialized, update the version
 	if globalToolTelemetryClient != nil {
-		globalToolTelemetryClient.version = version
+		globalToolTelemetryClient.setVersion(version)
 	}
 	// Store the version for future automatic initialization
 	globalTelemetryVersion = version
@@ -50,6 +54,8 @@ func SetGlobalTelemetryVersion(version string) {
 // SetGlobalTelemetryDebugMode sets the debug mode for automatic telemetry initialization
 // This should be called by the root package to pass the --debug flag state
 func SetGlobalTelemetryDebugMode(debug bool) {
+	globalMu.Lock()
+	defer globalMu.Unlock()
 	globalTelemetryDebugMode = debug
 }
 
@@ -57,17 +63,17 @@ func SetGlobalTelemetryDebugMode(debug bool) {
 // This handles all the setup automatically - no explicit initialization needed
 func EnsureGlobalTelemetryInitialized() {
 	globalTelemetryOnce.Do(func() {
-		// Use the debug mode set by the root package via --debug flag
+		// Read global settings under the lock
+		globalMu.RLock()
 		debugMode := globalTelemetryDebugMode
+		version := globalTelemetryVersion
+		globalMu.RUnlock()
 
 		// Use the global default logger configured by the root command
 		logger := slog.Default()
 
 		// Get telemetry enabled setting
 		enabled := GetTelemetryEnabled()
-
-		// Use the version set by SetGlobalTelemetryVersion or default
-		version := globalTelemetryVersion
 
 		client := newClient(logger, enabled, debugMode, version)
 
