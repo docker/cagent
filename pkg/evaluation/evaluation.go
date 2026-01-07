@@ -52,7 +52,7 @@ func Evaluate(ctx context.Context, out Printer, agentFilename, evalsDir string, 
 	runEvals := make([]func() (Result, error), len(evals))
 	for i := range evals {
 		runEvals[i] = sync.OnceValues(func() (Result, error) {
-			return runSingleEvaluation(ctx, agents, &evals[i])
+			return runSingleEvaluation(ctx, agents, evals[i])
 		})
 	}
 
@@ -89,13 +89,13 @@ func Evaluate(ctx context.Context, out Printer, agentFilename, evalsDir string, 
 }
 
 // loadEvalSessions reads all evaluation session files from the given directory.
-func loadEvalSessions(ctx context.Context, evalsDir string) ([]session.Session, error) {
+func loadEvalSessions(ctx context.Context, evalsDir string) ([]*session.Session, error) {
 	evalFiles, err := os.ReadDir(evalsDir)
 	if err != nil {
 		return nil, err
 	}
 
-	var evals []session.Session
+	var evals []*session.Session
 	for _, evalFile := range evalFiles {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -111,7 +111,7 @@ func loadEvalSessions(ctx context.Context, evalsDir string) ([]session.Session, 
 			return nil, err
 		}
 
-		evals = append(evals, sess)
+		evals = append(evals, &sess)
 	}
 
 	return evals, nil
