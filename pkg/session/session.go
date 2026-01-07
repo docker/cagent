@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -53,6 +54,9 @@ type Session struct {
 
 	// Title is the title of the session, set by the runtime
 	Title string `json:"title"`
+
+	// mu protects Messages from concurrent access
+	mu sync.RWMutex `json:"-"`
 
 	// Messages holds the conversation history (messages and sub-sessions)
 	Messages []Item `json:"messages"`
@@ -157,11 +161,15 @@ func NewSubSessionItem(subSession *Session) Item {
 
 // AddMessage adds a message to the session
 func (s *Session) AddMessage(msg *Message) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.Messages = append(s.Messages, NewMessageItem(msg))
 }
 
 // AddSubSession adds a sub-session to the session
 func (s *Session) AddSubSession(subSession *Session) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.Messages = append(s.Messages, NewSubSessionItem(subSession))
 }
 
@@ -175,6 +183,13 @@ func (s *Session) AllowedDirectories() []string {
 
 // GetAllMessages extracts all messages from the session, including from sub-sessions
 func (s *Session) GetAllMessages() []Message {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.getAllMessagesLocked()
+}
+
+// getAllMessagesLocked extracts all messages without acquiring the lock (caller must hold lock)
+func (s *Session) getAllMessagesLocked() []Message {
 	var messages []Message
 	for _, item := range s.Messages {
 		if item.IsMessage() && item.Message.Message.Role != chat.MessageRoleSystem {
@@ -387,6 +402,8 @@ func (s *Session) GetMessages(a *agent.Agent) []chat.Message {
 		}
 	}
 
+	// Access s.Messages under the lock
+	s.mu.RLock()
 	lastSummaryIndex := -1
 	for i := len(s.Messages) - 1; i >= 0; i-- {
 		if s.Messages[i].Summary != "" {
@@ -414,6 +431,7 @@ func (s *Session) GetMessages(a *agent.Agent) []chat.Message {
 			messages = append(messages, item.Message.Message)
 		}
 	}
+	s.mu.RUnlock()
 
 	maxItems := a.NumHistoryItems()
 
