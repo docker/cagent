@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -14,6 +15,7 @@ import (
 type mockSource struct {
 	name      string
 	parentDir string
+	mu        sync.RWMutex
 	data      []byte
 	err       error
 	readCount int
@@ -28,11 +30,31 @@ func (m *mockSource) ParentDir() string {
 }
 
 func (m *mockSource) Read(context.Context) ([]byte, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.readCount++
 	if m.err != nil {
 		return nil, m.err
 	}
 	return m.data, nil
+}
+
+func (m *mockSource) setData(data []byte) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.data = data
+}
+
+func (m *mockSource) setErr(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.err = err
+}
+
+func (m *mockSource) getReadCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.readCount
 }
 
 func TestSourceLoader_Read_WithRefreshInterval_BeforeExpiry(t *testing.T) {
@@ -50,13 +72,13 @@ func TestSourceLoader_Read_WithRefreshInterval_BeforeExpiry(t *testing.T) {
 		data, err := sl.Read(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, []byte("test data"), data)
-		assert.Equal(t, 1, inner.readCount) // No additional read
+		assert.Equal(t, 1, inner.getReadCount()) // No additional read
 
 		// Immediate second read - should return cached data
 		data, err = sl.Read(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, []byte("test data"), data)
-		assert.Equal(t, 1, inner.readCount)
+		assert.Equal(t, 1, inner.getReadCount())
 	})
 }
 
@@ -79,7 +101,7 @@ func TestSourceLoader_Read_WithRefreshInterval_AfterExpiry(t *testing.T) {
 		data, err := sl.Read(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, []byte("test data"), data)
-		assert.Equal(t, 2, inner.readCount)
+		assert.Equal(t, 2, inner.getReadCount())
 	})
 }
 
@@ -94,7 +116,7 @@ func TestSourceLoader_Read_Error(t *testing.T) {
 	sl := newSourceLoader(ctx, inner, 0)
 
 	// Initial load failed
-	assert.Equal(t, 1, inner.readCount)
+	assert.Equal(t, 1, inner.getReadCount())
 
 	// Read should return the error from initial load
 	data, err := sl.Read(ctx)
@@ -120,7 +142,7 @@ func TestSourceLoader_Read_DataChanges(t *testing.T) {
 		assert.Equal(t, []byte("initial data"), data)
 
 		// Change the data in the mock
-		inner.data = []byte("updated data")
+		inner.setData([]byte("updated data"))
 
 		// Immediate read still gets old cached data
 		data, err = sl.Read(ctx)
@@ -147,7 +169,7 @@ func TestSourceLoader_Read_ZeroRefreshInterval(t *testing.T) {
 	ctx := t.Context()
 	sl := newSourceLoader(ctx, inner, 0)
 
-	initialReadCount := inner.readCount
+	initialReadCount := inner.getReadCount()
 
 	// Multiple reads with zero refresh interval
 	for range 10 {
@@ -157,7 +179,7 @@ func TestSourceLoader_Read_ZeroRefreshInterval(t *testing.T) {
 	}
 
 	// All reads should return cached data from startup
-	assert.Equal(t, initialReadCount, inner.readCount)
+	assert.Equal(t, initialReadCount, inner.getReadCount())
 }
 
 func TestSourceLoader_SuccessThenError(t *testing.T) {
@@ -177,7 +199,7 @@ func TestSourceLoader_SuccessThenError(t *testing.T) {
 		assert.Equal(t, []byte("initial data"), data)
 
 		// Introduce error
-		inner.err = errors.New("refresh error")
+		inner.setErr(errors.New("refresh error"))
 
 		synctest.Wait()
 		time.Sleep(60 * time.Millisecond)
