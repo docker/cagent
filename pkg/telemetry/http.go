@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"time"
 )
@@ -18,9 +19,7 @@ func (tc *Client) createEvent(eventName string, properties map[string]any) Event
 	allProperties := make(map[string]any)
 
 	// Copy user-provided properties first
-	for k, v := range properties {
-		allProperties[k] = v
-	}
+	maps.Copy(allProperties, properties)
 
 	// Add system metadata to properties
 	allProperties["user_uuid"] = tc.userUUID
