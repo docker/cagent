@@ -128,17 +128,17 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 		}
 
 		opts := []agent.Opt{
-			agent.WithName(agentConfig.Name),
-			agent.WithDescription(expander.Expand(ctx, agentConfig.Description)),
-			agent.WithWelcomeMessage(expander.Expand(ctx, agentConfig.WelcomeMessage)),
-			agent.WithAddDate(agentConfig.AddDate),
-			agent.WithAddEnvironmentInfo(agentConfig.AddEnvironmentInfo),
-			agent.WithAddPromptFiles(agentConfig.AddPromptFiles),
-			agent.WithMaxIterations(agentConfig.MaxIterations),
-			agent.WithNumHistoryItems(agentConfig.NumHistoryItems),
-			agent.WithCommands(expander.ExpandCommands(ctx, agentConfig.Commands)),
-			agent.WithSkillsEnabled(skillsEnabled),
-			agent.WithHooks(agentConfig.Hooks),
+			// agent.WithName(agentConfig.Name),
+			// agent.WithDescription(expander.Expand(ctx, agentConfig.Description)),
+			// agent.WithWelcomeMessage(expander.Expand(ctx, agentConfig.WelcomeMessage)),
+			// agent.WithAddDate(agentConfig.AddDate),
+			// agent.WithAddEnvironmentInfo(agentConfig.AddEnvironmentInfo),
+			// agent.WithAddPromptFiles(agentConfig.AddPromptFiles),
+			// agent.WithMaxIterations(agentConfig.MaxIterations),
+			// agent.WithNumHistoryItems(agentConfig.NumHistoryItems),
+			// agent.WithCommands(expander.ExpandCommands(ctx, agentConfig.Commands)),
+			// agent.WithSkillsEnabled(skillsEnabled),
+			// agent.WithHooks(agentConfig.Hooks),
 		}
 
 		models, err := getModelsForAgent(ctx, cfg, &agentConfig, autoModel, runConfig)
