@@ -302,6 +302,7 @@ func applyProviderDefaults(cfg *latest.ModelConfig, customProviders map[string]l
 				enhancedCfg.ProviderOpts["api_type"] = apiType
 			}
 
+			applyModelDefaults(&enhancedCfg)
 			return &enhancedCfg
 		}
 	}
@@ -318,5 +319,164 @@ func applyProviderDefaults(cfg *latest.ModelConfig, customProviders map[string]l
 		}
 	}
 
+	// Apply model-specific defaults
+	applyModelDefaults(&enhancedCfg)
 	return &enhancedCfg
+}
+
+// applyModelDefaults applies provider-specific default values for model configuration.
+// These defaults are applied only if the user hasn't explicitly set the values.
+//
+// NOTE: max_tokens is NOT set here because:
+// 1. Different providers read it differently (ModelConfig vs ModelOptions)
+// 2. Runtime can do modelsdev lookups for model-specific limits
+// 3. Providers have their own fallbacks (e.g., Anthropic defaults to 8192)
+// max_tokens defaults are handled in teamloader and runtime/model_switcher via options.
+//
+// Config-level defaults (set here):
+// - OpenAI: thinking_budget = "medium"
+// - Anthropic: thinking_budget = 8192, interleaved_thinking = true
+// - Google: Gemini 2.5 → thinking_budget = -1 (dynamic), Gemini 3 Pro → "high", Gemini 3 Flash → "medium"
+// - Amazon Bedrock (Claude models only): thinking_budget = 8192, interleaved_thinking = true
+func applyModelDefaults(cfg *latest.ModelConfig) {
+	// Resolve the actual provider type (handling aliases like mistral -> openai)
+	providerType := cfg.Provider
+	if alias, exists := Aliases[cfg.Provider]; exists && alias.APIType != "" {
+		providerType = alias.APIType
+	}
+	// Also check for api_type override in ProviderOpts
+	if cfg.ProviderOpts != nil {
+		if apiType, ok := cfg.ProviderOpts["api_type"].(string); ok && apiType != "" {
+			providerType = apiType
+		}
+	}
+
+	switch providerType {
+	case "openai", "openai_chatcompletions", "openai_responses":
+		applyOpenAIDefaults(cfg)
+	case "anthropic":
+		applyAnthropicDefaults(cfg)
+	case "google":
+		applyGoogleDefaults(cfg)
+	case "amazon-bedrock":
+		applyBedrockDefaults(cfg)
+	}
+}
+
+// applyOpenAIDefaults applies default configuration for OpenAI models.
+func applyOpenAIDefaults(cfg *latest.ModelConfig) {
+	// Default thinking_budget to "medium" if not set
+	if cfg.ThinkingBudget == nil {
+		cfg.ThinkingBudget = &latest.ThinkingBudget{Effort: "medium"}
+		slog.Debug("Applied default thinking_budget for OpenAI",
+			"provider", cfg.Provider,
+			"model", cfg.Model,
+			"thinking_budget", "medium",
+		)
+	}
+}
+
+// applyAnthropicDefaults applies default configuration for Anthropic models.
+func applyAnthropicDefaults(cfg *latest.ModelConfig) {
+	// Default thinking_budget to 8192 tokens if not set
+	if cfg.ThinkingBudget == nil {
+		cfg.ThinkingBudget = &latest.ThinkingBudget{Tokens: 8192}
+		slog.Debug("Applied default thinking_budget for Anthropic",
+			"provider", cfg.Provider,
+			"model", cfg.Model,
+			"thinking_budget", 8192,
+		)
+	}
+
+	// Default interleaved_thinking to true if not set
+	if cfg.ProviderOpts == nil {
+		cfg.ProviderOpts = make(map[string]any)
+	}
+	if _, has := cfg.ProviderOpts["interleaved_thinking"]; !has {
+		cfg.ProviderOpts["interleaved_thinking"] = true
+		slog.Debug("Applied default interleaved_thinking for Anthropic",
+			"provider", cfg.Provider,
+			"model", cfg.Model,
+			"interleaved_thinking", true,
+		)
+	}
+}
+
+// applyGoogleDefaults applies default configuration for Google Gemini models.
+// - Gemini 2.5 models: thinking_budget = -1 (dynamic thinking)
+// - Gemini 3 Pro models: thinking_budget effort = "high"
+// - Gemini 3 Flash models: thinking_budget effort = "medium"
+func applyGoogleDefaults(cfg *latest.ModelConfig) {
+	if cfg.ThinkingBudget != nil {
+		return // User explicitly set thinking_budget
+	}
+
+	model := strings.ToLower(cfg.Model)
+
+	switch {
+	case strings.HasPrefix(model, "gemini-2.5-"):
+		// Gemini 2.5 models use token-based thinking budget (-1 = dynamic)
+		cfg.ThinkingBudget = &latest.ThinkingBudget{Tokens: -1}
+		slog.Debug("Applied default thinking_budget for Google Gemini 2.5",
+			"provider", cfg.Provider,
+			"model", cfg.Model,
+			"thinking_budget", -1,
+		)
+	case strings.HasPrefix(model, "gemini-3-pro"):
+		// Gemini 3 Pro models use level-based thinking (high)
+		cfg.ThinkingBudget = &latest.ThinkingBudget{Effort: "high"}
+		slog.Debug("Applied default thinking_budget for Google Gemini 3 Pro",
+			"provider", cfg.Provider,
+			"model", cfg.Model,
+			"thinking_budget", "high",
+		)
+	case strings.HasPrefix(model, "gemini-3-flash"):
+		// Gemini 3 Flash models use level-based thinking (medium)
+		cfg.ThinkingBudget = &latest.ThinkingBudget{Effort: "medium"}
+		slog.Debug("Applied default thinking_budget for Google Gemini 3 Flash",
+			"provider", cfg.Provider,
+			"model", cfg.Model,
+			"thinking_budget", "medium",
+		)
+	}
+	// For other Gemini models (e.g., gemini-2.0-*), leave unchanged
+}
+
+// applyBedrockDefaults applies default configuration for Amazon Bedrock models.
+// Only applies to Claude models (anthropic.claude-* or global.anthropic.claude-*).
+func applyBedrockDefaults(cfg *latest.ModelConfig) {
+	// Only apply defaults for Claude models on Bedrock
+	if !isBedrockClaudeModel(cfg.Model) {
+		return
+	}
+
+	// Default thinking_budget to 8192 tokens if not set
+	if cfg.ThinkingBudget == nil {
+		cfg.ThinkingBudget = &latest.ThinkingBudget{Tokens: 8192}
+		slog.Debug("Applied default thinking_budget for Bedrock Claude",
+			"provider", cfg.Provider,
+			"model", cfg.Model,
+			"thinking_budget", 8192,
+		)
+	}
+
+	// Default interleaved_thinking to true if not set
+	if cfg.ProviderOpts == nil {
+		cfg.ProviderOpts = make(map[string]any)
+	}
+	if _, has := cfg.ProviderOpts["interleaved_thinking"]; !has {
+		cfg.ProviderOpts["interleaved_thinking"] = true
+		slog.Debug("Applied default interleaved_thinking for Bedrock Claude",
+			"provider", cfg.Provider,
+			"model", cfg.Model,
+			"interleaved_thinking", true,
+		)
+	}
+}
+
+// isBedrockClaudeModel returns true if the model ID is a Claude model on Bedrock.
+// Claude model IDs on Bedrock start with "anthropic.claude-" or "global.anthropic.claude-".
+func isBedrockClaudeModel(model string) bool {
+	m := strings.ToLower(model)
+	return strings.HasPrefix(m, "anthropic.claude-") || strings.HasPrefix(m, "global.anthropic.claude-")
 }

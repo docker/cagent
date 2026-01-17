@@ -283,9 +283,11 @@ models:
 
 Determine how much the model should think by setting the `thinking_budget`
 
-- **OpenAI**: use effort levels — `minimal`, `low`, `medium`, `high`
-- **Anthropic**: set an integer token budget. Range is 1024–32768; must be strictly less than `max_tokens`.
-- **Google (Gemini)**: set an integer token budget. `0` -> disable thinking, `-1` -> dynamic thinking (model decides). Most models: 0–24576 tokens. Gemini 2.5 Pro: 128–32768 tokens (and cannot disable thinking). 
+- **OpenAI**: use effort levels — `minimal`, `low`, `medium`, `high`. Default: `medium`
+- **Anthropic**: set an integer token budget. Range is 1024–32768; must be strictly less than `max_tokens`. Default: `8192` with `interleaved_thinking: true`
+- **Google (Gemini 2.5)**: set an integer token budget. `0` -> disable thinking, `-1` -> dynamic thinking (model decides). Default: `-1` (dynamic)
+- **Google (Gemini 3)**: use effort levels — `minimal` (Flash only), `low`, `medium`, `high`. Default: `high` for Pro, `medium` for Flash
+- **Amazon Bedrock (Claude models)**: set an integer token budget, same as Anthropic. Default: `8192` with `interleaved_thinking: true`
 
 Examples (OpenAI):
 
@@ -317,7 +319,7 @@ agents:
     instruction: you are a helpful assistant that doesn't think very much
 ```
 
-Examples (Google):
+Examples (Google Gemini 2.5 - token-based):
 
 ```yaml
 models:
@@ -329,7 +331,7 @@ models:
   gemini-dynamic:
     provider: google
     model: gemini-2.5-flash
-    thinking_budget: -1  # Dynamic thinking (model decides)
+    thinking_budget: -1  # Dynamic thinking (model decides) - this is the default
 
   gemini-fixed:
     provider: google
@@ -342,29 +344,101 @@ agents:
     instruction: you are a helpful assistant
 ```
 
-#### Interleaved Thinking (Anthropic)
+Examples (Google Gemini 3 - level-based):
 
-Anthropic's interleaved thinking feature uses the Beta Messages API to provide tool calling during model reasoning. You can control this behavior using the `interleaved_thinking` provider option:
+```yaml
+models:
+  # Gemini 3 Pro: supports "low" and "high" levels
+  gemini-3-pro-high:
+    provider: google
+    model: gemini-3-pro
+    thinking_budget: high  # Default for Pro models
+
+  gemini-3-pro-low:
+    provider: google
+    model: gemini-3-pro
+    thinking_budget: low
+
+  # Gemini 3 Flash: supports "minimal", "low", "medium", "high" levels
+  gemini-3-flash-medium:
+    provider: google
+    model: gemini-3-flash
+    thinking_budget: medium  # Default for Flash models
+
+  gemini-3-flash-minimal:
+    provider: google
+    model: gemini-3-flash
+    thinking_budget: minimal
+
+agents:
+  root:
+    model: gemini-3-pro-high
+    instruction: you are a helpful assistant
+```
+
+Examples (Amazon Bedrock Claude):
+
+```yaml
+models:
+  bedrock-claude:
+    provider: amazon-bedrock
+    model: global.anthropic.claude-sonnet-4-5-20250929-v1:0
+    # thinking_budget defaults to 8192 and interleaved_thinking defaults to true for Claude models
+    provider_opts:
+      region: us-east-1
+
+  bedrock-claude-custom:
+    provider: amazon-bedrock
+    model: anthropic.claude-sonnet-4-20250514-v1:0
+    thinking_budget: 16384  # Override default
+    provider_opts:
+      region: eu-west-1
+      interleaved_thinking: true
+
+agents:
+  root:
+    model: bedrock-claude
+    instruction: you are a helpful assistant
+```
+
+#### Interleaved Thinking (Anthropic and Bedrock Claude)
+
+Anthropic's interleaved thinking feature uses the Beta Messages API to provide tool calling during model reasoning. This is now enabled by default for both `anthropic` and `amazon-bedrock` (Claude models) providers. You can control this behavior using the `interleaved_thinking` provider option:
 
 ```yaml
 models:
   claude:
     provider: anthropic
     model: claude-sonnet-4-5-20250929
-    thinking_budget: 8192  # Optional: defaults to 16384 when interleaved thinking is enabled
+    # thinking_budget defaults to 8192
+    # interleaved_thinking defaults to true
     provider_opts:
-      interleaved_thinking: true   # Enable interleaved thinking (default: false)
+      interleaved_thinking: false  # Disable if needed
+
+  bedrock-claude:
+    provider: amazon-bedrock
+    model: global.anthropic.claude-sonnet-4-5-20250929-v1:0
+    # thinking_budget defaults to 8192 for Claude models
+    # interleaved_thinking defaults to true for Claude models
+    provider_opts:
+      region: us-east-1
+      interleaved_thinking: false  # Disable if needed
 ```
 
 Notes:
 
-- **OpenAI**: If an invalid effort value is set, the request will fail with a clear error
-- **Anthropic**: Values < 1024 or ≥ `max_tokens` are ignored (warning logged). When `interleaved_thinking` is enabled,
-Docker `cagent` uses Anthropic's Beta Messages API with a default thinking budget of 16384 tokens if not specified
-- **Google**: 
+- **OpenAI**: If an invalid effort value is set, the request will fail with a clear error. Default: `medium`
+- **Anthropic**: Values < 1024 or ≥ `max_tokens` are ignored (warning logged). Default: `thinking_budget: 8192` with `interleaved_thinking: true`
+- **Amazon Bedrock (Claude)**: Same behavior as Anthropic. Non-Claude Bedrock models are not affected by defaults
+- **Google (Gemini 2.5)**: 
   - Most models support values between -1 and 24576 tokens. Set to `0` to disable, `-1` for dynamic thinking
   - Gemini 2.5 Pro: supports 128–32768 tokens. Cannot be disabled (minimum 128)
   - Gemini 2.5 Flash-Lite: supports 512–24576 tokens. Set to `0` to disable, `-1` for dynamic thinking
+  - Default: `-1` (dynamic thinking)
+- **Google (Gemini 3)**:
+  - Uses effort levels instead of token budgets: `minimal` (Flash only), `low`, `medium`, `high`
+  - Gemini 3 Pro default: `high`
+  - Gemini 3 Flash default: `medium`
 - For unsupported providers, `thinking_budget` has no effect
 - Debug logs include the applied effort (e.g., "OpenAI request using thinking_budget", "Gemini request using thinking_budget")
 

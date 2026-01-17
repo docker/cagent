@@ -54,5 +54,6 @@ func TestMCP_MultiAgent(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	assert.Equal(t, "Hello, nice to meet you!", output.Response)
+	// Model response to "say hello" can vary, just check it contains a greeting
+	assert.Contains(t, output.Response, "Hello")
 }

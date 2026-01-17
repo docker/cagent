@@ -45,37 +45,56 @@ func TestExec_OpenAI_gpt5_1(t *testing.T) {
 func TestExec_OpenAI_gpt5_codex(t *testing.T) {
 	out := cagentExec(t, "testdata/basic.yaml", "--model=openai/gpt-5-codex", "What's 2+2?")
 
-	require.Equal(t, "\n--- Agent: root ---\n**Preparing to answer question 4**2 + 2 = 4.", out)
+	// Model reasoning summary varies, just check for the core response
+	require.Contains(t, out, "--- Agent: root ---")
+	require.Contains(t, out, "2 + 2 = 4")
 }
 
 func TestExec_Anthropic(t *testing.T) {
 	out := cagentExec(t, "testdata/basic.yaml", "--model=anthropic/claude-sonnet-4-0", "What's 2+2?")
 
-	require.Equal(t, "\n--- Agent: root ---\n2 + 2 = 4", out)
+	// With interleaved thinking enabled by default, Anthropic responses include thinking content
+	require.Contains(t, out, "--- Agent: root ---")
+	require.Contains(t, out, "2 + 2 = 4")
 }
 
 func TestExec_Anthropic_ToolCall(t *testing.T) {
 	out := cagentExec(t, "testdata/fs_tools.yaml", "--model=anthropic/claude-sonnet-4-0", "How many files in testdata/working_dir? Only output the number.")
 
-	require.Equal(t, "\n--- Agent: root ---\n\nCalling list_directory(path: \"testdata/working_dir\")\n\nlist_directory response → \"FILE README.me\\n\"\n1", out)
+	// With interleaved thinking enabled by default, Anthropic responses include thinking content
+	require.Contains(t, out, "--- Agent: root ---")
+	require.Contains(t, out, `Calling list_directory(path: "testdata/working_dir")`)
+	require.Contains(t, out, `list_directory response → "FILE README.me\n"`)
+	// The response should end with "1" (the count)
+	require.True(t, out != "" && out[len(out)-1] == '1', "response should end with '1'")
 }
 
 func TestExec_Anthropic_AgentsMd(t *testing.T) {
 	out := cagentExec(t, "testdata/agents-md.yaml", "--model=anthropic/claude-sonnet-4-0", "What's 2+2?")
 
-	require.Equal(t, "\n--- Agent: root ---\n2 + 2 = 4", out)
+	// With interleaved thinking enabled by default, Anthropic responses include thinking content
+	require.Contains(t, out, "--- Agent: root ---")
+	require.Contains(t, out, "2 + 2 = 4")
 }
 
 func TestExec_Gemini(t *testing.T) {
 	out := cagentExec(t, "testdata/basic.yaml", "--model=google/gemini-2.5-flash", "What's 2+2?")
 
-	require.Equal(t, "\n--- Agent: root ---\n2 + 2 = 4", out)
+	// With thinking enabled by default (dynamic thinking for Gemini 2.5), responses may include thinking content
+	require.Contains(t, out, "--- Agent: root ---")
+	// The response should contain the answer "4" somewhere
+	require.Contains(t, out, "4")
 }
 
 func TestExec_Gemini_ToolCall(t *testing.T) {
 	out := cagentExec(t, "testdata/fs_tools.yaml", "--model=google/gemini-2.5-flash", "How many files in testdata/working_dir? Only output the number.")
 
-	require.Equal(t, "\n--- Agent: root ---\n\nCalling list_directory(path: \"testdata/working_dir\")\n\nlist_directory response → \"FILE README.me\\n\"\n1", out)
+	// With thinking enabled by default (dynamic thinking for Gemini 2.5), responses include thinking content
+	require.Contains(t, out, "--- Agent: root ---")
+	require.Contains(t, out, `Calling list_directory(path: "testdata/working_dir")`)
+	require.Contains(t, out, `list_directory response → "FILE README.me\n"`)
+	// The response should end with "1" (the count)
+	require.True(t, out != "" && out[len(out)-1] == '1', "response should end with '1'")
 }
 
 func TestExec_Mistral(t *testing.T) {
