@@ -49,6 +49,8 @@ func New(ctx context.Context, sessionStore session.Store, runConfig *config.Runt
 	group.POST("/sessions/:id/resume", s.resumeSession)
 	// Toggle YOLO mode for a session
 	group.POST("/sessions/:id/tools/toggle", s.toggleSessionYolo)
+	// Toggle thinking mode for a session
+	group.POST("/sessions/:id/thinking/toggle", s.toggleSessionThinking)
 	// Update session permissions
 	group.PATCH("/sessions/:id/permissions", s.updateSessionPermissions)
 	// Create a new session
@@ -188,6 +190,7 @@ func (s *Server) getSession(c echo.Context) error {
 		CreatedAt:     sess.CreatedAt,
 		Messages:      sess.GetAllMessages(),
 		ToolsApproved: sess.ToolsApproved,
+		Thinking:      sess.Thinking,
 		InputTokens:   sess.InputTokens,
 		OutputTokens:  sess.OutputTokens,
 		WorkingDir:    sess.WorkingDir,
@@ -211,6 +214,13 @@ func (s *Server) resumeSession(c echo.Context) error {
 func (s *Server) toggleSessionYolo(c echo.Context) error {
 	if err := s.sm.ToggleToolApproval(c.Request().Context(), c.Param("id")); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("failed to toggle session tool approval mode: %v", err))
+	}
+	return c.JSON(http.StatusOK, nil)
+}
+
+func (s *Server) toggleSessionThinking(c echo.Context) error {
+	if err := s.sm.ToggleThinking(c.Request().Context(), c.Param("id")); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("failed to toggle session thinking mode: %v", err))
 	}
 	return c.JSON(http.StatusOK, nil)
 }

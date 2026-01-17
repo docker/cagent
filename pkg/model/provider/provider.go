@@ -212,6 +212,9 @@ func createDirectProvider(ctx context.Context, cfg *latest.ModelConfig, env envi
 	// Apply defaults from custom providers (from config) or built-in aliases
 	enhancedCfg := applyProviderDefaults(cfg, globalOptions.Providers())
 
+	// Apply overrides (e.g., disable thinking if requested by session)
+	enhancedCfg = applyOverrides(enhancedCfg, &globalOptions)
+
 	// Resolve the provider type with priority:
 	// 1. cfg.ProviderOpts["api_type"] (from custom provider or model override)
 	// 2. built-in alias APIType
@@ -270,7 +273,7 @@ func resolveProviderTypeFromConfig(cfg *latest.ModelConfig) string {
 
 // applyProviderDefaults applies default configuration from custom providers or built-in aliases.
 // Custom providers (from config) take precedence over built-in aliases.
-// This sets default base URLs, token keys, and api_type if not already specified.
+// This sets default base URLs, token keys, api_type, and model-specific defaults (like thinking budget).
 func applyProviderDefaults(cfg *latest.ModelConfig, customProviders map[string]latest.ProviderConfig) *latest.ModelConfig {
 	// Create a copy to avoid modifying the original
 	enhancedCfg := *cfg
@@ -319,8 +322,33 @@ func applyProviderDefaults(cfg *latest.ModelConfig, customProviders map[string]l
 		}
 	}
 
-	// Apply model-specific defaults
+	// Apply model-specific defaults (e.g., thinking budget for Claude/GPT models)
 	applyModelDefaults(&enhancedCfg)
+	return &enhancedCfg
+}
+
+// applyOverrides applies session-level or request-level overrides to the configuration.
+// This is called AFTER defaults are applied, allowing overrides to clear or modify default values.
+func applyOverrides(cfg *latest.ModelConfig, opts *options.ModelOptions) *latest.ModelConfig {
+	if opts == nil {
+		return cfg
+	}
+
+	// Create a copy to avoid modifying the original
+	enhancedCfg := *cfg
+
+	// If thinking is explicitly disabled (e.g., via /think command), clear thinking configuration
+	if t := opts.Thinking(); t != nil && !*t {
+		enhancedCfg.ThinkingBudget = nil
+		if enhancedCfg.ProviderOpts != nil {
+			delete(enhancedCfg.ProviderOpts, "interleaved_thinking")
+		}
+		slog.Debug("Override: thinking disabled - cleared thinking configuration",
+			"provider", cfg.Provider,
+			"model", cfg.Model,
+		)
+	}
+
 	return &enhancedCfg
 }
 

@@ -170,6 +170,7 @@ During TUI sessions, you can use special slash commands. Type `/` to see all ava
 | `/sessions` | Browse and load past sessions                                       |
 | `/shell`    | Start a shell                                                       |
 | `/star`     | Toggle star on current session                                      |
+| `/think`    | Toggle thinking/reasoning mode                                      |
 | `/yolo`     | Toggle automatic approval of tool calls                             |
 
 #### Runtime Model Switching

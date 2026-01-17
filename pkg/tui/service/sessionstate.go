@@ -13,6 +13,7 @@ type SessionState struct {
 	// or unified (false)
 	SplitDiffView   bool
 	YoloMode        bool
+	Thinking        bool // true = enabled (default), false = disabled
 	HideToolResults bool
 	PreviousMessage *types.Message
 	// CurrentAgent is the name of the currently active agent for user messages
@@ -24,6 +25,7 @@ func NewSessionState(sessionState *session.Session) *SessionState {
 	return &SessionState{
 		SplitDiffView:   true, // Default to split view
 		YoloMode:        sessionState.ToolsApproved,
+		Thinking:        sessionState.Thinking,
 		HideToolResults: sessionState.HideToolResults,
 	}
 }
@@ -47,4 +49,8 @@ func (s *SessionState) ToggleHideToolResults() {
 
 func (s *SessionState) SetCurrentAgent(agentName string) {
 	s.CurrentAgent = agentName
+}
+
+func (s *SessionState) SetThinking(enabled bool) {
+	s.Thinking = enabled
 }

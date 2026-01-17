@@ -55,7 +55,7 @@ func (t *titleGenerator) generate(ctx context.Context, sess *session.Session, ev
 		options.WithStructuredOutput(nil),
 		options.WithMaxTokens(20),
 		options.WithGeneratingTitle(),
-		options.WithThinking(false),
+		options.WithThinking(false), // Disable thinking to avoid max_tokens < thinking_budget errors
 	)
 
 	newTeam := team.New(

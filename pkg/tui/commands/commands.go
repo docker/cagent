@@ -146,6 +146,16 @@ func builtInSessionCommands() []Item {
 			},
 		},
 		{
+			ID:           "session.think",
+			Label:        "Think",
+			SlashCommand: "/think",
+			Description:  "Toggle thinking/reasoning mode",
+			Category:     "Session",
+			Execute: func(string) tea.Cmd {
+				return core.CmdHandler(messages.ToggleThinkingMsg{})
+			},
+		},
+		{
 			ID:           "session.shell",
 			Label:        "Shell",
 			SlashCommand: "/shell",

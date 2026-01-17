@@ -62,6 +62,12 @@ type Session struct {
 	// ToolsApproved is a flag to indicate if the tools have been approved
 	ToolsApproved bool `json:"tools_approved"`
 
+	// Thinking is a session-level flag to enable thinking/interleaved thinking
+	// defaults for all providers. When false, providers will not apply auto-thinking budgets
+	// or interleaved thinking, regardless of model config. This is controlled by the /think
+	// command in the TUI. Defaults to true (thinking enabled).
+	Thinking bool `json:"thinking"`
+
 	// HideToolResults is a flag to indicate if tool results should be hidden
 	HideToolResults bool `json:"hide_tool_results"`
 
@@ -387,6 +393,12 @@ func WithToolsApproved(toolsApproved bool) Opt {
 	}
 }
 
+func WithThinking(thinking bool) Opt {
+	return func(s *Session) {
+		s.Thinking = thinking
+	}
+}
+
 func WithHideToolResults(hideToolResults bool) Opt {
 	return func(s *Session) {
 		s.HideToolResults = hideToolResults
@@ -427,6 +439,7 @@ func New(opts ...Opt) *Session {
 		ID:              sessionID,
 		CreatedAt:       time.Now(),
 		SendUserMessage: true,
+		Thinking:        true, // Default to thinking enabled
 	}
 
 	for _, opt := range opts {

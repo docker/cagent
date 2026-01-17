@@ -190,6 +190,27 @@ func (a *appModel) handleToggleYolo() (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
+func (a *appModel) handleToggleThinking() (tea.Model, tea.Cmd) {
+	sess := a.application.Session()
+	sess.Thinking = !sess.Thinking
+	a.sessionState.SetThinking(sess.Thinking)
+
+	// Persist the change to the database immediately
+	if store := a.application.SessionStore(); store != nil {
+		if err := store.UpdateSession(context.Background(), sess); err != nil {
+			return a, notification.ErrorCmd(fmt.Sprintf("Failed to save session: %v", err))
+		}
+	}
+
+	var msg string
+	if sess.Thinking {
+		msg = "Thinking/reasoning enabled for this session"
+	} else {
+		msg = "Thinking/reasoning disabled for this session"
+	}
+	return a, notification.InfoCmd(msg)
+}
+
 func (a *appModel) handleToggleHideToolResults() (tea.Model, tea.Cmd) {
 	updated, cmd := a.chatPage.Update(messages.ToggleHideToolResultsMsg{})
 	a.chatPage = updated.(chat.Page)

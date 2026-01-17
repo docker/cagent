@@ -70,21 +70,27 @@ func (c *Client) createBetaStream(
 		params.OutputFormat = anthropic.BetaJSONSchemaOutputFormat(structuredOutput.Schema)
 	}
 
+	// Configure thinking if not explicitly disabled via /think command
 	// For interleaved thinking to make sense, we use a default of 16384 tokens for the thinking budget
-	thinkingTokens := int64(16384)
-	if c.ModelConfig.ThinkingBudget != nil {
-		thinkingTokens = int64(c.ModelConfig.ThinkingBudget.Tokens)
+	thinkingEnabled := c.ModelOptions.Thinking() == nil || *c.ModelOptions.Thinking()
+	if thinkingEnabled {
+		thinkingTokens := int64(16384)
+		if c.ModelConfig.ThinkingBudget != nil {
+			thinkingTokens = int64(c.ModelConfig.ThinkingBudget.Tokens)
+		} else {
+			slog.Info("Anthropic Beta API using default thinking_budget with interleaved thinking", "budget_tokens", thinkingTokens)
+		}
+		switch {
+		case thinkingTokens >= 1024 && thinkingTokens < maxTokens:
+			params.Thinking = anthropic.BetaThinkingConfigParamOfEnabled(thinkingTokens)
+			slog.Debug("Anthropic Beta API using thinking_budget with interleaved thinking", "budget_tokens", thinkingTokens)
+		case thinkingTokens >= maxTokens:
+			slog.Warn("Anthropic Beta API thinking_budget must be less than max_tokens, ignoring", "tokens", thinkingTokens, "max_tokens", maxTokens)
+		default:
+			slog.Warn("Anthropic Beta API thinking_budget below minimum (1024), ignoring", "tokens", thinkingTokens)
+		}
 	} else {
-		slog.Info("Anthropic Beta API using default thinking_budget with interleaved thinking", "budget_tokens", thinkingTokens)
-	}
-	switch {
-	case thinkingTokens >= 1024 && thinkingTokens < maxTokens:
-		params.Thinking = anthropic.BetaThinkingConfigParamOfEnabled(thinkingTokens)
-		slog.Debug("Anthropic Beta API using thinking_budget with interleaved thinking", "budget_tokens", thinkingTokens)
-	case thinkingTokens >= maxTokens:
-		slog.Warn("Anthropic Beta API thinking_budget must be less than max_tokens, ignoring", "tokens", thinkingTokens, "max_tokens", maxTokens)
-	default:
-		slog.Warn("Anthropic Beta API thinking_budget below minimum (1024), ignoring", "tokens", thinkingTokens)
+		slog.Debug("Anthropic Beta API: Thinking disabled via /think command")
 	}
 
 	if len(requestTools) > 0 {

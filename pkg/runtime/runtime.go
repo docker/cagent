@@ -24,6 +24,8 @@ import (
 	"github.com/docker/cagent/pkg/config/latest"
 	"github.com/docker/cagent/pkg/config/types"
 	"github.com/docker/cagent/pkg/hooks"
+	"github.com/docker/cagent/pkg/model/provider"
+	"github.com/docker/cagent/pkg/model/provider/options"
 	"github.com/docker/cagent/pkg/modelsdev"
 	"github.com/docker/cagent/pkg/permissions"
 	"github.com/docker/cagent/pkg/rag"
@@ -747,6 +749,13 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 			))
 
 			model := a.Model()
+
+			// If thinking is disabled for this session, clone the provider with thinking disabled
+			if !sess.Thinking {
+				model = provider.CloneWithOptions(ctx, model, options.WithThinking(false))
+				slog.Debug("Cloned provider with thinking disabled", "agent", a.Name(), "model", model.ID())
+			}
+
 			modelID := model.ID()
 			slog.Debug("Using agent", "agent", a.Name(), "model", modelID)
 			slog.Debug("Getting model definition", "model_id", modelID)
@@ -1609,7 +1618,7 @@ func (r *LocalRuntime) handleTaskTransfer(ctx context.Context, sess *session.Ses
 		memberAgentTask += fmt.Sprintf("\n\n<expected_output>\n%s\n</expected_output>", params.ExpectedOutput)
 	}
 
-	slog.Debug("Creating new session with parent session", "parent_session_id", sess.ID, "tools_approved", sess.ToolsApproved)
+	slog.Debug("Creating new session with parent session", "parent_session_id", sess.ID, "tools_approved", sess.ToolsApproved, "thinking", sess.Thinking)
 
 	child, err := r.team.Agent(params.Agent)
 	if err != nil {
@@ -1622,6 +1631,7 @@ func (r *LocalRuntime) handleTaskTransfer(ctx context.Context, sess *session.Ses
 		session.WithMaxIterations(child.MaxIterations()),
 		session.WithTitle("Transferred task"),
 		session.WithToolsApproved(sess.ToolsApproved),
+		session.WithThinking(sess.Thinking),
 		session.WithSendUserMessage(false),
 		session.WithParentID(sess.ID),
 	)
@@ -1636,6 +1646,7 @@ func (r *LocalRuntime) handleTaskTransfer(ctx context.Context, sess *session.Ses
 	}
 
 	sess.ToolsApproved = s.ToolsApproved
+	sess.Thinking = s.Thinking
 
 	sess.AddSubSession(s)
 

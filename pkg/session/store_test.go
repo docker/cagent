@@ -524,3 +524,87 @@ func TestAgentModelOverrides_EmptyMap(t *testing.T) {
 	// Verify no model overrides (should be nil or empty)
 	assert.Empty(t, retrieved.AgentModelOverrides)
 }
+
+func TestThinking_Persistence(t *testing.T) {
+	t.Parallel()
+
+	t.Run("default is true (thinking enabled)", func(t *testing.T) {
+		t.Parallel()
+
+		store, err := NewSQLiteSessionStore(filepath.Join(t.TempDir(), "test.db"))
+		require.NoError(t, err)
+		defer store.(*SQLiteSessionStore).Close()
+
+		session := &Session{
+			ID:        "thinking-default-session",
+			Title:     "Test Session",
+			CreatedAt: time.Now(),
+			Thinking:  true, // Default value for new sessions
+		}
+
+		err = store.AddSession(t.Context(), session)
+		require.NoError(t, err)
+
+		retrieved, err := store.GetSession(t.Context(), "thinking-default-session")
+		require.NoError(t, err)
+		assert.True(t, retrieved.Thinking)
+	})
+
+	t.Run("persists when set to false (thinking disabled)", func(t *testing.T) {
+		t.Parallel()
+
+		store, err := NewSQLiteSessionStore(filepath.Join(t.TempDir(), "test.db"))
+		require.NoError(t, err)
+		defer store.(*SQLiteSessionStore).Close()
+
+		session := &Session{
+			ID:        "thinking-disabled-session",
+			Title:     "Test Session",
+			CreatedAt: time.Now(),
+			Thinking:  false,
+		}
+
+		err = store.AddSession(t.Context(), session)
+		require.NoError(t, err)
+
+		retrieved, err := store.GetSession(t.Context(), "thinking-disabled-session")
+		require.NoError(t, err)
+		assert.False(t, retrieved.Thinking)
+	})
+
+	t.Run("updates correctly via toggle", func(t *testing.T) {
+		t.Parallel()
+
+		store, err := NewSQLiteSessionStore(filepath.Join(t.TempDir(), "test.db"))
+		require.NoError(t, err)
+		defer store.(*SQLiteSessionStore).Close()
+
+		session := &Session{
+			ID:        "thinking-toggle-session",
+			Title:     "Test Session",
+			CreatedAt: time.Now(),
+			Thinking:  true,
+		}
+
+		err = store.AddSession(t.Context(), session)
+		require.NoError(t, err)
+
+		// Simulate toggle: true -> false
+		session.Thinking = !session.Thinking
+		err = store.UpdateSession(t.Context(), session)
+		require.NoError(t, err)
+
+		retrieved, err := store.GetSession(t.Context(), "thinking-toggle-session")
+		require.NoError(t, err)
+		assert.False(t, retrieved.Thinking)
+
+		// Toggle again: false -> true
+		session.Thinking = !session.Thinking
+		err = store.UpdateSession(t.Context(), session)
+		require.NoError(t, err)
+
+		retrieved, err = store.GetSession(t.Context(), "thinking-toggle-session")
+		require.NoError(t, err)
+		assert.True(t, retrieved.Thinking)
+	})
+}
