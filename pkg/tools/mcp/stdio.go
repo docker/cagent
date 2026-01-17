@@ -5,21 +5,25 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"log/slog"
 	"os/exec"
 	"runtime"
+	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/docker/cagent/pkg/desktop"
+	"github.com/docker/cagent/pkg/tools"
 )
 
 type stdioMCPClient struct {
-	baseMCPClient
-	command string
-	args    []string
-	env     []string
-	session *mcp.ClientSession
-	cwd     string
+	command            string
+	args               []string
+	env                []string
+	session            *mcp.ClientSession
+	cwd                string
+	elicitationHandler tools.ElicitationHandler
+	mu                 sync.RWMutex
 }
 
 func newStdioCmdClient(command string, args, env []string, cwd string) *stdioMCPClient {
@@ -38,10 +42,15 @@ func (c *stdioMCPClient) Initialize(ctx context.Context, _ *mcp.InitializeReques
 		return nil, errors.New("Docker Desktop is not running") //nolint:staticcheck // Don't lowercase Docker Desktop
 	}
 
+	// Create client options with elicitation support
+	opts := &mcp.ClientOptions{
+		ElicitationHandler: c.handleElicitationRequest,
+	}
+
 	client := mcp.NewClient(&mcp.Implementation{
 		Name:    "cagent",
 		Version: "1.0.0",
-	}, nil)
+	}, opts)
 
 	cmd := exec.CommandContext(ctx, c.command, c.args...)
 	cmd.Env = c.env
@@ -56,6 +65,42 @@ func (c *stdioMCPClient) Initialize(ctx context.Context, _ *mcp.InitializeReques
 	c.session = session
 	return c.session.InitializeResult(), nil
 }
+
+// handleElicitationRequest forwards incoming elicitation requests from the MCP server
+func (c *stdioMCPClient) handleElicitationRequest(ctx context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+	slog.Debug("Received elicitation request from stdio MCP server", "message", req.Params.Message)
+
+	c.mu.RLock()
+	handler := c.elicitationHandler
+	c.mu.RUnlock()
+
+	if handler == nil {
+		return nil, fmt.Errorf("no elicitation handler configured")
+	}
+
+	result, err := handler(ctx, req.Params)
+	if err != nil {
+		return nil, fmt.Errorf("elicitation failed: %w", err)
+	}
+
+	return &mcp.ElicitResult{
+		Action:  string(result.Action),
+		Content: result.Content,
+	}, nil
+}
+
+// SetElicitationHandler sets the elicitation handler for stdio MCP clients
+func (c *stdioMCPClient) SetElicitationHandler(handler tools.ElicitationHandler) {
+	c.mu.Lock()
+	c.elicitationHandler = handler
+	c.mu.Unlock()
+}
+
+// SetOAuthSuccessHandler is a no-op for stdio clients (OAuth not supported)
+func (c *stdioMCPClient) SetOAuthSuccessHandler(func()) {}
+
+// SetManagedOAuth is a no-op for stdio clients (OAuth not supported)
+func (c *stdioMCPClient) SetManagedOAuth(bool) {}
 
 func (c *stdioMCPClient) Close(context.Context) error {
 	if c.session == nil {

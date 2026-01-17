@@ -7,7 +7,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/docker/cagent/pkg/tools"
+	"github.com/docker/cagent/pkg/tui/core"
 	"github.com/docker/cagent/pkg/tui/core/layout"
+	"github.com/docker/cagent/pkg/tui/messages"
 	"github.com/docker/cagent/pkg/tui/styles"
 )
 
@@ -78,6 +81,14 @@ func (b *BaseDialog) CenterDialog(renderedDialog string) (row, col int) {
 	dialogWidth := lipgloss.Width(renderedDialog)
 	dialogHeight := lipgloss.Height(renderedDialog)
 	return CenterPosition(b.width, b.height, dialogWidth, dialogHeight)
+}
+
+// CloseWithElicitationResponse returns a command that closes the dialog and sends an elicitation response.
+func CloseWithElicitationResponse(action tools.ElicitationAction, content map[string]any) tea.Cmd {
+	return tea.Sequence(
+		core.CmdHandler(CloseDialogMsg{}),
+		core.CmdHandler(messages.ElicitationResponseMsg{Action: action, Content: content}),
+	)
 }
 
 // RenderTitle renders a dialog title with the given style and width.

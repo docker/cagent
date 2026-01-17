@@ -1,5 +1,7 @@
 package messages
 
+import "github.com/docker/cagent/pkg/tools"
+
 // Session command messages
 type (
 	NewSessionMsg                  struct{}
@@ -46,4 +48,10 @@ type OpenURLMsg struct {
 type ShowMCPPromptInputMsg struct {
 	PromptName string
 	PromptInfo any // mcptools.PromptInfo but avoiding import cycles
+}
+
+// ElicitationResponseMsg is sent when the user responds to an elicitation dialog
+type ElicitationResponseMsg struct {
+	Action  tools.ElicitationAction
+	Content map[string]any
 }

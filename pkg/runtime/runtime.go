@@ -1725,11 +1725,11 @@ func (r *LocalRuntime) elicitationHandler(ctx context.Context, req *mcp.ElicitPa
 		return tools.ElicitationResult{}, fmt.Errorf("no events channel available for elicitation")
 	}
 
-	slog.Debug("Sending elicitation request event to client", "message", req.Message, "requested_schema", req.RequestedSchema)
+	slog.Debug("Sending elicitation request event to client", "message", req.Message, "mode", req.Mode, "requested_schema", req.RequestedSchema, "url", req.URL)
 	slog.Debug("Elicitation request meta", "meta", req.Meta)
 
 	// Send elicitation request event to the runtime's client
-	eventsChannel <- ElicitationRequest(req.Message, req.RequestedSchema, req.Meta, r.currentAgent)
+	eventsChannel <- ElicitationRequest(req.Message, req.Mode, req.RequestedSchema, req.URL, req.ElicitationID, req.Meta, r.currentAgent)
 
 	// Wait for response from the client
 	select {

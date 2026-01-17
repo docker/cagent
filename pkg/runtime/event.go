@@ -294,20 +294,26 @@ func StreamStopped(sessionID, agentName string) Event {
 
 // ElicitationRequestEvent is sent when an elicitation request is received from an MCP server
 type ElicitationRequestEvent struct {
-	Type    string         `json:"type"`
-	Message string         `json:"message"`
-	Schema  any            `json:"schema"`
-	Meta    map[string]any `json:"meta,omitempty"`
+	Type          string         `json:"type"`
+	Message       string         `json:"message"`
+	Mode          string         `json:"mode,omitempty"` // "form" or "url"
+	Schema        any            `json:"schema,omitempty"`
+	URL           string         `json:"url,omitempty"`
+	ElicitationID string         `json:"elicitation_id,omitempty"`
+	Meta          map[string]any `json:"meta,omitempty"`
 	AgentContext
 }
 
-func ElicitationRequest(message string, schema any, meta map[string]any, agentName string) Event {
+func ElicitationRequest(message, mode string, schema any, url, elicitationID string, meta map[string]any, agentName string) Event {
 	return &ElicitationRequestEvent{
-		Type:         "elicitation_request",
-		Message:      message,
-		Schema:       schema,
-		Meta:         meta,
-		AgentContext: AgentContext{AgentName: agentName},
+		Type:          "elicitation_request",
+		Message:       message,
+		Mode:          mode,
+		Schema:        schema,
+		URL:           url,
+		ElicitationID: elicitationID,
+		Meta:          meta,
+		AgentContext:  AgentContext{AgentName: agentName},
 	}
 }
 

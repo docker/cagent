@@ -210,13 +210,38 @@ func (p *chatPage) handleMaxIterationsReached(msg *runtime.MaxIterationsReachedE
 }
 
 func (p *chatPage) handleElicitationRequest(msg *runtime.ElicitationRequestEvent) tea.Cmd {
-	// TODO: handle normal elicitation requests
 	spinnerCmd := p.setWorking(false)
 
-	serverURL := msg.Meta["cagent/server_url"].(string)
-	dialogCmd := core.CmdHandler(dialog.OpenDialogMsg{
-		Model: dialog.NewOAuthAuthorizationDialog(serverURL, p.app),
-	})
+	// Check if this is an OAuth flow by looking at the meta type
+	// Guard against nil Meta map to prevent panic
+	if msg.Meta != nil {
+		if elicitationType, ok := msg.Meta["cagent/type"].(string); ok && elicitationType == "oauth_flow" {
+			// OAuth flow - show the OAuth authorization dialog
+			var serverURL string
+			if url, ok := msg.Meta["cagent/server_url"].(string); ok {
+				serverURL = url
+			}
+			dialogCmd := core.CmdHandler(dialog.OpenDialogMsg{
+				Model: dialog.NewOAuthAuthorizationDialog(serverURL, p.app),
+			})
+			return tea.Batch(spinnerCmd, dialogCmd)
+		}
+	}
 
-	return tea.Batch(spinnerCmd, dialogCmd)
+	// Check elicitation mode
+	switch msg.Mode {
+	case "url":
+		// URL-based elicitation - show URL dialog
+		dialogCmd := core.CmdHandler(dialog.OpenDialogMsg{
+			Model: dialog.NewURLElicitationDialog(msg.Message, msg.URL),
+		})
+		return tea.Batch(spinnerCmd, dialogCmd)
+
+	default:
+		// Form-based elicitation (default) - show form dialog
+		dialogCmd := core.CmdHandler(dialog.OpenDialogMsg{
+			Model: dialog.NewElicitationDialog(msg.Message, msg.Schema, msg.Meta),
+		})
+		return tea.Batch(spinnerCmd, dialogCmd)
+	}
 }
