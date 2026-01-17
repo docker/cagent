@@ -26,7 +26,7 @@ func TestConvertMessages_UserText(t *testing.T) {
 		Content: "Hello, world!",
 	}}
 
-	bedrockMsgs, system := convertMessages(msgs)
+	bedrockMsgs, system := convertMessages(msgs, false)
 
 	require.Len(t, bedrockMsgs, 1)
 	assert.Empty(t, system)
@@ -46,7 +46,7 @@ func TestConvertMessages_SystemExtraction(t *testing.T) {
 		{Role: chat.MessageRoleUser, Content: "Hi"},
 	}
 
-	bedrockMsgs, system := convertMessages(msgs)
+	bedrockMsgs, system := convertMessages(msgs, false)
 
 	require.Len(t, bedrockMsgs, 1) // Only user message
 	require.Len(t, system, 1)      // System extracted
@@ -71,7 +71,7 @@ func TestConvertMessages_AssistantWithToolCalls(t *testing.T) {
 		}},
 	}}
 
-	bedrockMsgs, _ := convertMessages(msgs)
+	bedrockMsgs, _ := convertMessages(msgs, false)
 
 	require.Len(t, bedrockMsgs, 1)
 	require.Len(t, bedrockMsgs[0].Content, 1)
@@ -92,7 +92,7 @@ func TestConvertMessages_ToolResult(t *testing.T) {
 		Content:    "Weather is sunny",
 	}}
 
-	bedrockMsgs, _ := convertMessages(msgs)
+	bedrockMsgs, _ := convertMessages(msgs, false)
 
 	require.Len(t, bedrockMsgs, 1)
 	assert.Equal(t, types.ConversationRoleUser, bedrockMsgs[0].Role)
@@ -111,7 +111,7 @@ func TestConvertMessages_EmptyContent(t *testing.T) {
 		{Role: chat.MessageRoleUser, Content: "   "},
 	}
 
-	bedrockMsgs, _ := convertMessages(msgs)
+	bedrockMsgs, _ := convertMessages(msgs, false)
 	assert.Empty(t, bedrockMsgs)
 }
 
@@ -129,7 +129,7 @@ func TestConvertToolConfig(t *testing.T) {
 		},
 	}}
 
-	config := convertToolConfig(requestTools)
+	config := convertToolConfig(requestTools, false)
 
 	require.NotNil(t, config)
 	require.Len(t, config.Tools, 1)
@@ -143,10 +143,10 @@ func TestConvertToolConfig(t *testing.T) {
 func TestConvertToolConfig_Empty(t *testing.T) {
 	t.Parallel()
 
-	config := convertToolConfig(nil)
+	config := convertToolConfig(nil, false)
 	assert.Nil(t, config)
 
-	config = convertToolConfig([]tools.Tool{})
+	config = convertToolConfig([]tools.Tool{}, false)
 	assert.Nil(t, config)
 }
 
@@ -176,7 +176,7 @@ func TestConvertMessages_MultiContent(t *testing.T) {
 		},
 	}}
 
-	bedrockMsgs, _ := convertMessages(msgs)
+	bedrockMsgs, _ := convertMessages(msgs, false)
 
 	require.Len(t, bedrockMsgs, 1)
 	require.Len(t, bedrockMsgs[0].Content, 2)
@@ -200,7 +200,7 @@ func TestConvertMessages_ConsecutiveToolResults(t *testing.T) {
 		{Role: chat.MessageRoleUser, Content: "Continue"},
 	}
 
-	bedrockMsgs, _ := convertMessages(msgs)
+	bedrockMsgs, _ := convertMessages(msgs, false)
 
 	// Expect: user, assistant, user (grouped tool results), user
 	require.Len(t, bedrockMsgs, 4)
@@ -1073,4 +1073,276 @@ func TestConvertAssistantContent_NoThinkingWhenBothEmpty(t *testing.T) {
 	textBlock, ok := blocks[0].(*types.ContentBlockMemberText)
 	require.True(t, ok)
 	assert.Equal(t, "Here's my answer", textBlock.Value)
+}
+
+// Prompt Caching Tests
+
+func TestPromptCachingEnabled_SupportedModel(t *testing.T) {
+	t.Parallel()
+
+	client := &Client{
+		Config: base.Config{
+			ModelConfig: latest.ModelConfig{
+				Model: "anthropic.claude-3-5-sonnet-20241022-v2:0",
+			},
+		},
+		cachingSupported: true, // Detected at init time
+	}
+
+	assert.True(t, client.promptCachingEnabled())
+}
+
+func TestPromptCachingEnabled_UnsupportedModel(t *testing.T) {
+	t.Parallel()
+
+	client := &Client{
+		Config: base.Config{
+			ModelConfig: latest.ModelConfig{
+				Model: "meta.llama3-8b-instruct-v1:0",
+			},
+		},
+		cachingSupported: false, // Model doesn't support caching
+	}
+
+	assert.False(t, client.promptCachingEnabled())
+}
+
+func TestPromptCachingEnabled_Disabled(t *testing.T) {
+	t.Parallel()
+
+	client := &Client{
+		Config: base.Config{
+			ModelConfig: latest.ModelConfig{
+				Model: "anthropic.claude-3-5-sonnet-20241022-v2:0",
+				ProviderOpts: map[string]any{
+					"disable_prompt_caching": true,
+				},
+			},
+		},
+		cachingSupported: true, // Model supports it, but user disabled
+	}
+
+	assert.False(t, client.promptCachingEnabled())
+}
+
+func TestPromptCachingEnabled_CachingNotSupported(t *testing.T) {
+	t.Parallel()
+
+	// Simulates scenario where detectCachingSupport returned false at init
+	client := &Client{
+		Config: base.Config{
+			ModelConfig: latest.ModelConfig{
+				Model: "anthropic.claude-3-5-sonnet-20241022-v2:0",
+			},
+		},
+		cachingSupported: false,
+	}
+
+	assert.False(t, client.promptCachingEnabled())
+}
+
+func TestConvertMessages_WithCaching(t *testing.T) {
+	t.Parallel()
+
+	msgs := []chat.Message{
+		{Role: chat.MessageRoleSystem, Content: "You are helpful"},
+		{Role: chat.MessageRoleUser, Content: "Hello"},
+		{Role: chat.MessageRoleAssistant, Content: "Hi there"},
+		{Role: chat.MessageRoleUser, Content: "How are you?"},
+	}
+
+	bedrockMsgs, system := convertMessages(msgs, true)
+
+	// System should have text block + cache point
+	require.Len(t, system, 2)
+	_, isCachePoint := system[1].(*types.SystemContentBlockMemberCachePoint)
+	assert.True(t, isCachePoint)
+
+	// Last 2 messages should have cache points appended
+	require.Len(t, bedrockMsgs, 3)
+
+	// Last message (user) should have cache point
+	lastMsg := bedrockMsgs[2]
+	require.Len(t, lastMsg.Content, 2) // text + cache point
+	_, isCachePoint = lastMsg.Content[1].(*types.ContentBlockMemberCachePoint)
+	assert.True(t, isCachePoint)
+
+	// Second to last message (assistant) should have cache point
+	secondLastMsg := bedrockMsgs[1]
+	require.Len(t, secondLastMsg.Content, 2) // text + cache point
+	_, isCachePoint = secondLastMsg.Content[1].(*types.ContentBlockMemberCachePoint)
+	assert.True(t, isCachePoint)
+}
+
+func TestConvertMessages_WithoutCaching(t *testing.T) {
+	t.Parallel()
+
+	msgs := []chat.Message{
+		{Role: chat.MessageRoleSystem, Content: "You are helpful"},
+		{Role: chat.MessageRoleUser, Content: "Hello"},
+	}
+
+	bedrockMsgs, system := convertMessages(msgs, false)
+
+	// System should only have text block, no cache point
+	require.Len(t, system, 1)
+	_, isText := system[0].(*types.SystemContentBlockMemberText)
+	assert.True(t, isText)
+
+	// Message should not have cache point
+	require.Len(t, bedrockMsgs, 1)
+	require.Len(t, bedrockMsgs[0].Content, 1) // just text, no cache point
+}
+
+func TestConvertToolConfig_WithCaching(t *testing.T) {
+	t.Parallel()
+
+	requestTools := []tools.Tool{{
+		Name:        "test_tool",
+		Description: "A test tool",
+	}}
+
+	config := convertToolConfig(requestTools, true)
+
+	require.NotNil(t, config)
+	require.Len(t, config.Tools, 2) // tool spec + cache point
+
+	// Last tool should be cache point
+	_, isCachePoint := config.Tools[1].(*types.ToolMemberCachePoint)
+	assert.True(t, isCachePoint)
+}
+
+func TestConvertToolConfig_WithoutCaching(t *testing.T) {
+	t.Parallel()
+
+	requestTools := []tools.Tool{{
+		Name:        "test_tool",
+		Description: "A test tool",
+	}}
+
+	config := convertToolConfig(requestTools, false)
+
+	require.NotNil(t, config)
+	require.Len(t, config.Tools, 1) // just tool spec, no cache point
+}
+
+func TestPromptCachingEnabled_TypeMismatch(t *testing.T) {
+	t.Parallel()
+
+	client := &Client{
+		Config: base.Config{
+			ModelConfig: latest.ModelConfig{
+				Model: "anthropic.claude-3-5-sonnet-20241022-v2:0",
+				ProviderOpts: map[string]any{
+					"disable_prompt_caching": "true", // string instead of bool
+				},
+			},
+		},
+		cachingSupported: true,
+	}
+
+	// Type mismatch returns zero value (false), so caching stays enabled
+	assert.True(t, client.promptCachingEnabled())
+}
+
+func TestDetectCachingSupport_SupportedModel(t *testing.T) {
+	t.Parallel()
+
+	// Uses real models.dev lookup to verify Claude models support caching
+	supported := detectCachingSupport(t.Context(), "anthropic.claude-3-5-sonnet-20241022-v2:0")
+	assert.True(t, supported)
+}
+
+func TestDetectCachingSupport_UnsupportedModel(t *testing.T) {
+	t.Parallel()
+
+	// Llama doesn't have cache pricing in models.dev
+	supported := detectCachingSupport(t.Context(), "meta.llama3-8b-instruct-v1:0")
+	assert.False(t, supported)
+}
+
+func TestDetectCachingSupport_UnknownModel(t *testing.T) {
+	t.Parallel()
+
+	// Unknown model should gracefully return false, not panic
+	supported := detectCachingSupport(t.Context(), "nonexistent.model.that.does.not.exist:v1")
+	assert.False(t, supported)
+}
+
+func TestConvertMessages_EmptyWithCaching(t *testing.T) {
+	t.Parallel()
+
+	// Empty message list should not panic with caching enabled
+	bedrockMsgs, system := convertMessages([]chat.Message{}, true)
+
+	assert.Empty(t, bedrockMsgs)
+	assert.Empty(t, system)
+}
+
+func TestConvertMessages_SingleMessageWithCaching(t *testing.T) {
+	t.Parallel()
+
+	msgs := []chat.Message{
+		{Role: chat.MessageRoleUser, Content: "Hello"},
+	}
+
+	bedrockMsgs, _ := convertMessages(msgs, true)
+
+	require.Len(t, bedrockMsgs, 1)
+	// Single message should get a cache point appended
+	require.Len(t, bedrockMsgs[0].Content, 2) // text + cache point
+	_, isCachePoint := bedrockMsgs[0].Content[1].(*types.ContentBlockMemberCachePoint)
+	assert.True(t, isCachePoint)
+}
+
+func TestConvertMessages_MultiContentWithCaching(t *testing.T) {
+	t.Parallel()
+
+	msgs := []chat.Message{{
+		Role: chat.MessageRoleUser,
+		MultiContent: []chat.MessagePart{
+			{Type: chat.MessagePartTypeText, Text: "First part"},
+			{Type: chat.MessagePartTypeText, Text: "Second part"},
+		},
+	}}
+
+	bedrockMsgs, _ := convertMessages(msgs, true)
+
+	require.Len(t, bedrockMsgs, 1)
+	// 2 text blocks + cache point = 3 content blocks
+	require.Len(t, bedrockMsgs[0].Content, 3)
+	_, isCachePoint := bedrockMsgs[0].Content[2].(*types.ContentBlockMemberCachePoint)
+	assert.True(t, isCachePoint)
+}
+
+func TestConvertMessages_ToolResultWithCaching(t *testing.T) {
+	t.Parallel()
+
+	msgs := []chat.Message{
+		{Role: chat.MessageRoleUser, Content: "Call a tool"},
+		{
+			Role: chat.MessageRoleAssistant,
+			ToolCalls: []tools.ToolCall{
+				{ID: "tool-1", Function: tools.FunctionCall{Name: "test", Arguments: "{}"}},
+			},
+		},
+		{Role: chat.MessageRoleTool, ToolCallID: "tool-1", Content: "Result"},
+	}
+
+	bedrockMsgs, _ := convertMessages(msgs, true)
+
+	// Expect: user, assistant, user (tool result)
+	require.Len(t, bedrockMsgs, 3)
+
+	// Last message (tool result as user) should have cache point
+	lastMsg := bedrockMsgs[len(bedrockMsgs)-1]
+	lastContent := lastMsg.Content[len(lastMsg.Content)-1]
+	_, isCachePoint := lastContent.(*types.ContentBlockMemberCachePoint)
+	assert.True(t, isCachePoint, "tool result message should have cache point")
+
+	// Second to last (assistant with tool call) should also have cache point
+	secondLastMsg := bedrockMsgs[len(bedrockMsgs)-2]
+	secondLastContent := secondLastMsg.Content[len(secondLastMsg.Content)-1]
+	_, isCachePoint = secondLastContent.(*types.ContentBlockMemberCachePoint)
+	assert.True(t, isCachePoint, "assistant tool call message should have cache point")
 }
