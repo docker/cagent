@@ -358,7 +358,9 @@ func (c *Client) CreateResponseStream(
 
 	// Configure reasoning for models that support it (o-series, gpt-5)
 	// Request detailed reasoning summary to get thinking traces for reasoning models
-	if isOpenAIReasoningModel(c.ModelConfig.Model) {
+	// Skip reasoning configuration entirely if thinking is explicitly disabled (via /think command)
+	thinkingEnabled := c.ModelOptions.Thinking() == nil || *c.ModelOptions.Thinking()
+	if isOpenAIReasoningModel(c.ModelConfig.Model) && thinkingEnabled {
 		params.Reasoning = shared.ReasoningParam{
 			Summary: shared.ReasoningSummaryDetailed,
 		}

@@ -451,7 +451,7 @@
         },
         "provider_opts": {
           "type": "object",
-          "description": "Provider-specific options. dmr: runtime_flags. anthropic: interleaved_thinking (boolean, default false). openai/anthropic/google: rerank_prompt (string) to fully override the system prompt used for RAG reranking (advanced - prefer using results.reranking.criteria for domain-specific guidance).",
+          "description": "Provider-specific options. dmr: runtime_flags. anthropic/amazon-bedrock (Claude): interleaved_thinking (boolean, default true). openai/anthropic/google: rerank_prompt (string) to fully override the system prompt used for RAG reranking (advanced - prefer using results.reranking.criteria for domain-specific guidance).",
           "additionalProperties": true
         },
         "track_usage": {
@@ -459,7 +459,7 @@
           "description": "Whether to track usage"
         },
         "thinking_budget": {
-          "description": "Controls reasoning effort/budget. OpenAI: string levels ('minimal','low','medium','high'). Anthropic: integer token budget (1024-32768). Gemini: integer token budget (-1 for unlimited, 0 to disable, 24576 max).",
+          "description": "Controls reasoning effort/budget. OpenAI: string levels ('minimal','low','medium','high'), default 'medium'. Anthropic: integer token budget (1024-32768), default 8192. Amazon Bedrock (Claude): same as Anthropic. Google Gemini 2.5: integer token budget (-1 for dynamic, 0 to disable, 24576 max), default -1. Google Gemini 3: string levels ('minimal' Flash only,'low','medium','high'), default 'high' for Pro, 'medium' for Flash.",
           "oneOf": [
             {
               "type": "string",
@@ -469,13 +469,13 @@
                 "medium",
                 "high"
               ],
-              "description": "Reasoning effort level (OpenAI)"
+              "description": "Reasoning effort level (OpenAI, Gemini 3)"
             },
             {
               "type": "integer",
               "minimum": -1,
               "maximum": 32768,
-              "description": "Token budget for extended thinking (Anthropic, Google)"
+              "description": "Token budget for extended thinking (Anthropic, Bedrock Claude, Gemini 2.5)"
             }
           ],
           "examples": [
@@ -483,7 +483,9 @@
             "low",
             "medium",
             "high",
+            -1,
             1024,
+            8192,
             32768
           ]
         },

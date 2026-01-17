@@ -235,5 +235,12 @@ func getAllMigrations() []Migration {
 			UpSQL:       `ALTER TABLE sessions ADD COLUMN custom_models_used TEXT DEFAULT '[]'`,
 			DownSQL:     `ALTER TABLE sessions DROP COLUMN custom_models_used`,
 		},
+		{
+			ID:          13,
+			Name:        "013_add_thinking_column",
+			Description: "Add thinking column to sessions table for session-level thinking toggle (default enabled)",
+			UpSQL:       `ALTER TABLE sessions ADD COLUMN thinking BOOLEAN DEFAULT 1`,
+			DownSQL:     `ALTER TABLE sessions DROP COLUMN thinking`,
+		},
 	}
 }

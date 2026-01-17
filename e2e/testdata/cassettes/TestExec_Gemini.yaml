@@ -1,26 +1,27 @@
 ---
 version: 2
 interactions:
-- id: 0
-  request:
-    proto: HTTP/1.1
-    proto_major: 1
-    proto_minor: 1
-    content_length: 0
-    host: generativelanguage.googleapis.com
-    body: "{\"contents\":[{\"parts\":[{\"text\":\"You are a knowledgeable assistant that helps users with various tasks.\\nBe helpful, accurate, and concise in your responses.\\n\"}],\"role\":\"user\"},{\"parts\":[{\"text\":\"What's 2+2?\"}],\"role\":\"user\"}],\"generationConfig\":{}}\n"
-    form:
-      alt:
-      - sse
-    url: https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse
-    method: POST
-  response:
-    proto: HTTP/2.0
-    proto_major: 2
-    proto_minor: 0
-    content_length: -1
-    body: "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"2 + 2 = 4\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 35,\"candidatesTokenCount\": 7,\"totalTokenCount\": 62,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 35}],\"thoughtsTokenCount\": 20},\"modelVersion\": \"gemini-2.5-flash\",\"responseId\": \"KbsUaZ_aC72vnsEPyNaRiAk\"}\r\n\r\n"
-    headers: {}
-    status: 200 OK
-    code: 200
-    duration: 753.598125ms
+    - id: 0
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: generativelanguage.googleapis.com
+        body: |
+            {"contents":[{"parts":[{"text":"You are a knowledgeable assistant that helps users with various tasks.\nBe helpful, accurate, and concise in your responses.\n"}],"role":"user"},{"parts":[{"text":"What's 2+2?"}],"role":"user"}],"generationConfig":{"thinkingConfig":{"includeThoughts":true,"thinkingBudget":-1}}}
+        form:
+            alt:
+                - sse
+        url: https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse
+        method: POST
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        body: "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"**Calculating the Answer Directly**\\n\\nI'm focused on providing the direct answer to this arithmetic question. There's no need for complex reasoning or exploration; simplicity is key here. The emphasis is purely on delivering the correct response as efficiently as possible. I'm streamlining my process to get this result out.\\n\\n\\n\",\"thought\": true}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 35,\"totalTokenCount\": 51,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 35}],\"thoughtsTokenCount\": 16},\"modelVersion\": \"gemini-2.5-flash\",\"responseId\": \"-qRqaanCMLmfkdUPsYTm6AI\"}\r\n\r\ndata: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"4\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 35,\"totalTokenCount\": 51,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 35}],\"thoughtsTokenCount\": 16},\"modelVersion\": \"gemini-2.5-flash\",\"responseId\": \"-qRqaanCMLmfkdUPsYTm6AI\"}\r\n\r\n"
+        headers: {}
+        status: 200 OK
+        code: 200
+        duration: 946.481458ms

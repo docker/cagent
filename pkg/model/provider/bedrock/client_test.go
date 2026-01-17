@@ -770,7 +770,7 @@ func TestBuildInferenceConfig_DisablesTempTopPWhenThinkingEnabled(t *testing.T) 
 	assert.Equal(t, int32(64000), *cfg.MaxTokens)
 }
 
-func TestBuildInferenceConfig_SetsTempTopPWhenThinkingDisabled(t *testing.T) {
+func TestBuildInferenceConfig_SetsTempTopPWhenThinkingNotConfigured(t *testing.T) {
 	t.Parallel()
 
 	temp := 0.7
