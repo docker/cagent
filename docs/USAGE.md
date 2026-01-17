@@ -614,12 +614,12 @@ models:
       speculative_acceptance_rate: 0.8         # Acceptance rate threshold
 ```
 
-All three speculative decoding options are passed to `docker model configure` as flags:
-- `speculative_draft_model` → `--speculative-draft-model`
-- `speculative_num_tokens` → `--speculative-num-tokens`
-- `speculative_acceptance_rate` → `--speculative-acceptance-rate`
+All three speculative decoding options are sent to Model Runner via its internal `POST /engines/_configure` API endpoint:
+- `speculative_draft_model` → `speculative.draft_model`
+- `speculative_num_tokens` → `speculative.num_tokens`
+- `speculative_acceptance_rate` → `speculative.min_acceptance_rate`
 
-These options work alongside `max_tokens` (which sets `--context-size`) and `runtime_flags`.
+These options work alongside `max_tokens` (which sets `context-size`) and `runtime_flags`.
 
 ##### Troubleshooting:
 

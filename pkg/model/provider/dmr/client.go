@@ -35,10 +35,30 @@ import (
 )
 
 const (
+	// configureTimeout is the timeout for the model configure HTTP request.
+	// This is kept short to avoid stalling client creation.
+	configureTimeout = 10 * time.Second
+
+	// connectivityTimeout is the timeout for testing DMR endpoint connectivity.
+	// This is kept short to quickly detect unreachable endpoints and try fallbacks.
+	connectivityTimeout = 2 * time.Second
+)
+
+const (
 	// dmrInferencePrefix mirrors github.com/docker/model-runner/pkg/inference.InferencePrefix.
 	dmrInferencePrefix = "/engines"
 	// dmrExperimentalEndpointsPrefix mirrors github.com/docker/model-runner/pkg/inference.ExperimentalEndpointsPrefix.
 	dmrExperimentalEndpointsPrefix = "/exp/vDD4.40"
+
+	// dmrDefaultPort is the default port for Docker Model Runner.
+	dmrDefaultPort = "12434"
+
+	// Docker Desktop internal hostnames and fallback IPs for cross-platform support.
+	// These are tried in order when the primary endpoint is unreachable.
+	dmrModelRunnerInternal = "model-runner.docker.internal" // Docker Desktop's model-runner service
+	dmrHostDockerInternal  = "host.docker.internal"         // Docker Desktop's host access (macOS/Windows/Linux Desktop)
+	dmrDockerBridgeGateway = "172.17.0.1"                   // Default Docker bridge gateway (Linux Docker CE)
+	dmrLocalhost           = "127.0.0.1"                    // Localhost fallback
 )
 
 // Client represents an DMR client wrapper
@@ -86,12 +106,45 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, opts ...options.Opt
 
 	baseURL, clientOptions, httpClient := resolveDMRBaseURL(cfg, endpoint)
 
-	clientOptions = append(clientOptions, option.WithBaseURL(baseURL), option.WithAPIKey("")) // DMR doesn't need auth
-
 	// Ensure we always have a non-nil HTTP client for both OpenAI adapter and direct HTTP calls (rerank).
 	if httpClient == nil {
 		httpClient = &http.Client{}
 	}
+
+	// Test connectivity to the resolved URL and try fallbacks if needed.
+	// Only attempt fallbacks when no explicit URL was configured (BaseURL or MODEL_RUNNER_HOST).
+	if cfg.BaseURL == "" && os.Getenv("MODEL_RUNNER_HOST") == "" {
+		if !testDMRConnectivity(ctx, httpClient, baseURL) {
+			slog.Debug("DMR primary endpoint unreachable, trying fallbacks", "primary_url", baseURL)
+
+			// Try fallback URLs in order (Docker Desktop internal hosts, bridge gateway, localhost)
+			fallbackURLs := getDMRFallbackURLs()
+			foundFallback := false
+			for _, fallbackURL := range fallbackURLs {
+				if fallbackURL == baseURL {
+					continue // Skip if same as primary
+				}
+				slog.Debug("DMR trying fallback endpoint", "url", fallbackURL)
+				if testDMRConnectivity(ctx, httpClient, fallbackURL) {
+					slog.Info("DMR using fallback endpoint", "fallback_url", fallbackURL, "original_url", baseURL)
+					baseURL = fallbackURL
+					// Reset client options since we're using a different URL (no Unix socket needed for HTTP endpoints)
+					clientOptions = nil
+					foundFallback = true
+					break
+				}
+			}
+			if !foundFallback {
+				slog.Debug("DMR all fallback endpoints unreachable, continuing with original URL", "original_url", baseURL)
+			}
+		} else {
+			slog.Debug("DMR primary endpoint reachable", "url", baseURL)
+		}
+	} else {
+		slog.Debug("DMR using explicitly configured URL", "url", baseURL)
+	}
+
+	clientOptions = append(clientOptions, option.WithBaseURL(baseURL), option.WithAPIKey("")) // DMR doesn't need auth
 
 	// Build runtime flags from ModelConfig and engine
 	contextSize, providerRuntimeFlags, specOpts := parseDMRProviderOpts(cfg)
@@ -104,8 +157,8 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, opts ...options.Opt
 	// Skip model configuration when generating titles to avoid reconfiguring the model
 	// with different settings (e.g., smaller max_tokens) that would affect the main agent.
 	if !globalOptions.GeneratingTitle() {
-		if err := configureDockerModel(ctx, cfg.Model, contextSize, finalFlags, specOpts); err != nil {
-			slog.Debug("docker model configure skipped or failed", "error", err)
+		if err := configureModel(ctx, httpClient, baseURL, cfg.Model, contextSize, finalFlags, specOpts); err != nil {
+			slog.Debug("model configure via API skipped or failed", "error", err)
 		}
 	}
 
@@ -125,6 +178,48 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, opts ...options.Opt
 func inContainer() bool {
 	finfo, err := os.Stat("/.dockerenv")
 	return err == nil && finfo.Mode().IsRegular()
+}
+
+// testDMRConnectivity performs a quick health check against a DMR endpoint.
+// It returns true if the endpoint is reachable and responds within the timeout.
+func testDMRConnectivity(ctx context.Context, httpClient *http.Client, baseURL string) bool {
+	// Build a simple health check URL - try the models endpoint which should always exist
+	healthURL := strings.TrimSuffix(baseURL, "/") + "/models"
+
+	ctx, cancel := context.WithTimeout(ctx, connectivityTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, healthURL, http.NoBody)
+	if err != nil {
+		slog.Debug("DMR connectivity check: failed to create request", "url", healthURL, "error", err)
+		return false
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		slog.Debug("DMR connectivity check: request failed", "url", healthURL, "error", err)
+		return false
+	}
+	defer resp.Body.Close()
+
+	// Any response (even 4xx/5xx) means the server is reachable
+	slog.Debug("DMR connectivity check: success", "url", healthURL, "status", resp.StatusCode)
+	return true
+}
+
+// getDMRFallbackURLs returns a list of fallback URLs to try for DMR connectivity.
+// The order is chosen to maximize compatibility across platforms:
+// 1. model-runner.docker.internal - Docker Desktop's integrated model-runner
+// 2. host.docker.internal - Docker Desktop's host access (works on macOS/Windows/Linux Desktop)
+// 3. 172.17.0.1 - Default Docker bridge gateway (Linux Docker CE)
+// 4. 127.0.0.1 - Localhost (when running directly on host)
+func getDMRFallbackURLs() []string {
+	return []string{
+		fmt.Sprintf("http://%s%s/v1/", dmrModelRunnerInternal, dmrInferencePrefix),
+		fmt.Sprintf("http://%s:%s%s/v1/", dmrHostDockerInternal, dmrDefaultPort, dmrInferencePrefix),
+		fmt.Sprintf("http://%s:%s%s/v1/", dmrDockerBridgeGateway, dmrDefaultPort, dmrInferencePrefix),
+		fmt.Sprintf("http://%s:%s%s/v1/", dmrLocalhost, dmrDefaultPort, dmrInferencePrefix),
+	}
 }
 
 // resolveDMRBaseURL determines the correct base URL and HTTP options to talk to
@@ -920,45 +1015,121 @@ func modelExists(ctx context.Context, model string) bool {
 	return true
 }
 
-func configureDockerModel(ctx context.Context, model string, contextSize *int64, runtimeFlags []string, specOpts *speculativeDecodingOpts) error {
-	args := buildDockerModelConfigureArgs(model, contextSize, runtimeFlags, specOpts)
+// configureRequest mirrors the model-runner's scheduling.ConfigureRequest structure.
+// It specifies per-model runtime configuration options sent via POST /engines/_configure.
+type configureRequest struct {
+	Model        string                      `json:"model"`
+	ContextSize  *int32                      `json:"context-size,omitempty"`
+	RuntimeFlags []string                    `json:"runtime-flags,omitempty"`
+	Speculative  *speculativeDecodingRequest `json:"speculative,omitempty"`
+}
 
-	cmd := exec.CommandContext(ctx, "docker", args...)
-	slog.Debug("Running docker model configure", "model", model, "args", args)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return errors.New(strings.TrimSpace(stderr.String()))
+// speculativeDecodingRequest mirrors model-runner's inference.SpeculativeDecodingConfig.
+type speculativeDecodingRequest struct {
+	DraftModel        string  `json:"draft_model,omitempty"`
+	NumTokens         int     `json:"num_tokens,omitempty"`
+	MinAcceptanceRate float64 `json:"min_acceptance_rate,omitempty"`
+}
+
+// configureModel sends model configuration to Model Runner via POST /engines/_configure.
+// This replaces the previous approach of shelling out to `docker model configure`.
+func configureModel(ctx context.Context, httpClient *http.Client, baseURL, model string, contextSize *int64, runtimeFlags []string, specOpts *speculativeDecodingOpts) error {
+	if httpClient == nil {
+		httpClient = &http.Client{}
 	}
-	slog.Debug("docker model configure completed", "model", model)
+
+	configureURL := buildConfigureURL(baseURL)
+	reqBody := buildConfigureRequest(model, contextSize, runtimeFlags, specOpts)
+
+	reqData, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal configure request: %w", err)
+	}
+
+	// Use a timeout context to avoid blocking client creation indefinitely
+	ctx, cancel := context.WithTimeout(ctx, configureTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, configureURL, bytes.NewReader(reqData))
+	if err != nil {
+		return fmt.Errorf("failed to create configure request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	slog.Debug("Sending model configure request via API",
+		"model", model,
+		"url", configureURL,
+		"context_size", contextSize,
+		"runtime_flags", runtimeFlags,
+		"speculative_opts", specOpts)
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("configure request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Model Runner returns 202 Accepted on success
+	if resp.StatusCode != http.StatusAccepted {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("configure request failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	slog.Debug("Model configure via API completed", "model", model)
 	return nil
 }
 
-// buildDockerModelConfigureArgs returns the argument vector passed to `docker` for model configuration.
-// It formats context size, speculative decoding options, and runtime flags consistently with the CLI contract.
-func buildDockerModelConfigureArgs(model string, contextSize *int64, runtimeFlags []string, specOpts *speculativeDecodingOpts) []string {
-	args := []string{"model", "configure"}
+// buildConfigureURL derives the /engines/_configure endpoint URL from the OpenAI base URL.
+// It handles various URL formats:
+//   - http://host:port/engines/v1/ → http://host:port/engines/_configure
+//   - http://_/exp/vDD4.40/engines/v1 → http://_/exp/vDD4.40/engines/_configure
+//   - http://host:port/engines/llama.cpp/v1/ → http://host:port/engines/llama.cpp/_configure
+func buildConfigureURL(baseURL string) string {
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		// Fallback: just strip /v1/ suffix and append /_configure
+		baseURL = strings.TrimSuffix(baseURL, "/")
+		baseURL = strings.TrimSuffix(baseURL, "/v1")
+		return baseURL + "/_configure"
+	}
+
+	path := u.Path
+
+	// Remove trailing slash for consistent handling
+	path = strings.TrimSuffix(path, "/")
+
+	// Remove /v1 suffix to get to the engines path
+	path = strings.TrimSuffix(path, "/v1")
+
+	// Append /_configure
+	path += "/_configure"
+
+	u.Path = path
+	return u.String()
+}
+
+// buildConfigureRequest constructs the JSON request body for POST /engines/_configure.
+func buildConfigureRequest(model string, contextSize *int64, runtimeFlags []string, specOpts *speculativeDecodingOpts) configureRequest {
+	req := configureRequest{
+		Model:        model,
+		RuntimeFlags: runtimeFlags,
+	}
+
+	// Convert int64 context size to int32 as expected by model-runner
 	if contextSize != nil {
-		args = append(args, "--context-size="+strconv.FormatInt(*contextSize, 10))
+		cs := int32(*contextSize)
+		req.ContextSize = &cs
 	}
+
 	if specOpts != nil {
-		if specOpts.draftModel != "" {
-			args = append(args, "--speculative-draft-model="+specOpts.draftModel)
-		}
-		if specOpts.numTokens > 0 {
-			args = append(args, "--speculative-num-tokens="+strconv.Itoa(specOpts.numTokens))
-		}
-		if specOpts.acceptanceRate > 0 {
-			args = append(args, "--speculative-min-acceptance-rate="+strconv.FormatFloat(specOpts.acceptanceRate, 'f', -1, 64))
+		req.Speculative = &speculativeDecodingRequest{
+			DraftModel:        specOpts.draftModel,
+			NumTokens:         specOpts.numTokens,
+			MinAcceptanceRate: specOpts.acceptanceRate,
 		}
 	}
-	args = append(args, model)
-	if len(runtimeFlags) > 0 {
-		args = append(args, "--")
-		args = append(args, runtimeFlags...)
-	}
-	return args
+
+	return req
 }
 
 func getDockerModelEndpointAndEngine(ctx context.Context) (endpoint, engine string, err error) {
@@ -1025,7 +1196,7 @@ func buildRuntimeFlagsFromModelConfig(engine string, cfg *latest.ModelConfig) []
 		if cfg.PresencePenalty != nil {
 			flags = append(flags, "--presence-penalty", strconv.FormatFloat(*cfg.PresencePenalty, 'f', -1, 64))
 		}
-		// Note: Context size already handled via --context-size during `docker model configure`
+		// Note: Context size already handled via context-size field in the configure API request
 	default:
 		// Unknown engine: no flags
 	}
