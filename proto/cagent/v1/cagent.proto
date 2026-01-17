@@ -418,8 +418,7 @@ message AgentDetails {
 // TeamInfoEvent is sent when team information is available.
 message TeamInfoEvent {
   repeated AgentDetails available_agents = 1;
-  string current_agent = 2;
-  string agent_name = 3;
+  string agent_name = 2;
 }
 
 // AgentSwitchingEvent is sent when agent switching occurs.

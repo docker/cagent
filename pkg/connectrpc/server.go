@@ -628,7 +628,6 @@ func runtimeEventToProto(event runtime.Event) *cagentv1.Event {
 			Event: &cagentv1.Event_TeamInfo{
 				TeamInfo: &cagentv1.TeamInfoEvent{
 					AvailableAgents: agents,
-					CurrentAgent:    e.CurrentAgent,
 					AgentName:       e.AgentName,
 				},
 			},

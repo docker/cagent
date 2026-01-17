@@ -194,8 +194,8 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case *runtime.TeamInfoEvent:
 		// Store team info for agent switching shortcuts
 		a.availableAgents = msg.AvailableAgents
-		a.currentAgent = msg.CurrentAgent
-		a.sessionState.SetCurrentAgent(msg.CurrentAgent)
+		a.currentAgent = msg.AgentName
+		a.sessionState.SetCurrentAgent(msg.AgentName)
 		// Forward to chat page
 		updated, cmd := a.chatPage.Update(msg)
 		a.chatPage = updated.(chat.Page)

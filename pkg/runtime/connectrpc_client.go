@@ -440,7 +440,6 @@ func (c *ConnectRPCClient) convertProtoEventToRuntimeEvent(e *cagentv1.Event) Ev
 		return &TeamInfoEvent{
 			Type:            "team_info",
 			AvailableAgents: agents,
-			CurrentAgent:    ev.TeamInfo.CurrentAgent,
 			AgentContext:    AgentContext{AgentName: ev.TeamInfo.AgentName},
 		}
 

@@ -3559,8 +3559,7 @@ func (x *AgentDetails) GetModel() string {
 type TeamInfoEvent struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	AvailableAgents []*AgentDetails        `protobuf:"bytes,1,rep,name=available_agents,json=availableAgents,proto3" json:"available_agents,omitempty"`
-	CurrentAgent    string                 `protobuf:"bytes,2,opt,name=current_agent,json=currentAgent,proto3" json:"current_agent,omitempty"`
-	AgentName       string                 `protobuf:"bytes,3,opt,name=agent_name,json=agentName,proto3" json:"agent_name,omitempty"`
+	AgentName       string                 `protobuf:"bytes,2,opt,name=agent_name,json=agentName,proto3" json:"agent_name,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -3600,13 +3599,6 @@ func (x *TeamInfoEvent) GetAvailableAgents() []*AgentDetails {
 		return x.AvailableAgents
 	}
 	return nil
-}
-
-func (x *TeamInfoEvent) GetCurrentAgent() string {
-	if x != nil {
-		return x.CurrentAgent
-	}
-	return ""
 }
 
 func (x *TeamInfoEvent) GetAgentName() string {
@@ -4406,12 +4398,11 @@ const file_cagent_v1_cagent_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x12\x1a\n" +
 	"\bprovider\x18\x03 \x01(\tR\bprovider\x12\x14\n" +
-	"\x05model\x18\x04 \x01(\tR\x05model\"\x97\x01\n" +
+	"\x05model\x18\x04 \x01(\tR\x05model\"r\n" +
 	"\rTeamInfoEvent\x12B\n" +
-	"\x10available_agents\x18\x01 \x03(\v2\x17.cagent.v1.AgentDetailsR\x0favailableAgents\x12#\n" +
-	"\rcurrent_agent\x18\x02 \x01(\tR\fcurrentAgent\x12\x1d\n" +
+	"\x10available_agents\x18\x01 \x03(\v2\x17.cagent.v1.AgentDetailsR\x0favailableAgents\x12\x1d\n" +
 	"\n" +
-	"agent_name\x18\x03 \x01(\tR\tagentName\"\x8c\x01\n" +
+	"agent_name\x18\x02 \x01(\tR\tagentName\"\x8c\x01\n" +
 	"\x13AgentSwitchingEvent\x12\x1c\n" +
 	"\tswitching\x18\x01 \x01(\bR\tswitching\x12\x1d\n" +
 	"\n" +

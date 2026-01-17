@@ -381,7 +381,6 @@ type AgentDetails struct {
 type TeamInfoEvent struct {
 	Type            string         `json:"type"`
 	AvailableAgents []AgentDetails `json:"available_agents"`
-	CurrentAgent    string         `json:"current_agent"`
 	AgentContext
 }
 
@@ -389,7 +388,6 @@ func TeamInfo(availableAgents []AgentDetails, currentAgent string) Event {
 	return &TeamInfoEvent{
 		Type:            "team_info",
 		AvailableAgents: availableAgents,
-		CurrentAgent:    currentAgent,
 		AgentContext:    AgentContext{AgentName: currentAgent},
 	}
 }
