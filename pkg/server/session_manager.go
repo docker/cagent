@@ -135,7 +135,6 @@ func (sm *SessionManager) RunSession(
 	sessionID, agentFilename, currentAgent string,
 	messages []api.Message,
 ) (<-chan runtime.Event, error) {
-
 	sm.mux.Lock()
 
 	// Load persisted session
@@ -146,7 +145,7 @@ func (sm *SessionManager) RunSession(
 	}
 
 	// Mark execution start (observability only)
-	sess.Metrics = session.SessionMetrics{}
+	sess.Metrics = session.Metrics{}
 	sess.Metrics.StartedAt = time.Now()
 
 	// Clone runtime config and inherit working dir

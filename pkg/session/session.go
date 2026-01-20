@@ -45,10 +45,10 @@ func (si *Item) IsSubSession() bool {
 	return si.SubSession != nil
 }
 
-// SessionMetrics holds runtime-level metrics collected during a session.
+// Metrics holds runtime-level metrics collected during a session.
 // These metrics are not persisted and are intended for observability,
 // debugging, and UX purposes.
-type SessionMetrics struct {
+type Metrics struct {
 	// StartedAt is the time when the session execution began.
 	StartedAt time.Time
 
@@ -70,13 +70,12 @@ type SessionMetrics struct {
 
 // Reset clears all metrics.
 // MUST be called at the beginning of each RunSession execution.
-func (m *SessionMetrics) Reset() {
-	*m = SessionMetrics{}
+func (m *Metrics) Reset() {
+	*m = Metrics{}
 }
 
 // Session represents the agent's state including conversation history and variables
 type Session struct {
-
 	// ID is the unique identifier for the session
 	ID string `json:"id"`
 
@@ -90,7 +89,7 @@ type Session struct {
 	CreatedAt time.Time `json:"created_at"`
 
 	// Metrics holds performance and interaction metrics for this session
-	Metrics SessionMetrics `json:"-"`
+	Metrics Metrics `json:"-"`
 
 	// ToolsApproved is a flag to indicate if the tools have been approved
 	ToolsApproved bool `json:"tools_approved"`
