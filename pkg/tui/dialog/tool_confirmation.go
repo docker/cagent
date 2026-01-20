@@ -117,13 +117,15 @@ func NewToolConfirmationDialog(msg *runtime.ToolCallConfirmationEvent, sessionSt
 
 // Init initializes the tool confirmation dialog
 func (d *toolConfirmationDialog) Init() tea.Cmd {
-	defer d.sessionState.SetInConfirmationDialog()
+	undo := d.sessionState.SetInConfirmationDialog()
+	defer undo()
 	return d.scrollView.Init()
 }
 
 // Update handles messages for the tool confirmation dialog
 func (d *toolConfirmationDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
-	defer d.sessionState.SetInConfirmationDialog()
+	undo := d.sessionState.SetInConfirmationDialog()
+	defer undo()
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		cmd := d.SetSize(msg.Width, msg.Height)
@@ -172,7 +174,8 @@ func (d *toolConfirmationDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 
 // View renders the tool confirmation dialog
 func (d *toolConfirmationDialog) View() string {
-	defer d.sessionState.SetInConfirmationDialog()
+	undo := d.sessionState.SetInConfirmationDialog()
+	defer undo()
 	dialogWidth := d.Width() * 70 / 100
 
 	// Content width (accounting for padding and borders)
