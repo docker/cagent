@@ -130,29 +130,48 @@ func (sm *SessionManager) DeleteSession(ctx context.Context, sessionID string) e
 }
 
 // RunSession runs a session with the given messages.
-func (sm *SessionManager) RunSession(ctx context.Context, sessionID, agentFilename, currentAgent string, messages []api.Message) (<-chan runtime.Event, error) {
+func (sm *SessionManager) RunSession(
+	ctx context.Context,
+	sessionID, agentFilename, currentAgent string,
+	messages []api.Message,
+) (<-chan runtime.Event, error) {
+
 	sm.mux.Lock()
-	defer sm.mux.Unlock()
+
+	// Load persisted session
 	sess, err := sm.sessionStore.GetSession(ctx, sessionID)
 	if err != nil {
+		sm.mux.Unlock()
 		return nil, err
 	}
 
+	// Mark execution start (observability only)
+	sess.Metrics = session.SessionMetrics{}
+	sess.Metrics.StartedAt = time.Now()
+
+	// Clone runtime config and inherit working dir
 	rc := sm.runConfig.Clone()
 	rc.WorkingDir = sess.WorkingDir
+
+	// Append user messages and count them
 	for _, msg := range messages {
 		sess.AddMessage(session.UserMessage(msg.Content, msg.MultiContent...))
+		sess.Metrics.UserMessages++
 	}
 
 	if err := sm.sessionStore.UpdateSession(ctx, sess); err != nil {
+		sm.mux.Unlock()
 		return nil, err
 	}
 
+	// Get or create runtime for this session
 	runtimeSession, exists := sm.runtimeSessions.Load(sessionID)
 	streamCtx, cancel := context.WithCancel(ctx)
+
 	if !exists {
 		rt, err := sm.runtimeForSession(ctx, sess, agentFilename, currentAgent, rc)
 		if err != nil {
+			sm.mux.Unlock()
 			cancel()
 			return nil, err
 		}
@@ -163,22 +182,51 @@ func (sm *SessionManager) RunSession(ctx context.Context, sessionID, agentFilena
 		sm.runtimeSessions.Store(sessionID, runtimeSession)
 	}
 
+	sm.mux.Unlock()
+
 	streamChan := make(chan runtime.Event)
 
 	go func() {
-		stream := runtimeSession.runtime.RunStream(streamCtx, sess)
 		defer cancel()
 		defer close(streamChan)
+
+		stream := runtimeSession.runtime.RunStream(streamCtx, sess)
+
 		for event := range stream {
 			if streamCtx.Err() != nil {
 				return
 			}
+
+			// Collect session-level observability metrics
+			if e, ok := event.(interface{ GetType() string }); ok {
+				switch e.GetType() {
+				case "assistant_message":
+					sess.Metrics.AssistantMessages++
+				case "tool_call":
+					sess.Metrics.ToolCalls++
+				case "tool_error":
+					sess.Metrics.ToolErrors++
+				}
+			}
+
 			streamChan <- event
 		}
 
-		if err := sm.sessionStore.UpdateSession(ctx, sess); err != nil {
-			return
-		}
+		// Mark execution end
+		sess.Metrics.EndedAt = time.Now()
+
+		streamChan <- runtime.TokenUsage(
+			sess.ID,
+			currentAgent,
+			sess.InputTokens,
+			sess.OutputTokens,
+			0,
+			0,
+			sess.Cost,
+		)
+
+		// Persist updated session state (metrics are ephemeral)
+		_ = sm.sessionStore.UpdateSession(ctx, sess)
 	}()
 
 	return streamChan, nil

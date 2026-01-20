@@ -349,11 +349,14 @@ func (c *ConnectRPCClient) convertProtoEventToRuntimeEvent(e *cagentv1.Event) Ev
 				LastMessage:   convertProtoMessageUsage(ev.TokenUsage.Usage.LastMessage),
 			}
 		}
+
 		return &TokenUsageEvent{
-			Type:         "token_usage",
-			SessionID:    ev.TokenUsage.SessionId,
-			Usage:        usage,
-			AgentContext: AgentContext{AgentName: ev.TokenUsage.AgentName},
+			Type:      "token_usage",
+			SessionID: ev.TokenUsage.SessionId,
+			Usage:     usage,
+			AgentContext: AgentContext{
+				AgentName: ev.TokenUsage.AgentName,
+			},
 		}
 
 	case *cagentv1.Event_SessionTitle:

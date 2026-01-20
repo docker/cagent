@@ -45,8 +45,38 @@ func (si *Item) IsSubSession() bool {
 	return si.SubSession != nil
 }
 
+// SessionMetrics holds runtime-level metrics collected during a session.
+// These metrics are not persisted and are intended for observability,
+// debugging, and UX purposes.
+type SessionMetrics struct {
+	// StartedAt is the time when the session execution began.
+	StartedAt time.Time
+
+	// EndedAt is the time when the session execution finished.
+	EndedAt time.Time
+
+	// UserMessages is the number of user messages sent during the session.
+	UserMessages int
+
+	// AssistantMessages is the number of assistant messages generated.
+	AssistantMessages int
+
+	// ToolCalls is the total number of tool invocations.
+	ToolCalls int
+
+	// ToolErrors is the number of failed tool invocations.
+	ToolErrors int
+}
+
+// Reset clears all metrics.
+// MUST be called at the beginning of each RunSession execution.
+func (m *SessionMetrics) Reset() {
+	*m = SessionMetrics{}
+}
+
 // Session represents the agent's state including conversation history and variables
 type Session struct {
+
 	// ID is the unique identifier for the session
 	ID string `json:"id"`
 
@@ -59,13 +89,13 @@ type Session struct {
 	// CreatedAt is the time the session was created
 	CreatedAt time.Time `json:"created_at"`
 
+	// Metrics holds performance and interaction metrics for this session
+	Metrics SessionMetrics `json:"-"`
+
 	// ToolsApproved is a flag to indicate if the tools have been approved
 	ToolsApproved bool `json:"tools_approved"`
 
 	// Thinking is a session-level flag to enable thinking/interleaved thinking
-	// defaults for all providers. When false, providers will not apply auto-thinking budgets
-	// or interleaved thinking, regardless of model config. This is controlled by the /think
-	// command in the TUI. Defaults to true (thinking enabled).
 	Thinking bool `json:"thinking"`
 
 	// HideToolResults is a flag to indicate if tool results should be hidden
@@ -94,7 +124,6 @@ type Session struct {
 
 	// AgentModelOverrides stores per-agent model overrides for this session.
 	// Key is the agent name, value is the model reference (e.g., "openai/gpt-4o" or a named model from config).
-	// When a session is loaded, these overrides are reapplied to the runtime.
 	AgentModelOverrides map[string]string `json:"agent_model_overrides,omitempty"`
 
 	// CustomModelsUsed tracks custom models (provider/model format) used during this session.

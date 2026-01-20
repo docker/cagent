@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"cmp"
+	"time"
 
 	"github.com/docker/cagent/pkg/chat"
 	"github.com/docker/cagent/pkg/tools"
@@ -191,7 +192,12 @@ type TokenUsageEvent struct {
 	Type      string `json:"type"`
 	SessionID string `json:"session_id"`
 	Usage     *Usage `json:"usage"`
+
 	AgentContext
+}
+
+func (*TokenUsageEvent) GetType() string {
+	return "token_usage"
 }
 
 type Usage struct {
@@ -211,11 +217,29 @@ type MessageUsage struct {
 	Model string
 }
 
-func TokenUsage(sessionID, agentName string, inputTokens, outputTokens, contextLength, contextLimit int64, cost float64) Event {
-	return TokenUsageWithMessage(sessionID, agentName, inputTokens, outputTokens, contextLength, contextLimit, cost, nil)
+func TokenUsage(
+	sessionID, agentName string,
+	inputTokens, outputTokens, contextLength, contextLimit int64,
+	cost float64,
+) Event {
+	return TokenUsageWithMessage(
+		sessionID,
+		agentName,
+		inputTokens,
+		outputTokens,
+		contextLength,
+		contextLimit,
+		cost,
+		nil,
+	)
 }
 
-func TokenUsageWithMessage(sessionID, agentName string, inputTokens, outputTokens, contextLength, contextLimit int64, cost float64, msgUsage *MessageUsage) Event {
+func TokenUsageWithMessage(
+	sessionID, agentName string,
+	inputTokens, outputTokens, contextLength, contextLimit int64,
+	cost float64,
+	msgUsage *MessageUsage,
+) Event {
 	return &TokenUsageEvent{
 		Type:      "token_usage",
 		SessionID: sessionID,
@@ -229,13 +253,6 @@ func TokenUsageWithMessage(sessionID, agentName string, inputTokens, outputToken
 		},
 		AgentContext: AgentContext{AgentName: agentName},
 	}
-}
-
-type SessionTitleEvent struct {
-	Type      string `json:"type"`
-	SessionID string `json:"session_id"`
-	Title     string `json:"title"`
-	AgentContext
 }
 
 func SessionTitle(sessionID, title string) Event {
@@ -522,4 +539,34 @@ func HookBlocked(toolCall tools.ToolCall, toolDefinition tools.Tool, message, ag
 		Message:        message,
 		AgentContext:   AgentContext{AgentName: agentName},
 	}
+}
+
+type SessionMetricsEvent struct {
+	Type string `json:"type"` // "session_metrics"
+
+	SessionID string `json:"session_id"`
+
+	UserMessages      int `json:"user_messages"`
+	AssistantMessages int `json:"assistant_messages"`
+	ToolCalls         int `json:"tool_calls"`
+	ToolErrors        int `json:"tool_errors"`
+
+	StartedAt time.Time `json:"started_at"`
+	EndedAt   time.Time `json:"ended_at"`
+}
+
+func (*SessionMetricsEvent) GetType() string {
+	return "session_metrics"
+}
+
+type SessionTitleEvent struct {
+	Type      string `json:"type"`
+	SessionID string `json:"session_id"`
+	Title     string `json:"title"`
+
+	AgentContext
+}
+
+func (*SessionTitleEvent) GetType() string {
+	return "session_title"
 }
