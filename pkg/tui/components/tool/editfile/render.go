@@ -1,9 +1,12 @@
 package editfile
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -44,12 +47,13 @@ type linePair struct {
 	newLineNum int
 }
 
-func renderEditFile(toolCall tools.ToolCall, width int, splitView bool, toolStatus types.ToolStatus) string {
-	var args builtin.EditFileArgs
-	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
-		return ""
-	}
+type editFileRenderer interface {
+	Render(args builtin.EditFileArgs, width int, splitView bool, toolStatus types.ToolStatus) string
+}
 
+type builtinEditFileRenderer struct{}
+
+func (r *builtinEditFileRenderer) Render(args builtin.EditFileArgs, width int, splitView bool, toolStatus types.ToolStatus) string {
 	var output strings.Builder
 	for i, edit := range args.Edits {
 		if i > 0 {
@@ -69,6 +73,88 @@ func renderEditFile(toolCall tools.ToolCall, width int, splitView bool, toolStat
 	}
 
 	return output.String()
+}
+
+type vscodeLikeRenderer struct {
+	externalTool string
+}
+
+func externalDiffSignature(externalTool, path string, oldContent, newContent []byte) string {
+	sha := sha256.New()
+	sha.Write([]byte(externalTool))
+	sha.Write([]byte(path))
+	sha.Write(oldContent)
+	sha.Write(newContent)
+	return fmt.Sprintf("%x", sha.Sum(nil))
+}
+
+var activeDiffs sync.Map
+
+func ensureExternalDiffShownActive(externalTool, path, diffSignature string, newContent []byte) {
+	do := func() {
+		defer activeDiffs.Delete(diffSignature)
+		tempDir, err := os.MkdirTemp("", "cagent-editfile-*")
+		if err != nil {
+			slog.Warn("Error creating temp dir for external diff", "error", err)
+			return
+		}
+		defer os.RemoveAll(tempDir)
+
+		tempFilePath := filepath.Join(tempDir, filepath.Base(path))
+
+		if err := os.WriteFile(tempFilePath, newContent, 0o644); err != nil {
+			slog.Warn("Error writing temp file for external diff", "error", err)
+			return
+		}
+		// wd is for diff + wait for editor to close. This makes sure we delete the temp dir only after editing is done.
+		if err := exec.Command(externalTool, "-wd", path, tempFilePath).Run(); err != nil {
+			slog.Warn("Error running external diff tool", "error", err)
+		}
+	}
+	todo, loaded := activeDiffs.LoadOrStore(diffSignature, do)
+	// if already loaded, do nothing else, start the diff process
+	if !loaded {
+		go todo.(func())()
+	}
+}
+
+func (r *vscodeLikeRenderer) Render(args builtin.EditFileArgs, width int, splitView bool, toolStatus types.ToolStatus) string {
+	// assumes we are printing confirmation
+
+	// generate a file with all edits applied
+	originalContent, err := os.ReadFile(args.Path)
+	if err != nil {
+		return styles.CenterStyle.Render(fmt.Sprintf("Error reading original file: %v", err))
+	}
+	modifiedContent := string(originalContent)
+	for _, edit := range args.Edits {
+		modifiedContent = strings.Replace(modifiedContent, edit.OldText, edit.NewText, 1)
+	}
+
+	diffSignature := externalDiffSignature(r.externalTool, args.Path, originalContent, []byte(modifiedContent))
+
+	ensureExternalDiffShownActive(r.externalTool, args.Path, diffSignature, []byte(modifiedContent))
+
+	return styles.CenterStyle.Render("Please review changes in your code editor")
+}
+
+func resolveEditFileRenderer(toolStatus types.ToolStatus, isInConfirmationDialog bool) editFileRenderer {
+	if toolStatus == types.ToolStatusConfirmation && isInConfirmationDialog && os.Getenv("TERM_PROGRAM") == "vscode" {
+		return &vscodeLikeRenderer{
+			externalTool: "code",
+		}
+	}
+	return &builtinEditFileRenderer{}
+}
+
+func renderEditFile(toolCall tools.ToolCall, width int, splitView bool, toolStatus types.ToolStatus, isInConfirmationDialog bool) string {
+	var args builtin.EditFileArgs
+	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
+		return ""
+	}
+
+	renderer := resolveEditFileRenderer(toolStatus, isInConfirmationDialog)
+	return renderer.Render(args, width, splitView, toolStatus)
 }
 
 func computeDiff(path, oldText, newText string, toolStatus types.ToolStatus) []*udiff.Hunk {

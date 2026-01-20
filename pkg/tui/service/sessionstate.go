@@ -16,9 +16,10 @@ type SessionState struct {
 	hideToolResults bool
 	sessionTitle    string
 
-	previousMessage  *types.Message
-	currentAgentName string
-	availableAgents  []runtime.AgentDetails
+	previousMessage      *types.Message
+	currentAgentName     string
+	availableAgents      []runtime.AgentDetails
+	inConfirmationDialog bool
 }
 
 func NewSessionState(s *session.Session) *SessionState {
@@ -107,4 +108,15 @@ func (s *SessionState) GetCurrentAgent() runtime.AgentDetails {
 	}
 
 	return runtime.AgentDetails{}
+}
+
+func (s *SessionState) InConfirmationDialog() bool {
+	return s.inConfirmationDialog
+}
+
+func (s *SessionState) SetInConfirmationDialog() func() {
+	s.inConfirmationDialog = true
+	return func() {
+		s.inConfirmationDialog = false
+	}
 }

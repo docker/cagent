@@ -34,7 +34,7 @@ func render(msg *types.Message, s spinner.Spinner, sessionState *service.Session
 		if msg.ToolCall.Function.Arguments != "" {
 			contentWidth := width - styles.ToolCallResult.GetHorizontalFrameSize()
 			content += "\n" + styles.ToolCallResult.Render(
-				renderEditFile(msg.ToolCall, contentWidth, sessionState.SplitDiffView(), msg.ToolStatus))
+				renderEditFile(msg.ToolCall, contentWidth, sessionState.SplitDiffView(), msg.ToolStatus, sessionState.InConfirmationDialog()))
 		}
 
 		if (msg.ToolStatus == types.ToolStatusError) && msg.Content != "" {
