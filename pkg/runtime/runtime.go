@@ -588,8 +588,30 @@ func (r *LocalRuntime) ResetStartupInfo() {
 	r.startupInfoEmitted = false
 }
 
-// EmitStartupInfo emits initial agent, team, and toolset information for immediate sidebar display
-func (r *LocalRuntime) EmitStartupInfo(ctx context.Context, events chan Event) {
+// eventSender is a helper function used to emit runtime events in a
+// context-aware way.
+//
+// It returns false if the context has been canceled, allowing callers
+// to abort further work early without duplicating select/ctx logic.
+//
+// This abstraction centralizes event emission semantics and ensures
+// consistent cancellation handling across runtime components.
+type eventSender func(Event) bool
+
+// EmitStartupInfo emits initial agent, team, and toolset information for
+// immediate sidebar display.
+//
+// This method is called once per runtime instance and is safe to call
+// multiple times (subsequent calls are no-ops).
+//
+// Responsibilities:
+//   - emit agent and team metadata immediately
+//   - surface agent warnings early
+//   - progressively emit tool discovery events (MCP startup may be slow)
+func (r *LocalRuntime) EmitStartupInfo(
+	ctx context.Context,
+	events chan Event,
+) {
 	// Prevent duplicate emissions
 	if r.startupInfoEmitted {
 		return
@@ -598,7 +620,7 @@ func (r *LocalRuntime) EmitStartupInfo(ctx context.Context, events chan Event) {
 
 	a := r.CurrentAgent()
 
-	// Helper to send events with context check
+	// Helper to send events with context cancellation handling
 	send := func(event Event) bool {
 		select {
 		case events <- event:
@@ -609,29 +631,50 @@ func (r *LocalRuntime) EmitStartupInfo(ctx context.Context, events chan Event) {
 	}
 
 	// Emit agent and team information immediately for fast sidebar display
-	if !send(AgentInfo(a.Name(), getAgentModelID(a), a.Description(), a.WelcomeMessage())) {
-		return
-	}
-	if !send(TeamInfo(r.agentDetailsFromTeam(), r.currentAgent)) {
+	if !send(AgentInfo(
+		a.Name(),
+		getAgentModelID(a),
+		a.Description(),
+		a.WelcomeMessage(),
+	)) {
 		return
 	}
 
-	// Emit agent warnings (if any) - these are quick
+	if !send(TeamInfo(
+		r.agentDetailsFromTeam(),
+		r.currentAgent,
+	)) {
+		return
+	}
+
+	// Emit agent warnings (if any)
 	r.emitAgentWarningsWithSend(a, send)
 
-	// Tool loading can be slow (MCP servers need to start)
-	// Emit progressive updates as each toolset loads
+	// Tool loading can be slow (e.g. MCP servers need to start).
+	// Emit progressive updates as each toolset loads.
 	r.emitToolsProgressively(ctx, a, send)
 }
 
-// emitToolsProgressively loads tools from each toolset and emits progress updates.
-// This allows the UI to show the tool count incrementally as each toolset loads,
-// with a spinner indicating that more tools may be coming.
-func (r *LocalRuntime) emitToolsProgressively(ctx context.Context, a *agent.Agent, events chan Event) {
+// emitToolsProgressively loads tools from each toolset and emits progress
+// updates.
+//
+// This allows the UI to show tool counts incrementally as toolsets are
+// initialized, with a spinner indicating that more tools may still arrive.
+//
+// Toolsets are processed in order and may include:
+//   - agent-defined toolsets (from YAML)
+//   - runtime-injected toolsets (e.g. MCP via ACP)
+//
+// Toolset startup failures are non-fatal and will be logged and skipped.
+func (r *LocalRuntime) emitToolsProgressively(
+	ctx context.Context,
+	a *agent.Agent,
+	send eventSender,
+) {
 	toolsets := r.allToolSets(a)
 	totalToolsets := len(toolsets)
 
-	// If no toolsets, emit final state immediately
+	// No toolsets: emit final state immediately
 	if totalToolsets == 0 {
 		send(ToolsetInfo(0, false, r.currentAgent))
 		return
@@ -642,42 +685,52 @@ func (r *LocalRuntime) emitToolsProgressively(ctx context.Context, a *agent.Agen
 		return
 	}
 
-	// Load tools from each toolset and emit progress
 	var totalTools int
+
 	for i, toolset := range toolsets {
-		// Check context before potentially slow operations
+		// Respect cancellation before potentially slow operations
 		if ctx.Err() != nil {
 			return
 		}
 
 		isLast := i == totalToolsets-1
 
-		// Start the toolset if needed
+		// Start toolset if required (e.g. MCP servers)
 		if startable, ok := toolset.(*agent.StartableToolSet); ok {
 			if !startable.IsStarted() {
 				if err := startable.Start(ctx); err != nil {
-					slog.Warn("Toolset start failed; skipping", "agent", a.Name(), "toolset", fmt.Sprintf("%T", startable.ToolSet), "error", err)
+					slog.Warn(
+						"Toolset start failed; skipping",
+						"agent", a.Name(),
+						"toolset", fmt.Sprintf("%T", startable.ToolSet),
+						"error", err,
+					)
 					continue
 				}
 			}
 		}
 
-		// Get tools from this toolset
+		// Retrieve tools from this toolset
 		ts, err := toolset.Tools(ctx)
 		if err != nil {
-			slog.Warn("Failed to get tools from toolset", "agent", a.Name(), "error", err)
+			slog.Warn(
+				"Failed to get tools from toolset",
+				"agent", a.Name(),
+				"toolset", fmt.Sprintf("%T", toolset),
+				"error", err,
+			)
 			continue
 		}
 
 		totalTools += len(ts)
 
-		// Emit progress update - still loading unless this is the last toolset
+		// Emit progress update; still loading unless this is the last toolset
 		if !send(ToolsetInfo(totalTools, !isLast, r.currentAgent)) {
 			return
 		}
 	}
 
-	// Emit final state (not loading)
+	// Emit final state (loading complete)
 	send(ToolsetInfo(totalTools, false, r.currentAgent))
 }
 
