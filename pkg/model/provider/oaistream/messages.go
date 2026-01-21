@@ -24,22 +24,9 @@ func (j JSONSchema) MarshalJSON() ([]byte, error) {
 }
 
 // ConvertMultiContent converts chat.MessagePart slices to OpenAI content parts.
+// This now handles file references properly by using the file-aware converter.
 func ConvertMultiContent(multiContent []chat.MessagePart) []openai.ChatCompletionContentPartUnionParam {
-	parts := make([]openai.ChatCompletionContentPartUnionParam, len(multiContent))
-	for i, part := range multiContent {
-		switch part.Type {
-		case chat.MessagePartTypeText:
-			parts[i] = openai.TextContentPart(part.Text)
-		case chat.MessagePartTypeImageURL:
-			if part.ImageURL != nil {
-				parts[i] = openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{
-					URL:    part.ImageURL.URL,
-					Detail: string(part.ImageURL.Detail),
-				})
-			}
-		}
-	}
-	return parts
+	return ConvertMultiContentWithFileSupport(multiContent)
 }
 
 // ConvertMessages converts chat.Message slices to OpenAI message params.

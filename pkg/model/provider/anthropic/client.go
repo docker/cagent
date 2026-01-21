@@ -232,7 +232,7 @@ func (c *Client) CreateChatCompletionStream(
 		return nil, err
 	}
 
-	converted := convertMessages(messages)
+	converted := convertMessages(ctx, messages)
 	// Preflight validation to ensure tool_use/tool_result sequencing is valid
 	if err := validateAnthropicSequencing(converted); err != nil {
 		slog.Warn("Invalid message sequencing for Anthropic detected, attempting self-repair", "error", err)
@@ -328,7 +328,7 @@ func (c *Client) CreateChatCompletionStream(
 	return ad, nil
 }
 
-func convertMessages(messages []chat.Message) []anthropic.MessageParam {
+func convertMessages(ctx context.Context, messages []chat.Message) []anthropic.MessageParam {
 	var anthropicMessages []anthropic.MessageParam
 	// Track whether the last appended assistant message included tool_use blocks
 	// so we can ensure the immediate next message is the grouped tool_result user message.
@@ -350,42 +350,9 @@ func convertMessages(messages []chat.Message) []anthropic.MessageParam {
 							contentBlocks = append(contentBlocks, anthropic.NewTextBlock(txt))
 						}
 					} else if part.Type == chat.MessagePartTypeImageURL && part.ImageURL != nil {
-						// Anthropic expects base64 image data
-						// Extract base64 data from data URL
-						if strings.HasPrefix(part.ImageURL.URL, "data:") {
-							parts := strings.SplitN(part.ImageURL.URL, ",", 2)
-							if len(parts) == 2 {
-								// Extract media type from data URL
-								mediaTypePart := parts[0]
-								base64Data := parts[1]
-
-								var mediaType string
-								switch {
-								case strings.Contains(mediaTypePart, "image/jpeg"):
-									mediaType = "image/jpeg"
-								case strings.Contains(mediaTypePart, "image/png"):
-									mediaType = "image/png"
-								case strings.Contains(mediaTypePart, "image/gif"):
-									mediaType = "image/gif"
-								case strings.Contains(mediaTypePart, "image/webp"):
-									mediaType = "image/webp"
-								default:
-									// Default to jpeg if not recognized
-									mediaType = "image/jpeg"
-								}
-
-								// Use SDK helper with proper typed source for better performance
-								// (avoids JSON marshal/unmarshal round trip)
-								contentBlocks = append(contentBlocks, anthropic.NewImageBlock(anthropic.Base64ImageSourceParam{
-									Data:      base64Data,
-									MediaType: anthropic.Base64ImageSourceMediaType(mediaType),
-								}))
-							}
-						} else if strings.HasPrefix(part.ImageURL.URL, "http://") || strings.HasPrefix(part.ImageURL.URL, "https://") {
-							// Support URL-based images - Anthropic can fetch images directly from URLs
-							contentBlocks = append(contentBlocks, anthropic.NewImageBlock(anthropic.URLImageSourceParam{
-								URL: part.ImageURL.URL,
-							}))
+						// Use the image converter which handles file refs, data URLs, and HTTP URLs
+						if imgBlock := convertImagePart(ctx, nil, part.ImageURL); imgBlock != nil {
+							contentBlocks = append(contentBlocks, *imgBlock)
 						}
 					}
 				}

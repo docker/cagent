@@ -3,11 +3,13 @@ package openai
 import (
 	"cmp"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/openai/openai-go/v3"
@@ -441,12 +443,21 @@ func convertMessagesToResponseInput(messages []chat.Message) []responses.Respons
 							case chat.ImageURLDetailLow:
 								detail = responses.ResponseInputImageContentDetailLow
 							}
-							contentParts = append(contentParts, responses.ResponseInputContentUnionParam{
-								OfInputImage: &responses.ResponseInputImageParam{
-									ImageURL: param.NewOpt(part.ImageURL.URL),
-									Detail:   responses.ResponseInputImageDetail(detail),
-								},
-							})
+							// Handle file references by converting to data URL
+							var imageURL string
+							if part.ImageURL.FileRef != nil && part.ImageURL.FileRef.SourceType == chat.FileSourceTypeLocalPath {
+								imageURL = convertLocalPathToDataURL(part.ImageURL.FileRef.LocalPath, part.ImageURL.FileRef.MimeType)
+							} else {
+								imageURL = part.ImageURL.URL
+							}
+							if imageURL != "" {
+								contentParts = append(contentParts, responses.ResponseInputContentUnionParam{
+									OfInputImage: &responses.ResponseInputImageParam{
+										ImageURL: param.NewOpt(imageURL),
+										Detail:   responses.ResponseInputImageDetail(detail),
+									},
+								})
+							}
 						}
 					}
 				}
@@ -883,4 +894,22 @@ type jsonSchema map[string]any
 
 func (j jsonSchema) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]any(j))
+}
+
+// convertLocalPathToDataURL reads a local file and converts it to a base64 data URL
+func convertLocalPathToDataURL(localPath, mimeType string) string {
+	data, err := os.ReadFile(localPath)
+	if err != nil {
+		slog.Warn("Failed to read local file", "path", localPath, "error", err)
+		return ""
+	}
+
+	if mimeType == "" {
+		mimeType = "image/jpeg" // Default
+	}
+
+	encoded := base64.StdEncoding.EncodeToString(data)
+	slog.Debug("Converted local file to base64 data URL", "path", localPath, "size", len(data))
+
+	return "data:" + mimeType + ";base64," + encoded
 }

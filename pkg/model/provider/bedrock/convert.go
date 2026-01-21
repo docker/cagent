@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"log/slog"
+	"os"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -149,31 +150,58 @@ func convertUserContent(msg *chat.Message) []types.ContentBlock {
 }
 
 func convertImageURL(imageURL *chat.MessageImageURL) types.ContentBlock {
-	if !strings.HasPrefix(imageURL.URL, "data:") {
+	if imageURL == nil {
 		return nil
 	}
 
-	parts := strings.SplitN(imageURL.URL, ",", 2)
-	if len(parts) != 2 {
+	var imageData []byte
+	var mimeType string
+
+	switch {
+	case imageURL.FileRef != nil:
+		// Handle file reference (from /attach command)
+		switch imageURL.FileRef.SourceType {
+		case chat.FileSourceTypeLocalPath:
+			data, err := os.ReadFile(imageURL.FileRef.LocalPath)
+			if err != nil {
+				slog.Warn("Failed to read local file for Bedrock", "path", imageURL.FileRef.LocalPath, "error", err)
+				return nil
+			}
+			imageData = data
+			mimeType = imageURL.FileRef.MimeType
+			slog.Debug("Converted local file to bytes for Bedrock", "path", imageURL.FileRef.LocalPath, "size", len(data))
+		default:
+			slog.Warn("Unsupported file source type for Bedrock", "type", imageURL.FileRef.SourceType)
+			return nil
+		}
+	case strings.HasPrefix(imageURL.URL, "data:"):
+		// Handle data URL (base64)
+		parts := strings.SplitN(imageURL.URL, ",", 2)
+		if len(parts) != 2 {
+			return nil
+		}
+
+		data, err := base64.StdEncoding.DecodeString(parts[1])
+		if err != nil {
+			return nil
+		}
+		imageData = data
+		mimeType = parts[0]
+	default:
+		// Bedrock doesn't support URL-based images
 		return nil
 	}
 
-	// Decode base64 data
-	imageData, err := base64.StdEncoding.DecodeString(parts[1])
-	if err != nil {
-		return nil
-	}
-
-	// Determine format from media type
+	// Determine format from MIME type
 	var format types.ImageFormat
 	switch {
-	case strings.Contains(parts[0], "image/jpeg"):
+	case strings.Contains(mimeType, "image/jpeg"):
 		format = types.ImageFormatJpeg
-	case strings.Contains(parts[0], "image/png"):
+	case strings.Contains(mimeType, "image/png"):
 		format = types.ImageFormatPng
-	case strings.Contains(parts[0], "image/gif"):
+	case strings.Contains(mimeType, "image/gif"):
 		format = types.ImageFormatGif
-	case strings.Contains(parts[0], "image/webp"):
+	case strings.Contains(mimeType, "image/webp"):
 		format = types.ImageFormatWebp
 	default:
 		format = types.ImageFormatJpeg

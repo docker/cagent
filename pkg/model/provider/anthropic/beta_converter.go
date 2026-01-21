@@ -1,6 +1,7 @@
 package anthropic
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 
@@ -10,7 +11,13 @@ import (
 	"github.com/docker/cagent/pkg/tools"
 )
 
-// convertBetaMessages converts chat messages to Anthropic Beta API format
+// convertBetaMessages is a backward-compatible wrapper that calls convertBetaMessagesWithClient
+// with a nil client (falls back to base64 for local files)
+func convertBetaMessages(messages []chat.Message) []anthropic.BetaMessageParam {
+	return convertBetaMessagesWithClient(context.Background(), nil, messages)
+}
+
+// convertBetaMessagesWithClient converts chat messages to Anthropic Beta API format
 // Following Anthropic's extended thinking documentation with interleaved thinking enabled:
 // - Thinking blocks can appear anywhere in the conversation (not required to be first)
 // - Always include the complete, unmodified thinking block from previous assistant turns
@@ -18,7 +25,7 @@ import (
 //
 // Important: Anthropic API requires that all tool_result blocks corresponding to tool_use
 // blocks from the same assistant message MUST be grouped into a single user message.
-func convertBetaMessages(messages []chat.Message) []anthropic.BetaMessageParam {
+func convertBetaMessagesWithClient(ctx context.Context, client *anthropic.Client, messages []chat.Message) []anthropic.BetaMessageParam {
 	var betaMessages []anthropic.BetaMessageParam
 
 	for i := 0; i < len(messages); i++ {
@@ -39,47 +46,9 @@ func convertBetaMessages(messages []chat.Message) []anthropic.BetaMessageParam {
 							})
 						}
 					} else if part.Type == chat.MessagePartTypeImageURL && part.ImageURL != nil {
-						if strings.HasPrefix(part.ImageURL.URL, "data:") {
-							parts := strings.SplitN(part.ImageURL.URL, ",", 2)
-							if len(parts) == 2 {
-								mediaTypePart := parts[0]
-								base64Data := parts[1]
-								var mediaType string
-								switch {
-								case strings.Contains(mediaTypePart, "image/jpeg"):
-									mediaType = "image/jpeg"
-								case strings.Contains(mediaTypePart, "image/png"):
-									mediaType = "image/png"
-								case strings.Contains(mediaTypePart, "image/gif"):
-									mediaType = "image/gif"
-								case strings.Contains(mediaTypePart, "image/webp"):
-									mediaType = "image/webp"
-								default:
-									mediaType = "image/jpeg"
-								}
-								// Use SDK types directly for better performance (avoids JSON round trip)
-								contentBlocks = append(contentBlocks, anthropic.BetaContentBlockParamUnion{
-									OfImage: &anthropic.BetaImageBlockParam{
-										Source: anthropic.BetaImageBlockParamSourceUnion{
-											OfBase64: &anthropic.BetaBase64ImageSourceParam{
-												Data:      base64Data,
-												MediaType: anthropic.BetaBase64ImageSourceMediaType(mediaType),
-											},
-										},
-									},
-								})
-							}
-						} else if strings.HasPrefix(part.ImageURL.URL, "http://") || strings.HasPrefix(part.ImageURL.URL, "https://") {
-							// Support URL-based images - Anthropic can fetch images directly from URLs
-							contentBlocks = append(contentBlocks, anthropic.BetaContentBlockParamUnion{
-								OfImage: &anthropic.BetaImageBlockParam{
-									Source: anthropic.BetaImageBlockParamSourceUnion{
-										OfURL: &anthropic.BetaURLImageSourceParam{
-											URL: part.ImageURL.URL,
-										},
-									},
-								},
-							})
+						// Use the image converter which handles file refs, data URLs, and HTTP URLs
+						if imgBlock := convertBetaImagePart(ctx, client, part.ImageURL); imgBlock != nil {
+							contentBlocks = append(contentBlocks, *imgBlock)
 						}
 					}
 				}

@@ -41,11 +41,11 @@ func TestConvertMultiContent(t *testing.T) {
 			wantCount: 2,
 		},
 		{
-			name: "image without URL",
+			name: "image without URL skipped",
 			multiContent: []chat.MessagePart{
 				{Type: chat.MessagePartTypeImageURL, ImageURL: nil},
 			},
-			wantCount: 1,
+			wantCount: 0, // nil ImageURL is now properly skipped
 		},
 	}
 

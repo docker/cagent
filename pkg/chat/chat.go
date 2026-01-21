@@ -26,9 +26,44 @@ const (
 	ImageURLDetailAuto ImageURLDetail = "auto"
 )
 
+// FileSourceType indicates how the file should be referenced in API calls
+type FileSourceType string
+
+const (
+	// FileSourceTypeNone means no file reference, use URL or base64
+	FileSourceTypeNone FileSourceType = ""
+	// FileSourceTypeFileID means the file was uploaded and should be referenced by ID
+	FileSourceTypeFileID FileSourceType = "file_id"
+	// FileSourceTypeFileURI means the file was uploaded and should be referenced by URI (Gemini)
+	FileSourceTypeFileURI FileSourceType = "file_uri"
+	// FileSourceTypeLocalPath means the file is a local path that needs to be uploaded/converted
+	FileSourceTypeLocalPath FileSourceType = "local_path"
+)
+
+// FileReference contains information about a file attachment
+type FileReference struct {
+	// SourceType indicates how this file should be referenced
+	SourceType FileSourceType `json:"source_type,omitempty"`
+	// FileID is the provider-specific file identifier (for FileSourceTypeFileID)
+	FileID string `json:"file_id,omitempty"`
+	// FileURI is the file URI (for FileSourceTypeFileURI, used by Gemini)
+	FileURI string `json:"file_uri,omitempty"`
+	// LocalPath is the path to a local file (for FileSourceTypeLocalPath)
+	LocalPath string `json:"local_path,omitempty"`
+	// MimeType is the MIME type of the file
+	MimeType string `json:"mime_type,omitempty"`
+	// Provider identifies which provider this reference is for (when uploaded)
+	Provider string `json:"provider,omitempty"`
+}
+
 type MessageImageURL struct {
+	// URL contains a data URL (base64) or a public HTTP(S) URL
 	URL    string         `json:"url,omitempty"`
 	Detail ImageURLDetail `json:"detail,omitempty"`
+
+	// FileRef contains file reference info when the image was uploaded via Files API
+	// or references a local file path that needs to be processed
+	FileRef *FileReference `json:"file_ref,omitempty"`
 }
 
 type Message struct {

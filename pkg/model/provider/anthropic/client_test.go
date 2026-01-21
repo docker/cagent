@@ -22,7 +22,7 @@ func TestConvertMessages_SkipEmptySystemText(t *testing.T) {
 		Content: "   \n\t  ",
 	}}
 
-	out := convertMessages(msgs)
+	out := convertMessages(t.Context(), msgs)
 	assert.Empty(t, out)
 }
 
@@ -32,7 +32,7 @@ func TestConvertMessages_SkipEmptyUserText_NoMultiContent(t *testing.T) {
 		Content: "   \n\t  ",
 	}}
 
-	out := convertMessages(msgs)
+	out := convertMessages(t.Context(), msgs)
 	assert.Empty(t, out)
 }
 
@@ -45,7 +45,7 @@ func TestConvertMessages_UserMultiContent_SkipEmptyText_KeepImage(t *testing.T) 
 		},
 	}}
 
-	out := convertMessages(msgs)
+	out := convertMessages(t.Context(), msgs)
 	require.Len(t, out, 1)
 
 	b, err := json.Marshal(out[0])
@@ -71,7 +71,7 @@ func TestConvertMessages_SkipEmptyAssistantText_NoToolCalls(t *testing.T) {
 		Content: "  \t\n  ",
 	}}
 
-	out := convertMessages(msgs)
+	out := convertMessages(t.Context(), msgs)
 	assert.Empty(t, out)
 }
 
@@ -84,7 +84,7 @@ func TestConvertMessages_AssistantToolCalls_NoText_IncludesToolUse(t *testing.T)
 		},
 	}}
 
-	out := convertMessages(msgs)
+	out := convertMessages(t.Context(), msgs)
 	require.Len(t, out, 1)
 
 	b, err := json.Marshal(out[0])
@@ -112,7 +112,7 @@ func TestSystemMessages_AreExtractedAndNotInMessageList(t *testing.T) {
 	assert.Equal(t, "system rules here", strings.TrimSpace(sys[0].Text))
 
 	// System role messages must not appear in the anthropic messages list
-	out := convertMessages(msgs)
+	out := convertMessages(t.Context(), msgs)
 	assert.Len(t, out, 1)
 }
 
@@ -128,7 +128,7 @@ func TestSystemMessages_MultipleExtractedAndExcludedFromMessageList(t *testing.T
 	assert.Equal(t, "sys A", strings.TrimSpace(sys[0].Text))
 	assert.Equal(t, "sys B", strings.TrimSpace(sys[1].Text))
 
-	out := convertMessages(msgs)
+	out := convertMessages(t.Context(), msgs)
 	assert.Len(t, out, 1)
 }
 
@@ -148,7 +148,7 @@ func TestSystemMessages_InterspersedExtractedAndExcluded(t *testing.T) {
 	assert.Equal(t, "S2", strings.TrimSpace(sys[1].Text))
 
 	// Converted messages must exclude system roles and preserve order of others
-	out := convertMessages(msgs)
+	out := convertMessages(t.Context(), msgs)
 	require.Len(t, out, 3)
 	expectedRoles := []string{"user", "assistant", "user"}
 	for i, expected := range expectedRoles {
@@ -173,7 +173,7 @@ func TestSequencingRepair_Standard(t *testing.T) {
 		{Role: chat.MessageRoleUser, Content: "continue"},
 	}
 
-	converted := convertMessages(msgs)
+	converted := convertMessages(t.Context(), msgs)
 	err := validateAnthropicSequencing(converted)
 	require.Error(t, err)
 
@@ -212,7 +212,7 @@ func TestConvertMessages_DropOrphanToolResults_NoPrecedingToolUse(t *testing.T) 
 		{Role: chat.MessageRoleUser, Content: "continue"},
 	}
 
-	converted := convertMessages(msgs)
+	converted := convertMessages(t.Context(), msgs)
 	// Expect only the two user text messages to appear
 	require.Len(t, converted, 2)
 
@@ -246,7 +246,7 @@ func TestConvertMessages_GroupToolResults_AfterAssistantToolUse(t *testing.T) {
 		{Role: chat.MessageRoleUser, Content: "ok"},
 	}
 
-	converted := convertMessages(msgs)
+	converted := convertMessages(t.Context(), msgs)
 	// Expect: user(start), assistant(tool_use), user(grouped tool_result), user(ok)
 	require.Len(t, converted, 4)
 
