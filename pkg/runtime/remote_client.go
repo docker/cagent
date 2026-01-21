@@ -18,8 +18,8 @@ type RemoteClient interface {
 	// CreateSession creates a new session
 	CreateSession(ctx context.Context, sessTemplate *session.Session) (*session.Session, error)
 
-	// ResumeSession resumes a paused session
-	ResumeSession(ctx context.Context, id, confirmation string) error
+	// ResumeSession resumes a paused session with an optional rejection reason
+	ResumeSession(ctx context.Context, id, confirmation, reason string) error
 
 	// ResumeElicitation sends an elicitation response
 	ResumeElicitation(ctx context.Context, sessionID string, action tools.ElicitationAction, content map[string]any) error

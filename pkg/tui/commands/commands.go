@@ -9,6 +9,7 @@ import (
 
 	"github.com/docker/cagent/pkg/app"
 	"github.com/docker/cagent/pkg/feedback"
+	"github.com/docker/cagent/pkg/modelsdev"
 	"github.com/docker/cagent/pkg/tui/components/toolcommon"
 	"github.com/docker/cagent/pkg/tui/core"
 	"github.com/docker/cagent/pkg/tui/messages"
@@ -220,10 +221,25 @@ func builtInFeedbackCommands() []Item {
 
 // BuildCommandCategories builds the list of command categories for the command palette
 func BuildCommandCategories(ctx context.Context, application *app.App) []Category {
+	// Get session commands and filter based on model capabilities
+	sessionCommands := builtInSessionCommands()
+
+	// Check if the current model supports reasoning; hide /think if not
+	currentModel := application.CurrentAgentModel()
+	if !modelsdev.ModelSupportsReasoning(ctx, currentModel) {
+		filtered := make([]Item, 0, len(sessionCommands))
+		for _, cmd := range sessionCommands {
+			if cmd.ID != "session.think" {
+				filtered = append(filtered, cmd)
+			}
+		}
+		sessionCommands = filtered
+	}
+
 	categories := []Category{
 		{
 			Name:     "Session",
-			Commands: builtInSessionCommands(),
+			Commands: sessionCommands,
 		},
 		{
 			Name:     "Feedback",

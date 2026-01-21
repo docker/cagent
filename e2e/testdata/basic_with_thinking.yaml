@@ -1,0 +1,16 @@
+version: "2"
+
+models:
+  gpt5_thinking:
+    provider: openai
+    model: gpt-5
+    thinking_budget:
+      effort: medium
+
+agents:
+  root:
+    model: gpt5_thinking
+    description: A helpful AI assistant with thinking enabled
+    instruction: |
+      You are a knowledgeable assistant that helps users with various tasks.
+      Be helpful, accurate, and concise in your responses.

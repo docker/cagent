@@ -21,7 +21,7 @@ func render(msg *types.Message, s spinner.Spinner, sessionState *service.Session
 	}
 
 	if argsContent == "" {
-		return toolcommon.RenderTool(msg, s, "", "", width, sessionState.HideToolResults)
+		return toolcommon.RenderTool(msg, s, "", "", width, sessionState.HideToolResults())
 	}
 
 	var resultContent string
@@ -29,5 +29,5 @@ func render(msg *types.Message, s spinner.Spinner, sessionState *service.Session
 		resultContent = toolcommon.FormatToolResult(msg.Content, width)
 	}
 
-	return toolcommon.RenderTool(msg, s, argsContent, resultContent, width, sessionState.HideToolResults)
+	return toolcommon.RenderTool(msg, s, argsContent, resultContent, width, sessionState.HideToolResults())
 }

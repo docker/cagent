@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"iter"
 	"log/slog"
 	"strings"
@@ -116,6 +117,17 @@ func (ts *Toolset) doStart(ctx context.Context) error {
 		//
 		// Only retry when initialization fails due to sending the initialized notification.
 		if !isInitNotificationSendError(err) {
+
+			// EOF means the MCP server is unavailable or closed the connection.
+			// This is not a fatal error and should not fail the agent execution.
+			if errors.Is(err, io.EOF) {
+				slog.Debug(
+					"MCP client unavailable (EOF), skipping MCP toolset",
+					"server", ts.logID,
+				)
+				return nil
+			}
+
 			slog.Error("Failed to initialize MCP client", "error", err)
 			return fmt.Errorf("failed to initialize MCP client: %w", err)
 		}

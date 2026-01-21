@@ -411,7 +411,7 @@ func (a *Agent) handleToolCallConfirmation(ctx context.Context, acpSess *Session
 
 	// Handle permission outcome
 	if permResp.Outcome.Cancelled != nil {
-		acpSess.rt.Resume(ctx, runtime.ResumeTypeReject)
+		acpSess.rt.Resume(ctx, runtime.ResumeRequest{Type: runtime.ResumeTypeReject})
 		return nil
 	}
 
@@ -421,11 +421,11 @@ func (a *Agent) handleToolCallConfirmation(ctx context.Context, acpSess *Session
 
 	switch string(permResp.Outcome.Selected.OptionId) {
 	case "allow":
-		acpSess.rt.Resume(ctx, runtime.ResumeTypeApprove)
+		acpSess.rt.Resume(ctx, runtime.ResumeRequest{Type: runtime.ResumeTypeApprove})
 	case "allow-always":
-		acpSess.rt.Resume(ctx, runtime.ResumeTypeApproveSession)
+		acpSess.rt.Resume(ctx, runtime.ResumeRequest{Type: runtime.ResumeTypeApproveSession})
 	case "reject":
-		acpSess.rt.Resume(ctx, runtime.ResumeTypeReject)
+		acpSess.rt.Resume(ctx, runtime.ResumeRequest{Type: runtime.ResumeTypeReject})
 	default:
 		return fmt.Errorf("unexpected permission option: %s", permResp.Outcome.Selected.OptionId)
 	}
@@ -462,9 +462,9 @@ func (a *Agent) handleMaxIterationsReached(ctx context.Context, acpSess *Session
 
 	if permResp.Outcome.Cancelled != nil || permResp.Outcome.Selected == nil ||
 		string(permResp.Outcome.Selected.OptionId) == "stop" {
-		acpSess.rt.Resume(ctx, runtime.ResumeTypeReject)
+		acpSess.rt.Resume(ctx, runtime.ResumeRequest{Type: runtime.ResumeTypeReject})
 	} else {
-		acpSess.rt.Resume(ctx, runtime.ResumeTypeApprove)
+		acpSess.rt.Resume(ctx, runtime.ResumeRequest{Type: runtime.ResumeTypeApprove})
 	}
 
 	return nil

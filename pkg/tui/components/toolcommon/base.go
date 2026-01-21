@@ -102,7 +102,7 @@ func SimpleRenderer(extractArg func(args string) string) Renderer {
 		if msg.ToolCall.Function.Arguments != "" {
 			arg = extractArg(msg.ToolCall.Function.Arguments)
 		}
-		return RenderTool(msg, s, arg, "", width, sessionState.HideToolResults)
+		return RenderTool(msg, s, arg, "", width, sessionState.HideToolResults())
 	}
 }
 
@@ -123,6 +123,6 @@ func SimpleRendererWithResult(
 			result = extractResult(msg)
 		}
 
-		return RenderTool(msg, s, arg, result, width, sessionState.HideToolResults)
+		return RenderTool(msg, s, arg, result, width, sessionState.HideToolResults())
 	}
 }

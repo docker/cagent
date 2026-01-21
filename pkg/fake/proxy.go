@@ -3,7 +3,9 @@
 package fake
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -13,23 +15,103 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"gopkg.in/dnaeon/go-vcr.v4/pkg/cassette"
 	"gopkg.in/dnaeon/go-vcr.v4/pkg/recorder"
 )
 
+// ProxyOptions configures the fake proxy behavior.
+type ProxyOptions struct {
+	// SimulateStream adds delays between SSE chunks to simulate real streaming.
+	SimulateStream bool
+	// StreamChunkDelay is the delay between SSE chunks when SimulateStream is true.
+	// Defaults to 15ms if not set.
+	StreamChunkDelay time.Duration
+}
+
+// ProxyOption is a function that configures ProxyOptions.
+type ProxyOption func(*ProxyOptions)
+
+// WithSimulateStream enables simulated streaming with delays between chunks.
+func WithSimulateStream(enabled bool) ProxyOption {
+	return func(o *ProxyOptions) {
+		o.SimulateStream = enabled
+	}
+}
+
+// WithStreamChunkDelay sets the delay between SSE chunks.
+func WithStreamChunkDelay(d time.Duration) ProxyOption {
+	return func(o *ProxyOptions) {
+		o.StreamChunkDelay = d
+	}
+}
+
 // StartProxy starts an internal HTTP proxy that replays cassette responses.
 // It returns the proxy URL and a cleanup function that should be called when done.
-func StartProxy(cassettePath string) (string, func() error, error) {
-	return StartProxyWithOptions(cassettePath, recorder.ModeReplayOnly, nil, nil)
+func StartProxy(cassettePath string, opts ...ProxyOption) (string, func() error, error) {
+	options := &ProxyOptions{
+		StreamChunkDelay: 15 * time.Millisecond,
+	}
+	for _, opt := range opts {
+		opt(options)
+	}
+	return StartProxyWithOptions(cassettePath, recorder.ModeReplayOnly, nil, nil, options)
 }
 
 // StartRecordingProxy starts a proxy that records AI API interactions to a cassette file.
 // It injects API keys from environment variables for the actual API calls.
 // The recorded cassette can later be replayed using StartProxy.
+// This uses a streaming-aware recorder that allows responses to stream through
+// in real-time while being recorded, unlike the standard VCR recorder.
 func StartRecordingProxy(cassettePath string) (string, func() error, error) {
-	return StartProxyWithOptions(cassettePath, recorder.ModeRecordOnce, nil, APIKeyHeaderUpdater)
+	return StartStreamingRecordingProxy(cassettePath, APIKeyHeaderUpdater)
+}
+
+// StartStreamingRecordingProxy starts a recording proxy with streaming support.
+// Unlike StartProxyWithOptions which buffers entire responses, this allows
+// streaming responses to pass through in real-time while being recorded.
+func StartStreamingRecordingProxy(
+	cassettePath string,
+	headerUpdater func(host string, req *http.Request),
+) (string, func() error, error) {
+	streamRec, err := NewStreamingRecorder(cassettePath)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to create streaming recorder: %w", err)
+	}
+
+	e := echo.New()
+	e.HideBanner = true
+	e.HidePort = true
+	e.Any("/*", Handle(streamRec, headerUpdater, nil))
+
+	httpServer := httptest.NewServer(e)
+
+	cleanup := func() error {
+		// Forcefully close all client connections first.
+		httpServer.CloseClientConnections()
+		httpServer.Close()
+
+		// Stop the recorder with a timeout
+		stopDone := make(chan error, 1)
+		go func() {
+			stopDone <- streamRec.Stop()
+		}()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		select {
+		case err := <-stopDone:
+			return err
+		case <-ctx.Done():
+			slog.Warn("Recording proxy cleanup timed out, cassette may be incomplete")
+			return nil
+		}
+	}
+
+	return httpServer.URL, cleanup, nil
 }
 
 // APIKeyHeaderUpdater injects API keys from environment variables into request headers.
@@ -53,15 +135,21 @@ func APIKeyHeaderUpdater(host string, req *http.Request) {
 // - mode: recorder mode (ModeReplayOnly, ModeRecordOnce, etc.)
 // - matcher: custom matcher function (nil uses DefaultMatcher)
 // - headerUpdater: optional function to update request headers (for recording with real API keys)
+// - options: proxy options for stream simulation, etc.
 func StartProxyWithOptions(
 	cassettePath string,
 	mode recorder.Mode,
 	matcher recorder.MatcherFunc,
 	headerUpdater func(host string, req *http.Request),
+	options *ProxyOptions,
 ) (string, func() error, error) {
 	hasMatcher := matcher != nil
 	if !hasMatcher {
 		matcher = DefaultMatcher(nil)
+	}
+
+	if options == nil {
+		options = &ProxyOptions{}
 	}
 
 	transport, err := recorder.New(cassettePath,
@@ -78,13 +166,34 @@ func StartProxyWithOptions(
 	e := echo.New()
 	e.HideBanner = true
 	e.HidePort = true
-	e.Any("/*", Handle(transport, headerUpdater))
+	e.Any("/*", Handle(transport, headerUpdater, options))
 
 	httpServer := httptest.NewServer(e)
 
 	cleanup := func() error {
+		// Forcefully close all client connections first.
+		// This ensures any in-flight streaming requests are terminated
+		// rather than waiting for them to complete.
+		httpServer.CloseClientConnections()
 		httpServer.Close()
-		return transport.Stop()
+
+		// Stop the VCR transport with a timeout to avoid hanging forever
+		// if there are still in-flight requests to the upstream API.
+		stopDone := make(chan error, 1)
+		go func() {
+			stopDone <- transport.Stop()
+		}()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		select {
+		case err := <-stopDone:
+			return err
+		case <-ctx.Done():
+			slog.Warn("Recording proxy cleanup timed out, cassette may be incomplete")
+			return nil
+		}
 	}
 
 	return httpServer.URL, cleanup, nil
@@ -157,7 +266,11 @@ func TargetURLForHost(host string) func(req *http.Request) string {
 
 // Handle creates an echo handler that proxies requests through the VCR transport.
 // The headerUpdater is called with the host and request to update headers (e.g., for adding API keys).
-func Handle(transport http.RoundTripper, headerUpdater func(host string, req *http.Request)) echo.HandlerFunc {
+// The options parameter controls streaming simulation behavior.
+func Handle(transport http.RoundTripper, headerUpdater func(host string, req *http.Request), options *ProxyOptions) echo.HandlerFunc {
+	if options == nil {
+		options = &ProxyOptions{}
+	}
 	return func(c echo.Context) error {
 		ctx := c.Request().Context()
 
@@ -199,6 +312,9 @@ func Handle(transport http.RoundTripper, headerUpdater func(host string, req *ht
 		c.Response().WriteHeader(resp.StatusCode)
 
 		if IsStreamResponse(resp) {
+			if options.SimulateStream {
+				return SimulatedStreamCopy(c, resp, options.StreamChunkDelay)
+			}
 			return StreamCopy(c, resp)
 		}
 
@@ -207,11 +323,19 @@ func Handle(transport http.RoundTripper, headerUpdater func(host string, req *ht
 	}
 }
 
-// StreamCopy copies a streaming response to the client.
-func StreamCopy(c echo.Context, resp *http.Response) error {
+// SimulatedStreamCopy copies a streaming SSE response to the client with artificial delays
+// between events to simulate real-time streaming behavior.
+func SimulatedStreamCopy(c echo.Context, resp *http.Response, chunkDelay time.Duration) error {
 	ctx := c.Request().Context()
+	writer := c.Response().Writer
 
-	writer := c.Response().Writer.(io.ReaderFrom)
+	reader := bufio.NewReaderSize(resp.Body, 64*1024)
+
+	// Reuse timer to avoid allocations per chunk
+	timer := time.NewTimer(chunkDelay)
+	defer timer.Stop()
+
+	dataPrefix := []byte("data:")
 
 	for {
 		select {
@@ -219,22 +343,94 @@ func StreamCopy(c echo.Context, resp *http.Response) error {
 			slog.WarnContext(ctx, "client disconnected, stop streaming")
 			return nil
 		default:
+		}
+
+		line, err := reader.ReadBytes('\n')
+		if err != nil {
+			if err == io.EOF {
+				// Write any remaining data without newline
+				if len(line) > 0 {
+					_, _ = writer.Write(line)
+					c.Response().Flush()
+				}
+				return nil
+			}
+			return err
+		}
+
+		// Write the line (already includes newline from ReadBytes)
+		if _, err := writer.Write(line); err != nil {
+			return err
+		}
+
+		// Add delay after data lines (SSE events start with "data:")
+		if bytes.HasPrefix(line, dataPrefix) {
+			c.Response().Flush()
+			timer.Reset(chunkDelay)
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-timer.C:
+			}
+		}
+	}
+}
+
+// streamReadResult holds the result of a streaming read operation.
+type streamReadResult struct {
+	n   int64
+	err error
+}
+
+// StreamCopy copies a streaming response to the client.
+// It properly handles context cancellation during blocking reads.
+func StreamCopy(c echo.Context, resp *http.Response) error {
+	ctx := c.Request().Context()
+	writer := c.Response().Writer.(io.ReaderFrom)
+
+	// Use a channel to receive read results from a goroutine.
+	// This allows us to properly select on context cancellation
+	// even when the read is blocking.
+	resultCh := make(chan streamReadResult, 1)
+
+	for {
+		// Start a goroutine to perform the blocking read
+		go func() {
 			n, err := writer.ReadFrom(io.LimitReader(resp.Body, 256))
-			if n > 0 {
+			resultCh <- streamReadResult{n: n, err: err}
+		}()
+
+		// Wait for either context cancellation or read completion
+		select {
+		case <-ctx.Done():
+			slog.WarnContext(ctx, "client disconnected, stop streaming")
+			// Close the response body to unblock the read goroutine
+			resp.Body.Close()
+			return nil
+		case result := <-resultCh:
+			if result.n > 0 {
 				c.Response().Flush() // keep flushing to client
 			}
-			if err != nil {
-				if err == io.EOF || ctx.Err() != nil {
+			if result.err != nil {
+				// io.EOF or context canceled means normal completion
+				if result.err == io.EOF || ctx.Err() != nil {
 					return nil
 				}
-				slog.ErrorContext(ctx, "stream read error", "error", err)
-				return err
+				slog.ErrorContext(ctx, "stream read error", "error", result.err)
+				return result.err
+			}
+			// io.Copy returns (0, nil) when the source is exhausted,
+			// not (0, io.EOF), so we need to check for this case.
+			if result.n == 0 {
+				return nil
 			}
 		}
 	}
 }
 
 // IsStreamResponse checks if the response should be streamed.
+// It checks Content-Type headers first, then falls back to peeking at the body
+// for SSE format (useful when headers are stripped in recorded cassettes).
 func IsStreamResponse(resp *http.Response) bool {
 	ct := strings.ToLower(resp.Header.Get("Content-Type"))
 	if strings.Contains(ct, "text/event-stream") {
@@ -246,7 +442,46 @@ func IsStreamResponse(resp *http.Response) bool {
 		return true
 	}
 
-	return strings.Contains(ct, "application/octet-stream") ||
+	if strings.Contains(ct, "application/octet-stream") ||
 		strings.Contains(ct, "application/x-ndjson") ||
-		strings.Contains(ct, "application/stream+json")
+		strings.Contains(ct, "application/stream+json") {
+		return true
+	}
+
+	// If no streaming headers detected, peek at the body to check for SSE format.
+	// This handles cassettes where headers were stripped during recording.
+	if resp.Body != nil {
+		// Read enough to detect SSE prefixes ("data:" or "event:")
+		peek := make([]byte, 6)
+		n, err := resp.Body.Read(peek)
+		if err == nil || n > 0 {
+			// Reconstruct the body with the peeked bytes prepended
+			resp.Body = &peekReader{peeked: peek[:n], rest: resp.Body}
+			// Check for SSE format markers
+			if bytes.HasPrefix(peek[:n], []byte("data:")) || bytes.HasPrefix(peek[:n], []byte("event:")) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// peekReader wraps a reader with already-peeked bytes.
+type peekReader struct {
+	peeked []byte
+	rest   io.ReadCloser
+}
+
+func (p *peekReader) Read(b []byte) (int, error) {
+	if len(p.peeked) > 0 {
+		n := copy(b, p.peeked)
+		p.peeked = p.peeked[n:]
+		return n, nil
+	}
+	return p.rest.Read(b)
+}
+
+func (p *peekReader) Close() error {
+	return p.rest.Close()
 }

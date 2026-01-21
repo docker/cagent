@@ -198,3 +198,31 @@ func TestToolsetInstructions(t *testing.T) {
 	expected := "Dummy fetch tool instruction"
 	require.Equal(t, expected, instructions)
 }
+
+func TestIsThinkingBudgetDisabled(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		budget   *latest.ThinkingBudget
+		expected bool
+	}{
+		{"nil budget", nil, false},
+		{"Tokens=0 (disabled)", &latest.ThinkingBudget{Tokens: 0}, true},
+		{"Effort=none (disabled)", &latest.ThinkingBudget{Effort: "none"}, true},
+		{"Tokens=8192 (enabled)", &latest.ThinkingBudget{Tokens: 8192}, false},
+		{"Effort=medium (enabled)", &latest.ThinkingBudget{Effort: "medium"}, false},
+		{"Effort=high (enabled)", &latest.ThinkingBudget{Effort: "high"}, false},
+		{"Effort=low (enabled)", &latest.ThinkingBudget{Effort: "low"}, false},
+		{"Tokens=-1 (dynamic)", &latest.ThinkingBudget{Tokens: -1}, false},
+		{"Tokens=0 with Effort=medium", &latest.ThinkingBudget{Tokens: 0, Effort: "medium"}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := isThinkingBudgetDisabled(tt.budget)
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}

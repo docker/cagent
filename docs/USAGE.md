@@ -576,6 +576,19 @@ models:
 | `role_session_name` | string | Session name for assumed role | cagent-bedrock-session |
 | `external_id` | string | External ID for role assumption | (none) |
 | `endpoint_url` | string | Custom endpoint (VPC/testing) | (none) |
+| `interleaved_thinking` | bool | Enable reasoning during tool calls (requires thinking_budget) | false |
+| `disable_prompt_caching` | bool | Disable automatic prompt caching | false |
+
+#### Prompt Caching (Bedrock)
+
+Prompt caching is automatically enabled for models that support it (detected via models.dev) to reduce latency and costs. System prompts, tool definitions, and recent messages are cached with a 5-minute TTL.
+
+To disable:
+
+```yaml
+provider_opts:
+  disable_prompt_caching: true
+```
 
 **Supported models (via Converse API):**
 

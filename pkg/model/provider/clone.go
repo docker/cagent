@@ -27,7 +27,9 @@ func CloneWithOptions(ctx context.Context, base Provider, opts ...options.Opt) P
 		modelConfig.MaxTokens = &mt
 	}
 
-	clone, err := New(ctx, &modelConfig, config.Env, mergedOpts...)
+	// Use NewWithModels to support cloning routers that reference other models.
+	// config.Models is populated by routers; for other providers it's nil (which is fine).
+	clone, err := NewWithModels(ctx, &modelConfig, config.Models, config.Env, mergedOpts...)
 	if err != nil {
 		slog.Debug("Failed to clone provider; using base provider", "error", err, "id", base.ID())
 		return base

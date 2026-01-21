@@ -8,11 +8,8 @@ interactions:
         proto_minor: 1
         content_length: 0
         host: api.anthropic.com
-        body: '{"max_tokens":64000,"messages":[{"content":[{"text":"How many files in testdata/working_dir? Only output the number.","cache_control":{"type":"ephemeral"},"type":"text"}],"role":"user"}],"model":"claude-sonnet-4-0","system":[{"text":"You are a knowledgeable assistant that helps users with various tasks.\nBe helpful, accurate, and concise in your responses.","type":"text"},{"text":"## Filesystem Tool Instructions\n\nThis toolset provides comprehensive filesystem operations.\n\n### Working Directory\n- Relative paths (like \".\" or \"src/main.go\") are resolved relative to the working directory\n- Absolute paths (like \"/etc/hosts\") access files directly\n- Paths starting with \"..\" can access parent directories\n\n### Common Patterns\n- Always check if directories exist before creating files\n- Prefer read_multiple_files for batch operations\n- Use search_files_content for finding specific code or text\n\n### Performance Tips\n- Use read_multiple_files instead of multiple read_file calls\n- Use directory_tree with max_depth to limit large traversals\n- Use appropriate exclude patterns in search operations","cache_control":{"type":"ephemeral"},"type":"text"}],"thinking":{"budget_tokens":8192,"type":"enabled"},"tools":[{"input_schema":{"properties":{"path":{"description":"The directory path to traverse (relative to working directory)","type":"string"}},"required":["path"],"type":"object"},"name":"directory_tree","description":"Get a recursive tree view of files and directories as a JSON structure."},{"input_schema":{"properties":{"edits":{"description":"Array of edit operations","items":{"additionalProperties":false,"properties":{"newText":{"description":"The replacement text","type":"string"},"oldText":{"description":"The exact text to replace","type":"string"}},"required":["oldText","newText"],"type":"object"},"type":["null","array"]},"path":{"description":"The file path to edit","type":"string"}},"required":["path","edits"],"type":"object"},"name":"edit_file","description":"Make line-based edits to a text file. Each edit replaces exact line sequences with new content."},{"input_schema":{"properties":{"path":{"description":"The directory path to list","type":"string"}},"required":["path"],"type":"object"},"name":"list_directory","description":"Get a detailed listing of all files and directories in a specified path."},{"input_schema":{"properties":{"path":{"description":"The file path to read","type":"string"}},"required":["path"],"type":"object"},"name":"read_file","description":"Read the complete contents of a file from the file system."},{"input_schema":{"properties":{"json":{"description":"Whether to return the result as JSON","type":"boolean"},"paths":{"description":"Array of file paths to read","items":{"type":"string"},"type":["null","array"]}},"required":["paths"],"type":"object"},"name":"read_multiple_files","description":"Read the contents of multiple files simultaneously."},{"input_schema":{"properties":{"excludePatterns":{"description":"Patterns to exclude from search","items":{"type":"string"},"type":["null","array"]},"is_regex":{"description":"If true, treat query as regex; otherwise literal text","type":"boolean"},"path":{"description":"The starting directory path","type":"string"},"query":{"description":"The text or regex pattern to search for","type":"string"}},"required":["path","query"],"type":"object"},"name":"search_files_content","description":"Searches for text or regex patterns in the content of files matching a GLOB pattern."},{"input_schema":{"properties":{"content":{"description":"The content to write to the file","type":"string"},"path":{"description":"The file path to write","type":"string"}},"required":["path","content"],"type":"object"},"name":"write_file","description":"Create a new file or completely overwrite an existing file with new content."}],"stream":true}'
-        form:
-            beta:
-                - "true"
-        url: https://api.anthropic.com/v1/messages?beta=true
+        body: '{"max_tokens":64000,"messages":[{"content":[{"text":"How many files in testdata/working_dir? Only output the number.","cache_control":{"type":"ephemeral"},"type":"text"}],"role":"user"}],"model":"claude-sonnet-4-0","system":[{"text":"You are a knowledgeable assistant that helps users with various tasks.\nBe helpful, accurate, and concise in your responses.","type":"text"},{"text":"## Filesystem Tool Instructions\n\nThis toolset provides comprehensive filesystem operations.\n\n### Working Directory\n- Relative paths (like \".\" or \"src/main.go\") are resolved relative to the working directory\n- Absolute paths (like \"/etc/hosts\") access files directly\n- Paths starting with \"..\" can access parent directories\n\n### Common Patterns\n- Always check if directories exist before creating files\n- Prefer read_multiple_files for batch operations\n- Use search_files_content for finding specific code or text\n\n### Performance Tips\n- Use read_multiple_files instead of multiple read_file calls\n- Use directory_tree with max_depth to limit large traversals\n- Use appropriate exclude patterns in search operations","cache_control":{"type":"ephemeral"},"type":"text"}],"tools":[{"input_schema":{"properties":{"path":{"description":"The directory path to traverse (relative to working directory)","type":"string"}},"required":["path"],"type":"object"},"name":"directory_tree","description":"Get a recursive tree view of files and directories as a JSON structure."},{"input_schema":{"properties":{"edits":{"description":"Array of edit operations","items":{"additionalProperties":false,"properties":{"newText":{"description":"The replacement text","type":"string"},"oldText":{"description":"The exact text to replace","type":"string"}},"required":["oldText","newText"],"type":"object"},"type":["null","array"]},"path":{"description":"The file path to edit","type":"string"}},"required":["path","edits"],"type":"object"},"name":"edit_file","description":"Make line-based edits to a text file. Each edit replaces exact line sequences with new content."},{"input_schema":{"properties":{"path":{"description":"The directory path to list","type":"string"}},"required":["path"],"type":"object"},"name":"list_directory","description":"Get a detailed listing of all files and directories in a specified path."},{"input_schema":{"properties":{"path":{"description":"The file path to read","type":"string"}},"required":["path"],"type":"object"},"name":"read_file","description":"Read the complete contents of a file from the file system."},{"input_schema":{"properties":{"json":{"description":"Whether to return the result as JSON","type":"boolean"},"paths":{"description":"Array of file paths to read","items":{"type":"string"},"type":["null","array"]}},"required":["paths"],"type":"object"},"name":"read_multiple_files","description":"Read the contents of multiple files simultaneously."},{"input_schema":{"properties":{"excludePatterns":{"description":"Patterns to exclude from search","items":{"type":"string"},"type":["null","array"]},"is_regex":{"description":"If true, treat query as regex; otherwise literal text","type":"boolean"},"path":{"description":"The starting directory path","type":"string"},"query":{"description":"The text or regex pattern to search for","type":"string"}},"required":["path","query"],"type":"object"},"name":"search_files_content","description":"Searches for text or regex patterns in the content of files matching a GLOB pattern."},{"input_schema":{"properties":{"content":{"description":"The content to write to the file","type":"string"},"path":{"description":"The file path to write","type":"string"}},"required":["path","content"],"type":"object"},"name":"write_file","description":"Create a new file or completely overwrite an existing file with new content."}],"stream":true}'
+        url: https://api.anthropic.com/v1/messages
         method: POST
       response:
         proto: HTTP/2.0
@@ -21,96 +18,36 @@ interactions:
         content_length: -1
         body: |+
             event: message_start
-            data: {"type":"message_start","message":{"model":"claude-sonnet-4-20250514","id":"msg_01VGwM1asir9xEbbT6GgohGz","type":"message","role":"assistant","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":1447,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"output_tokens":3,"service_tier":"standard"}}            }
+            data: {"type":"message_start","message":{"model":"claude-sonnet-4-20250514","id":"msg_01BKqBqWhk1BNCFCGJKBuURw","type":"message","role":"assistant","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":3,"cache_creation_input_tokens":1276,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":1276,"ephemeral_1h_input_tokens":0},"output_tokens":1,"service_tier":"standard"}} }
 
             event: content_block_start
-            data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}               }
+            data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_012gmfqnoTX8c5aV3vMWUnas","name":"list_directory","input":{}}        }
 
             event: ping
             data: {"type": "ping"}
 
             event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"The user wants"}         }
+            data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":""}              }
 
             event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" to know how many files are in the"}       }
+            data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"path\": \"testdata/working_dir"}    }
 
             event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" \""}             }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"testdata/working_dir\" directory"}            }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" an"}           }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"d only"}}
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" wants"}   }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" the number as"}           }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" output. I nee"}            }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"d to use the list_directory function to"}               }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" get the contents"}  }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" of that"}    }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" directory an"}             }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"d then count the files ("}  }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"not directories)."}          }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":""}             }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"EpsDCkYICxgCKkB7pvGBLJjWTPM/xYHIISqNOg9LySRVznutx46Pbr2jIg2URvAZOxaaDghD2EqcL/znV9Yz8eNWddn4IwL6GtzZEgy6oSDufFlHwS01tugaDPSZBASgLBi39yorDCIwxQisMk2IX0M9F14pKfNHRUtRF0R/5ydtsG0sKzwb0tj5aJAB+mMraamFZivw/8NXKoICCaUrCP9wiUFxxvpqRDDy4IEqQ+Eob++Zwd//hXDq59m6HXptYzrmdaTzl8091yxcDdyGkH6cLHMuPWpdDO6ksVH7eK5PbXZ1bfghX4YO1+cyH53Ma2Y0rcbDgw7OkLJ5jEkDHKa6uyzfhf5o4oF/TXTGH81Hkl//rGeur2ucuKjHibWFR3m3xC72B4MwzgzeHmQ1RPXaHyV75YGbuIWZUgzxSvOSYIvygInga7Qv8rH0ARWSc2by6t2pIk70AwigLpOj/28agEQQPXcwxIa+0VfZoyP7/UcUnX8zvvL+j5LtHu5vM07jt8K8L/CMXW5tuu3LhOJy/5YtHwJFbHo9ZG33GAE="}        }
+            data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\"}"}    }
 
             event: content_block_stop
-            data: {"type":"content_block_stop","index":0              }
-
-            event: content_block_start
-            data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_01351PtRMRaDsvjDtTiKFrdX","name":"list_directory","input":{}}         }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":""}      }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"path\": \"testdata/"}     }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"working_dir"} }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"\"}"}  }
-
-            event: content_block_stop
-            data: {"type":"content_block_stop","index":1       }
+            data: {"type":"content_block_stop","index":0     }
 
             event: message_delta
-            data: {"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"input_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":1447,"output_tokens":119}         }
+            data: {"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"input_tokens":3,"cache_creation_input_tokens":1276,"cache_read_input_tokens":0,"output_tokens":58}           }
 
             event: message_stop
-            data: {"type":"message_stop"         }
+            data: {"type":"message_stop"  }
 
         headers: {}
         status: 200 OK
         code: 200
-        duration: 1.896834584s
+        duration: 1.588085084s
     - id: 1
       request:
         proto: HTTP/1.1
@@ -118,11 +55,8 @@ interactions:
         proto_minor: 1
         content_length: 0
         host: api.anthropic.com
-        body: '{"max_tokens":64000,"messages":[{"content":[{"text":"How many files in testdata/working_dir? Only output the number.","type":"text"}],"role":"user"},{"content":[{"signature":"EpsDCkYICxgCKkB7pvGBLJjWTPM/xYHIISqNOg9LySRVznutx46Pbr2jIg2URvAZOxaaDghD2EqcL/znV9Yz8eNWddn4IwL6GtzZEgy6oSDufFlHwS01tugaDPSZBASgLBi39yorDCIwxQisMk2IX0M9F14pKfNHRUtRF0R/5ydtsG0sKzwb0tj5aJAB+mMraamFZivw/8NXKoICCaUrCP9wiUFxxvpqRDDy4IEqQ+Eob++Zwd//hXDq59m6HXptYzrmdaTzl8091yxcDdyGkH6cLHMuPWpdDO6ksVH7eK5PbXZ1bfghX4YO1+cyH53Ma2Y0rcbDgw7OkLJ5jEkDHKa6uyzfhf5o4oF/TXTGH81Hkl//rGeur2ucuKjHibWFR3m3xC72B4MwzgzeHmQ1RPXaHyV75YGbuIWZUgzxSvOSYIvygInga7Qv8rH0ARWSc2by6t2pIk70AwigLpOj/28agEQQPXcwxIa+0VfZoyP7/UcUnX8zvvL+j5LtHu5vM07jt8K8L/CMXW5tuu3LhOJy/5YtHwJFbHo9ZG33GAE=","thinking":"The user wants to know how many files are in the \"testdata/working_dir\" directory and only wants the number as output. I need to use the list_directory function to get the contents of that directory and then count the files (not directories).","type":"thinking"},{"id":"toolu_01351PtRMRaDsvjDtTiKFrdX","input":{"path":"testdata/working_dir"},"name":"list_directory","cache_control":{"type":"ephemeral"},"type":"tool_use"}],"role":"assistant"},{"content":[{"tool_use_id":"toolu_01351PtRMRaDsvjDtTiKFrdX","cache_control":{"type":"ephemeral"},"content":[{"text":"FILE README.me","type":"text"}],"type":"tool_result"}],"role":"user"}],"model":"claude-sonnet-4-0","system":[{"text":"You are a knowledgeable assistant that helps users with various tasks.\nBe helpful, accurate, and concise in your responses.","type":"text"},{"text":"## Filesystem Tool Instructions\n\nThis toolset provides comprehensive filesystem operations.\n\n### Working Directory\n- Relative paths (like \".\" or \"src/main.go\") are resolved relative to the working directory\n- Absolute paths (like \"/etc/hosts\") access files directly\n- Paths starting with \"..\" can access parent directories\n\n### Common Patterns\n- Always check if directories exist before creating files\n- Prefer read_multiple_files for batch operations\n- Use search_files_content for finding specific code or text\n\n### Performance Tips\n- Use read_multiple_files instead of multiple read_file calls\n- Use directory_tree with max_depth to limit large traversals\n- Use appropriate exclude patterns in search operations","cache_control":{"type":"ephemeral"},"type":"text"}],"thinking":{"budget_tokens":8192,"type":"enabled"},"tools":[{"input_schema":{"properties":{"path":{"description":"The directory path to traverse (relative to working directory)","type":"string"}},"required":["path"],"type":"object"},"name":"directory_tree","description":"Get a recursive tree view of files and directories as a JSON structure."},{"input_schema":{"properties":{"edits":{"description":"Array of edit operations","items":{"additionalProperties":false,"properties":{"newText":{"description":"The replacement text","type":"string"},"oldText":{"description":"The exact text to replace","type":"string"}},"required":["oldText","newText"],"type":"object"},"type":["null","array"]},"path":{"description":"The file path to edit","type":"string"}},"required":["path","edits"],"type":"object"},"name":"edit_file","description":"Make line-based edits to a text file. Each edit replaces exact line sequences with new content."},{"input_schema":{"properties":{"path":{"description":"The directory path to list","type":"string"}},"required":["path"],"type":"object"},"name":"list_directory","description":"Get a detailed listing of all files and directories in a specified path."},{"input_schema":{"properties":{"path":{"description":"The file path to read","type":"string"}},"required":["path"],"type":"object"},"name":"read_file","description":"Read the complete contents of a file from the file system."},{"input_schema":{"properties":{"json":{"description":"Whether to return the result as JSON","type":"boolean"},"paths":{"description":"Array of file paths to read","items":{"type":"string"},"type":["null","array"]}},"required":["paths"],"type":"object"},"name":"read_multiple_files","description":"Read the contents of multiple files simultaneously."},{"input_schema":{"properties":{"excludePatterns":{"description":"Patterns to exclude from search","items":{"type":"string"},"type":["null","array"]},"is_regex":{"description":"If true, treat query as regex; otherwise literal text","type":"boolean"},"path":{"description":"The starting directory path","type":"string"},"query":{"description":"The text or regex pattern to search for","type":"string"}},"required":["path","query"],"type":"object"},"name":"search_files_content","description":"Searches for text or regex patterns in the content of files matching a GLOB pattern."},{"input_schema":{"properties":{"content":{"description":"The content to write to the file","type":"string"},"path":{"description":"The file path to write","type":"string"}},"required":["path","content"],"type":"object"},"name":"write_file","description":"Create a new file or completely overwrite an existing file with new content."}],"stream":true}'
-        form:
-            beta:
-                - "true"
-        url: https://api.anthropic.com/v1/messages?beta=true
+        body: '{"max_tokens":64000,"messages":[{"content":[{"text":"How many files in testdata/working_dir? Only output the number.","type":"text"}],"role":"user"},{"content":[{"id":"toolu_012gmfqnoTX8c5aV3vMWUnas","input":{"path":"testdata/working_dir"},"name":"list_directory","cache_control":{"type":"ephemeral"},"type":"tool_use"}],"role":"assistant"},{"content":[{"tool_use_id":"toolu_012gmfqnoTX8c5aV3vMWUnas","is_error":false,"cache_control":{"type":"ephemeral"},"content":[{"text":"FILE README.me","type":"text"}],"type":"tool_result"}],"role":"user"}],"model":"claude-sonnet-4-0","system":[{"text":"You are a knowledgeable assistant that helps users with various tasks.\nBe helpful, accurate, and concise in your responses.","type":"text"},{"text":"## Filesystem Tool Instructions\n\nThis toolset provides comprehensive filesystem operations.\n\n### Working Directory\n- Relative paths (like \".\" or \"src/main.go\") are resolved relative to the working directory\n- Absolute paths (like \"/etc/hosts\") access files directly\n- Paths starting with \"..\" can access parent directories\n\n### Common Patterns\n- Always check if directories exist before creating files\n- Prefer read_multiple_files for batch operations\n- Use search_files_content for finding specific code or text\n\n### Performance Tips\n- Use read_multiple_files instead of multiple read_file calls\n- Use directory_tree with max_depth to limit large traversals\n- Use appropriate exclude patterns in search operations","cache_control":{"type":"ephemeral"},"type":"text"}],"tools":[{"input_schema":{"properties":{"path":{"description":"The directory path to traverse (relative to working directory)","type":"string"}},"required":["path"],"type":"object"},"name":"directory_tree","description":"Get a recursive tree view of files and directories as a JSON structure."},{"input_schema":{"properties":{"edits":{"description":"Array of edit operations","items":{"additionalProperties":false,"properties":{"newText":{"description":"The replacement text","type":"string"},"oldText":{"description":"The exact text to replace","type":"string"}},"required":["oldText","newText"],"type":"object"},"type":["null","array"]},"path":{"description":"The file path to edit","type":"string"}},"required":["path","edits"],"type":"object"},"name":"edit_file","description":"Make line-based edits to a text file. Each edit replaces exact line sequences with new content."},{"input_schema":{"properties":{"path":{"description":"The directory path to list","type":"string"}},"required":["path"],"type":"object"},"name":"list_directory","description":"Get a detailed listing of all files and directories in a specified path."},{"input_schema":{"properties":{"path":{"description":"The file path to read","type":"string"}},"required":["path"],"type":"object"},"name":"read_file","description":"Read the complete contents of a file from the file system."},{"input_schema":{"properties":{"json":{"description":"Whether to return the result as JSON","type":"boolean"},"paths":{"description":"Array of file paths to read","items":{"type":"string"},"type":["null","array"]}},"required":["paths"],"type":"object"},"name":"read_multiple_files","description":"Read the contents of multiple files simultaneously."},{"input_schema":{"properties":{"excludePatterns":{"description":"Patterns to exclude from search","items":{"type":"string"},"type":["null","array"]},"is_regex":{"description":"If true, treat query as regex; otherwise literal text","type":"boolean"},"path":{"description":"The starting directory path","type":"string"},"query":{"description":"The text or regex pattern to search for","type":"string"}},"required":["path","query"],"type":"object"},"name":"search_files_content","description":"Searches for text or regex patterns in the content of files matching a GLOB pattern."},{"input_schema":{"properties":{"content":{"description":"The content to write to the file","type":"string"},"path":{"description":"The file path to write","type":"string"}},"required":["path","content"],"type":"object"},"name":"write_file","description":"Create a new file or completely overwrite an existing file with new content."}],"stream":true}'
+        url: https://api.anthropic.com/v1/messages
         method: POST
       response:
         proto: HTTP/2.0
@@ -131,90 +65,27 @@ interactions:
         content_length: -1
         body: |+
             event: message_start
-            data: {"type":"message_start","message":{"model":"claude-sonnet-4-20250514","id":"msg_01G27XZsH236DwqeqRwPZCXM","type":"message","role":"assistant","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":13,"cache_creation_input_tokens":139,"cache_read_input_tokens":1447,"cache_creation":{"ephemeral_5m_input_tokens":139,"ephemeral_1h_input_tokens":0},"output_tokens":5,"service_tier":"standard"}}             }
+            data: {"type":"message_start","message":{"model":"claude-sonnet-4-20250514","id":"msg_01J7Njwj72NPagJ5aEQWDKAH","type":"message","role":"assistant","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":6,"cache_creation_input_tokens":72,"cache_read_input_tokens":1276,"cache_creation":{"ephemeral_5m_input_tokens":72,"ephemeral_1h_input_tokens":0},"output_tokens":1,"service_tier":"standard"}}             }
 
             event: content_block_start
-            data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}            }
+            data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}              }
 
             event: ping
             data: {"type": "ping"}
 
             event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"The result shows there is"}     }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" "}       }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"1 file in the test"}   }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"data/working_dir directory. The"}           }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" listing"}             }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" shows \""}           }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"FILE README.me\","}  }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" which indicates"}}
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" there"}        }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" is"}}
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" one"}             }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" file name"}          }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"d \"README.me\"."}              }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" Since the user only"}              }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" wants the number,"}    }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" I should output just \""} }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"1\"."}              }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":""}             }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"EokDCkYICxgCKkD6x65qrU9K6vIHYlap2o7BNToPc7uJYhb4i8cFmygXJibPVEqSPitHbEs5KwINhKUrUsCOV+VM4l3vczIE4+otEgyFPxvwBhKe9N2x+AIaDFSagh2SZgV4S3y8iCIw2Yj4TQRzoolitQFm0ft2rnybomYYJ/v0QOoQWoDMttrIqDy5RRlRTOGs4aiWomL5KvABufY5u8AiJGI1HpslkXNhBA7p0mvfT2MQOPpxmQb6HXEJqs2cfoLJQVnTpa9LFf6b5evP1Ll6RffJGUBzjPhuYuKP5oeVDVdD8lj2onkLQC2uH8oTLNoK/F2hmyTAoHNZvWOValY5M6vTjig/yr5i8m6l5pwObHSjR3Mt8l2+fSfmcZ5uIxr5EnEfnNSUc+Jnxu237Lkd7lHX0f1CChRmFGRZRgY9x32diSNXuYIK/nCJIZCgy+1mds+DiAdYkAbyV5ZmkF8QAO/U662qdJnjGZ1FOWiymj7tozUbA6uXz8uwD4nVkH7xKv3OcKm4xwHSGAE="}       }
+            data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"1"}   }
 
             event: content_block_stop
-            data: {"type":"content_block_stop","index":0    }
-
-            event: content_block_start
-            data: {"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}      }
-
-            event: content_block_delta
-            data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"1"}        }
-
-            event: content_block_stop
-            data: {"type":"content_block_stop","index":1         }
+            data: {"type":"content_block_stop","index":0             }
 
             event: message_delta
-            data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":13,"cache_creation_input_tokens":139,"cache_read_input_tokens":1447,"output_tokens":67}    }
+            data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":6,"cache_creation_input_tokens":72,"cache_read_input_tokens":1276,"output_tokens":4}       }
 
             event: message_stop
-            data: {"type":"message_stop"         }
+            data: {"type":"message_stop"       }
 
         headers: {}
         status: 200 OK
         code: 200
-        duration: 1.922262125s
+        duration: 968.753458ms

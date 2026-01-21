@@ -1,10 +1,12 @@
 package markdown
 
 import (
+	_ "embed"
 	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
 	runewidth "github.com/mattn/go-runewidth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -256,6 +258,80 @@ func TestFastRendererTables(t *testing.T) {
 	assert.Contains(t, plain, "25")
 }
 
+// assertTableColumnsAligned verifies that all rows in a rendered table have
+// column separators at the same positions.
+func assertTableColumnsAligned(t *testing.T, rendered string) {
+	t.Helper()
+
+	plain := stripANSI(rendered)
+	lines := strings.Split(strings.TrimSpace(plain), "\n")
+
+	// Filter out empty lines and separator lines (lines starting with ─)
+	var dataLines []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" && !strings.HasPrefix(trimmed, "─") {
+			dataLines = append(dataLines, line)
+		}
+	}
+
+	require.GreaterOrEqual(t, len(dataLines), 2, "Table should have at least header + 1 data row")
+
+	// Find the position of the column separator (│) in each line
+	// All rows should have separators at the same positions
+	var expectedPositions []int
+	for i, line := range dataLines {
+		var positions []int
+		for j, r := range line {
+			if r == '│' {
+				positions = append(positions, j)
+			}
+		}
+		if i == 0 {
+			expectedPositions = positions
+		} else {
+			assert.Equal(t, expectedPositions, positions,
+				"Column separators should be at same positions in all rows\nLine %d: %q\nLine 0: %q",
+				i, line, dataLines[0])
+		}
+	}
+}
+
+func TestFastRendererTablesColumnAlignment(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{
+			name: "plain text columns",
+			input: `| Name | Age | City |
+|------|-----|------|
+| Alice | 30 | New York |
+| Bob | 25 | LA |`,
+		},
+		{
+			name: "styled content (bold, italic, code)",
+			input: `| Feature | Status | Notes |
+|---------|--------|-------|
+| **Bold** | Done | This is bold |
+| *Italic* | WIP | This is italic |
+| ` + "`Code`" + ` | Todo | Inline code |`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			r := NewFastRenderer(80)
+			result, err := r.Render(tt.input)
+			require.NoError(t, err)
+			assertTableColumnsAligned(t, result)
+		})
+	}
+}
+
 func TestFastRendererEscapedCharacters(t *testing.T) {
 	t.Parallel()
 
@@ -433,16 +509,14 @@ The fast renderer should handle all of these efficiently.
 
 func BenchmarkFastRenderer(b *testing.B) {
 	r := NewFastRenderer(80)
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		_, _ = r.Render(benchmarkInput)
 	}
 }
 
 func BenchmarkGlamourRenderer(b *testing.B) {
 	r := NewGlamourRenderer(80)
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		_, _ = r.Render(benchmarkInput)
 	}
 }
@@ -450,8 +524,7 @@ func BenchmarkGlamourRenderer(b *testing.B) {
 func BenchmarkFastRendererSmall(b *testing.B) {
 	r := NewFastRenderer(80)
 	input := "Hello **world**, this is a *test*."
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		_, _ = r.Render(input)
 	}
 }
@@ -459,8 +532,7 @@ func BenchmarkFastRendererSmall(b *testing.B) {
 func BenchmarkGlamourRendererSmall(b *testing.B) {
 	r := NewGlamourRenderer(80)
 	input := "Hello **world**, this is a *test*."
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		_, _ = r.Render(input)
 	}
 }
@@ -468,18 +540,65 @@ func BenchmarkGlamourRendererSmall(b *testing.B) {
 func BenchmarkFastRendererCodeBlock(b *testing.B) {
 	r := NewFastRenderer(80)
 	input := "```go\nfunc main() {\n\tfmt.Println(\"hello\")\n}\n```"
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		_, _ = r.Render(input)
 	}
 }
 
 func BenchmarkGlamourRendererCodeBlock(b *testing.B) {
 	r := NewGlamourRenderer(80)
-	input := "```go\nfunc main() {\n\tfmt.Println(\"hello\")\n}\n```"
-	b.ResetTimer()
-	for range b.N {
+	input := "```go\nfunc main() {\n\tfmt.Println(\"hello`\")\n}\n```"
+	for b.Loop() {
 		_, _ = r.Render(input)
+	}
+}
+
+var benchmarkTableInput = `| Name | Age | City | Country | Occupation |
+|------|-----|------|---------|------------|
+| Alice | 30 | New York | USA | Engineer |
+| Bob | 25 | London | UK | Designer |
+| Charlie | 35 | Paris | France | Manager |
+| Diana | 28 | Berlin | Germany | Developer |`
+
+func BenchmarkFastRendererTable(b *testing.B) {
+	r := NewFastRenderer(80)
+	for b.Loop() {
+		_, _ = r.Render(benchmarkTableInput)
+	}
+}
+
+func BenchmarkGlamourRendererTable(b *testing.B) {
+	r := NewGlamourRenderer(80)
+	for b.Loop() {
+		_, _ = r.Render(benchmarkTableInput)
+	}
+}
+
+func BenchmarkFastRendererTableWidth20(b *testing.B) {
+	r := NewFastRenderer(20)
+	for b.Loop() {
+		_, _ = r.Render(benchmarkTableInput)
+	}
+}
+
+func BenchmarkGlamourRendererTableWidth20(b *testing.B) {
+	r := NewGlamourRenderer(20)
+	for b.Loop() {
+		_, _ = r.Render(benchmarkTableInput)
+	}
+}
+
+func BenchmarkFastRendererTableWidth200(b *testing.B) {
+	r := NewFastRenderer(200)
+	for b.Loop() {
+		_, _ = r.Render(benchmarkTableInput)
+	}
+}
+
+func BenchmarkGlamourRendererTableWidth200(b *testing.B) {
+	r := NewGlamourRenderer(200)
+	for b.Loop() {
+		_, _ = r.Render(benchmarkTableInput)
 	}
 }
 
@@ -633,5 +752,106 @@ This is a paragraph.
 				assert.Equal(t, tt.width, lineWidth, "Line %d has incorrect width: %q (width=%d, expected=%d)", i, stripANSI(line), lineWidth, tt.width)
 			}
 		})
+	}
+}
+
+func TestInlineCodeRestoresBaseStyle(t *testing.T) {
+	t.Parallel()
+
+	// This test verifies that text after inline code has the document's base style restored,
+	// not just a reset to terminal default.
+	// Bug: "Hello `there` beautiful" - "beautiful" was appearing with terminal default
+	// instead of the document's text color.
+
+	r := NewFastRenderer(80)
+	result, err := r.Render("Hello `there` beautiful")
+	require.NoError(t, err)
+
+	seqs := ansiRegex.FindAllString(result, -1)
+
+	// We should have:
+	// 1. Code style (foreground + background for inline code)
+	// 2. Reset
+	// 3. Base text style restoration (document foreground color)
+	require.GreaterOrEqual(t, len(seqs), 3, "Should have at least 3 ANSI sequences")
+
+	// First sequence should be the code style (has RGB foreground and background)
+	assert.Contains(t, seqs[0], "38;2;", "Code style should have RGB foreground")
+	assert.Contains(t, seqs[0], "48;2;", "Code style should have RGB background")
+
+	// Second sequence should be reset
+	assert.Equal(t, "\x1b[m", seqs[1], "Second sequence should be reset")
+
+	// Third sequence should be the base text style (document color 252)
+	assert.Contains(t, seqs[2], "38;5;252", "Third sequence should restore document text color")
+}
+
+func TestInlineCodeTextContent(t *testing.T) {
+	t.Parallel()
+
+	r := NewFastRenderer(80)
+	result, err := r.Render("Hello `there` beautiful")
+	require.NoError(t, err)
+
+	plain := ansi.Strip(result)
+	require.Contains(t, plain, "Hello there beautiful")
+}
+
+//go:embed testdata/streaming_benchmark.md
+var streamingBenchmarkContent string
+
+// splitIntoStreamingChunks splits content into chunks that simulate LLM streaming.
+// LLM tokens are typically 3-4 characters, so we use small varying chunk sizes.
+func splitIntoStreamingChunks(content string) []string {
+	var chunks []string
+	i := 0
+	chunkSizes := []int{3, 4, 3, 5, 2, 4, 3, 4, 5, 3, 2, 4, 3, 4, 3, 5}
+	sizeIdx := 0
+
+	for i < len(content) {
+		chunkSize := chunkSizes[sizeIdx%len(chunkSizes)]
+		end := i + chunkSize
+		if end > len(content) {
+			end = len(content)
+		}
+		chunks = append(chunks, content[i:end])
+		i = end
+		sizeIdx++
+	}
+	return chunks
+}
+
+// BenchmarkStreamingFastRenderer benchmarks rendering progressively growing markdown.
+// This simulates the streaming use case where content arrives in chunks and
+// the entire accumulated content is re-rendered on each update.
+func BenchmarkStreamingFastRenderer(b *testing.B) {
+	chunks := splitIntoStreamingChunks(streamingBenchmarkContent)
+	r := NewFastRenderer(80)
+
+	b.ResetTimer()
+	for b.Loop() {
+		var accumulated strings.Builder
+		for _, chunk := range chunks {
+			accumulated.WriteString(chunk)
+			_, _ = r.Render(accumulated.String())
+		}
+	}
+}
+
+// BenchmarkStreamingGlamourRenderer benchmarks glamour with progressively growing markdown.
+// Note: glamour's TermRenderer has internal state issues when reused many times,
+// so we create a fresh renderer for each benchmark iteration. This adds overhead
+// but is necessary to avoid panics in glamour's internal ANSI parser.
+func BenchmarkStreamingGlamourRenderer(b *testing.B) {
+	chunks := splitIntoStreamingChunks(streamingBenchmarkContent)
+
+	b.ResetTimer()
+	for b.Loop() {
+		r := NewGlamourRenderer(80)
+		var accumulated strings.Builder
+		for _, chunk := range chunks {
+			accumulated.WriteString(chunk)
+			_, _ = r.Render(accumulated.String())
+		}
 	}
 }

@@ -1,9 +1,11 @@
 package history
 
 import (
+	"bufio"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -41,8 +43,12 @@ func New(opts ...Opt) (*History, error) {
 	}
 
 	h := &History{
-		path:    filepath.Join(homeDir, ".cagent", "history.json"),
+		path:    filepath.Join(homeDir, ".cagent", "history"),
 		current: -1,
+	}
+
+	if err := h.migrateOldHistory(homeDir); err != nil {
+		return nil, err
 	}
 
 	if err := h.load(); err != nil && !os.IsNotExist(err) {
@@ -52,20 +58,42 @@ func New(opts ...Opt) (*History, error) {
 	return h, nil
 }
 
-func (h *History) Add(message string) error {
-	// Add the message last but avoid duplicate messages
-	var messages []string
-	for _, msg := range h.Messages {
-		if msg != message {
-			messages = append(messages, msg)
+func (h *History) migrateOldHistory(homeDir string) error {
+	oldPath := filepath.Join(homeDir, ".cagent", "history.json")
+
+	data, err := os.ReadFile(oldPath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	var old struct {
+		Messages []string `json:"messages"`
+	}
+	if err := json.Unmarshal(data, &old); err != nil {
+		return err
+	}
+
+	for _, msg := range old.Messages {
+		if err := h.append(msg); err != nil {
+			return err
 		}
 	}
-	messages = append(messages, message)
 
-	h.Messages = messages
+	return os.Remove(oldPath)
+}
+
+func (h *History) Add(message string) error {
+	// Update in-memory list: remove duplicate and append to end
+	h.Messages = slices.DeleteFunc(h.Messages, func(m string) bool {
+		return m == message
+	})
+	h.Messages = append(h.Messages, message)
 	h.current = len(h.Messages)
 
-	return h.save()
+	return h.append(message)
 }
 
 func (h *History) Previous() string {
@@ -105,40 +133,71 @@ func (h *History) Next() string {
 // LatestMatch returns the most recent history entry that extends the provided
 // prefix, or the latest message when no prefix is supplied.
 func (h *History) LatestMatch(prefix string) string {
-	if prefix == "" {
-		if len(h.Messages) == 0 {
-			return ""
-		}
-		return h.Messages[len(h.Messages)-1]
-	}
-
 	for i := len(h.Messages) - 1; i >= 0; i-- {
-		if strings.HasPrefix(h.Messages[i], prefix) && len(h.Messages[i]) > len(prefix) {
-			return h.Messages[i]
+		msg := h.Messages[i]
+		if strings.HasPrefix(msg, prefix) && len(msg) > len(prefix) {
+			return msg
 		}
 	}
-
 	return ""
 }
 
-func (h *History) save() error {
-	data, err := json.Marshal(h)
-	if err != nil {
-		return err
-	}
-
+func (h *History) append(message string) error {
 	if err := os.MkdirAll(filepath.Dir(h.path), 0o755); err != nil {
 		return err
 	}
 
-	return os.WriteFile(h.path, data, 0o644)
-}
+	f, err := os.OpenFile(h.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
 
-func (h *History) load() error {
-	data, err := os.ReadFile(h.path)
+	encoded, err := json.Marshal(message)
 	if err != nil {
 		return err
 	}
 
-	return json.Unmarshal(data, h)
+	_, err = f.Write(append(encoded, '\n'))
+	return err
+}
+
+func (h *History) load() error {
+	f, err := os.Open(h.path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	var all []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+
+		var message string
+		if err := json.Unmarshal([]byte(line), &message); err != nil {
+			continue
+		}
+		all = append(all, message)
+	}
+
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+
+	// Deduplicate keeping the latest occurrence of each message
+	seen := make(map[string]bool)
+	for i := len(all) - 1; i >= 0; i-- {
+		if seen[all[i]] {
+			continue
+		}
+		seen[all[i]] = true
+		h.Messages = append(h.Messages, all[i])
+	}
+	slices.Reverse(h.Messages)
+
+	return nil
 }

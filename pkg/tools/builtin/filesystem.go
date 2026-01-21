@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/docker/cagent/pkg/fsx"
 	"github.com/docker/cagent/pkg/tools"
@@ -39,6 +40,7 @@ type FilesystemTool struct {
 	postEditCommands []PostEditConfig
 	ignoreVCS        bool
 	repoMatcher      *fsx.VCSMatcher
+	repoMatcherOnce  sync.Once
 }
 
 var _ tools.ToolSet = (*FilesystemTool)(nil)
@@ -61,12 +63,9 @@ func NewFilesystemTool(workingDir string, opts ...FileSystemOpt) *FilesystemTool
 	t := &FilesystemTool{
 		workingDir: workingDir,
 	}
+
 	for _, opt := range opts {
 		opt(t)
-	}
-
-	if t.ignoreVCS {
-		t.initGitignoreMatcher()
 	}
 
 	return t
@@ -207,6 +206,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			Annotations: tools.ToolAnnotations{
 				Title: "Edit",
 			},
+			AddDescriptionParameter: true,
 		},
 		{
 			Name:         ToolNameListDirectory,
@@ -219,6 +219,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 				ReadOnlyHint: true,
 				Title:        "List Directory",
 			},
+			AddDescriptionParameter: true,
 		},
 		{
 			Name:         ToolNameReadFile,
@@ -256,6 +257,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 				ReadOnlyHint: true,
 				Title:        "Search Files Content",
 			},
+			AddDescriptionParameter: true,
 		},
 		{
 			Name:         ToolNameWriteFile,
@@ -267,6 +269,7 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 			Annotations: tools.ToolAnnotations{
 				Title: "Write",
 			},
+			AddDescriptionParameter: true,
 		},
 	}, nil
 }
@@ -310,21 +313,28 @@ func (t *FilesystemTool) resolvePath(path string) string {
 	return filepath.Clean(filepath.Join(t.workingDir, path))
 }
 
-// initGitignoreMatcher initializes the gitignore matcher for the working directory
+// initGitignoreMatcher initializes the gitignore matcher for the working directory.
+// It is safe to call multiple times; initialization only happens once.
 func (t *FilesystemTool) initGitignoreMatcher() {
-	absDir, err := filepath.Abs(t.workingDir)
-	if err != nil {
-		slog.Warn("Failed to get absolute path for working directory", "dir", t.workingDir, "error", err)
+	if !t.ignoreVCS {
 		return
 	}
 
-	matcher, err := fsx.NewVCSMatcher(absDir)
-	if err != nil {
-		slog.Warn("Failed to create VCS matcher", "path", absDir, "error", err)
-		return
-	}
+	t.repoMatcherOnce.Do(func() {
+		absDir, err := filepath.Abs(t.workingDir)
+		if err != nil {
+			slog.Warn("Failed to get absolute path for working directory", "dir", t.workingDir, "error", err)
+			return
+		}
 
-	t.repoMatcher = matcher
+		matcher, err := fsx.NewVCSMatcher(absDir)
+		if err != nil {
+			slog.Warn("Failed to create VCS matcher", "path", absDir, "error", err)
+			return
+		}
+
+		t.repoMatcher = matcher
+	})
 }
 
 // shouldIgnorePath checks if a path should be ignored based on VCS rules
@@ -338,6 +348,9 @@ func (t *FilesystemTool) shouldIgnorePath(path string) bool {
 	if strings.Contains(normalizedPath, "/.git/") || strings.HasSuffix(normalizedPath, "/.git") {
 		return true
 	}
+
+	// Lazily initialize the gitignore matcher on first use
+	t.initGitignoreMatcher()
 
 	if t.repoMatcher != nil && t.repoMatcher.ShouldIgnore(path) {
 		return true

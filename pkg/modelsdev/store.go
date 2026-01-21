@@ -349,3 +349,36 @@ var bedrockRegionPrefixes = map[string]bool{
 func isBedrockRegionPrefix(prefix string) bool {
 	return bedrockRegionPrefixes[prefix]
 }
+
+// ModelSupportsReasoning checks if the given model ID supports reasoning/thinking.
+//
+// This function implements fail-open semantics:
+//   - If modelID is empty or not in "provider/model" format, returns true (fail-open)
+//   - If models.dev lookup fails for any reason, returns true (fail-open)
+//   - If lookup succeeds, returns the model's Reasoning field value
+func ModelSupportsReasoning(ctx context.Context, modelID string) bool {
+	// Fail-open for empty model ID
+	if modelID == "" {
+		return true
+	}
+
+	// Fail-open if not in provider/model format
+	if !strings.Contains(modelID, "/") {
+		slog.Debug("Model ID not in provider/model format, assuming reasoning supported to allow user choice", "model_id", modelID)
+		return true
+	}
+
+	store, err := NewStore()
+	if err != nil {
+		slog.Debug("Failed to create modelsdev store, assuming reasoning supported to allow user choice", "error", err)
+		return true
+	}
+
+	model, err := store.GetModel(ctx, modelID)
+	if err != nil {
+		slog.Debug("Failed to lookup model in models.dev, assuming reasoning supported to allow user choice", "model_id", modelID, "error", err)
+		return true
+	}
+
+	return model.Reasoning
+}

@@ -31,6 +31,17 @@ func (s ansiStyle) render(text string) string {
 	return s.prefix + text + s.suffix
 }
 
+// renderTo writes styled text directly to a builder, avoiding intermediate allocations
+func (s ansiStyle) renderTo(b *strings.Builder, text string) {
+	if s.prefix == "" {
+		b.WriteString(text)
+		return
+	}
+	b.WriteString(s.prefix)
+	b.WriteString(text)
+	b.WriteString(s.suffix)
+}
+
 // buildAnsiStyle extracts ANSI codes from a lipgloss style by rendering an empty marker.
 func buildAnsiStyle(style lipgloss.Style) ansiStyle {
 	// Render a marker to extract the ANSI prefix/suffix
@@ -64,6 +75,7 @@ type cachedStyles struct {
 	ansiCode     ansiStyle
 	ansiLink     ansiStyle
 	ansiLinkText ansiStyle
+	ansiText     ansiStyle // base document text style
 
 	styleTaskTicked  string
 	styleTaskUntick  string
@@ -83,6 +95,8 @@ func getGlobalStyles() *cachedStyles {
 
 		styleBold := buildStylePrimitive(mdStyle.Strong)
 		styleItalic := buildStylePrimitive(mdStyle.Emph)
+
+		textStyle := buildStylePrimitive(mdStyle.Document.StylePrimitive)
 
 		globalStyles = &cachedStyles{
 			headingStyles: [6]lipgloss.Style{
@@ -104,6 +118,7 @@ func getGlobalStyles() *cachedStyles {
 			ansiCode:         buildAnsiStyle(buildStylePrimitive(mdStyle.Code.StylePrimitive)),
 			ansiLink:         buildAnsiStyle(buildStylePrimitive(mdStyle.Link)),
 			ansiLinkText:     buildAnsiStyle(buildStylePrimitive(mdStyle.LinkText)),
+			ansiText:         buildAnsiStyle(textStyle),
 			styleTaskTicked:  mdStyle.Task.Ticked,
 			styleTaskUntick:  mdStyle.Task.Unticked,
 			listIndent:       int(mdStyle.List.LevelIndent),
@@ -311,12 +326,18 @@ func (p *parser) tryBlockquote(line string) bool {
 	for _, ql := range quoteLines {
 		rendered := p.renderInline(ql)
 		wrapped := p.wrapText(rendered, p.width-p.styles.blockquoteIndent)
-		for _, wl := range strings.Split(wrapped, "\n") {
+		for wl := range strings.SplitSeq(wrapped, "\n") {
 			p.out.WriteString(indent + p.styles.styleBlockquote.Render(wl) + "\n")
 		}
 	}
 	p.out.WriteString("\n")
 	return true
+}
+
+// tableCell holds pre-rendered cell data to avoid re-rendering
+type tableCell struct {
+	rendered string // rendered with inline styles
+	width    int    // visual width (excluding ANSI codes)
 }
 
 // tryTable checks for markdown tables
@@ -326,120 +347,157 @@ func (p *parser) tryTable(line string) bool {
 		return false
 	}
 
-	// Collect all table lines
-	var tableLines []string
-	for p.lineIdx < len(p.lines) {
-		l := p.lines[p.lineIdx]
-		if !strings.Contains(l, "|") {
+	// Count table lines first to avoid slice growth
+	startIdx := p.lineIdx
+	numLines := 0
+	for i := p.lineIdx; i < len(p.lines); i++ {
+		if !strings.Contains(p.lines[i], "|") {
 			break
 		}
-		tableLines = append(tableLines, l)
-		p.lineIdx++
+		numLines++
 	}
 
-	if len(tableLines) < 2 {
+	if numLines < 2 {
 		// Need at least header and separator
-		// Undo and let paragraph handle it
-		p.lineIdx -= len(tableLines)
 		return false
 	}
 
 	// Check if second line is a separator (contains only -, |, :, and spaces)
-	separator := tableLines[1]
-	isSeparator := true
+	separator := p.lines[p.lineIdx+1]
 	for _, c := range separator {
 		if c != '-' && c != '|' && c != ':' && c != ' ' && c != '\t' {
-			isSeparator = false
-			break
+			// Not a valid table
+			return false
 		}
 	}
 
-	if !isSeparator {
-		// Not a valid table
-		p.lineIdx -= len(tableLines)
-		return false
-	}
+	// Parse and render cells in one pass
+	// Pre-allocate rows slice (numLines - 1 because we skip the separator)
+	rows := make([][]tableCell, 0, numLines-1)
+	numCols := 0
 
-	// Parse table cells
-	var rows [][]string
-	for i, line := range tableLines {
+	for i := range numLines {
 		if i == 1 {
-			// Skip separator
+			// Skip separator line
 			continue
 		}
-		cells := p.parseTableRow(line)
+		cells := p.parseAndRenderTableRow(p.lines[p.lineIdx+i])
+		if len(cells) > numCols {
+			numCols = len(cells)
+		}
 		rows = append(rows, cells)
 	}
 
-	if len(rows) == 0 {
+	if len(rows) == 0 || numCols == 0 {
 		return false
 	}
 
-	// Calculate column widths
-	colWidths := make([]int, len(rows[0]))
+	// Advance line index past all table lines
+	p.lineIdx = startIdx + numLines
+
+	// Calculate column widths from pre-computed cell widths
+	colWidths := make([]int, numCols)
 	for _, row := range rows {
 		for i, cell := range row {
-			if i < len(colWidths) {
-				cellWidth := runewidth.StringWidth(p.renderInline(cell))
-				if cellWidth > colWidths[i] {
-					colWidths[i] = cellWidth
-				}
+			if cell.width > colWidths[i] {
+				colWidths[i] = cell.width
 			}
 		}
 	}
 
-	// Render table
-	for rowIdx, row := range rows {
-		var lineBuilder strings.Builder
-		for i, cell := range row {
-			if i >= len(colWidths) {
-				break
-			}
-			rendered := p.renderInline(cell)
-			padding := colWidths[i] - runewidth.StringWidth(rendered)
-			if padding < 0 {
-				padding = 0
-			}
-			if rowIdx == 0 {
-				// Header row - bold
-				lineBuilder.WriteString(p.styles.ansiBold.render(rendered))
-			} else {
-				lineBuilder.WriteString(rendered)
-			}
-			lineBuilder.WriteString(strings.Repeat(" ", padding))
-			if i < len(row)-1 {
-				lineBuilder.WriteString(" │ ")
+	// Pre-calculate separator line (only done once)
+	var sepLine string
+	{
+		// Calculate total separator length
+		sepLen := 0
+		for i, w := range colWidths {
+			sepLen += w
+			if i < numCols-1 {
+				sepLen += 9 // len("─┼─") in bytes = 9 (3 runes × 3 bytes each)
 			}
 		}
-		p.out.WriteString(lineBuilder.String() + "\n")
+		var sepBuilder strings.Builder
+		sepBuilder.Grow(sepLen)
+		for i, w := range colWidths {
+			for range w {
+				sepBuilder.WriteString("─")
+			}
+			if i < numCols-1 {
+				sepBuilder.WriteString("─┼─")
+			}
+		}
+		sepLine = sepBuilder.String()
+	}
+
+	// Render table rows directly to output
+	for rowIdx, row := range rows {
+		for i, cell := range row {
+			if i >= numCols {
+				break
+			}
+			if rowIdx == 0 {
+				// Header row - bold, write directly to output
+				p.styles.ansiBold.renderTo(&p.out, cell.rendered)
+			} else {
+				p.out.WriteString(cell.rendered)
+			}
+			// Add padding
+			padding := colWidths[i] - cell.width
+			for range padding {
+				p.out.WriteByte(' ')
+			}
+			if i < len(row)-1 {
+				p.out.WriteString(" │ ")
+			}
+		}
+		p.out.WriteByte('\n')
 
 		// Add separator after header
 		if rowIdx == 0 {
-			var sepBuilder strings.Builder
-			for i, w := range colWidths {
-				sepBuilder.WriteString(strings.Repeat("─", w))
-				if i < len(colWidths)-1 {
-					sepBuilder.WriteString("─┼─")
-				}
-			}
-			p.out.WriteString(sepBuilder.String() + "\n")
+			p.out.WriteString(sepLine)
+			p.out.WriteByte('\n')
 		}
 	}
 
-	p.out.WriteString("\n")
+	p.out.WriteByte('\n')
 	return true
 }
 
-func (p *parser) parseTableRow(line string) []string {
-	// Remove leading/trailing pipes and split
+// parseAndRenderTableRow parses a table row and renders cells in one pass
+func (p *parser) parseAndRenderTableRow(line string) []tableCell {
+	// Trim leading/trailing whitespace and pipes
 	line = strings.TrimSpace(line)
-	line = strings.Trim(line, "|")
-	parts := strings.Split(line, "|")
-
-	var cells []string
-	for _, part := range parts {
-		cells = append(cells, strings.TrimSpace(part))
+	if line != "" && line[0] == '|' {
+		line = line[1:]
 	}
+	if line != "" && line[len(line)-1] == '|' {
+		line = line[:len(line)-1]
+	}
+
+	// Count cells first to pre-allocate
+	numCells := 1
+	for i := range len(line) {
+		if line[i] == '|' {
+			numCells++
+		}
+	}
+
+	cells := make([]tableCell, 0, numCells)
+	start := 0
+
+	for i := 0; i <= len(line); i++ {
+		if i == len(line) || line[i] == '|' {
+			// Extract and trim the cell
+			cellText := strings.TrimSpace(line[start:i])
+			rendered := p.renderInline(cellText)
+			cells = append(cells, tableCell{
+				rendered: rendered,
+				width:    lipgloss.Width(rendered),
+			})
+			start = i + 1
+		}
+	}
+
 	return cells
 }
 
@@ -542,10 +600,7 @@ func (p *parser) tryList(line string) bool {
 
 		// Calculate the width available for content (after bullet and indentation)
 		bulletWidth := lipgloss.Width(bulletIndent) + lipgloss.Width(bullet)
-		contentWidth := p.width - bulletWidth
-		if contentWidth < 10 {
-			contentWidth = 10 // Minimum content width
-		}
+		contentWidth := max(p.width-bulletWidth, 10) // Minimum content width of 10
 
 		rendered := p.renderInline(item.content)
 		wrapped := p.wrapText(rendered, contentWidth)
@@ -629,10 +684,17 @@ func (p *parser) renderInline(text string) string {
 		return ""
 	}
 
+	// Fast path: check if text contains any markdown characters
+	// If not, return as-is without allocating a builder
+	if !hasInlineMarkdown(text) {
+		return text
+	}
+
 	var out strings.Builder
 	out.Grow(len(text) + 64) // Pre-allocate with extra space for ANSI codes
 	i := 0
 	n := len(text)
+	needsStyleRestore := false // track if we need to restore text style after styled content
 
 	for i < n {
 		// Check for escaped characters
@@ -649,6 +711,7 @@ func (p *parser) renderInline(text string) string {
 				code := text[i+1 : i+1+end]
 				out.WriteString(p.styles.ansiCode.render(code))
 				i = i + 1 + end + 1
+				needsStyleRestore = true
 				continue
 			}
 		}
@@ -667,6 +730,7 @@ func (p *parser) renderInline(text string) string {
 					out.WriteString(p.styles.ansiBold.render(p.renderInline(inner)))
 				}
 				i = i + 2 + end + 2
+				needsStyleRestore = true
 				continue
 			}
 		}
@@ -689,6 +753,7 @@ func (p *parser) renderInline(text string) string {
 				inner := text[i+1 : end]
 				out.WriteString(p.styles.ansiItalic.render(p.renderInline(inner)))
 				i = end + 1
+				needsStyleRestore = true
 				continue
 			}
 		}
@@ -700,6 +765,7 @@ func (p *parser) renderInline(text string) string {
 				inner := text[i+2 : i+2+end]
 				out.WriteString(p.styles.ansiStrike.render(p.renderInline(inner)))
 				i = i + 2 + end + 2
+				needsStyleRestore = true
 				continue
 			}
 		}
@@ -721,14 +787,28 @@ func (p *parser) renderInline(text string) string {
 						out.WriteString(p.styles.ansiLink.render(linkText))
 					}
 					i = i + closeBracket + 2 + closeParen + 1
+					needsStyleRestore = true
 					continue
 				}
 			}
 			fallthrough
 		default:
-			// Regular character
-			out.WriteByte(text[i])
-			i++
+			// Regular character - collect consecutive plain text
+			start := i
+			for i < n && !isInlineMarker(text[i]) {
+				i++
+			}
+			// If we didn't advance (started on an unmatched marker), consume it as literal
+			if i == start {
+				i++
+			}
+			// Only apply text style if we need to restore after styled content
+			if needsStyleRestore {
+				p.styles.ansiText.renderTo(&out, text[start:i])
+				needsStyleRestore = false
+			} else {
+				out.WriteString(text[start:i])
+			}
 		}
 	}
 
@@ -753,6 +833,25 @@ func findClosingBracket(text string) int {
 
 func isWord(b byte) bool {
 	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
+}
+
+// hasInlineMarkdown checks if text contains any markdown formatting characters.
+// This allows a fast path to skip processing plain text.
+func hasInlineMarkdown(text string) bool {
+	for i := range len(text) {
+		if isInlineMarker(text[i]) {
+			return true
+		}
+	}
+	return false
+}
+
+func isInlineMarker(b byte) bool {
+	switch b {
+	case '\\', '`', '*', '_', '~', '[':
+		return true
+	}
+	return false
 }
 
 // renderCodeBlock renders a fenced code block with syntax highlighting.

@@ -1,4 +1,4 @@
-package app
+package transcript
 
 import (
 	"testing"
@@ -12,7 +12,7 @@ import (
 
 func TestSimple(t *testing.T) {
 	sess := session.New(session.WithUserMessage("Hello"))
-	content := transcript(sess)
+	content := PlainText(sess)
 	golden.Assert(t, content, "simple.golden")
 }
 
@@ -27,7 +27,7 @@ func TestAssistantMessage(t *testing.T) {
 			Content: "Hello to you too",
 		},
 	})
-	content := transcript(sess)
+	content := PlainText(sess)
 	golden.Assert(t, content, "assistant_message.golden")
 }
 
@@ -43,7 +43,7 @@ func TestAssistantMessageWithReasoning(t *testing.T) {
 			ReasoningContent: "Hm....",
 		},
 	})
-	content := transcript(sess)
+	content := PlainText(sess)
 	golden.Assert(t, content, "assistant_message_with_reasoning.golden")
 }
 
@@ -71,7 +71,7 @@ func TestToolCalls(t *testing.T) {
 			Content: ".\n..",
 		},
 	})
-	content := transcript(sess)
+	content := PlainText(sess)
 
 	golden.Assert(t, content, "tool_calls.golden")
 }

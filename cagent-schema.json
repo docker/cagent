@@ -592,7 +592,8 @@
             "fetch",
             "api",
             "a2a",
-            "lsp"
+            "lsp",
+            "user_prompt"
           ]
         },
         "instruction": {
@@ -755,7 +756,8 @@
                 "think",
                 "memory",
                 "script",
-                "fetch"
+                "fetch",
+                "user_prompt"
               ]
             }
           }

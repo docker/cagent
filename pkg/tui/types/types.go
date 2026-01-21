@@ -12,7 +12,7 @@ type MessageType int
 const (
 	MessageTypeUser MessageType = iota
 	MessageTypeAssistant
-	MessageTypeAssistantReasoning
+	MessageTypeAssistantReasoningBlock // Collapsed reasoning + tool calls block
 	MessageTypeSpinner
 	MessageTypeError
 	MessageTypeShellOutput

@@ -25,6 +25,20 @@ import (
 
 var defaultMaxTokens int64 = 32000
 
+// isThinkingBudgetDisabled returns true if the thinking budget is explicitly set to disable thinking
+// (e.g., thinking_budget: 0 or thinking_budget: none).
+func isThinkingBudgetDisabled(tb *latest.ThinkingBudget) bool {
+	if tb == nil {
+		return false
+	}
+	// Disabled if tokens is explicitly 0
+	if tb.Tokens == 0 && tb.Effort == "" {
+		return true
+	}
+	// Disabled if effort is "none"
+	return tb.Effort == "none"
+}
+
 type loadOptions struct {
 	modelOverrides  []string
 	toolsetRegistry *ToolsetRegistry
@@ -141,13 +155,14 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 			agent.WithHooks(agentConfig.Hooks),
 		}
 
-		models, err := getModelsForAgent(ctx, cfg, &agentConfig, autoModel, runConfig)
+		models, thinkingConfigured, err := getModelsForAgent(ctx, cfg, &agentConfig, autoModel, runConfig)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get models: %w", err)
 		}
 		for _, model := range models {
 			opts = append(opts, agent.WithModel(model))
 		}
+		opts = append(opts, agent.WithThinkingConfigured(thinkingConfigured))
 
 		agentTools, warnings := getToolsForAgent(ctx, &agentConfig, parentDir, runConfig, loadOpts.toolsetRegistry)
 		if len(warnings) > 0 {
@@ -217,8 +232,9 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 	}, nil
 }
 
-func getModelsForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentConfig, autoModelFn func() latest.ModelConfig, runConfig *config.RuntimeConfig) ([]provider.Provider, error) {
+func getModelsForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentConfig, autoModelFn func() latest.ModelConfig, runConfig *config.RuntimeConfig) ([]provider.Provider, bool, error) {
 	var models []provider.Provider
+	thinkingConfigured := false
 
 	for name := range strings.SplitSeq(a.Model, ",") {
 		modelCfg, exists := cfg.Models[name]
@@ -226,8 +242,15 @@ func getModelsForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentC
 			if name == "auto" {
 				modelCfg = autoModelFn()
 			} else {
-				return nil, fmt.Errorf("model '%s' not found in configuration", name)
+				return nil, false, fmt.Errorf("model '%s' not found in configuration", name)
 			}
+		}
+
+		// Check if thinking_budget was explicitly configured BEFORE provider defaults are applied.
+		// This is used to initialize session thinking state - thinking is only enabled by default
+		// when the user explicitly configured it in their YAML.
+		if modelCfg.ThinkingBudget != nil && !isThinkingBudgetDisabled(modelCfg.ThinkingBudget) {
+			thinkingConfigured = true
 		}
 
 		opts := []options.Opt{
@@ -244,7 +267,7 @@ func getModelsForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentC
 			maxTokens = &defaultMaxTokens
 			modelsStore, err := modelsdev.NewStore()
 			if err != nil {
-				return nil, err
+				return nil, false, err
 			}
 			m, err := modelsStore.GetModel(ctx, modelCfg.Provider+"/"+modelCfg.Model)
 			if err == nil {
@@ -263,12 +286,12 @@ func getModelsForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentC
 			opts...,
 		)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		models = append(models, model)
 	}
 
-	return models, nil
+	return models, thinkingConfigured, nil
 }
 
 // getToolsForAgent returns the tool definitions for an agent based on its configuration
@@ -305,6 +328,11 @@ func getToolsForAgent(ctx context.Context, a *latest.AgentConfig, parentDir stri
 			} else {
 				wrapped = WithToolsExcludeFilter(wrapped, toolset.Defer.Tools...)
 			}
+		}
+
+		// Apply friendly tools wrapper if enabled
+		if a.AddDescriptionParameter {
+			wrapped = tools.NewDescriptionToolSet(wrapped)
 		}
 
 		toolSets = append(toolSets, wrapped)
@@ -351,6 +379,7 @@ func createRAGToolsForAgent(agentConfig *latest.AgentConfig, allManagers map[str
 
 		// Create a separate tool for this RAG source
 		ragTool := builtin.NewRAGTool(mgr, toolName)
+
 		ragTools = append(ragTools, ragTool)
 
 		slog.Debug("Created RAG tool for agent",

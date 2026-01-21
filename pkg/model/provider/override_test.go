@@ -90,6 +90,48 @@ func TestApplyOverrides_Thinking(t *testing.T) {
 			thinkingEnabled:      nil, // Will pass nil opts
 			expectThinkingBudget: &latest.ThinkingBudget{Tokens: 8192},
 		},
+		{
+			name: "applies defaults when enabled and ThinkingBudget is nil (OpenAI)",
+			config: &latest.ModelConfig{
+				Provider:       "openai",
+				Model:          "gpt-4o",
+				ThinkingBudget: nil, // No thinking configured
+			},
+			thinkingEnabled:      boolPtr(true),
+			expectThinkingBudget: &latest.ThinkingBudget{Effort: "medium"}, // OpenAI default
+		},
+		{
+			name: "applies defaults when enabled and ThinkingBudget is nil (Anthropic)",
+			config: &latest.ModelConfig{
+				Provider:       "anthropic",
+				Model:          "claude-sonnet-4-0",
+				ThinkingBudget: nil, // No thinking configured
+			},
+			thinkingEnabled:           boolPtr(true),
+			expectThinkingBudget:      &latest.ThinkingBudget{Tokens: 8192}, // Anthropic default
+			expectInterleavedThinking: boolPtr(true),                        // Anthropic default
+		},
+		{
+			name: "restores defaults when /think used with tokens=0",
+			config: &latest.ModelConfig{
+				Provider:       "openai",
+				Model:          "gpt-4o",
+				ThinkingBudget: &latest.ThinkingBudget{Tokens: 0}, // User had thinking disabled
+			},
+			thinkingEnabled:      boolPtr(true),                            // User runs /think
+			expectThinkingBudget: &latest.ThinkingBudget{Effort: "medium"}, // Apply OpenAI default
+		},
+		{
+			name: "restores defaults when /think used with effort=none",
+			config: &latest.ModelConfig{
+				Provider:       "anthropic",
+				Model:          "claude-sonnet-4-0",
+				ThinkingBudget: &latest.ThinkingBudget{Effort: "none"}, // User had thinking disabled
+			},
+			thinkingEnabled:           boolPtr(true),                        // User runs /think
+			expectThinkingBudget:      &latest.ThinkingBudget{Tokens: 8192}, // Apply Anthropic default
+			expectInterleavedThinking: boolPtr(true),
+		},
 	}
 
 	for _, tt := range tests {
@@ -342,10 +384,15 @@ func TestApplyOverrides_DoesNotModifyOriginal(t *testing.T) {
 	assert.Nil(t, result.ThinkingBudget, "Result ThinkingBudget should be nil")
 }
 
-// TestApplyOverrides_EnableFromDisabled tests that explicitly enabling thinking when
-// the config has it disabled (Tokens=0 or Effort="none") restores provider defaults.
-// This is the key behavior that makes /think work when YAML starts with thinking_budget: 0/none.
-func TestApplyOverrides_EnableFromDisabled(t *testing.T) {
+// TestApplyOverrides_RestoresDefaultsFromDisabled tests that using /think when
+// the config has thinking explicitly disabled (Tokens=0 or Effort="none") applies
+// provider defaults. This is the key behavior that makes /think work when YAML
+// starts with thinking_budget: 0 or thinking_budget: none.
+//
+// Note: applyProviderDefaults now converts disabled thinking (Tokens=0 or Effort="none")
+// to nil ThinkingBudget. The /think command (applyOverrides with Thinking=true) then
+// applies provider defaults since ThinkingBudget is nil.
+func TestApplyOverrides_RestoresDefaultsFromDisabled(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -354,7 +401,7 @@ func TestApplyOverrides_EnableFromDisabled(t *testing.T) {
 		expectThinkingBudget *latest.ThinkingBudget
 	}{
 		{
-			name: "Anthropic: enable from Tokens=0 restores default 8192",
+			name: "Anthropic: /think with Tokens=0 applies default 8192",
 			config: &latest.ModelConfig{
 				Provider:       "anthropic",
 				Model:          "claude-sonnet-4-0",
@@ -363,7 +410,7 @@ func TestApplyOverrides_EnableFromDisabled(t *testing.T) {
 			expectThinkingBudget: &latest.ThinkingBudget{Tokens: 8192},
 		},
 		{
-			name: "Anthropic: enable from Effort=none restores default 8192",
+			name: "Anthropic: /think with Effort=none applies default 8192",
 			config: &latest.ModelConfig{
 				Provider:       "anthropic",
 				Model:          "claude-sonnet-4-0",
@@ -372,7 +419,7 @@ func TestApplyOverrides_EnableFromDisabled(t *testing.T) {
 			expectThinkingBudget: &latest.ThinkingBudget{Tokens: 8192},
 		},
 		{
-			name: "OpenAI: enable from Tokens=0 restores default medium",
+			name: "OpenAI: /think with Tokens=0 applies default medium",
 			config: &latest.ModelConfig{
 				Provider:       "openai",
 				Model:          "gpt-4o",
@@ -381,7 +428,7 @@ func TestApplyOverrides_EnableFromDisabled(t *testing.T) {
 			expectThinkingBudget: &latest.ThinkingBudget{Effort: "medium"},
 		},
 		{
-			name: "OpenAI: enable from Effort=none restores default medium",
+			name: "OpenAI: /think with Effort=none applies default medium",
 			config: &latest.ModelConfig{
 				Provider:       "openai",
 				Model:          "gpt-4o",
@@ -390,7 +437,7 @@ func TestApplyOverrides_EnableFromDisabled(t *testing.T) {
 			expectThinkingBudget: &latest.ThinkingBudget{Effort: "medium"},
 		},
 		{
-			name: "Gemini 2.5: enable from Tokens=0 restores default -1 (dynamic)",
+			name: "Gemini 2.5: /think with Tokens=0 applies default -1 (dynamic)",
 			config: &latest.ModelConfig{
 				Provider:       "google",
 				Model:          "gemini-2.5-flash",
@@ -399,7 +446,7 @@ func TestApplyOverrides_EnableFromDisabled(t *testing.T) {
 			expectThinkingBudget: &latest.ThinkingBudget{Tokens: -1},
 		},
 		{
-			name: "Bedrock Claude: enable from Tokens=0 restores default 8192",
+			name: "Bedrock Claude: /think with Tokens=0 applies default 8192",
 			config: &latest.ModelConfig{
 				Provider:       "amazon-bedrock",
 				Model:          "anthropic.claude-3-sonnet",
@@ -414,20 +461,20 @@ func TestApplyOverrides_EnableFromDisabled(t *testing.T) {
 			t.Parallel()
 
 			// Step 1: Apply provider defaults (simulating createDirectProvider flow)
+			// This now converts disabled thinking (Tokens=0 or Effort="none") to nil
 			result := applyProviderDefaults(tt.config, nil)
 
-			// Verify thinking is still disabled after defaults (because explicit 0/none is preserved)
-			require.NotNil(t, result.ThinkingBudget, "ThinkingBudget should be set")
-			assert.True(t, result.ThinkingBudget.Tokens == 0 || result.ThinkingBudget.Effort == "none",
-				"ThinkingBudget should still be disabled after defaults")
+			// Verify thinking is disabled (nil) after provider defaults
+			assert.Nil(t, result.ThinkingBudget,
+				"ThinkingBudget should be nil after applyProviderDefaults when explicitly disabled")
 
 			// Step 2: Apply override with thinking explicitly enabled (simulates /think toggle)
 			mo := options.ModelOptions{}
 			options.WithThinking(true)(&mo)
 			result = applyOverrides(result, &mo)
 
-			// Verify defaults were restored
-			require.NotNil(t, result.ThinkingBudget, "ThinkingBudget should be set after enable override")
+			// Verify defaults were applied - /think enables thinking with provider defaults
+			require.NotNil(t, result.ThinkingBudget, "ThinkingBudget should be set after /think")
 			assert.Equal(t, tt.expectThinkingBudget.Tokens, result.ThinkingBudget.Tokens, "Tokens should match default")
 			assert.Equal(t, tt.expectThinkingBudget.Effort, result.ThinkingBudget.Effort, "Effort should match default")
 		})

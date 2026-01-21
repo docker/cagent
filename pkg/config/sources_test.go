@@ -50,6 +50,14 @@ func TestURLSource_Read_HTTPError(t *testing.T) {
 			}))
 			t.Cleanup(server.Close)
 
+			// Clean up any cached data for this URL to ensure we test the error path
+			urlCacheDir := getURLCacheDir()
+			urlHash := hashURL(server.URL)
+			cachePath := filepath.Join(urlCacheDir, urlHash)
+			etagPath := cachePath + ".etag"
+			_ = os.Remove(cachePath)
+			_ = os.Remove(etagPath)
+
 			_, err := NewURLSource(server.URL).Read(t.Context())
 			require.Error(t, err)
 		})

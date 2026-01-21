@@ -2,6 +2,7 @@ package spinner
 
 import (
 	"math/rand/v2"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -17,19 +18,13 @@ type Mode int
 const (
 	ModeBoth Mode = iota
 	ModeSpinnerOnly
-	ModeMessageOnly
 )
 
-var lastID int64
-
-func nextID() int {
-	return int(atomic.AddInt64(&lastID, 1))
-}
+var lastID atomic.Int64
 
 type tickMsg struct {
-	Time time.Time
-	tag  int
-	ID   int
+	tag int
+	id  int
 }
 
 type Spinner struct {
@@ -65,24 +60,24 @@ var defaultMessages = []string{
 	"Warming up the flux capacitor",
 	"Reversing the polarity",
 	"Spinning up the hamster wheels",
-	"Dividing by zero",
 	"Herding cats",
 	"Untangling yarn",
+	"Aligning the cosmos",
+	"Brewing digital coffee",
+	"Wrangling bits and bytes",
+	"Charging the crystals",
+	"Consulting the rubber duck",
+	"Feeding the gremlins",
+	"Polishing the pixels",
+	"Calibrating the thrusters",
 }
 
 func New(mode Mode, dotsStyle lipgloss.Style) Spinner {
-	return Spinner{
-		dotsStyle:      dotsStyle,
-		messages:       defaultMessages,
-		mode:           mode,
-		currentMessage: defaultMessages[rand.IntN(len(defaultMessages))],
-		lightPosition:  -3,
-		frame:          0,
-		id:             nextID(),
-		direction:      1,
-		pauseFrames:    0,
+	// Pre-render all spinner frames for fast lookup during render
+	styledFrames := make([]string, len(spinnerChars))
+	for i, char := range spinnerChars {
+		styledFrames[i] = dotsStyle.Render(char)
 	}
-}
 
 func (s Spinner) Init() tea.Cmd {
 	s.active = true
@@ -144,11 +139,11 @@ func (s Spinner) Update(message tea.Msg) (layout.Model, tea.Cmd) {
 }
 
 func (s Spinner) View() string {
-	return s.render()
-}
-
-func (s Spinner) SetSize(_, _ int) tea.Cmd {
-	return nil
+	spinner := s.styledSpinnerFrames[s.frame%len(s.styledSpinnerFrames)]
+	if s.mode == ModeSpinnerOnly {
+		return spinner
+	}
+	return spinner + " " + s.renderMessage()
 }
 
 // Tick schedules a periodic spinner update while the spinner is active.
@@ -218,13 +213,19 @@ func (s *Spinner) Render() string {
 	return s.render()
 }
 
-func (s *Spinner) SetMessage(message string) {
-	s.currentMessage = message
+// lightStyles maps distance from light position to style (0=brightest, 1=bright, 2=dim, 3+=dimmest).
+var lightStyles = []lipgloss.Style{
+	styles.SpinnerTextBrightestStyle,
+	styles.SpinnerTextBrightStyle,
+	styles.SpinnerTextDimStyle,
+	styles.SpinnerTextDimmestStyle,
 }
 
-func abs(x int) int {
-	if x < 0 {
-		return -x
+func (s Spinner) renderMessage() string {
+	var out strings.Builder
+	for i, char := range s.currentMessage {
+		dist := min(max(i-s.lightPosition, s.lightPosition-i), len(lightStyles)-1)
+		out.WriteString(lightStyles[dist].Render(string(char)))
 	}
-	return x
+	return out.String()
 }

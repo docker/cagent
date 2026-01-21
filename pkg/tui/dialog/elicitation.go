@@ -84,6 +84,14 @@ func (d *ElicitationDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		cmd := d.SetSize(msg.Width, msg.Height)
 		return d, cmd
+	case tea.PasteMsg:
+		// Forward paste to text input if current field uses one
+		if d.isTextInputField() {
+			var cmd tea.Cmd
+			d.inputs[d.currentField], cmd = d.inputs[d.currentField].Update(msg)
+			return d, cmd
+		}
+		return d, nil
 	case tea.KeyPressMsg:
 		if msg.String() == "ctrl+c" {
 			cmd := d.close(tools.ElicitationActionDecline, nil)
@@ -261,12 +269,26 @@ func (d *ElicitationDialog) View() string {
 
 	content.AddSpace()
 	if len(d.fields) > 0 {
-		content.AddHelpKeys("↑/↓", "navigate", "enter", "submit", "esc", "cancel")
+		if d.hasSelectionFields() {
+			content.AddHelpKeys("↑/↓", "navigate", "space", "change", "enter", "submit", "esc", "cancel")
+		} else {
+			content.AddHelpKeys("↑/↓", "navigate", "enter", "submit", "esc", "cancel")
+		}
 	} else {
 		content.AddHelpKeys("enter", "confirm", "esc", "cancel")
 	}
 
 	return styles.DialogStyle.Width(dialogWidth).Render(content.Build())
+}
+
+// hasSelectionFields returns true if any field uses selection-based input (boolean or enum).
+func (d *ElicitationDialog) hasSelectionFields() bool {
+	for _, field := range d.fields {
+		if field.Type == "boolean" || field.Type == "enum" {
+			return true
+		}
+	}
+	return false
 }
 
 func (d *ElicitationDialog) renderField(content *Content, i int, field ElicitationField, contentWidth int) {

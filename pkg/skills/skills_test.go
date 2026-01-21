@@ -3,7 +3,6 @@ package skills
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -112,38 +111,6 @@ Body`,
 	}
 }
 
-func TestIsValidName(t *testing.T) {
-	tests := []struct {
-		name  string
-		valid bool
-	}{
-		{"pdf-processing", true},
-		{"data-analysis", true},
-		{"code-review", true},
-		{"simple", true},
-		{"a1b2c3", true},
-		{"skill123", true},
-		{"my-skill-name", true},
-		{"", false},
-		{"PDF-Processing", false},
-		{"-pdf", false},
-		{"pdf-", false},
-		{"pdf--processing", false},
-		{"pdf_processing", false},
-		{"pdf processing", false},
-		{"pdf.processing", false},
-		{strings.Repeat("a", 64), true},
-		{strings.Repeat("a", 65), false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := isValidName(tt.name)
-			assert.Equal(t, tt.valid, got, "isValidName(%q) = %v, want %v", tt.name, got, tt.valid)
-		})
-	}
-}
-
 func TestLoadSkillsFromDir_Flat(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -151,6 +118,7 @@ func TestLoadSkillsFromDir_Flat(t *testing.T) {
 	require.NoError(t, os.MkdirAll(skillDir, 0o755))
 
 	skillContent := `---
+name: pdf-extractor
 description: Extract text from PDF files
 ---
 
@@ -224,72 +192,6 @@ This skill has no description field.
 
 	skills := loadSkillsFromDir(tmpDir, false)
 	assert.Empty(t, skills)
-}
-
-func TestLoadSkillsFromDir_SkipNameMismatch(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	skillDir := filepath.Join(tmpDir, "actual-dir-name")
-	require.NoError(t, os.MkdirAll(skillDir, 0o755))
-
-	skillContent := `---
-name: different-name
-description: A skill with mismatched name
----
-
-# Mismatched
-`
-	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillContent), 0o644))
-
-	skills := loadSkillsFromDir(tmpDir, false)
-	assert.Empty(t, skills, "skill with name not matching directory should be skipped")
-}
-
-func TestLoadSkillsFromDir_SkipInvalidName(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	skillDir := filepath.Join(tmpDir, "Invalid-Name")
-	require.NoError(t, os.MkdirAll(skillDir, 0o755))
-
-	skillContent := `---
-name: Invalid-Name
-description: A skill with invalid name format
----
-
-# Invalid
-`
-	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillContent), 0o644))
-
-	skills := loadSkillsFromDir(tmpDir, false)
-	assert.Empty(t, skills, "skill with invalid name format should be skipped")
-}
-
-func TestLoadSkillsFromDir_SkipDescriptionTooLong(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	skillDir := filepath.Join(tmpDir, "long-desc")
-	require.NoError(t, os.MkdirAll(skillDir, 0o755))
-
-	longDesc := strings.Repeat("a", 1025)
-	skillContent := "---\nname: long-desc\ndescription: " + longDesc + "\n---\n\n# Long\n"
-	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillContent), 0o644))
-
-	skills := loadSkillsFromDir(tmpDir, false)
-	assert.Empty(t, skills, "skill with description > 1024 chars should be skipped")
-}
-
-func TestLoadSkillsFromDir_SkipCompatibilityTooLong(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	skillDir := filepath.Join(tmpDir, "long-compat")
-	require.NoError(t, os.MkdirAll(skillDir, 0o755))
-
-	longCompat := strings.Repeat("a", 501)
-	skillContent := "---\nname: long-compat\ndescription: A skill\ncompatibility: " + longCompat + "\n---\n\n# Long\n"
-	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillContent), 0o644))
-
-	skills := loadSkillsFromDir(tmpDir, false)
-	assert.Empty(t, skills, "skill with compatibility > 500 chars should be skipped")
 }
 
 func TestLoadSkillsFromDir_AllOptionalFields(t *testing.T) {
@@ -372,17 +274,14 @@ func TestBuildSkillsPrompt_Empty(t *testing.T) {
 }
 
 func TestLoad_Integration(t *testing.T) {
-	originalWd, err := os.Getwd()
-	require.NoError(t, err)
-	defer func() { _ = os.Chdir(originalWd) }()
-
 	tmpDir := t.TempDir()
-	require.NoError(t, os.Chdir(tmpDir))
+	t.Chdir(tmpDir)
 
 	claudeProjectDir := filepath.Join(tmpDir, ".claude", "skills", "test-skill")
 	require.NoError(t, os.MkdirAll(claudeProjectDir, 0o755))
 
 	skillContent := `---
+name: test-skill
 description: Test project skill
 ---
 
