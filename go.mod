@@ -12,7 +12,7 @@ require (
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.0
 	github.com/Microsoft/go-winio v0.6.2
 	github.com/a2aproject/a2a-go v0.3.4
-	github.com/alecthomas/chroma/v2 v2.22.0
+	github.com/alecthomas/chroma/v2 v2.23.0
 	github.com/alpkeskin/gotoon v0.1.1
 	github.com/anthropics/anthropic-sdk-go v1.19.0
 	github.com/atotto/clipboard v0.1.4
@@ -27,7 +27,7 @@ require (
 	github.com/charmbracelet/glamour/v2 v2.0.0-20251106195642-800eb8175930
 	github.com/charmbracelet/x/ansi v0.11.4
 	github.com/clipperhouse/displaywidth v0.7.0
-	github.com/clipperhouse/uax29/v2 v2.3.0
+	github.com/clipperhouse/uax29/v2 v2.3.1
 	github.com/coder/acp-go-sdk v0.6.3
 	github.com/docker/go-units v0.5.0
 	github.com/dop251/goja v0.0.0-20260106131823-651366fbe6e3
@@ -66,7 +66,7 @@ require (
 	golang.org/x/sys v0.40.0
 	golang.org/x/term v0.39.0
 	google.golang.org/adk v0.3.0
-	google.golang.org/genai v1.41.1
+	google.golang.org/genai v1.42.0
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/dnaeon/go-vcr.v4 v4.0.6
 	gotest.tools/v3 v3.5.2

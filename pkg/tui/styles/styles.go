@@ -370,6 +370,13 @@ var (
 			Foreground(lipgloss.Color(ColorErrorStrong)).
 			Background(lipgloss.Color(ColorErrorDark))
 
+	ToolNameDim = ToolMessageStyle.
+			Foreground(TextMutedGray).
+			Italic(true)
+
+	ToolDescription = ToolMessageStyle.
+			Foreground(TextPrimary)
+
 	ToolCompletedIcon = BaseStyle.
 				MarginLeft(2).
 				Foreground(TextMutedGray)

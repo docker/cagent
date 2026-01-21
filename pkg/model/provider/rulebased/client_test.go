@@ -341,3 +341,54 @@ func TestClient_CreateChatCompletionStream_NilProvider(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no provider available")
 }
+
+func TestClient_ModelsMapStoredInBaseConfig(t *testing.T) {
+	t.Parallel()
+
+	// This test verifies that the models map and env are stored in the base config.
+	// This is required for CloneWithOptions to work correctly with routers
+	// that use model references (e.g., "fast" instead of "anthropic/claude-haiku-4-5").
+	// Without this, cloning a router would fail because model references can't be resolved
+	// and the environment provider would be nil.
+
+	models := map[string]latest.ModelConfig{
+		"fast":    {Provider: "anthropic", Model: "claude-haiku-4-5"},
+		"capable": {Provider: "anthropic", Model: "claude-sonnet-4-5"},
+	}
+
+	cfg := &latest.ModelConfig{
+		Provider: "anthropic",
+		Model:    "claude-haiku-4-5", // fallback
+		Routing: []latest.RoutingRule{
+			{
+				Model:    "fast",
+				Examples: []string{"hello", "hi"},
+			},
+			{
+				Model:    "capable",
+				Examples: []string{"explain", "analyze"},
+			},
+		},
+	}
+
+	// Create a mock env provider
+	mockEnv := &mockEnvProvider{}
+
+	client, err := NewClient(t.Context(), cfg, models, mockEnv, mockProviderFactory)
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Verify the models map and env are stored in the base config
+	baseConfig := client.BaseConfig()
+	assert.NotNil(t, baseConfig.Models, "Models map should be stored in base config for cloning")
+	assert.Equal(t, models, baseConfig.Models, "Models map should match what was passed to NewClient")
+	assert.NotNil(t, baseConfig.Env, "Env should be stored in base config for cloning")
+	assert.Equal(t, mockEnv, baseConfig.Env, "Env should match what was passed to NewClient")
+}
+
+// mockEnvProvider is a minimal mock for environment.Provider.
+type mockEnvProvider struct{}
+
+func (m *mockEnvProvider) Get(_ context.Context, _ string) (string, bool) {
+	return "", false
+}

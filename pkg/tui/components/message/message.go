@@ -108,40 +108,6 @@ func (mv *messageModel) Render(width int) string {
 		}
 
 		return mv.senderPrefix(msg.Sender) + messageStyle.Render(rendered)
-	case types.MessageTypeAssistantReasoning:
-		if msg.Content == "" {
-			return mv.spinner.View()
-		}
-
-		messageStyle := styles.AssistantMessageStyle
-		thinkingStyle := styles.MutedStyle.Italic(true)
-
-		rendered, err := markdown.NewRenderer(width - messageStyle.GetHorizontalFrameSize()).Render(msg.Content)
-		if err != nil {
-			rendered = msg.Content
-		}
-
-		// Strip ANSI so muted style applies uniformly, and trim trailing whitespace.
-		// Unlike regular content where markdown ANSI output goes directly to messageStyle,
-		// here we strip ANSI which exposes raw trailing newlines from markdown that would
-		// otherwise be handled differently by lipgloss when embedded in ANSI sequences.
-		clean := strings.TrimRight(stripANSI(rendered), "\n\r\t ")
-
-		// Show "Thinking:" badge only when starting a new thinking block after content
-		var text string
-		if mv.continuingThinking(msg) {
-			text = thinkingStyle.Render(clean)
-		} else {
-			text = styles.ThinkingBadgeStyle.Render("Thinking:") + "\n\n" + thinkingStyle.Render(clean)
-		}
-
-		styledContent := messageStyle.Render(text)
-
-		if mv.sameAgentAsPrevious(msg) {
-			return styledContent
-		}
-
-		return mv.senderPrefix(msg.Sender) + styledContent
 	case types.MessageTypeShellOutput:
 		if rendered, err := markdown.NewRenderer(width).Render(fmt.Sprintf("```console\n%s\n```", msg.Content)); err == nil {
 			return rendered
@@ -187,23 +153,7 @@ func (mv *messageModel) sameAgentAsPrevious(msg *types.Message) bool {
 	}
 	switch mv.previous.Type {
 	case types.MessageTypeAssistant,
-		types.MessageTypeAssistantReasoning,
-		types.MessageTypeToolCall,
-		types.MessageTypeToolResult:
-		return true
-	default:
-		return false
-	}
-}
-
-// continuingThinking returns true if we're continuing a thinking flow
-// (previous was thinking or tool call, not content)
-func (mv *messageModel) continuingThinking(msg *types.Message) bool {
-	if mv.previous == nil || mv.previous.Sender != msg.Sender {
-		return false
-	}
-	switch mv.previous.Type {
-	case types.MessageTypeAssistantReasoning,
+		types.MessageTypeAssistantReasoningBlock,
 		types.MessageTypeToolCall,
 		types.MessageTypeToolResult:
 		return true

@@ -204,7 +204,7 @@ func (s *Server) resumeSession(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("invalid request body: %v", err))
 	}
 
-	if err := s.sm.ResumeSession(c.Request().Context(), c.Param("id"), req.Confirmation); err != nil {
+	if err := s.sm.ResumeSession(c.Request().Context(), c.Param("id"), req.Confirmation, req.Reason); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("failed to resume session: %v", err))
 	}
 

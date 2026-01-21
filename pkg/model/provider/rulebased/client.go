@@ -78,7 +78,11 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, models map[string]l
 	}
 
 	client := &Client{
-		Config:   base.Config{ModelConfig: *cfg},
+		Config: base.Config{
+			ModelConfig: *cfg,
+			Models:      models,
+			Env:         env,
+		},
 		index:    index,
 		fallback: fallback,
 	}

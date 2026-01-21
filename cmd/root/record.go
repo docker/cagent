@@ -11,13 +11,25 @@ import (
 )
 
 // setupFakeProxy starts a fake proxy if fakeResponses is non-empty.
+// streamDelayMs controls simulated streaming: 0 = disabled, >0 = delay in milliseconds between chunks.
 // It returns a cleanup function that must be called when done (typically via defer).
-func setupFakeProxy(fakeResponses string, runConfig *config.RuntimeConfig) (cleanup func() error, err error) {
+func setupFakeProxy(fakeResponses string, streamDelayMs int, runConfig *config.RuntimeConfig) (cleanup func() error, err error) {
 	if fakeResponses == "" {
 		return func() error { return nil }, nil
 	}
 
-	proxyURL, cleanupFn, err := fake.StartProxy(fakeResponses)
+	// Normalize path by stripping .yaml suffix (go-vcr adds it automatically)
+	fakeResponses = strings.TrimSuffix(fakeResponses, ".yaml")
+
+	var opts []fake.ProxyOption
+	if streamDelayMs > 0 {
+		opts = append(opts,
+			fake.WithSimulateStream(true),
+			fake.WithStreamChunkDelay(time.Duration(streamDelayMs)*time.Millisecond),
+		)
+	}
+
+	proxyURL, cleanupFn, err := fake.StartProxy(fakeResponses, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start fake proxy: %w", err)
 	}

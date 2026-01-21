@@ -26,11 +26,19 @@ type Alias struct {
 	Yolo bool `yaml:"yolo,omitempty"`
 	// Model overrides the agent's model (format: [agent=]provider/model)
 	Model string `yaml:"model,omitempty"`
+	// HideToolResults hides tool call results in the TUI
+	HideToolResults bool `yaml:"hide_tool_results,omitempty"`
 }
 
 // HasOptions returns true if the alias has any runtime options set
 func (a *Alias) HasOptions() bool {
-	return a != nil && (a.Yolo || a.Model != "")
+	return a != nil && (a.Yolo || a.Model != "" || a.HideToolResults)
+}
+
+// Settings represents global user settings
+type Settings struct {
+	// HideToolResults hides tool call results in the TUI by default
+	HideToolResults bool `yaml:"hide_tool_results,omitempty"`
 }
 
 // CurrentVersion is the current version of the user config format
@@ -44,6 +52,8 @@ type Config struct {
 	ModelsGateway string `yaml:"models_gateway,omitempty"`
 	// Aliases maps alias names to alias configurations
 	Aliases map[string]*Alias `yaml:"aliases,omitempty"`
+	// Settings contains global user settings
+	Settings *Settings `yaml:"settings,omitempty"`
 }
 
 // Path returns the path to the config file
@@ -205,4 +215,12 @@ func (c *Config) DeleteAlias(name string) bool {
 		return true
 	}
 	return false
+}
+
+// GetSettings returns the global settings, or an empty Settings if not set
+func (c *Config) GetSettings() *Settings {
+	if c.Settings == nil {
+		return &Settings{}
+	}
+	return c.Settings
 }

@@ -13,22 +13,27 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/docker/cagent/pkg/app/export"
+	"github.com/docker/cagent/pkg/app/transcript"
 	"github.com/docker/cagent/pkg/chat"
+	"github.com/docker/cagent/pkg/cli"
 	"github.com/docker/cagent/pkg/config/types"
 	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/tools"
 	mcptools "github.com/docker/cagent/pkg/tools/mcp"
+	"github.com/docker/cagent/pkg/tui/messages"
 )
 
 type App struct {
-	runtime            runtime.Runtime
-	session            *session.Session
-	firstMessage       *string
-	firstMessageAttach string
-	events             chan tea.Msg
-	throttleDuration   time.Duration
-	cancel             context.CancelFunc
+	runtime                runtime.Runtime
+	session                *session.Session
+	firstMessage           *string
+	firstMessageAttach     string
+	events                 chan tea.Msg
+	throttleDuration       time.Duration
+	cancel                 context.CancelFunc
+	currentAgentModel      string // Tracks the current agent's model ID from AgentInfoEvent
+	exitAfterFirstResponse bool   // Exit TUI after first assistant response completes
 }
 
 // Opt is an option for creating a new App.
@@ -45,6 +50,13 @@ func WithFirstMessage(msg string) Opt {
 func WithFirstMessageAttachment(path string) Opt {
 	return func(a *App) {
 		a.firstMessageAttach = path
+	}
+}
+
+// WithExitAfterFirstResponse configures the app to exit after the first assistant response.
+func WithExitAfterFirstResponse() Opt {
+	return func(a *App) {
+		a.exitAfterFirstResponse = true
 	}
 }
 
@@ -70,7 +82,11 @@ func New(ctx context.Context, rt runtime.Runtime, sess *session.Session, opts ..
 			rt.EmitStartupInfo(ctx, startupEvents)
 		}()
 		for event := range startupEvents {
-			app.events <- event
+			select {
+			case app.events <- event:
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 
@@ -79,30 +95,64 @@ func New(ctx context.Context, rt runtime.Runtime, sess *session.Session, opts ..
 	// and won't implement this optional interface.
 	if ragRuntime, ok := rt.(runtime.RAGInitializer); ok {
 		go ragRuntime.StartBackgroundRAGInit(ctx, func(event runtime.Event) {
-			app.events <- event
+			select {
+			case app.events <- event:
+			case <-ctx.Done():
+			}
 		})
 	}
 
 	return app
 }
 
-func (a *App) FirstMessage() *string {
-	return a.firstMessage
-}
+func (a *App) SendFirstMessage() tea.Cmd {
+	if a.firstMessage == nil {
+		return nil
+	}
 
-// FirstMessageAttachment returns the attachment path for the first message.
-func (a *App) FirstMessageAttachment() string {
-	return a.firstMessageAttach
-}
+	return func() tea.Msg {
+		// Use the shared PrepareUserMessage function for consistent attachment handling
+		userMsg := cli.PrepareUserMessage(context.Background(), a.runtime, *a.firstMessage, a.firstMessageAttach)
 
-// Runtime returns the runtime for this app.
-func (a *App) Runtime() runtime.Runtime {
-	return a.runtime
+		// If the message has multi-content (attachments), we need to handle it specially
+		if len(userMsg.Message.MultiContent) > 0 {
+			return messages.SendAttachmentMsg{
+				Content: userMsg,
+			}
+		}
+
+		return messages.SendMsg{
+			Content: userMsg.Message.Content,
+		}
+	}
 }
 
 // CurrentAgentCommands returns the commands for the active agent
 func (a *App) CurrentAgentCommands(ctx context.Context) types.Commands {
 	return a.runtime.CurrentAgentInfo(ctx).Commands
+}
+
+// CurrentAgentModel returns the model ID for the current agent.
+// Returns the tracked model from AgentInfoEvent, or falls back to session overrides.
+// Returns empty string if no model information is available (fail-open scenario).
+func (a *App) CurrentAgentModel() string {
+	if a.currentAgentModel != "" {
+		return a.currentAgentModel
+	}
+	// Fallback to session overrides
+	if a.session != nil && a.session.AgentModelOverrides != nil {
+		agentName := a.runtime.CurrentAgentName()
+		if modelRef, ok := a.session.AgentModelOverrides[agentName]; ok {
+			return modelRef
+		}
+	}
+	return ""
+}
+
+// TrackCurrentAgentModel updates the tracked model ID for the current agent.
+// This is called when AgentInfoEvent is received from the runtime.
+func (a *App) TrackCurrentAgentModel(model string) {
+	a.currentAgentModel = model
 }
 
 // CurrentMCPPrompts returns the available MCP prompts for the active agent
@@ -234,14 +284,15 @@ func (a *App) Subscribe(ctx context.Context, program *tea.Program) {
 			if !ok {
 				return
 			}
+
 			program.Send(msg)
 		}
 	}
 }
 
-// Resume resumes the runtime with the given confirmation type
-func (a *App) Resume(resumeType runtime.ResumeType) {
-	a.runtime.Resume(context.Background(), resumeType)
+// Resume resumes the runtime with the given confirmation request
+func (a *App) Resume(req runtime.ResumeRequest) {
+	a.runtime.Resume(context.Background(), req)
 }
 
 // ResumeElicitation resumes an elicitation request with the given action and content
@@ -254,7 +305,17 @@ func (a *App) NewSession() {
 		a.cancel()
 		a.cancel = nil
 	}
-	a.session = session.New()
+	// Preserve user-controlled session flags (like /think toggle)
+	// so they don't reset to default on /new
+	var opts []session.Opt
+	if a.session != nil {
+		opts = append(opts,
+			session.WithThinking(a.session.Thinking),
+			session.WithToolsApproved(a.session.ToolsApproved),
+			session.WithHideToolResults(a.session.HideToolResults),
+		)
+	}
+	a.session = session.New(opts...)
 	// Clear first message so it won't be re-sent on re-init
 	a.firstMessage = nil
 	a.firstMessageAttach = ""
@@ -322,7 +383,11 @@ func (a *App) SetCurrentAgentModel(ctx context.Context, modelRef string) error {
 			a.runtime.EmitStartupInfo(ctx, startupEvents)
 		}()
 		for event := range startupEvents {
-			a.events <- event
+			select {
+			case a.events <- event:
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 
@@ -429,6 +494,12 @@ func (a *App) SupportsModelSwitching() bool {
 	return ok
 }
 
+// ShouldExitAfterFirstResponse returns true if the app is configured to exit
+// after the first assistant response completes.
+func (a *App) ShouldExitAfterFirstResponse() bool {
+	return a.exitAfterFirstResponse
+}
+
 func (a *App) CompactSession(additionalPrompt string) {
 	if a.session != nil {
 		events := make(chan runtime.Event, 100)
@@ -441,7 +512,7 @@ func (a *App) CompactSession(additionalPrompt string) {
 }
 
 func (a *App) PlainTextTranscript() string {
-	return transcript(a.session)
+	return transcript.PlainText(a.session)
 }
 
 // SessionStore returns the session store for browsing/loading sessions.
@@ -476,7 +547,11 @@ func (a *App) ReplaceSession(ctx context.Context, sess *session.Session) {
 			a.runtime.EmitStartupInfo(ctx, startupEvents)
 		}()
 		for event := range startupEvents {
-			a.events <- event
+			select {
+			case a.events <- event:
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 }
@@ -511,25 +586,23 @@ func (a *App) applySessionModelOverrides(ctx context.Context, sess *session.Sess
 func (a *App) throttleEvents(ctx context.Context, in <-chan tea.Msg) <-chan tea.Msg {
 	out := make(chan tea.Msg, 128)
 
-	var buffer []tea.Msg
-	var timerCh <-chan time.Time
-
-	flush := func() {
-		for _, msg := range a.mergeEvents(buffer) {
-			select {
-			case out <- msg:
-			case <-ctx.Done():
-				return
-			}
-		}
-
-		buffer = buffer[:0]
-		timerCh = nil
-	}
-	defer flush()
-
 	go func() {
 		defer close(out)
+
+		var buffer []tea.Msg
+		var timerCh <-chan time.Time
+
+		flush := func() {
+			for _, msg := range a.mergeEvents(buffer) {
+				select {
+				case out <- msg:
+				case <-ctx.Done():
+					return
+				}
+			}
+			buffer = buffer[:0]
+			timerCh = nil
+		}
 
 		for {
 			select {

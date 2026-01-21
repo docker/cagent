@@ -12,6 +12,9 @@ type Config struct {
 	ModelConfig  latest.ModelConfig
 	ModelOptions options.ModelOptions
 	Env          environment.Provider
+	// Models stores the full models map for providers that need it (e.g., routers).
+	// This enables proper cloning of providers that reference other models.
+	Models map[string]latest.ModelConfig
 }
 
 // ID returns the provider and model ID in the format "provider/model"

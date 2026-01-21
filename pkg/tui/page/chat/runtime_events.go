@@ -3,6 +3,7 @@ package chat
 import (
 	"fmt"
 	"log/slog"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/docker/cagent/pkg/tui/components/sidebar"
 	"github.com/docker/cagent/pkg/tui/core"
 	"github.com/docker/cagent/pkg/tui/dialog"
+	msgtypes "github.com/docker/cagent/pkg/tui/messages"
 	"github.com/docker/cagent/pkg/tui/types"
 )
 
@@ -126,30 +128,42 @@ func (p *chatPage) forwardToSidebar(msg tea.Msg) tea.Cmd {
 }
 
 func (p *chatPage) handleStreamStarted(msg *runtime.StreamStartedEvent) tea.Cmd {
+	slog.Debug("handleStreamStarted called", "agent", msg.AgentName, "session_id", msg.SessionID)
 	p.streamCancelled = false
 	spinnerCmd := p.setWorking(true)
-	assistantCmd := p.messages.AddAssistantMessage()
+	pendingCmd := p.setPendingResponse(true)
 	p.startProgressBar()
 	sidebarCmd := p.forwardToSidebar(msg)
-	return tea.Batch(assistantCmd, spinnerCmd, sidebarCmd)
+	return tea.Batch(pendingCmd, spinnerCmd, sidebarCmd)
 }
 
 func (p *chatPage) handleAgentChoice(msg *runtime.AgentChoiceEvent) tea.Cmd {
 	if p.streamCancelled {
 		return nil
 	}
-	return p.messages.AppendToLastMessage(msg.AgentName, types.MessageTypeAssistant, msg.Content)
+	// Track that we've received assistant content
+	p.hasReceivedAssistantContent = true
+	// Clear pending response indicator - first chunk has arrived
+	p.setPendingResponse(false)
+	return p.messages.AppendToLastMessage(msg.AgentName, msg.Content)
 }
 
 func (p *chatPage) handleAgentChoiceReasoning(msg *runtime.AgentChoiceReasoningEvent) tea.Cmd {
 	if p.streamCancelled {
 		return nil
 	}
-	return p.messages.AppendToLastMessage(msg.AgentName, types.MessageTypeAssistantReasoning, msg.Content)
+	p.setPendingResponse(false)
+	return p.messages.AppendReasoning(msg.AgentName, msg.Content)
 }
 
 func (p *chatPage) handleStreamStopped(msg *runtime.StreamStoppedEvent) tea.Cmd {
+	slog.Debug("handleStreamStopped called",
+		"agent", msg.AgentName,
+		"session_id", msg.SessionID,
+		"should_exit", p.app.ShouldExitAfterFirstResponse(),
+		"has_content", p.hasReceivedAssistantContent)
 	spinnerCmd := p.setWorking(false)
+	p.setPendingResponse(false)
 	if p.msgCancel != nil {
 		p.msgCancel = nil
 	}
@@ -160,10 +174,21 @@ func (p *chatPage) handleStreamStopped(msg *runtime.StreamStoppedEvent) tea.Cmd 
 	// Check if there are queued messages to process
 	queueCmd := p.processNextQueuedMessage()
 
-	return tea.Batch(p.messages.ScrollToBottom(), spinnerCmd, sidebarCmd, queueCmd)
+	// Check if we should exit after this response
+	// Only exit if we've actually received assistant content (not just on any stream stop)
+	var exitCmd tea.Cmd
+	if p.app.ShouldExitAfterFirstResponse() && p.hasReceivedAssistantContent {
+		slog.Debug("Exit after first response triggered, scheduling delayed exit")
+		exitCmd = tea.Tick(50*time.Millisecond, func(time.Time) tea.Msg {
+			return msgtypes.ExitAfterFirstResponseMsg{}
+		})
+	}
+
+	return tea.Batch(p.messages.ScrollToBottom(), spinnerCmd, sidebarCmd, queueCmd, exitCmd)
 }
 
 func (p *chatPage) handlePartialToolCall(msg *runtime.PartialToolCallEvent) tea.Cmd {
+	p.setPendingResponse(false)
 	spinnerCmd := p.setWorking(true)
 	toolCmd := p.messages.AddOrUpdateToolCall(msg.AgentName, msg.ToolCall, msg.ToolDefinition, types.ToolStatusPending)
 	return tea.Batch(toolCmd, p.messages.ScrollToBottom(), spinnerCmd)
@@ -179,6 +204,7 @@ func (p *chatPage) handleToolCallConfirmation(msg *runtime.ToolCallConfirmationE
 }
 
 func (p *chatPage) handleToolCall(msg *runtime.ToolCallEvent) tea.Cmd {
+	p.setPendingResponse(false)
 	spinnerCmd := p.setWorking(true)
 	toolCmd := p.messages.AddOrUpdateToolCall(msg.AgentName, msg.ToolCall, msg.ToolDefinition, types.ToolStatusRunning)
 	return tea.Batch(toolCmd, p.messages.ScrollToBottom(), spinnerCmd)

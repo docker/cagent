@@ -5,7 +5,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/goccy/go-yaml"
@@ -13,15 +12,7 @@ import (
 	"github.com/docker/cagent/pkg/paths"
 )
 
-const (
-	skillFile = "SKILL.md"
-
-	maxNameLength        = 64
-	maxDescriptionLength = 1024
-	maxCompatLength      = 500
-)
-
-var namePattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+const skillFile = "SKILL.md"
 
 // Skill represents a loaded skill with its metadata and content location.
 type Skill struct {
@@ -171,7 +162,7 @@ func loadSkillFile(path, dirName string) (Skill, bool) {
 	}
 
 	skill, ok := parseFrontmatter(string(content))
-	if !ok || !isValidSkill(skill, dirName) {
+	if !ok || !isValidSkill(skill) {
 		return Skill{}, false
 	}
 
@@ -208,30 +199,13 @@ func parseFrontmatter(content string) (Skill, bool) {
 }
 
 // isValidSkill validates skill constraints.
-func isValidSkill(skill Skill, dirName string) bool {
-	// Description is required and has a max length
-	if skill.Description == "" || len(skill.Description) > maxDescriptionLength {
+func isValidSkill(skill Skill) bool {
+	// Description and name is required
+	if skill.Description == "" || skill.Name == "" {
 		return false
-	}
-
-	// Compatibility has a max length
-	if len(skill.Compatibility) > maxCompatLength {
-		return false
-	}
-
-	// If name is set, it must be valid and match the directory name
-	if skill.Name != "" {
-		if !isValidName(skill.Name) || skill.Name != dirName {
-			return false
-		}
 	}
 
 	return true
-}
-
-// isValidName checks if a skill name follows the naming convention.
-func isValidName(name string) bool {
-	return name != "" && len(name) <= maxNameLength && namePattern.MatchString(name)
 }
 
 // isHiddenOrSymlink returns true for hidden files/dirs or symlinks.

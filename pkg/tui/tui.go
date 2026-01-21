@@ -3,7 +3,6 @@ package tui
 import (
 	"cmp"
 	"context"
-	"log/slog"
 	"os"
 	"os/exec"
 	goruntime "runtime"
@@ -15,12 +14,9 @@ import (
 
 	"github.com/docker/cagent/pkg/app"
 	"github.com/docker/cagent/pkg/audio/transcribe"
-	"github.com/docker/cagent/pkg/cli"
 	"github.com/docker/cagent/pkg/runtime"
-	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/tui/commands"
 	"github.com/docker/cagent/pkg/tui/components/completion"
-	"github.com/docker/cagent/pkg/tui/components/editor"
 	"github.com/docker/cagent/pkg/tui/components/notification"
 	"github.com/docker/cagent/pkg/tui/components/statusbar"
 	"github.com/docker/cagent/pkg/tui/core"
@@ -34,7 +30,7 @@ import (
 // appModel represents the main application model
 type appModel struct {
 	application     *app.App
-	wWidth, wHeight int // Window dimensions
+	wWidth, wHeight int
 	width, height   int
 	keyMap          KeyMap
 
@@ -45,18 +41,10 @@ type appModel struct {
 	dialog       dialog.Manager
 	completions  completion.Manager
 
-	// Session state
 	sessionState *service.SessionState
-	sessionTitle string // Current session title for terminal window
 
-	// Agent state
-	availableAgents []runtime.AgentDetails
-	currentAgent    string
-
-	// Speech-to-text transcriber
 	transcriber *transcribe.Transcriber
 
-	// State
 	ready bool
 	err   error
 }
@@ -67,7 +55,7 @@ type KeyMap struct {
 	CommandPalette        key.Binding
 	ToggleYolo            key.Binding
 	ToggleHideToolResults key.Binding
-	SwitchAgent           key.Binding
+	CycleAgent            key.Binding
 	ModelPicker           key.Binding
 	Speak                 key.Binding
 	ClearQueue            key.Binding
@@ -92,7 +80,7 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("ctrl+o"),
 			key.WithHelp("Ctrl+o", "toggle tool output"),
 		),
-		SwitchAgent: key.NewBinding(
+		CycleAgent: key.NewBinding(
 			key.WithKeys("ctrl+s"),
 			key.WithHelp("Ctrl+s", "cycle agent"),
 		),
@@ -139,35 +127,11 @@ func New(ctx context.Context, a *app.App) tea.Model {
 
 // Init initializes the application
 func (a *appModel) Init() tea.Cmd {
-	cmds := []tea.Cmd{
+	return tea.Sequence(
 		a.dialog.Init(),
 		a.chatPage.Init(),
-	}
-
-	if firstMessage := a.application.FirstMessage(); firstMessage != nil {
-		cmds = append(cmds, func() tea.Msg {
-			// Use the shared PrepareUserMessage function for consistent attachment handling
-			userMsg := cli.PrepareUserMessage(context.Background(), a.application.Runtime(), *firstMessage, a.application.FirstMessageAttachment())
-
-			// If the message has multi-content (attachments), we need to handle it specially
-			if len(userMsg.Message.MultiContent) > 0 {
-				return firstMessageWithAttachment{
-					message: userMsg,
-				}
-			}
-
-			return editor.SendMsg{
-				Content: userMsg.Message.Content,
-			}
-		})
-	}
-
-	return tea.Batch(cmds...)
-}
-
-// firstMessageWithAttachment is a message for the first message with an attachment
-type firstMessageWithAttachment struct {
-	message *session.Message
+		a.application.SendFirstMessage(),
+	)
 }
 
 // Help returns help information
@@ -193,27 +157,23 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, dialogCmd
 
 	case *runtime.TeamInfoEvent:
-		// Store team info for agent switching shortcuts
-		a.availableAgents = msg.AvailableAgents
-		a.currentAgent = msg.CurrentAgent
-		a.sessionState.SetCurrentAgent(msg.CurrentAgent)
+		a.sessionState.SetAvailableAgents(msg.AvailableAgents)
+		a.sessionState.SetCurrentAgentName(msg.CurrentAgent)
 		// Forward to chat page
 		updated, cmd := a.chatPage.Update(msg)
 		a.chatPage = updated.(chat.Page)
 		return a, cmd
 
 	case *runtime.AgentInfoEvent:
-		// Track current agent
-		a.currentAgent = msg.AgentName
-		a.sessionState.SetCurrentAgent(msg.AgentName)
+		a.sessionState.SetCurrentAgentName(msg.AgentName)
+		a.application.TrackCurrentAgentModel(msg.Model)
 		// Forward to chat page
 		updated, cmd := a.chatPage.Update(msg)
 		a.chatPage = updated.(chat.Page)
 		return a, cmd
 
 	case *runtime.SessionTitleEvent:
-		// Store session title for terminal window title
-		a.sessionTitle = msg.Title
+		a.sessionState.SetSessionTitle(msg.Title)
 		// Forward to chat page (which forwards to sidebar)
 		updated, cmd := a.chatPage.Update(msg)
 		a.chatPage = updated.(chat.Page)
@@ -240,6 +200,19 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyPressMsg:
 		return a.handleKeyPressMsg(msg)
+
+	case tea.PasteMsg:
+		// If dialogs are active, only they should receive paste events.
+		// This prevents paste content from going to both dialog and editor.
+		if a.dialog.Open() {
+			u, dialogCmd := a.dialog.Update(msg)
+			a.dialog = u.(dialog.Manager)
+			return a, dialogCmd
+		}
+		// Otherwise forward to chat page (editor)
+		updated, cmd := a.chatPage.Update(msg)
+		a.chatPage = updated.(chat.Page)
+		return a, cmd
 
 	case tea.MouseWheelMsg:
 		// If dialogs are active, they get priority for mouse events
@@ -348,11 +321,11 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a.handleChangeModel(msg.ModelRef)
 
 	case messages.ElicitationResponseMsg:
-		// Handle elicitation response from the dialog
-		if err := a.application.ResumeElicitation(context.Background(), msg.Action, msg.Content); err != nil {
-			slog.Error("Failed to resume elicitation", "action", msg.Action, "error", err)
-			return a, notification.ErrorCmd("Failed to complete server request: " + err.Error())
-		}
+		return a.handleElicitationResponse(msg.Action, msg.Content)
+
+	case messages.SendAttachmentMsg:
+		// Handle first message with image attachment using the pre-prepared message
+		a.application.RunWithMessage(context.Background(), nil, msg.Content)
 		return a, nil
 
 	case speakTranscriptAndContinue:
@@ -362,21 +335,38 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := a.listenForTranscripts(msg.ch)
 		return a, cmd
 
+	case dialog.MultiChoiceResultMsg:
+		// Handle multi-choice dialog results
+		if msg.DialogID == dialog.ToolRejectionDialogID {
+			if msg.Result.IsCancelled {
+				// User cancelled - multi-choice dialog already closed, tool confirmation still open
+				return a, nil
+			}
+			// User selected a reason - close the tool confirmation dialog and send resume
+			resumeMsg := dialog.HandleToolRejectionResult(msg.Result)
+			if resumeMsg != nil {
+				return a, tea.Sequence(
+					core.CmdHandler(dialog.CloseDialogMsg{}), // Close tool confirmation dialog
+					core.CmdHandler(*resumeMsg),
+				)
+			}
+		}
+		return a, nil
+
 	case dialog.RuntimeResumeMsg:
-		a.application.Resume(msg.Response)
+		a.application.Resume(msg.Request)
 		return a, nil
 
 	case dialog.ExitConfirmedMsg:
 		a.chatPage.Cleanup()
 		return a, tea.Quit
 
+	case messages.ExitAfterFirstResponseMsg:
+		a.chatPage.Cleanup()
+		return a, tea.Quit
+
 	case chat.EditorHeightChangedMsg:
 		a.completions.SetEditorBottom(msg.Height)
-		return a, nil
-
-	case firstMessageWithAttachment:
-		// Handle first message with image attachment using the pre-prepared message
-		a.application.RunWithMessage(context.Background(), nil, msg.message)
 		return a, nil
 
 	case error:
@@ -417,8 +407,17 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (a *appModel) handleWindowResize(width, height int) tea.Cmd {
 	var cmds []tea.Cmd
 
-	// Update dimensions
-	a.width, a.height = width, height-1 // Account for status bar
+	// Update status bar width first so we can measure its height
+	a.statusBar.SetWidth(width)
+
+	// Compute status bar height from rendered content
+	statusBarHeight := 1 // default fallback
+	if statusBarView := a.statusBar.View(); statusBarView != "" {
+		statusBarHeight = lipgloss.Height(statusBarView)
+	}
+
+	// Update dimensions, reserving space for the status bar
+	a.width, a.height = width, height-statusBarHeight
 
 	if !a.ready {
 		a.ready = true
@@ -434,9 +433,6 @@ func (a *appModel) handleWindowResize(width, height int) tea.Cmd {
 
 	// Update completion manager with actual editor height for popup positioning
 	a.completions.SetEditorBottom(a.chatPage.GetInputHeight())
-
-	// Update status bar width
-	a.statusBar.SetWidth(a.width)
 
 	// Update notification size
 	a.notification.SetSize(a.width, a.height)
@@ -505,9 +501,8 @@ func (a *appModel) handleKeyPressMsg(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, a.keyMap.ToggleHideToolResults):
 		return a, core.CmdHandler(messages.ToggleHideToolResultsMsg{})
 
-	case key.Matches(msg, a.keyMap.SwitchAgent):
-		// Cycle to the next agent in the list
-		return a.cycleToNextAgent()
+	case key.Matches(msg, a.keyMap.CycleAgent):
+		return a.handleCycleAgent()
 
 	case key.Matches(msg, a.keyMap.ModelPicker):
 		return a.handleOpenModelPicker()
@@ -524,8 +519,9 @@ func (a *appModel) handleKeyPressMsg(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	default:
 		// Handle ctrl+1 through ctrl+9 for quick agent switching
 		if index := parseCtrlNumberKey(msg); index >= 0 {
-			return a.switchToAgentByIndex(index)
+			return a.handleSwitchToAgentByIndex(index)
 		}
+
 		updated, cmd := a.chatPage.Update(msg)
 		a.chatPage = updated.(chat.Page)
 		return a, cmd
@@ -539,37 +535,6 @@ func parseCtrlNumberKey(msg tea.KeyPressMsg) int {
 		return int(s[5] - '1')
 	}
 	return -1
-}
-
-// switchToAgentByIndex switches to the agent at the given index
-func (a *appModel) switchToAgentByIndex(index int) (tea.Model, tea.Cmd) {
-	if index >= 0 && index < len(a.availableAgents) {
-		agentName := a.availableAgents[index].Name
-		if agentName != a.currentAgent {
-			return a, core.CmdHandler(messages.SwitchAgentMsg{AgentName: agentName})
-		}
-	}
-	return a, nil
-}
-
-// cycleToNextAgent cycles to the next agent in the available agents list
-func (a *appModel) cycleToNextAgent() (tea.Model, tea.Cmd) {
-	if len(a.availableAgents) <= 1 {
-		return a, notification.InfoCmd("No other agents available")
-	}
-
-	// Find the current agent index
-	currentIndex := -1
-	for i, agent := range a.availableAgents {
-		if agent.Name == a.currentAgent {
-			currentIndex = i
-			break
-		}
-	}
-
-	// Cycle to the next agent (wrap around to 0 if at the end)
-	nextIndex := (currentIndex + 1) % len(a.availableAgents)
-	return a.switchToAgentByIndex(nextIndex)
 }
 
 // View renders the complete application interface
@@ -638,8 +603,8 @@ func (a *appModel) View() tea.View {
 
 // windowTitle returns the terminal window title
 func (a *appModel) windowTitle() string {
-	if a.sessionTitle != "" {
-		return a.sessionTitle + " - cagent"
+	if sessionTitle := a.sessionState.SessionTitle(); sessionTitle != "" {
+		return sessionTitle + " - cagent"
 	}
 	return "cagent"
 }

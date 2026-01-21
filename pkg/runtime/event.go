@@ -4,6 +4,7 @@ import (
 	"cmp"
 
 	"github.com/docker/cagent/pkg/chat"
+	"github.com/docker/cagent/pkg/config/types"
 	"github.com/docker/cagent/pkg/tools"
 )
 
@@ -373,7 +374,7 @@ func MCPInitFinished(agentName string) Event {
 type AgentInfoEvent struct {
 	Type           string `json:"type"`
 	AgentName      string `json:"agent_name"`
-	Model          string `json:"model"`
+	Model          string `json:"model"` // this is in provider/model format (e.g., "openai/gpt-4o")
 	Description    string `json:"description"`
 	WelcomeMessage string `json:"welcome_message,omitempty"`
 	AgentContext
@@ -392,10 +393,11 @@ func AgentInfo(agentName, model, description, welcomeMessage string) Event {
 
 // AgentDetails contains information about an agent for display in the sidebar
 type AgentDetails struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Provider    string `json:"provider"`
-	Model       string `json:"model"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Provider    string         `json:"provider"`
+	Model       string         `json:"model"`
+	Commands    types.Commands `json:"commands,omitempty"`
 }
 
 // TeamInfoEvent is sent when team information is available

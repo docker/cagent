@@ -184,16 +184,21 @@ func (sm *SessionManager) RunSession(ctx context.Context, sessionID, agentFilena
 	return streamChan, nil
 }
 
-// ResumeSession resumes a paused session.
-func (sm *SessionManager) ResumeSession(ctx context.Context, sessionID, confirmation string) error {
+// ResumeSession resumes a paused session with an optional rejection reason.
+func (sm *SessionManager) ResumeSession(ctx context.Context, sessionID, confirmation, reason string) error {
 	sm.mux.Lock()
 	defer sm.mux.Unlock()
+
+	// Ensure the session runtime exists
 	rt, exists := sm.runtimeSessions.Load(sessionID)
 	if !exists {
 		return errors.New("session not found")
 	}
 
-	rt.runtime.Resume(ctx, runtime.ResumeType(confirmation))
+	rt.runtime.Resume(ctx, runtime.ResumeRequest{
+		Type:   runtime.ResumeType(confirmation),
+		Reason: reason,
+	})
 	return nil
 }
 
@@ -267,6 +272,9 @@ func (sm *SessionManager) runtimeForSession(ctx context.Context, sess *session.S
 		return nil, err
 	}
 	sess.MaxIterations = agent.MaxIterations()
+	// Initialize thinking state based on whether thinking_budget was explicitly configured
+	// in the agent's YAML config. Only enable thinking by default when explicitly configured.
+	sess.Thinking = agent.ThinkingConfigured()
 
 	opts := []runtime.Opt{
 		runtime.WithCurrentAgent(currentAgent),

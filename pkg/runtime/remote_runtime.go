@@ -116,6 +116,7 @@ func (r *RemoteRuntime) agentDetailsFromConfig(ctx context.Context) []AgentDetai
 		info := AgentDetails{
 			Name:        agent.Name,
 			Description: agent.Description,
+			Commands:    agent.Commands,
 		}
 
 		if provider, model, found := strings.Cut(agent.Model, "/"); found {
@@ -196,15 +197,15 @@ func (r *RemoteRuntime) Run(ctx context.Context, sess *session.Session) ([]sessi
 }
 
 // Resume allows resuming execution after user confirmation
-func (r *RemoteRuntime) Resume(ctx context.Context, confirmationType ResumeType) {
-	slog.Debug("Resuming remote runtime", "agent", r.currentAgent, "confirmation_type", confirmationType, "session_id", r.sessionID)
+func (r *RemoteRuntime) Resume(ctx context.Context, req ResumeRequest) {
+	slog.Debug("Resuming remote runtime", "agent", r.currentAgent, "type", req.Type, "reason", req.Reason, "session_id", r.sessionID)
 
 	if r.sessionID == "" {
 		slog.Error("Cannot resume: no session ID available")
 		return
 	}
 
-	if err := r.client.ResumeSession(ctx, r.sessionID, string(confirmationType)); err != nil {
+	if err := r.client.ResumeSession(ctx, r.sessionID, string(req.Type), req.Reason); err != nil {
 		slog.Error("Failed to resume remote session", "error", err, "session_id", r.sessionID)
 	}
 }

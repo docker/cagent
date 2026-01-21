@@ -22,9 +22,21 @@ func renderToolArgs(toolCall tools.ToolCall, shortWidth, width int) string {
 		return ""
 	}
 
+	// Filter out the friendly description parameter
+	filteredArgs := make([]kv, 0, len(args))
+	for _, arg := range args {
+		if arg.Key != tools.DescriptionParam {
+			filteredArgs = append(filteredArgs, arg)
+		}
+	}
+
+	if len(filteredArgs) == 0 {
+		return ""
+	}
+
 	var short strings.Builder
 	var md strings.Builder
-	for i, arg := range args {
+	for i, arg := range filteredArgs {
 		if i > 0 {
 			short.WriteString(" ")
 			md.WriteString("\n")

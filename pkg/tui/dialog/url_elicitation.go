@@ -1,9 +1,13 @@
 package dialog
 
 import (
+	"context"
+	"log/slog"
+
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/docker/cagent/pkg/browser"
 	"github.com/docker/cagent/pkg/tools"
 	"github.com/docker/cagent/pkg/tui/core/layout"
 	"github.com/docker/cagent/pkg/tui/styles"
@@ -13,10 +17,11 @@ import (
 // It displays a URL for the user to visit and waits for confirmation.
 type URLElicitationDialog struct {
 	BaseDialog
-	message string
-	url     string
-	keyMap  ConfirmKeyMap
-	escape  key.Binding
+	message     string
+	url         string
+	keyMap      ConfirmKeyMap
+	escape      key.Binding
+	openBrowser key.Binding
 }
 
 // NewURLElicitationDialog creates a new URL elicitation dialog.
@@ -26,6 +31,10 @@ func NewURLElicitationDialog(message, url string) Dialog {
 		url:     url,
 		keyMap:  DefaultConfirmKeyMap(),
 		escape:  key.NewBinding(key.WithKeys("esc")),
+		openBrowser: key.NewBinding(
+			key.WithKeys("o"),
+			key.WithHelp("o", "open"),
+		),
 	}
 }
 
@@ -52,6 +61,14 @@ func (d *URLElicitationDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		case key.Matches(msg, d.escape):
 			cmd := d.respond(tools.ElicitationActionCancel)
 			return d, cmd
+		case key.Matches(msg, d.openBrowser):
+			cmd := d.openURLInBrowser()
+			return d, cmd
+		}
+	case tea.MouseClickMsg:
+		if d.url != "" {
+			cmd := d.openURLInBrowser()
+			return d, cmd
 		}
 	}
 	return d, nil
@@ -59,6 +76,18 @@ func (d *URLElicitationDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 
 func (d *URLElicitationDialog) respond(action tools.ElicitationAction) tea.Cmd {
 	return CloseWithElicitationResponse(action, nil)
+}
+
+func (d *URLElicitationDialog) openURLInBrowser() tea.Cmd {
+	return func() tea.Msg {
+		if d.url == "" {
+			return nil
+		}
+		if err := browser.Open(context.Background(), d.url); err != nil {
+			slog.Error("Failed to open URL in browser", "url", d.url, "error", err)
+		}
+		return nil
+	}
 }
 
 func (d *URLElicitationDialog) Position() (row, col int) {
@@ -86,7 +115,7 @@ func (d *URLElicitationDialog) View() string {
 
 	content.AddHelp("Press Y when you have completed the action, or N to decline.")
 	content.AddSpace()
-	content.AddHelpKeys("Y", "confirm", "N", "decline", "esc", "cancel")
+	content.AddHelpKeys("Y", "confirm", "N", "decline", "o", "open", "esc", "cancel")
 
 	return styles.DialogStyle.Width(dialogWidth).Render(content.Build())
 }

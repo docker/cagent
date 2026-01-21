@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/docker/cagent/pkg/agent"
+	"github.com/docker/cagent/pkg/config/types"
 	"github.com/docker/cagent/pkg/permissions"
 	"github.com/docker/cagent/pkg/rag"
 )
@@ -62,6 +63,7 @@ type AgentInfo struct {
 	Description string
 	Provider    string
 	Model       string
+	Commands    types.Commands
 }
 
 // AgentsInfo returns information about all agents in the team
@@ -71,6 +73,7 @@ func (t *Team) AgentsInfo() []AgentInfo {
 		info := AgentInfo{
 			Name:        a.Name(),
 			Description: a.Description(),
+			Commands:    a.Commands(),
 		}
 		if model := a.Model(); model != nil {
 			modelID := model.ID()

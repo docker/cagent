@@ -38,6 +38,8 @@ linters:
           msg: "do not use os.MkdirTemp() in tests, use t.TempDir()"
         - pattern: os\.Setenv()
           msg: "do not use os.Setenv() in tests, use t.Setenv()"
+        - pattern: os\.Chdir()
+          msg: "do not use os.Chdir() in tests, use t.Chdir()"
         - pattern: fmt\.Print.*()
           msg: "do not use fmt.Print() or fmt.Println() in tests"
     depguard:

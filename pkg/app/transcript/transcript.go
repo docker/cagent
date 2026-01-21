@@ -1,4 +1,4 @@
-package app
+package transcript
 
 import (
 	"encoding/json"
@@ -9,7 +9,7 @@ import (
 	"github.com/docker/cagent/pkg/session"
 )
 
-func transcript(sess *session.Session) string {
+func PlainText(sess *session.Session) string {
 	var builder strings.Builder
 
 	messages := sess.GetAllMessages()

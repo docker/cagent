@@ -29,9 +29,12 @@ func newTitleGenerator(model provider.Provider) *titleGenerator {
 	}
 }
 
-func (t *titleGenerator) Generate(ctx context.Context, sess *session.Session, events chan<- Event) {
+func (t *titleGenerator) Generate(ctx context.Context, sess *session.Session, userMessage string, events chan<- Event) {
+	if userMessage == "" {
+		return
+	}
 	t.wg.Go(func() {
-		t.generate(ctx, sess, events)
+		t.generate(ctx, sess, userMessage, events)
 	})
 }
 
@@ -39,13 +42,8 @@ func (t *titleGenerator) Wait() {
 	t.wg.Wait()
 }
 
-func (t *titleGenerator) generate(ctx context.Context, sess *session.Session, events chan<- Event) {
+func (t *titleGenerator) generate(ctx context.Context, sess *session.Session, firstUserMessage string, events chan<- Event) {
 	slog.Debug("Generating title for session", "session_id", sess.ID)
-
-	firstUserMessage := sess.GetLastUserMessageContent()
-	if firstUserMessage == "" {
-		return
-	}
 
 	userPrompt := fmt.Sprintf(titleUserPromptFormat, firstUserMessage)
 
