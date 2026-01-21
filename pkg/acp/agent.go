@@ -167,29 +167,60 @@ func (a *Agent) Initialize(
 // - initialize session state
 // - store session metadata (cwd, session ID)
 //
-// NOTE:
-// The ACP protocol supports client-provided MCP servers negotiated
-// during the handshake. However, the current acp-go-sdk does not yet
-// expose these MCP servers on NewSessionRequest.
+// ACP + MCP notes:
 //
-// The runtime is prepared to accept session-scoped MCP toolsets via
-// runtime.WithToolSets, and this wiring will be completed once the
-// SDK exposes MCP server metadata to the agent.
-func (a *Agent) NewSession(_ context.Context, params acp.NewSessionRequest) (acp.NewSessionResponse, error) {
+// ACP clients may negotiate MCP servers during the handshake.
+// These MCP servers are session-scoped by design and MUST NOT mutate
+// agent or YAML configuration.
+//
+// The runtime already supports session-scoped toolsets via
+// runtime.WithToolSets(...).
+//
+// However, the current acp-go-sdk does not yet expose negotiated MCP
+// servers on NewSessionRequest. Once available, this method is the
+// correct place to:
+//  1. convert MCP servers into MCP toolsets
+//  2. inject them into the runtime using runtime.WithToolSets
+func (a *Agent) NewSession(
+	_ context.Context,
+	params acp.NewSessionRequest,
+) (acp.NewSessionResponse, error) {
+
 	// Generate a new session ID
 	sid := uuid.New().String()
-	slog.Debug("ACP NewSession called", "session_id", sid, "cwd", params.Cwd)
+
+	slog.Debug(
+		"ACP NewSession called",
+		"session_id", sid,
+		"cwd", params.Cwd,
+	)
+
+	// Future ACP wiring:
+	//
+	// When the SDK exposes params.McpServers, MCP toolsets should be
+	// constructed here and injected into the runtime via
+	// runtime.WithToolSets(...).
+	//
+	// Example (future):
+	//   mcpToolsets := buildMCPToolsets(params.McpServers)
+	//   runtime.New(a.team,
+	//       runtime.WithCurrentAgent("root"),
+	//       runtime.WithToolSets(mcpToolsets...),
+	//   )
 
 	// Create a new runtime instance for this session.
 	//
-	// MCP toolsets are not injected yet because the SDK does not expose
-	// negotiated MCP servers at this stage.
+	// At this stage, the runtime only receives agent-defined toolsets
+	// plus any future session-scoped injections.
 	rt, err := runtime.New(
 		a.team,
 		runtime.WithCurrentAgent("root"),
 	)
 	if err != nil {
-		return acp.NewSessionResponse{}, fmt.Errorf("failed to create runtime: %w", err)
+		return acp.NewSessionResponse{}, fmt.Errorf(
+			"failed to create runtime: %w",
+			err,
+		)
 	}
 
 	// Register the session
