@@ -320,6 +320,9 @@ func (m *model) View() string {
 		return ""
 	}
 
+	// NOTE: Rendering all message views can be expensive during fast streaming.
+	// This is expected and mitigated upstream via event throttling (see App.throttleEvents)
+	// to avoid excessive CPU usage when many partial updates are emitted.
 	prevTotalHeight := m.totalHeight
 	m.ensureAllItemsRendered()
 
@@ -957,7 +960,8 @@ func (m *model) removeSpinner() {
 		if len(m.views) > lastIdx {
 			m.views = m.views[:lastIdx]
 		}
-		m.invalidateAllItems()
+		// Only invalidate the removed spinner item instead of all cached items
+		delete(m.renderedItems, lastIdx)
 	}
 }
 

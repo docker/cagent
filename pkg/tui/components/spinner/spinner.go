@@ -43,6 +43,7 @@ type Spinner struct {
 	tag            int
 	direction      int // 1 for forward, -1 for backward
 	pauseFrames    int
+	active         bool
 }
 
 // Default messages for the spinner
@@ -84,6 +85,7 @@ func New(mode Mode, dotsStyle lipgloss.Style) Spinner {
 }
 
 func (s Spinner) Init() tea.Cmd {
+	s.active = true
 	return s.Tick()
 }
 
@@ -91,15 +93,26 @@ func (s Spinner) Reset() Spinner {
 	return New(s.mode, s.dotsStyle)
 }
 
+// Spinner updates are strictly scoped to their own tick messages.
+// ID and tag checks ensure outdated or foreign ticks are ignored,
+// preventing runaway update loops and stale updates after model replacement.
 func (s Spinner) Update(message tea.Msg) (layout.Model, tea.Cmd) {
+	// If spinner is inactive, ignore all updates and stop ticking.
+	if !s.active {
+		return s, nil
+	}
+
 	msg, ok := message.(tickMsg)
 	if !ok {
 		return s, nil
 	}
 
+	// Ignore ticks from other spinner instances.
 	if msg.ID > 0 && msg.ID != s.id {
 		return s, nil
 	}
+
+	// Ignore out-of-order or stale ticks.
 	if msg.tag > 0 && msg.tag != s.tag {
 		return s, nil
 	}
@@ -115,7 +128,8 @@ func (s Spinner) Update(message tea.Msg) (layout.Model, tea.Cmd) {
 	} else {
 		s.lightPosition += s.direction
 
-		// Use rune count for proper Unicode character handling in light animation
+		// Use rune count for proper Unicode character handling
+		// when animating the highlight across the message.
 		messageRuneCount := len([]rune(s.currentMessage))
 		if s.direction == 1 && s.lightPosition > messageRuneCount+2 {
 			s.pauseFrames = 6
@@ -137,8 +151,16 @@ func (s Spinner) SetSize(_, _ int) tea.Cmd {
 	return nil
 }
 
+// Tick schedules a periodic spinner update while the spinner is active.
+// Returning nil when inactive prevents unnecessary wakeups and redraws.
+// Bubble Tea automatically cancels pending ticks when the model
+// is replaced, so this does not leak goroutines.
 func (s Spinner) Tick() tea.Cmd {
-	return tea.Tick(50*time.Millisecond, func(t time.Time) tea.Msg {
+	if !s.active {
+		return nil
+	}
+
+	return tea.Tick(80*time.Millisecond, func(t time.Time) tea.Msg {
 		return tickMsg{
 			Time: t,
 			ID:   s.id,
@@ -147,6 +169,15 @@ func (s Spinner) Tick() tea.Cmd {
 	})
 }
 
+// SetActive explicitly enables or disables spinner animation.
+// When inactive, no new ticks are scheduled and updates are ignored.
+func (s *Spinner) SetActive(active bool) {
+	s.active = active
+}
+
+// render is called frequently while the spinner is active.
+// The work here is intentionally lightweight (simple rune iteration),
+// and upstream throttling limits how often this is invoked during streaming.
 func (s Spinner) render() string {
 	message := s.currentMessage
 	output := make([]rune, 0, len(message))

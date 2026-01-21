@@ -49,7 +49,9 @@ func New(msg, previous *types.Message) *messageModel {
 
 // Bubble Tea Model methods
 
-// Init initializes the message view
+// Spinner ticking is scoped to the message lifecycle.
+// Bubble Tea cancels the tick command automatically once the
+// message view is replaced or removed, preventing goroutine leaks.
 func (mv *messageModel) Init() tea.Cmd {
 	if mv.message.Type == types.MessageTypeSpinner || mv.message.Type == types.MessageTypeLoading {
 		return mv.spinner.Tick()
@@ -65,6 +67,9 @@ func (mv *messageModel) SetSelected(selected bool) {
 	mv.selected = selected
 }
 
+// Only spinner-related messages are handled here.
+// All other message types intentionally result in no-op updates
+// to avoid unnecessary re-renders during streaming.
 // Update handles messages and updates the message view state
 func (mv *messageModel) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	if mv.message.Type == types.MessageTypeSpinner || mv.message.Type == types.MessageTypeLoading {
@@ -212,7 +217,9 @@ func (mv *messageModel) continuingThinking(msg *types.Message) bool {
 	}
 }
 
-// Height calculates the height needed for this message view
+// Height triggers a full render to calculate layout.
+// This is cached at the layout level and should not be called
+// excessively during streaming updates.
 func (mv *messageModel) Height(width int) int {
 	content := mv.Render(width)
 	return strings.Count(content, "\n") + 1
