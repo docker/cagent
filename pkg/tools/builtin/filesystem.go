@@ -485,28 +485,49 @@ func (t *FilesystemTool) handleListDirectory(_ context.Context, args ListDirecto
 func (t *FilesystemTool) handleReadFile(_ context.Context, args ReadFileArgs) (*tools.ToolCallResult, error) {
 	resolvedPath := t.resolvePath(args.Path)
 
-	content, err := os.ReadFile(resolvedPath)
-	if err != nil {
-		var errMsg string
-		if os.IsNotExist(err) {
-			errMsg = "not found"
-		} else {
-			errMsg = err.Error()
-		}
+	var content string
+	var err error
 
-		return &tools.ToolCallResult{
-			Output:  errMsg,
-			IsError: true,
-			Meta: ReadFileMeta{
-				Error: errMsg,
-			},
-		}, nil
+	if isPDFFile(resolvedPath) {
+		content, err = readPDFText(resolvedPath)
+		if err != nil {
+			errMsg := err.Error()
+			if os.IsNotExist(err) {
+				errMsg = "not found"
+			}
+			return &tools.ToolCallResult{
+				Output:  errMsg,
+				IsError: true,
+				Meta: ReadFileMeta{
+					Error: errMsg,
+				},
+			}, nil
+		}
+	} else {
+		data, readErr := os.ReadFile(resolvedPath)
+		if readErr != nil {
+			var errMsg string
+			if os.IsNotExist(readErr) {
+				errMsg = "not found"
+			} else {
+				errMsg = readErr.Error()
+			}
+
+			return &tools.ToolCallResult{
+				Output:  errMsg,
+				IsError: true,
+				Meta: ReadFileMeta{
+					Error: errMsg,
+				},
+			}, nil
+		}
+		content = string(data)
 	}
 
 	return &tools.ToolCallResult{
-		Output: string(content),
+		Output: content,
 		Meta: ReadFileMeta{
-			LineCount: strings.Count(string(content), "\n") + 1,
+			LineCount: strings.Count(content, "\n") + 1,
 		},
 	}, nil
 }
@@ -526,10 +547,21 @@ func (t *FilesystemTool) handleReadMultipleFiles(ctx context.Context, args ReadM
 		}
 
 		entry := ReadFileMeta{Path: path}
-
 		resolvedPath := t.resolvePath(path)
 
-		content, err := os.ReadFile(resolvedPath)
+		var content string
+		var err error
+
+		if isPDFFile(resolvedPath) {
+			content, err = readPDFText(resolvedPath)
+		} else {
+			var data []byte
+			data, err = os.ReadFile(resolvedPath)
+			if err == nil {
+				content = string(data)
+			}
+		}
+
 		if err != nil {
 			errMsg := err.Error()
 			if os.IsNotExist(err) {
@@ -546,10 +578,10 @@ func (t *FilesystemTool) handleReadMultipleFiles(ctx context.Context, args ReadM
 
 		contents = append(contents, PathContent{
 			Path:    path,
-			Content: string(content),
+			Content: content,
 		})
-		entry.Content = string(content)
-		entry.LineCount = strings.Count(string(content), "\n") + 1
+		entry.Content = content
+		entry.LineCount = strings.Count(content, "\n") + 1
 		meta.Files = append(meta.Files, entry)
 	}
 

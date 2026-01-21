@@ -43,6 +43,7 @@ require (
 	github.com/junegunn/fzf v0.67.0
 	github.com/k3a/html2text v1.3.0
 	github.com/labstack/echo/v4 v4.15.0
+	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
 	github.com/mattn/go-isatty v0.0.20
 	github.com/mattn/go-runewidth v0.0.19
 	github.com/modelcontextprotocol/go-sdk v1.2.1-0.20260115164613-13488f7da1ed
