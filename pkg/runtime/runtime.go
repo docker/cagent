@@ -138,8 +138,10 @@ type RAGInitializer interface {
 
 // LocalRuntime manages the execution of agents
 type LocalRuntime struct {
-	toolMap                     map[string]ToolHandler
-	team                        *team.Team
+	toolMap map[string]ToolHandler
+	team    *team.Team
+
+	extraToolsets               []tools.ToolSet // ACP / MCP toolsets not defined in YAML
 	currentAgent                string
 	resumeChan                  chan ResumeType
 	tracer                      trace.Tracer
@@ -171,6 +173,23 @@ type streamResult struct {
 }
 
 type Opt func(*LocalRuntime)
+
+// WithToolSets injects additional toolsets into the runtime.
+//
+// This is primarily used for toolsets that are NOT defined in the agent's YAML,
+// such as:
+//   - MCP toolsets negotiated dynamically via ACP
+//   - runtime-provided or externally discovered toolsets
+//
+// These toolsets are stored separately and later merged with the agent's
+// configured toolsets via allToolSets().
+func WithToolSets(toolsets ...tools.ToolSet) Opt {
+	return func(r *LocalRuntime) {
+		// Append dynamically provided toolsets to the runtime.
+		// They will be combined with agent-defined toolsets at execution time.
+		r.extraToolsets = append(r.extraToolsets, toolsets...)
+	}
+}
 
 func WithCurrentAgent(agentName string) Opt {
 	return func(r *LocalRuntime) {
@@ -380,6 +399,24 @@ func (r *LocalRuntime) CurrentAgentName() string {
 	return r.currentAgent
 }
 
+// allToolSets returns all toolsets available to the runtime.
+//
+// It combines:
+//   - toolsets statically defined on the agent via YAML configuration
+//   - toolsets dynamically injected at runtime (e.g. MCP toolsets negotiated via ACP)
+//
+// The returned slice is a defensive copy to avoid mutating
+// the agent's original toolset list.
+func (r *LocalRuntime) allToolSets(a *agent.Agent) []tools.ToolSet {
+	// Clone the agent-defined toolsets to prevent side effects
+	// when appending runtime-injected toolsets.
+	toolsets := slices.Clone(a.ToolSets())
+
+	// Append toolsets provided dynamically by the runtime
+	// (such as MCP servers discovered via ACP).
+	return append(toolsets, r.extraToolsets...)
+}
+
 func (r *LocalRuntime) CurrentAgentInfo(context.Context) CurrentAgentInfo {
 	currentAgent := r.CurrentAgent()
 
@@ -425,7 +462,7 @@ func (r *LocalRuntime) CurrentMCPPrompts(ctx context.Context) map[string]mcptool
 	}
 
 	// Iterate through all toolsets of the current agent
-	for _, toolset := range currentAgent.ToolSets() {
+	for _, toolset := range r.allToolSets(currentAgent) {
 		if mcpToolset := UnwrapMCPToolset(toolset); mcpToolset != nil {
 			slog.Debug("Found MCP toolset", "toolset", mcpToolset)
 			// Discover prompts from this MCP toolset
@@ -569,7 +606,7 @@ func (r *LocalRuntime) EmitStartupInfo(ctx context.Context, events chan Event) {
 // This allows the UI to show the tool count incrementally as each toolset loads,
 // with a spinner indicating that more tools may be coming.
 func (r *LocalRuntime) emitToolsProgressively(ctx context.Context, a *agent.Agent, events chan Event) {
-	toolsets := a.ToolSets()
+	toolsets := r.allToolSets(a)
 	totalToolsets := len(toolsets)
 
 	// If no toolsets, emit final state immediately
@@ -917,9 +954,25 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 	return events
 }
 
-// getTools executes tool retrieval with automatic OAuth handling
-func (r *LocalRuntime) getTools(ctx context.Context, a *agent.Agent, sessionSpan trace.Span, events chan Event) ([]tools.Tool, error) {
-	shouldEmitMCPInit := len(a.ToolSets()) > 0
+// getTools retrieves all tools available to the current agent.
+// It aggregates tools from both agent-defined toolsets (YAML)
+// and dynamically injected toolsets (e.g. MCP/ACP),
+// ensuring all are started and ready before use.
+func (r *LocalRuntime) getTools(
+	ctx context.Context,
+	a *agent.Agent,
+	sessionSpan trace.Span,
+	events chan Event,
+) ([]tools.Tool, error) {
+
+	// Collect all toolsets available to the runtime:
+	// - toolsets defined on the agent (from YAML)
+	// - extra toolsets injected at runtime (e.g. MCP via ACP)
+	toolsets := r.allToolSets(a)
+
+	// Emit MCP initialization events if there are any toolsets at all.
+	// This reflects the actual runtime toolset set, not just YAML-defined ones.
+	shouldEmitMCPInit := len(toolsets) > 0
 	if shouldEmitMCPInit {
 		events <- MCPInitStarted(a.Name())
 	}
@@ -929,22 +982,59 @@ func (r *LocalRuntime) getTools(ctx context.Context, a *agent.Agent, sessionSpan
 		}
 	}()
 
-	agentTools, err := a.Tools(ctx)
-	if err != nil {
-		slog.Error("Failed to get agent tools", "agent", a.Name(), "error", err)
-		sessionSpan.RecordError(err)
-		sessionSpan.SetStatus(codes.Error, "failed to get tools")
-		telemetry.RecordError(ctx, err.Error())
-		return nil, err
+	var allTools []tools.Tool
+
+	// Iterate through all toolsets and collect their tools
+	for _, toolset := range toolsets {
+
+		// Some toolsets (e.g. MCP) are startable and must be started
+		// before tools can be retrieved.
+		if startable, ok := toolset.(*agent.StartableToolSet); ok {
+			if !startable.IsStarted() {
+				if err := startable.Start(ctx); err != nil {
+					// Toolset startup failures are non-fatal:
+					// log and skip this toolset so the runtime can continue.
+					slog.Warn(
+						"Toolset start failed; skipping",
+						"agent", a.Name(),
+						"toolset", fmt.Sprintf("%T", startable.ToolSet),
+						"error", err,
+					)
+					continue
+				}
+			}
+		}
+
+		// Retrieve tools exposed by this toolset
+		ts, err := toolset.Tools(ctx)
+		if err != nil {
+			// Failure to retrieve tools from one toolset
+			// should not prevent other toolsets from loading.
+			slog.Warn(
+				"Failed to get tools from toolset",
+				"agent", a.Name(),
+				"toolset", fmt.Sprintf("%T", toolset),
+				"error", err,
+			)
+			continue
+		}
+
+		// Aggregate tools across all toolsets
+		allTools = append(allTools, ts...)
 	}
 
-	slog.Debug("Retrieved agent tools", "agent", a.Name(), "tool_count", len(agentTools))
-	return agentTools, nil
+	slog.Debug(
+		"Retrieved agent tools",
+		"agent", a.Name(),
+		"tool_count", len(allTools),
+	)
+
+	return allTools, nil
 }
 
 // configureToolsetHandlers sets up elicitation and OAuth handlers for all toolsets of an agent.
 func (r *LocalRuntime) configureToolsetHandlers(a *agent.Agent, events chan Event) {
-	for _, toolset := range a.ToolSets() {
+	for _, toolset := range r.allToolSets(a) {
 		toolset.SetElicitationHandler(r.elicitationHandler)
 		toolset.SetOAuthSuccessHandler(func() {
 			events <- Authorization(tools.ElicitationActionAccept, r.currentAgent)
