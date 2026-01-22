@@ -39,6 +39,8 @@ type Config struct {
 	AutoApprove    bool
 	HideToolCalls  bool
 	OutputJSON     bool
+	ExecutionMode  string
+	MaxIterations  int
 }
 
 // Run executes an agent in non-TUI mode, handling user input and runtime events
@@ -53,7 +55,25 @@ func Run(ctx context.Context, out *Printer, cfg Config, rt runtime.Runtime, sess
 		ctx = telemetry.WithClient(ctx, telemetryClient)
 	}
 
-	orch := runtime.NewSingleAgentOrchestrator(rt)
+	var orch runtime.Orchestrator
+
+	switch cfg.ExecutionMode {
+	case "loop":
+		orch = runtime.NewLoopAgentOrchestrator(
+			runtime.NewSingleAgentOrchestrator(rt),
+			cfg.MaxIterations,
+			func(ctx context.Context, iter int, events []runtime.Event) bool {
+				// você pode customizar a condição de saída, por agora false (loop até MaxIterations)
+				return false
+			},
+		)
+	case "sequential":
+		orch = runtime.NewSequentialAgentOrchestrator(rt)
+	case "parallel":
+		orch = runtime.NewParallelAgentOrchestrator(rt)
+	default:
+		orch = runtime.NewSingleAgentOrchestrator(rt)
+	}
 
 	sess.Title = "Running agent"
 	// If the last received event was an error, return it. That way the exit code
