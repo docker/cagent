@@ -1,0 +1,108 @@
+name: Weekly Features Summary
+
+on:
+  schedule:
+    # Every Thursday at noon EST (17:00 UTC)
+    - cron: "0 17 * * 4"
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: read
+
+jobs:
+  post-weekly-summary:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Need full history for git log
+
+      - name: Gather commit information
+        id: commits
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Get commit summary
+          git log --since="7 days ago" --oneline --no-merges > commits_summary.txt
+          echo "Commits from the last 7 days:"
+          cat commits_summary.txt
+
+          # Get detailed commit messages
+          git log --since="7 days ago" --pretty=format:"%h|%s|%b---" --no-merges > commits_detailed.txt
+
+          # Count commits
+          commit_count=$(wc -l < commits_summary.txt | tr -d ' ')
+          echo "commit_count=$commit_count" >> $GITHUB_OUTPUT
+
+          # Get contributors
+          git log --since="7 days ago" --format='%an' --no-merges | sort -u > contributors.txt
+
+      - name: Build weekly context
+        id: context
+        run: |
+          commit_count=${{ steps.commits.outputs.commit_count }}
+          week_start=$(date -d "7 days ago" +%Y-%m-%d 2>/dev/null || date -v-7d +%Y-%m-%d)
+          week_end=$(date +%Y-%m-%d)
+
+          cat > weekly_context.md << EOF
+          # Weekly Features Summary Request
+
+          ## Summary Period
+          - **Repository**: ${{ github.repository }}
+          - **Week**: $week_start to $week_end
+          - **Total Commits**: $commit_count
+
+          ## Contributors This Week
+
+          EOF
+
+          cat contributors.txt >> weekly_context.md
+
+          cat >> weekly_context.md << 'EOF'
+
+          ## Commits
+
+          EOF
+
+          cat commits_summary.txt >> weekly_context.md
+
+          cat >> weekly_context.md << 'EOF'
+
+          ## Detailed Commit Messages
+
+          EOF
+
+          cat commits_detailed.txt >> weekly_context.md
+
+          cat >> weekly_context.md << 'EOF'
+
+          ---
+
+          ## Instructions
+
+          Execute the weekly summary pipeline:
+
+          1. **Analyze**: Review the commits above and categorize them (features, improvements, fixes)
+          2. **Compete**: Delegate to `competition` agent to gather competitor updates
+          3. **Post**: Send TWO separate Slack messages:
+             - **Message 1**: cagent weekly updates (features, improvements, fixes, contributors)
+             - **Message 2**: Competitor intelligence report (top updates, by framework, trends)
+
+          Use the SLACK_WEBHOOK_URL environment variable for posting.
+          Keep the messages clearly separated so readers can quickly find what they need.
+          EOF
+
+          echo "Context built:"
+          wc -l weekly_context.md
+
+      - name: Run Weekly Features Agent
+        uses: docker/cagent-action@7992ea47ed2446b5a80b01c46b00037c680e35ea
+        with:
+          agent: ${{ github.workspace }}/.github/workflows/agents/weekly-features.yaml
+          prompt-file: weekly_context.md
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
