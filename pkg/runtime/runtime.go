@@ -691,6 +691,12 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 		events <- ToolsetInfo(len(agentTools), false, r.currentAgent)
 
 		messages := sess.GetMessages(a)
+		messages, err = r.ResolveInstructionToolCalls(ctx, messages)
+		if err != nil {
+			events <- Error(err.Error())
+			return
+		}
+
 		if sess.SendUserMessage {
 			events <- UserMessage(messages[len(messages)-1].Content)
 		}
