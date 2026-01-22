@@ -1045,10 +1045,15 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 			return streamResult{Stopped: true}, fmt.Errorf("error receiving from stream: %w", err)
 		}
 
-		if response.Usage != nil {
-			// Capture the usage for this specific message
+		// Some providers emit token usage multiple times during a stream,
+		// others only once, and some emit partial / zeroed usage snapshots.
+		// To be provider-agnostic and avoid usage being overwritten to zero,
+		// we capture the FIRST non-nil usage and treat it as immutable.
+		if response.Usage != nil && messageUsage == nil {
+			// Capture usage once per stream
 			messageUsage = response.Usage
 
+			// Accumulate cost for the session using model pricing
 			if m != nil && m.Cost != nil {
 				cost := float64(response.Usage.InputTokens)*m.Cost.Input +
 					float64(response.Usage.OutputTokens)*m.Cost.Output +
@@ -1057,14 +1062,25 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 				sess.Cost += cost / 1e6
 			}
 
-			sess.InputTokens = response.Usage.InputTokens + response.Usage.CachedInputTokens + response.Usage.CacheWriteTokens
+			// Persist token usage at the session level
+			// These values are used by the TUI to compute token usage %
+			sess.InputTokens = response.Usage.InputTokens +
+				response.Usage.CachedInputTokens +
+				response.Usage.CacheWriteTokens
 			sess.OutputTokens = response.Usage.OutputTokens
 
+			// Emit telemetry once per stream to avoid duplicate usage records
 			modelName := "unknown"
 			if m != nil {
 				modelName = m.Name
 			}
-			telemetry.RecordTokenUsage(ctx, modelName, sess.InputTokens, sess.OutputTokens, sess.Cost)
+			telemetry.RecordTokenUsage(
+				ctx,
+				modelName,
+				sess.InputTokens,
+				sess.OutputTokens,
+				sess.Cost,
+			)
 		}
 
 		if len(response.Choices) == 0 {
