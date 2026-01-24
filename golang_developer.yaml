@@ -97,7 +97,7 @@ agents:
     toolsets:
       - type: filesystem
       - type: shell
-      - type: todo
+      - type: tasks
       - type: fetch
     sub_agents:
       - librarian
