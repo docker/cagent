@@ -59,6 +59,7 @@ func NewDefaultToolsetRegistry() *ToolsetRegistry {
 	r := NewToolsetRegistry()
 	// Register all built-in toolset creators
 	r.Register("todo", createTodoTool)
+	r.Register("tasks", createTasksTool)
 	r.Register("memory", createMemoryTool)
 	r.Register("think", createThinkTool)
 	r.Register("shell", createShellTool)
@@ -78,6 +79,13 @@ func createTodoTool(_ context.Context, toolset latest.Toolset, _ string, _ *conf
 		return builtin.NewSharedTodoTool(), nil
 	}
 	return builtin.NewTodoTool(), nil
+}
+
+func createTasksTool(_ context.Context, toolset latest.Toolset, _ string, _ *config.RuntimeConfig) (tools.ToolSet, error) {
+	if toolset.Shared {
+		return builtin.NewSharedTasksTool(), nil
+	}
+	return builtin.NewTasksTool(), nil
 }
 
 func createMemoryTool(_ context.Context, toolset latest.Toolset, parentDir string, runConfig *config.RuntimeConfig) (tools.ToolSet, error) {
