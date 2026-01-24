@@ -87,14 +87,16 @@ func (r *LocalRuntime) ResolveInstructionToolCalls(
 
 		// Emit the cleaned SYSTEM message without tool placeholders.
 		msg.Content = strings.TrimSpace(content)
-		out = append(out, msg)
 
 		// Inject an ASSISTANT message containing the generated tool calls.
 		// These will be executed by the standard runtime loop.
-		out = append(out, chat.Message{
-			Role:      chat.MessageRoleAssistant,
-			ToolCalls: toolCalls,
-		})
+		out = append(out,
+			msg,
+			chat.Message{
+				Role:      chat.MessageRoleAssistant,
+				ToolCalls: toolCalls,
+			},
+		)
 	}
 
 	return out, nil
