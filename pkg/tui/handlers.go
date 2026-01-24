@@ -11,8 +11,9 @@ import (
 
 	"github.com/docker/cagent/pkg/browser"
 	"github.com/docker/cagent/pkg/evaluation"
+	"github.com/docker/cagent/pkg/modelsdev"
+	"github.com/docker/cagent/pkg/tools"
 	mcptools "github.com/docker/cagent/pkg/tools/mcp"
-	"github.com/docker/cagent/pkg/tui/components/editor"
 	"github.com/docker/cagent/pkg/tui/components/notification"
 	"github.com/docker/cagent/pkg/tui/core"
 	"github.com/docker/cagent/pkg/tui/dialog"
@@ -27,7 +28,6 @@ func (a *appModel) handleNewSession() (tea.Model, tea.Cmd) {
 	a.application.NewSession()
 	sess := a.application.Session()
 	a.sessionState = service.NewSessionState(sess)
-	a.sessionTitle = ""
 	a.chatPage = chat.New(a.application, a.sessionState)
 	a.dialog = dialog.New()
 	a.statusBar.SetHelp(a.chatPage)
@@ -70,7 +70,6 @@ func (a *appModel) handleLoadSession(sessionID string) (tea.Model, tea.Cmd) {
 	// Cancel current session and replace with loaded one
 	a.application.ReplaceSession(context.Background(), sess)
 	a.sessionState = service.NewSessionState(sess)
-	a.sessionTitle = sess.Title
 	a.chatPage = chat.New(a.application, a.sessionState)
 	a.dialog = dialog.New()
 	a.statusBar.SetHelp(a.chatPage)
@@ -178,10 +177,42 @@ func (a *appModel) handleSwitchAgent(agentName string) (tea.Model, tea.Cmd) {
 		return a, notification.ErrorCmd(fmt.Sprintf("Failed to switch to agent '%s': %v", agentName, err))
 	}
 
-	a.currentAgent = agentName
-	a.sessionState.SetCurrentAgent(agentName)
+	a.sessionState.SetCurrentAgentName(agentName)
 	return a, notification.SuccessCmd(fmt.Sprintf("Switched to agent '%s'", agentName))
 }
+
+func (a *appModel) handleCycleAgent() (tea.Model, tea.Cmd) {
+	availableAgents := a.sessionState.AvailableAgents()
+	if len(availableAgents) <= 1 {
+		return a, notification.InfoCmd("No other agents available")
+	}
+
+	// Find the current agent index
+	currentIndex := -1
+	for i, agent := range availableAgents {
+		if agent.Name == a.sessionState.CurrentAgentName() {
+			currentIndex = i
+			break
+		}
+	}
+
+	// Cycle to the next agent (wrap around to 0 if at the end)
+	nextIndex := (currentIndex + 1) % len(availableAgents)
+	return a.handleSwitchToAgentByIndex(nextIndex)
+}
+
+func (a *appModel) handleSwitchToAgentByIndex(index int) (tea.Model, tea.Cmd) {
+	availableAgents := a.sessionState.AvailableAgents()
+	if index >= 0 && index < len(availableAgents) {
+		agentName := availableAgents[index].Name
+		if agentName != a.sessionState.CurrentAgentName() {
+			return a, core.CmdHandler(messages.SwitchAgentMsg{AgentName: agentName})
+		}
+	}
+	return a, nil
+}
+
+// Toggles
 
 func (a *appModel) handleToggleYolo() (tea.Model, tea.Cmd) {
 	sess := a.application.Session()
@@ -191,6 +222,12 @@ func (a *appModel) handleToggleYolo() (tea.Model, tea.Cmd) {
 }
 
 func (a *appModel) handleToggleThinking() (tea.Model, tea.Cmd) {
+	// Check if the current model supports reasoning
+	currentModel := a.application.CurrentAgentModel()
+	if !modelsdev.ModelSupportsReasoning(context.Background(), currentModel) {
+		return a, notification.InfoCmd("Thinking/reasoning is not supported for the current model")
+	}
+
 	sess := a.application.Session()
 	sess.Thinking = !sess.Thinking
 	a.sessionState.SetThinking(sess.Thinking)
@@ -216,6 +253,8 @@ func (a *appModel) handleToggleHideToolResults() (tea.Model, tea.Cmd) {
 	a.chatPage = updated.(chat.Page)
 	return a, cmd
 }
+
+// Cost
 
 func (a *appModel) handleShowCostDialog() (tea.Model, tea.Cmd) {
 	sess := a.application.Session()
@@ -243,7 +282,7 @@ func (a *appModel) handleMCPPrompt(promptName string, arguments map[string]strin
 		return a, notification.ErrorCmd(fmt.Sprintf("Error executing MCP prompt '%s': %v", promptName, err))
 	}
 
-	return a, core.CmdHandler(editor.SendMsg{Content: promptContent})
+	return a, core.CmdHandler(messages.SendMsg{Content: promptContent})
 }
 
 // Miscellaneous handlers
@@ -255,7 +294,7 @@ func (a *appModel) handleOpenURL(url string) (tea.Model, tea.Cmd) {
 
 func (a *appModel) handleAgentCommand(command string) (tea.Model, tea.Cmd) {
 	resolvedCommand := a.application.ResolveCommand(context.Background(), command)
-	return a, core.CmdHandler(editor.SendMsg{Content: resolvedCommand})
+	return a, core.CmdHandler(messages.SendMsg{Content: resolvedCommand})
 }
 
 // File attachment handler
@@ -369,5 +408,13 @@ func (a *appModel) handleStopSpeak() (tea.Model, tea.Cmd) {
 
 func (a *appModel) handleSpeakTranscript(delta string) (tea.Model, tea.Cmd) {
 	a.chatPage.InsertText(delta + " ")
+	return a, nil
+}
+
+func (a *appModel) handleElicitationResponse(action tools.ElicitationAction, content map[string]any) (tea.Model, tea.Cmd) {
+	if err := a.application.ResumeElicitation(context.Background(), action, content); err != nil {
+		slog.Error("Failed to resume elicitation", "action", action, "error", err)
+		return a, notification.ErrorCmd("Failed to complete server request: " + err.Error())
+	}
 	return a, nil
 }

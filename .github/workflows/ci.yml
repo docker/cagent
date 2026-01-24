@@ -15,18 +15,26 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  GO_VERSION: "1.25.5"
+
 jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
+        id: setup-go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5  # v6.2.0
         with:
-          go-version: "1.25.5"
+          go-version: ${{ env.GO_VERSION }}
           cache: true
+          cache-dependency-path: go.sum
+
+      - name: Go cache status
+        run: echo "cache-hit=${{ steps.setup-go.outputs.cache-hit }}"
 
       - name: Lint
         uses: golangci/golangci-lint-action@e7fa5ac41e1cf5b7d48e45e42232ce7ada589601 # v9.1.0
@@ -37,13 +45,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
+        id: setup-go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5  # v6.2.0
         with:
-          go-version: "1.25.5"
+          go-version: ${{ env.GO_VERSION }}
           cache: true
+          cache-dependency-path: go.sum
+
+      - name: Go cache status
+        run: echo "cache-hit=${{ steps.setup-go.outputs.cache-hit }}"
 
       - name: Install Task
         uses: go-task/setup-task@0ab1b2a65bc55236a3bc64cde78f80e20e8885c2 # v1.0.0
@@ -57,13 +70,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
+        id: setup-go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5  # v6.2.0
         with:
-          go-version: "1.25.5"
+          go-version: ${{ env.GO_VERSION }}
           cache: true
+          cache-dependency-path: go.sum
+
+      - name: Go cache status
+        run: echo "cache-hit=${{ steps.setup-go.outputs.cache-hit }}"
 
       - name: Install go-licences
         run: go install github.com/google/go-licenses@latest
@@ -76,13 +94,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
+        id: setup-go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5  # v6.2.0
         with:
-          go-version: "1.25.5"
+          go-version: ${{ env.GO_VERSION }}
           cache: true
+          cache-dependency-path: go.sum
+
+      - name: Go cache status
+        run: echo "cache-hit=${{ steps.setup-go.outputs.cache-hit }}"
 
       - name: Install Task
         uses: go-task/setup-task@0ab1b2a65bc55236a3bc64cde78f80e20e8885c2 # v1.0.0
@@ -100,7 +123,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
 
       - name: Hub login
         if: github.event_name != 'pull_request'
@@ -110,17 +133,38 @@ jobs:
           password: ${{ secrets.DOCKERPUBLICBOT_WRITE_PAT }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+        id: buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
 
       - name: Docker metadata
         id: meta
-        uses: docker/metadata-action@318604b99e75e41977312d83839a89be02ca4893 # v5.9.0
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051  # v5.10.0
         with:
           images: docker/cagent
           tags: |
             type=semver,pattern={{version}}
             type=edge
             type=ref,event=pr
+
+      - name: Cache Go build mounts
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: .buildkit-cache
+          key: buildkit-${{ runner.os }}-${{ hashFiles('Dockerfile', 'go.sum') }}
+          restore-keys: |
+            buildkit-${{ runner.os }}-
+
+      - name: Inject Go caches into builder
+        uses: reproducible-containers/buildkit-cache-dance@v3
+        with:
+          builder: ${{ steps.buildx.outputs.name }}
+          cache-map: |
+            {
+              ".buildkit-cache/go-mod": "/go/pkg/mod",
+              ".buildkit-cache/go-build": "/root/.cache/go-build"
+            }
+          skip-extraction: ${{ steps.cache.outputs.cache-hit }}
 
       - name: Build and push image
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
@@ -135,3 +179,5 @@ jobs:
           build-args: |
             GIT_TAG=${{ github.ref_name }}
             GIT_COMMIT=${{ github.sha }}
+          cache-from: type=gha,scope=cagent-image
+          cache-to: type=gha,mode=max,scope=cagent-image

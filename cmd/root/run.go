@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
+	"runtime/pprof"
 
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
@@ -23,18 +25,23 @@ import (
 )
 
 type runExecFlags struct {
-	agentName      string
-	autoApprove    bool
-	attachmentPath string
-	remoteAddress  string
-	connectRPC     bool
-	modelOverrides []string
-	dryRun         bool
-	runConfig      config.RuntimeConfig
-	sessionDB      string
-	sessionID      string
-	recordPath     string
-	fakeResponses  string
+	agentName         string
+	autoApprove       bool
+	attachmentPath    string
+	remoteAddress     string
+	connectRPC        bool
+	modelOverrides    []string
+	dryRun            bool
+	runConfig         config.RuntimeConfig
+	sessionDB         string
+	sessionID         string
+	recordPath        string
+	fakeResponses     string
+	fakeStreamDelay   int
+	exitAfterResponse bool
+	cpuProfile        string
+	memProfile        string
+	forceTUI          bool
 
 	// Exec only
 	hideToolCalls bool
@@ -81,8 +88,18 @@ func addRunOrExecFlags(cmd *cobra.Command, flags *runExecFlags) {
 	cmd.PersistentFlags().StringVarP(&flags.sessionDB, "session-db", "s", filepath.Join(paths.GetHomeDir(), ".cagent", "session.db"), "Path to the session database")
 	cmd.PersistentFlags().StringVar(&flags.sessionID, "session", "", "Continue from a previous session by ID")
 	cmd.PersistentFlags().StringVar(&flags.fakeResponses, "fake", "", "Replay AI responses from cassette file (for testing)")
+	cmd.PersistentFlags().IntVar(&flags.fakeStreamDelay, "fake-stream", 0, "Simulate streaming with delay in ms between chunks (default 15ms if no value given)")
+	cmd.Flag("fake-stream").NoOptDefVal = "15" // --fake-stream without value uses 15ms
 	cmd.PersistentFlags().StringVar(&flags.recordPath, "record", "", "Record AI API interactions to cassette file (auto-generates filename if empty)")
 	cmd.PersistentFlags().Lookup("record").NoOptDefVal = "true"
+	cmd.PersistentFlags().BoolVar(&flags.exitAfterResponse, "exit-after-response", false, "Exit TUI after first assistant response completes")
+	_ = cmd.PersistentFlags().MarkHidden("exit-after-response")
+	cmd.PersistentFlags().StringVar(&flags.cpuProfile, "cpuprofile", "", "Write CPU profile to file")
+	_ = cmd.PersistentFlags().MarkHidden("cpuprofile")
+	cmd.PersistentFlags().StringVar(&flags.memProfile, "memprofile", "", "Write memory profile to file")
+	_ = cmd.PersistentFlags().MarkHidden("memprofile")
+	cmd.PersistentFlags().BoolVar(&flags.forceTUI, "force-tui", false, "Force TUI mode even when not in a terminal")
+	_ = cmd.PersistentFlags().MarkHidden("force-tui")
 	cmd.MarkFlagsMutuallyExclusive("fake", "record")
 }
 
@@ -92,32 +109,74 @@ func (f *runExecFlags) runRunCommand(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	out := cli.NewPrinter(cmd.OutOrStdout())
 
-	tui := isatty.IsTerminal(os.Stdout.Fd())
+	tui := f.forceTUI || isatty.IsTerminal(os.Stdout.Fd())
 	return f.runOrExec(ctx, out, args, tui)
 }
 
 func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []string, tui bool) error {
 	slog.Debug("Starting agent", "agent", f.agentName)
 
+	// Start CPU profiling if requested
+	if f.cpuProfile != "" {
+		pf, err := os.Create(f.cpuProfile)
+		if err != nil {
+			return fmt.Errorf("failed to create CPU profile: %w", err)
+		}
+		defer pf.Close()
+		if err := pprof.StartCPUProfile(pf); err != nil {
+			return fmt.Errorf("failed to start CPU profile: %w", err)
+		}
+		defer pprof.StopCPUProfile()
+		slog.Info("CPU profiling enabled", "file", f.cpuProfile)
+	}
+
+	// Write memory profile at exit if requested
+	if f.memProfile != "" {
+		defer func() {
+			mf, err := os.Create(f.memProfile)
+			if err != nil {
+				slog.Error("Failed to create memory profile", "error", err)
+				return
+			}
+			defer mf.Close()
+			goruntime.GC() // Get up-to-date statistics
+			if err := pprof.WriteHeapProfile(mf); err != nil {
+				slog.Error("Failed to write memory profile", "error", err)
+			}
+			slog.Info("Memory profile written", "file", f.memProfile)
+		}()
+	}
+
 	var agentFileName string
 	if len(args) > 0 {
 		agentFileName = args[0]
 	}
 
+	// Apply global user settings first (lowest priority)
+	// User settings only apply if the flag wasn't explicitly set by the user
+	userSettings := config.GetUserSettings()
+	if userSettings.HideToolResults && !f.hideToolResults {
+		f.hideToolResults = true
+		slog.Debug("Applying user settings", "hide_tool_results", true)
+	}
+
 	// Apply alias options if this is an alias reference
 	// Alias options only apply if the flag wasn't explicitly set by the user
 	if alias := config.ResolveAlias(agentFileName); alias != nil {
-		slog.Debug("Applying alias options", "yolo", alias.Yolo, "model", alias.Model)
+		slog.Debug("Applying alias options", "yolo", alias.Yolo, "model", alias.Model, "hide_tool_results", alias.HideToolResults)
 		if alias.Yolo && !f.autoApprove {
 			f.autoApprove = true
 		}
 		if alias.Model != "" && len(f.modelOverrides) == 0 {
 			f.modelOverrides = append(f.modelOverrides, alias.Model)
 		}
+		if alias.HideToolResults && !f.hideToolResults {
+			f.hideToolResults = true
+		}
 	}
 
 	// Start fake proxy if --fake is specified
-	fakeCleanup, err := setupFakeProxy(f.fakeResponses, &f.runConfig)
+	fakeCleanup, err := setupFakeProxy(f.fakeResponses, f.fakeStreamDelay, &f.runConfig)
 	if err != nil {
 		return err
 	}
@@ -310,21 +369,15 @@ func (f *runExecFlags) createLocalRuntimeAndSession(ctx context.Context, loadRes
 
 		slog.Debug("Loaded existing session", "session_id", f.sessionID, "agent", f.agentName)
 	} else {
-		thinking := true
-		if tb := agent.Model().BaseConfig().ModelConfig.ThinkingBudget; tb != nil {
-			if tb.Effort == "none" || (tb.Tokens == 0 && tb.Effort == "") {
-				thinking = false
-			}
-		}
 		sess = session.New(
 			session.WithMaxIterations(agent.MaxIterations()),
 			session.WithToolsApproved(f.autoApprove),
 			session.WithHideToolResults(f.hideToolResults),
-			session.WithThinking(thinking),
+			session.WithThinking(agent.ThinkingConfigured()),
 		)
 		// Session is stored lazily on first UpdateSession call (when content is added)
 		// This avoids creating empty sessions in the database
-		slog.Debug("Using local runtime", "agent", f.agentName)
+		slog.Debug("Using local runtime", "agent", f.agentName, "thinking", agent.ThinkingConfigured())
 	}
 
 	return localRt, sess, nil
@@ -380,6 +433,9 @@ func (f *runExecFlags) handleRunMode(ctx context.Context, rt runtime.Runtime, se
 	}
 	if f.attachmentPath != "" {
 		opts = append(opts, app.WithFirstMessageAttachment(f.attachmentPath))
+	}
+	if f.exitAfterResponse {
+		opts = append(opts, app.WithExitAfterFirstResponse())
 	}
 
 	return runTUI(ctx, rt, sess, opts...)

@@ -3,6 +3,7 @@ package bedrock
 import (
 	"encoding/base64"
 	"encoding/json"
+	"log/slog"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -13,13 +14,10 @@ import (
 	"github.com/docker/cagent/pkg/tools"
 )
 
-// convertMessages converts chat.Messages to Bedrock Message format
-// Returns (messages, system content blocks)
-//
-// Bedrock's Converse API requires that:
-// 1. Tool results must immediately follow the assistant message with tool_use
-// 2. Multiple consecutive tool results must be grouped into a single user message
-func convertMessages(messages []chat.Message) ([]types.Message, []types.SystemContentBlock) {
+// convertMessages handles Bedrock's Converse API constraints:
+// - Tool results must immediately follow the assistant message with tool_use
+// - Multiple consecutive tool results must be grouped into a single user message
+func convertMessages(messages []chat.Message, enableCaching bool) ([]types.Message, []types.SystemContentBlock) {
 	var bedrockMessages []types.Message
 	var systemBlocks []types.SystemContentBlock
 
@@ -93,10 +91,34 @@ func convertMessages(messages []chat.Message) ([]types.Message, []types.SystemCo
 		}
 	}
 
+	// Cache points after system and on last 2 messages optimize multi-turn conversations:
+	// the stable prefix (system + tools + older context) gets cached while recent messages change.
+	if enableCaching {
+		if len(systemBlocks) > 0 {
+			systemBlocks = append(systemBlocks, &types.SystemContentBlockMemberCachePoint{
+				Value: types.CachePointBlock{Type: types.CachePointTypeDefault},
+			})
+		}
+		applyCachePointsToMessages(bedrockMessages)
+	}
+
 	return bedrockMessages, systemBlocks
 }
 
-// convertUserContent converts user message content to Bedrock ContentBlocks
+func applyCachePointsToMessages(messages []types.Message) {
+	// Add cache points to the last 2 messages (or all if fewer exist)
+	start := max(0, len(messages)-2)
+	for i := len(messages) - 1; i >= start; i-- {
+		msg := &messages[i]
+		if len(msg.Content) == 0 {
+			continue
+		}
+		msg.Content = append(msg.Content, &types.ContentBlockMemberCachePoint{
+			Value: types.CachePointBlock{Type: types.CachePointTypeDefault},
+		})
+	}
+}
+
 func convertUserContent(msg *chat.Message) []types.ContentBlock {
 	var blocks []types.ContentBlock
 
@@ -126,7 +148,6 @@ func convertUserContent(msg *chat.Message) []types.ContentBlock {
 	return blocks
 }
 
-// convertImageURL converts an image URL to Bedrock ImageBlock
 func convertImageURL(imageURL *chat.MessageImageURL) types.ContentBlock {
 	if !strings.HasPrefix(imageURL.URL, "data:") {
 		return nil
@@ -168,7 +189,6 @@ func convertImageURL(imageURL *chat.MessageImageURL) types.ContentBlock {
 	}
 }
 
-// convertAssistantContent converts assistant message to Bedrock ContentBlocks
 func convertAssistantContent(msg *chat.Message) []types.ContentBlock {
 	var blocks []types.ContentBlock
 
@@ -223,23 +243,19 @@ func convertAssistantContent(msg *chat.Message) []types.ContentBlock {
 	return blocks
 }
 
-// mapToDocument converts a map to Bedrock document format
 func mapToDocument(m map[string]any) document.Interface {
 	return document.NewLazyDocument(m)
 }
 
-// convertToolConfig converts tools to Bedrock ToolConfiguration
-func convertToolConfig(requestTools []tools.Tool) *types.ToolConfiguration {
+func convertToolConfig(requestTools []tools.Tool, enableCaching bool) *types.ToolConfiguration {
 	if len(requestTools) == 0 {
 		return nil
 	}
 
-	toolSpecs := make([]types.Tool, len(requestTools))
-	for i, tool := range requestTools {
-		// Convert parameters to JSON schema format
+	toolSpecs := make([]types.Tool, 0, len(requestTools)+1)
+	for _, tool := range requestTools {
 		schema := convertToolSchema(tool.Parameters)
-
-		toolSpecs[i] = &types.ToolMemberToolSpec{
+		toolSpecs = append(toolSpecs, &types.ToolMemberToolSpec{
 			Value: types.ToolSpecification{
 				Name:        aws.String(tool.Name),
 				Description: aws.String(tool.Description),
@@ -247,22 +263,26 @@ func convertToolConfig(requestTools []tools.Tool) *types.ToolConfiguration {
 					Value: schema,
 				},
 			},
-		}
+		})
+	}
+
+	// Cache point after tools: tool definitions remain stable across conversation turns
+	if enableCaching {
+		toolSpecs = append(toolSpecs, &types.ToolMemberCachePoint{
+			Value: types.CachePointBlock{Type: types.CachePointTypeDefault},
+		})
 	}
 
 	return &types.ToolConfiguration{
-		Tools: toolSpecs,
-		// Auto tool choice lets the model decide
-		ToolChoice: &types.ToolChoiceMemberAuto{
-			Value: types.AutoToolChoice{},
-		},
+		Tools:      toolSpecs,
+		ToolChoice: &types.ToolChoiceMemberAuto{Value: types.AutoToolChoice{}},
 	}
 }
 
-// convertToolSchema converts tool parameters to Bedrock-compatible JSON schema
 func convertToolSchema(params any) document.Interface {
 	schema, err := tools.SchemaToMap(params)
 	if err != nil {
+		slog.Debug("Bedrock tool schema conversion failed, using empty schema", "error", err)
 		schema = map[string]any{
 			"type":       "object",
 			"properties": map[string]any{},

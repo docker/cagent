@@ -16,5 +16,5 @@ func New(msg *types.Message, sessionState *service.SessionState) layout.Model {
 }
 
 func render(msg *types.Message, s spinner.Spinner, sessionState *service.SessionState, width, _ int) string {
-	return toolcommon.RenderTool(msg, s, "", "", width, sessionState.HideToolResults)
+	return toolcommon.RenderTool(msg, s, "", "", width, sessionState.HideToolResults())
 }

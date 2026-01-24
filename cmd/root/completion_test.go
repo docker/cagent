@@ -190,12 +190,7 @@ func TestCompleteAgentFilename(t *testing.T) {
 			tt.setup(t, tmpDir)
 
 			// Change working directory
-			origDir, err := os.Getwd()
-			require.NoError(t, err)
-			require.NoError(t, os.Chdir(tmpDir))
-			t.Cleanup(func() {
-				require.NoError(t, os.Chdir(origDir))
-			})
+			t.Chdir(tmpDir)
 
 			completions, directive := completeAgentFilename(tt.toComplete)
 
@@ -272,12 +267,7 @@ func TestCompleteAliasIncludesYAMLFiles(t *testing.T) {
 	writeFile(t, tmpDir, "readme.md") // not a yaml file
 
 	// Change working directory
-	origDir, err := os.Getwd()
-	require.NoError(t, err)
-	require.NoError(t, os.Chdir(tmpDir))
-	t.Cleanup(func() {
-		require.NoError(t, os.Chdir(origDir))
-	})
+	t.Chdir(tmpDir)
 
 	// Test that completeAlias includes YAML files starting with "go"
 	completions, directive := completeAlias("go")

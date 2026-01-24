@@ -576,6 +576,19 @@ models:
 | `role_session_name` | string | Session name for assumed role | cagent-bedrock-session |
 | `external_id` | string | External ID for role assumption | (none) |
 | `endpoint_url` | string | Custom endpoint (VPC/testing) | (none) |
+| `interleaved_thinking` | bool | Enable reasoning during tool calls (requires thinking_budget) | false |
+| `disable_prompt_caching` | bool | Disable automatic prompt caching | false |
+
+#### Prompt Caching (Bedrock)
+
+Prompt caching is automatically enabled for models that support it (detected via models.dev) to reduce latency and costs. System prompts, tool definitions, and recent messages are cached with a 5-minute TTL.
+
+To disable:
+
+```yaml
+provider_opts:
+  disable_prompt_caching: true
+```
 
 **Supported models (via Converse API):**
 
@@ -709,12 +722,12 @@ models:
       speculative_acceptance_rate: 0.8         # Acceptance rate threshold
 ```
 
-All three speculative decoding options are passed to `docker model configure` as flags:
-- `speculative_draft_model` → `--speculative-draft-model`
-- `speculative_num_tokens` → `--speculative-num-tokens`
-- `speculative_acceptance_rate` → `--speculative-acceptance-rate`
+All three speculative decoding options are sent to Model Runner via its internal `POST /engines/_configure` API endpoint:
+- `speculative_draft_model` → `speculative.draft_model`
+- `speculative_num_tokens` → `speculative.num_tokens`
+- `speculative_acceptance_rate` → `speculative.min_acceptance_rate`
 
-These options work alongside `max_tokens` (which sets `--context-size`) and `runtime_flags`.
+These options work alongside `max_tokens` (which sets `context-size`) and `runtime_flags`.
 
 ##### Troubleshooting:
 

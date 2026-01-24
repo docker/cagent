@@ -71,7 +71,7 @@ func Run(ctx context.Context, out *Printer, cfg Config, rt runtime.Runtime, sess
 				switch e := event.(type) {
 				case *runtime.ToolCallConfirmationEvent:
 					if !cfg.AutoApprove {
-						rt.Resume(ctx, runtime.ResumeTypeReject)
+						rt.Resume(ctx, runtime.ResumeReject(""))
 					}
 				case *runtime.ErrorEvent:
 					return fmt.Errorf("%s", e.Error)
@@ -114,12 +114,12 @@ func Run(ctx context.Context, out *Printer, cfg Config, rt runtime.Runtime, sess
 				lastConfirmedToolCallID = e.ToolCall.ID // Store the ID to avoid duplicate printing
 				switch result {
 				case ConfirmationApprove:
-					rt.Resume(ctx, runtime.ResumeTypeApprove)
+					rt.Resume(ctx, runtime.ResumeApprove())
 				case ConfirmationApproveSession:
 					sess.ToolsApproved = true
-					rt.Resume(ctx, runtime.ResumeTypeApproveSession)
+					rt.Resume(ctx, runtime.ResumeApproveSession())
 				case ConfirmationReject:
-					rt.Resume(ctx, runtime.ResumeTypeReject)
+					rt.Resume(ctx, runtime.ResumeReject(""))
 					lastConfirmedToolCallID = "" // Clear on reject since tool won't execute
 				case ConfirmationAbort:
 					// Stop the agent loop immediately
@@ -155,12 +155,12 @@ func Run(ctx context.Context, out *Printer, cfg Config, rt runtime.Runtime, sess
 				result := out.PromptMaxIterationsContinue(ctx, e.MaxIterations)
 				switch result {
 				case ConfirmationApprove:
-					rt.Resume(ctx, runtime.ResumeTypeApprove)
+					rt.Resume(ctx, runtime.ResumeApprove())
 				case ConfirmationReject:
-					rt.Resume(ctx, runtime.ResumeTypeReject)
+					rt.Resume(ctx, runtime.ResumeReject(""))
 					return nil
 				case ConfirmationAbort:
-					rt.Resume(ctx, runtime.ResumeTypeReject)
+					rt.Resume(ctx, runtime.ResumeReject(""))
 					return nil
 				}
 			case *runtime.ElicitationRequestEvent:

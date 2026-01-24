@@ -24,12 +24,12 @@ func render(msg *types.Message, s spinner.Spinner, sessionState *service.Session
 	// Parse arguments
 	var args builtin.ReadMultipleFilesArgs
 	if err := json.Unmarshal([]byte(msg.ToolCall.Function.Arguments), &args); err != nil {
-		return toolcommon.RenderTool(msg, s, "", "", width, sessionState.HideToolResults)
+		return toolcommon.RenderTool(msg, s, "", "", width, sessionState.HideToolResults())
 	}
 
 	// For pending/running state, show files being read
 	if msg.ToolStatus == types.ToolStatusPending || msg.ToolStatus == types.ToolStatusRunning {
-		return toolcommon.RenderTool(msg, s, formatFilesList(args.Paths), "", width, sessionState.HideToolResults)
+		return toolcommon.RenderTool(msg, s, formatFilesList(args.Paths), "", width, sessionState.HideToolResults())
 	}
 
 	// For completed/error state, render each file line

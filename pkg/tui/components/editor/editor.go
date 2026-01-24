@@ -25,6 +25,7 @@ import (
 	"github.com/docker/cagent/pkg/tui/components/editor/completions"
 	"github.com/docker/cagent/pkg/tui/core"
 	"github.com/docker/cagent/pkg/tui/core/layout"
+	"github.com/docker/cagent/pkg/tui/messages"
 	"github.com/docker/cagent/pkg/tui/styles"
 )
 
@@ -53,12 +54,6 @@ type attachment struct {
 type AttachmentPreview struct {
 	Title   string
 	Content string
-}
-
-// SendMsg represents a message to send
-type SendMsg struct {
-	Content     string            // Full content sent to the agent (with file contents expanded)
-	Attachments map[string]string // Map of filename to content for attachments
 }
 
 // Editor represents an input editor component
@@ -509,7 +504,7 @@ func (e *editor) resetAndSend(content string) tea.Cmd {
 	e.textarea.Reset()
 	e.userTyped = false
 	e.clearSuggestion()
-	return core.CmdHandler(SendMsg{Content: content, Attachments: attachments})
+	return core.CmdHandler(messages.SendMsg{Content: content, Attachments: attachments})
 }
 
 // configureNewlineKeybinding sets up the appropriate newline keybinding

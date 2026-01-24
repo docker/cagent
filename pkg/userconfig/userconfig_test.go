@@ -485,3 +485,143 @@ func TestConfig_Version_LoadLegacyWithoutVersion(t *testing.T) {
 	require.NoError(t, config.saveTo(configFile))
 	assert.Equal(t, CurrentVersion, config.Version)
 }
+
+func TestConfig_Settings_HideToolResults(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	configFile := filepath.Join(tmpDir, "config.yaml")
+
+	config := &Config{
+		Settings: &Settings{
+			HideToolResults: true,
+		},
+	}
+
+	require.NoError(t, config.saveTo(configFile))
+
+	loaded, err := loadFrom(configFile, "")
+	require.NoError(t, err)
+
+	assert.NotNil(t, loaded.Settings)
+	assert.True(t, loaded.Settings.HideToolResults)
+}
+
+func TestConfig_Settings_Empty(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	configFile := filepath.Join(tmpDir, "config.yaml")
+
+	config, err := loadFrom(configFile, "")
+	require.NoError(t, err)
+
+	// GetSettings should return an empty Settings struct, not nil
+	settings := config.GetSettings()
+	assert.NotNil(t, settings)
+	assert.False(t, settings.HideToolResults)
+}
+
+func TestConfig_Settings_GetSettingsNil(t *testing.T) {
+	t.Parallel()
+
+	config := &Config{Aliases: make(map[string]*Alias)}
+
+	// GetSettings should return an empty Settings struct when Settings is nil
+	settings := config.GetSettings()
+	assert.NotNil(t, settings)
+	assert.False(t, settings.HideToolResults)
+}
+
+func TestConfig_AliasWithHideToolResults(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	configFile := filepath.Join(tmpDir, "config.yaml")
+
+	config := &Config{
+		Aliases: map[string]*Alias{
+			"hidden": {Path: "agentcatalog/coder", HideToolResults: true},
+			"full":   {Path: "agentcatalog/coder", Yolo: true, Model: "openai/gpt-4o", HideToolResults: true},
+		},
+	}
+
+	require.NoError(t, config.saveTo(configFile))
+
+	loaded, err := loadFrom(configFile, "")
+	require.NoError(t, err)
+
+	// Verify hide_tool_results option
+	hiddenAlias, ok := loaded.GetAlias("hidden")
+	require.True(t, ok)
+	assert.Equal(t, "agentcatalog/coder", hiddenAlias.Path)
+	assert.True(t, hiddenAlias.HideToolResults)
+	assert.False(t, hiddenAlias.Yolo)
+	assert.Empty(t, hiddenAlias.Model)
+
+	// Verify all options together
+	fullAlias, ok := loaded.GetAlias("full")
+	require.True(t, ok)
+	assert.True(t, fullAlias.HideToolResults)
+	assert.True(t, fullAlias.Yolo)
+	assert.Equal(t, "openai/gpt-4o", fullAlias.Model)
+}
+
+func TestAlias_HasOptions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		alias    *Alias
+		expected bool
+	}{
+		{"nil alias", nil, false},
+		{"empty alias", &Alias{Path: "test"}, false},
+		{"yolo only", &Alias{Path: "test", Yolo: true}, true},
+		{"model only", &Alias{Path: "test", Model: "openai/gpt-4o"}, true},
+		{"hide_tool_results only", &Alias{Path: "test", HideToolResults: true}, true},
+		{"all options", &Alias{Path: "test", Yolo: true, Model: "openai/gpt-4o", HideToolResults: true}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.expected, tt.alias.HasOptions())
+		})
+	}
+}
+
+func TestConfig_CredentialHelper(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	configFile := filepath.Join(tmpDir, "config.yaml")
+
+	config := &Config{
+		CredentialHelper: &CredentialHelper{
+			Command: "my-credential-helper",
+			Args:    []string{"get-token"},
+		},
+	}
+
+	require.NoError(t, config.saveTo(configFile))
+
+	loaded, err := loadFrom(configFile, "")
+	require.NoError(t, err)
+
+	assert.NotNil(t, loaded.CredentialHelper)
+	assert.Equal(t, "my-credential-helper", loaded.CredentialHelper.Command)
+	assert.Equal(t, []string{"get-token"}, loaded.CredentialHelper.Args)
+}
+
+func TestConfig_CredentialHelper_Empty(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	configFile := filepath.Join(tmpDir, "config.yaml")
+
+	config, err := loadFrom(configFile, "")
+	require.NoError(t, err)
+
+	assert.Nil(t, config.CredentialHelper)
+}

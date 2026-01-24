@@ -41,7 +41,7 @@ func TestRenderComposite(t *testing.T) {
 
 	// 2. Check the injected sequence (after \x1b[0m) does NOT have bold
 	// We split by the reset code to find the injected part
-	parts := resetPattern.Split(output, -1)
+	parts := strings.Split(output, resetFull)
 	if len(parts) >= 2 {
 		// parts[0] is everything before first reset.
 		// parts[1] starts with the injected sequence for " World"
@@ -65,17 +65,33 @@ func TestRenderComposite(t *testing.T) {
 
 		expectedSeq := colorOnly.Render("")
 		// Remove trailing reset
-		expectedSeq = strings.TrimSuffix(expectedSeq, "\x1b[0m")
-		expectedSeq = strings.TrimSuffix(expectedSeq, "\x1b[m")
+		expectedSeq = strings.TrimSuffix(expectedSeq, resetFull)
+		expectedSeq = strings.TrimSuffix(expectedSeq, resetShort)
 
 		// The injected part should start with this expectedSeq
 		assert.True(t, strings.HasPrefix(parts[1], expectedSeq), "Injected sequence should match color-only style")
 
 		// And ensure expectedSeq is different from full parent seq (which has bold)
 		fullSeq := parent.UnsetPadding().UnsetMargins().UnsetWidth().UnsetHeight().Render("")
-		fullSeq = strings.TrimSuffix(fullSeq, "\x1b[0m")
-		fullSeq = strings.TrimSuffix(fullSeq, "\x1b[m")
+		fullSeq = strings.TrimSuffix(fullSeq, resetFull)
+		fullSeq = strings.TrimSuffix(fullSeq, resetShort)
 
 		assert.NotEqual(t, expectedSeq, fullSeq, "Color-only sequence should differ from full sequence (bold)")
 	}
+}
+
+func TestRenderComposite_FastPath(t *testing.T) {
+	// Test fast path when content has no ANSI sequences
+	parent := lipgloss.NewStyle().
+		Background(lipgloss.Color("#0000FF")).
+		Foreground(lipgloss.Color("#FFFFFF"))
+
+	content := "Hello World"
+	output := RenderComposite(parent, content)
+
+	// Should contain the content
+	assert.Contains(t, output, "Hello World")
+
+	// Should have ANSI sequences from the parent style
+	assert.Contains(t, output, "\x1b[")
 }

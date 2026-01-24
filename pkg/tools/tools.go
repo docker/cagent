@@ -45,13 +45,14 @@ func ResultSuccess(output string) *ToolCallResult {
 type ToolType string
 
 type Tool struct {
-	Name         string          `json:"name"`
-	Category     string          `json:"category"`
-	Description  string          `json:"description,omitempty"`
-	Parameters   any             `json:"parameters"`
-	Annotations  ToolAnnotations `json:"annotations"`
-	OutputSchema any             `json:"outputSchema"`
-	Handler      ToolHandler     `json:"-"`
+	Name                    string          `json:"name"`
+	Category                string          `json:"category"`
+	Description             string          `json:"description,omitempty"`
+	Parameters              any             `json:"parameters"`
+	Annotations             ToolAnnotations `json:"annotations"`
+	OutputSchema            any             `json:"outputSchema"`
+	Handler                 ToolHandler     `json:"-"`
+	AddDescriptionParameter bool            `json:"-"`
 }
 
 type ToolAnnotations mcp.ToolAnnotations

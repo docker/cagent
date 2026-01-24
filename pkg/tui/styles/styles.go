@@ -22,6 +22,7 @@ const (
 	ColorAccentBlue      = "#7AA2F7"
 	ColorMutedBlue       = "#8B95C1"
 	ColorMutedGray       = "#808080"
+	ColorFadedGray       = "#404550" // Very dim, close to background - for fade-out effects
 	ColorBackgroundAlt   = "#24283B"
 	ColorBorderSecondary = "#6B75A8"
 	ColorTextPrimary     = "#C0C0C0"
@@ -169,6 +170,7 @@ var (
 	MutedStyle          = BaseStyle.Foreground(TextMutedGray)
 	SecondaryStyle      = BaseStyle.Foreground(TextSecondary)
 	BoldStyle           = BaseStyle.Bold(true)
+	FadingStyle         = NoStyle.Foreground(lipgloss.Color(ColorFadedGray)) // Very dim for fade-out animations
 )
 
 // Status Styles
@@ -369,6 +371,13 @@ var (
 	ToolNameError = ToolName.
 			Foreground(lipgloss.Color(ColorErrorStrong)).
 			Background(lipgloss.Color(ColorErrorDark))
+
+	ToolNameDim = ToolMessageStyle.
+			Foreground(TextMutedGray).
+			Italic(true)
+
+	ToolDescription = ToolMessageStyle.
+			Foreground(TextPrimary)
 
 	ToolCompletedIcon = BaseStyle.
 				MarginLeft(2).

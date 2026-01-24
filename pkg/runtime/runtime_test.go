@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -568,12 +569,15 @@ func TestToolCallVariations(t *testing.T) {
 // queueProvider returns a different stream on each CreateChatCompletionStream call.
 type queueProvider struct {
 	id      string
+	mu      sync.Mutex
 	streams []chat.MessageStream
 }
 
 func (p *queueProvider) ID() string { return p.id }
 
 func (p *queueProvider) CreateChatCompletionStream(context.Context, []chat.Message, []tools.Tool) (chat.MessageStream, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	if len(p.streams) == 0 {
 		return &mockStream{}, nil
 	}
@@ -1263,7 +1267,7 @@ func TestSessionPermissions_PerToolAskMode(t *testing.T) {
 		if _, ok := ev.(*ToolCallConfirmationEvent); ok {
 			gotConfirmation = true
 			// Send approval to unblock
-			rt.resumeChan <- ResumeTypeApprove
+			rt.resumeChan <- ResumeApprove()
 			break
 		}
 	}
@@ -1420,4 +1424,116 @@ func TestSessionPermissions_FallbackToPatternRules(t *testing.T) {
 	close(events)
 
 	require.True(t, executed, "expected tool to fall through to pattern-based Allow rules")
+}
+
+func TestToolRejectionWithReason(t *testing.T) {
+	// Test that rejection reasons are included in the tool error response
+	agentTools := []tools.Tool{{
+		Name:       "shell",
+		Parameters: map[string]any{},
+		Handler: func(_ context.Context, _ tools.ToolCall) (*tools.ToolCallResult, error) {
+			t.Fatal("tool should not be executed when rejected")
+			return nil, nil
+		},
+	}}
+
+	prov := &mockProvider{id: "test/mock-model", stream: &mockStream{}}
+	root := agent.New("root", "You are a test agent",
+		agent.WithModel(prov),
+		agent.WithToolSets(newStubToolSet(nil, agentTools, nil)),
+	)
+	tm := team.New(team.WithAgents(root))
+
+	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	require.NoError(t, err)
+
+	sess := session.New(session.WithUserMessage("Test"))
+	require.False(t, sess.ToolsApproved) // No --yolo
+
+	calls := []tools.ToolCall{{
+		ID:       "call_1",
+		Type:     "function",
+		Function: tools.FunctionCall{Name: "shell", Arguments: "{}"},
+	}}
+
+	events := make(chan Event, 10)
+
+	// Run in goroutine since it will block waiting for confirmation
+	go func() {
+		rt.processToolCalls(t.Context(), sess, calls, agentTools, events)
+		close(events)
+	}()
+
+	// Wait for confirmation request and then reject with a reason
+	var toolResponse *ToolCallResponseEvent
+	for ev := range events {
+		if _, ok := ev.(*ToolCallConfirmationEvent); ok {
+			// Send rejection with a specific reason
+			rt.resumeChan <- ResumeReject("The arguments provided are incorrect.")
+		}
+		if resp, ok := ev.(*ToolCallResponseEvent); ok {
+			toolResponse = resp
+		}
+	}
+
+	require.NotNil(t, toolResponse, "expected a tool response event")
+	require.True(t, toolResponse.Result.IsError, "expected tool result to be an error")
+	require.Contains(t, toolResponse.Response, "The user rejected the tool call.")
+	require.Contains(t, toolResponse.Response, "Reason: The arguments provided are incorrect.")
+}
+
+func TestToolRejectionWithoutReason(t *testing.T) {
+	// Test that rejection without a reason still works
+	agentTools := []tools.Tool{{
+		Name:       "shell",
+		Parameters: map[string]any{},
+		Handler: func(_ context.Context, _ tools.ToolCall) (*tools.ToolCallResult, error) {
+			t.Fatal("tool should not be executed when rejected")
+			return nil, nil
+		},
+	}}
+
+	prov := &mockProvider{id: "test/mock-model", stream: &mockStream{}}
+	root := agent.New("root", "You are a test agent",
+		agent.WithModel(prov),
+		agent.WithToolSets(newStubToolSet(nil, agentTools, nil)),
+	)
+	tm := team.New(team.WithAgents(root))
+
+	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	require.NoError(t, err)
+
+	sess := session.New(session.WithUserMessage("Test"))
+	require.False(t, sess.ToolsApproved) // No --yolo
+
+	calls := []tools.ToolCall{{
+		ID:       "call_1",
+		Type:     "function",
+		Function: tools.FunctionCall{Name: "shell", Arguments: "{}"},
+	}}
+
+	events := make(chan Event, 10)
+
+	// Run in goroutine since it will block waiting for confirmation
+	go func() {
+		rt.processToolCalls(t.Context(), sess, calls, agentTools, events)
+		close(events)
+	}()
+
+	// Wait for confirmation request and then reject without a reason
+	var toolResponse *ToolCallResponseEvent
+	for ev := range events {
+		if _, ok := ev.(*ToolCallConfirmationEvent); ok {
+			// Send rejection without a reason
+			rt.resumeChan <- ResumeReject("")
+		}
+		if resp, ok := ev.(*ToolCallResponseEvent); ok {
+			toolResponse = resp
+		}
+	}
+
+	require.NotNil(t, toolResponse, "expected a tool response event")
+	require.True(t, toolResponse.Result.IsError, "expected tool result to be an error")
+	require.Equal(t, "The user rejected the tool call.", toolResponse.Response)
+	require.NotContains(t, toolResponse.Response, "Reason:")
 }

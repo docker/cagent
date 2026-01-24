@@ -27,11 +27,28 @@ type Alias struct {
 	Yolo bool `yaml:"yolo,omitempty"`
 	// Model overrides the agent's model (format: [agent=]provider/model)
 	Model string `yaml:"model,omitempty"`
+	// HideToolResults hides tool call results in the TUI
+	HideToolResults bool `yaml:"hide_tool_results,omitempty"`
 }
 
 // HasOptions returns true if the alias has any runtime options set
 func (a *Alias) HasOptions() bool {
-	return a != nil && (a.Yolo || a.Model != "")
+	return a != nil && (a.Yolo || a.Model != "" || a.HideToolResults)
+}
+
+// Settings represents global user settings
+type Settings struct {
+	// HideToolResults hides tool call results in the TUI by default
+	HideToolResults bool `yaml:"hide_tool_results,omitempty"`
+}
+
+// CredentialHelper contains configuration for a credential helper command
+// that retrieves Docker credentials (DOCKER_TOKEN) from an external source.
+type CredentialHelper struct {
+	// Command is the CLI command to execute to retrieve the Docker token.
+	// The command should output the token on stdout.
+	Command string   `yaml:"command,omitempty"`
+	Args    []string `yaml:"args,omitempty"`
 }
 
 // CurrentVersion is the current version of the user config format
@@ -39,6 +56,10 @@ const CurrentVersion = "v1"
 
 // Config represents the user-level cagent configuration
 type Config struct {
+	// mu protects concurrent access to the Aliases map.
+	// Config methods may be called from parallel tests or goroutines.
+	mu sync.Mutex
+
 	// Version is the config format version
 	Version string `yaml:"version,omitempty"`
 	// ModelsGateway is the default models gateway URL
@@ -128,6 +149,12 @@ func (c *Config) migrateFromLegacy(legacyPath string) bool {
 		return false
 	}
 
+	// Protect concurrent writes to the Aliases map while migrating
+	// legacy aliases. This avoids concurrent map write panics if
+	// the config is accessed by multiple goroutines.
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	for name, path := range legacy {
 		c.Aliases[name] = &Alias{Path: path}
 	}
@@ -162,8 +189,15 @@ func (c *Config) saveTo(path string) error {
 	return atomic.WriteFile(path, bytes.NewReader(data))
 }
 
-// GetAlias retrieves the alias configuration for a given name
+// GetAlias retrieves the alias configuration for a given name.
+//
+// This method is safe for concurrent use. Reads from the Aliases map
+// are protected by a mutex to avoid concurrent read/write panics when
+// aliases are accessed while being modified.
 func (c *Config) GetAlias(name string) (*Alias, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	alias, ok := c.Aliases[name]
 	return alias, ok
 }
@@ -206,11 +240,27 @@ func (c *Config) SetAlias(name string, alias *Alias) error {
 	return nil
 }
 
-// DeleteAlias removes an alias. Returns true if the alias existed.
+// DeleteAlias removes an alias by name.
+// It returns true if the alias existed.
+//
+// This method is safe for concurrent use. Access to the Aliases map
+// is protected by a mutex to prevent concurrent map read/write panics
+// when called from parallel tests or goroutines.
 func (c *Config) DeleteAlias(name string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if _, exists := c.Aliases[name]; exists {
 		delete(c.Aliases, name)
 		return true
 	}
 	return false
+}
+
+// GetSettings returns the global settings, or an empty Settings if not set
+func (c *Config) GetSettings() *Settings {
+	if c.Settings == nil {
+		return &Settings{}
+	}
+	return c.Settings
 }

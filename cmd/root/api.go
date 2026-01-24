@@ -1,6 +1,7 @@
 package root
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -50,18 +51,54 @@ func newAPICmd() *cobra.Command {
 	return cmd
 }
 
+// monitorStdin monitors stdin for EOF, which indicates the parent process has died.
+// When spawned with piped stdio, stdin closes when the parent process dies.
+func monitorStdin(ctx context.Context, cancel context.CancelFunc, stdin *os.File) {
+	// Close stdin when context is cancelled to unblock the read
+	go func() {
+		<-ctx.Done()
+		stdin.Close()
+	}()
+
+	buf := make([]byte, 1)
+	for {
+		n, err := stdin.Read(buf)
+		if err != nil || n == 0 {
+			// Only log and cancel if context isn't already done (parent died)
+			if ctx.Err() == nil {
+				slog.Info("stdin closed, parent process likely died, shutting down")
+				cancel()
+			}
+			return
+		}
+	}
+}
+
 func (f *apiFlags) runAPICommand(cmd *cobra.Command, args []string) error {
 	telemetry.TrackCommand("api", args)
 
 	ctx := cmd.Context()
+
+	// Save stdin before clearing it, so we can monitor for parent death
+	stdin := os.Stdin
+
 	out := cli.NewPrinter(cmd.OutOrStdout())
 	agentsPath := args[0]
 
 	// Make sure no question is ever asked to the user in api mode.
 	os.Stdin = nil
 
+	// Monitor stdin for EOF to detect parent process death.
+	// When spawned with piped stdio, stdin closes when the parent process dies.
+	if stdin != nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithCancel(ctx)
+		defer cancel()
+		go monitorStdin(ctx, cancel, stdin)
+	}
+
 	// Start fake proxy if --fake is specified
-	cleanup, err := setupFakeProxy(f.fakeResponses, &f.runConfig)
+	cleanup, err := setupFakeProxy(f.fakeResponses, 0, &f.runConfig)
 	if err != nil {
 		return err
 	}

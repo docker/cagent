@@ -110,25 +110,26 @@ type ProviderConfig struct {
 
 // AgentConfig represents a single agent configuration
 type AgentConfig struct {
-	Name               string
-	Model              string            `json:"model,omitempty"`
-	Description        string            `json:"description,omitempty"`
-	WelcomeMessage     string            `json:"welcome_message,omitempty"`
-	Toolsets           []Toolset         `json:"toolsets,omitempty"`
-	Instruction        string            `json:"instruction,omitempty"`
-	SubAgents          []string          `json:"sub_agents,omitempty"`
-	Handoffs           []string          `json:"handoffs,omitempty"`
-	RAG                []string          `json:"rag,omitempty"`
-	AddDate            bool              `json:"add_date,omitempty"`
-	AddEnvironmentInfo bool              `json:"add_environment_info,omitempty"`
-	CodeModeTools      bool              `json:"code_mode_tools,omitempty"`
-	MaxIterations      int               `json:"max_iterations,omitempty"`
-	NumHistoryItems    int               `json:"num_history_items,omitempty"`
-	AddPromptFiles     []string          `json:"add_prompt_files,omitempty" yaml:"add_prompt_files,omitempty"`
-	Commands           types.Commands    `json:"commands,omitempty"`
-	StructuredOutput   *StructuredOutput `json:"structured_output,omitempty"`
-	Skills             *bool             `json:"skills,omitempty"`
-	Hooks              *HooksConfig      `json:"hooks,omitempty"`
+	Name                    string
+	Model                   string            `json:"model,omitempty"`
+	Description             string            `json:"description,omitempty"`
+	WelcomeMessage          string            `json:"welcome_message,omitempty"`
+	Toolsets                []Toolset         `json:"toolsets,omitempty"`
+	Instruction             string            `json:"instruction,omitempty"`
+	SubAgents               []string          `json:"sub_agents,omitempty"`
+	Handoffs                []string          `json:"handoffs,omitempty"`
+	RAG                     []string          `json:"rag,omitempty"`
+	AddDate                 bool              `json:"add_date,omitempty"`
+	AddEnvironmentInfo      bool              `json:"add_environment_info,omitempty"`
+	CodeModeTools           bool              `json:"code_mode_tools,omitempty"`
+	AddDescriptionParameter bool              `json:"add_description_parameter,omitempty"`
+	MaxIterations           int               `json:"max_iterations,omitempty"`
+	NumHistoryItems         int               `json:"num_history_items,omitempty"`
+	AddPromptFiles          []string          `json:"add_prompt_files,omitempty" yaml:"add_prompt_files,omitempty"`
+	Commands                types.Commands    `json:"commands,omitempty"`
+	StructuredOutput        *StructuredOutput `json:"structured_output,omitempty"`
+	Skills                  *bool             `json:"skills,omitempty"`
+	Hooks                   *HooksConfig      `json:"hooks,omitempty"`
 }
 
 // ModelConfig represents the configuration for a model

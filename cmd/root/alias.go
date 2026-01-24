@@ -42,8 +42,9 @@ func newAliasCmd() *cobra.Command {
 }
 
 type aliasAddFlags struct {
-	yolo  bool
-	model string
+	yolo            bool
+	model           string
+	hideToolResults bool
 }
 
 func newAliasAddCmd() *cobra.Command {
@@ -57,8 +58,9 @@ func newAliasAddCmd() *cobra.Command {
 You can optionally specify runtime options that will be applied whenever
 the alias is used:
 
-  --yolo     Automatically approve all tool calls without prompting
-  --model    Override the agent's model (format: [agent=]provider/model)`,
+  --yolo               Automatically approve all tool calls without prompting
+  --model              Override the agent's model (format: [agent=]provider/model)
+  --hide-tool-results  Hide tool call results in the TUI`,
 		Example: `  # Create a simple alias
   cagent alias add code agentcatalog/notion-expert
 
@@ -68,7 +70,10 @@ the alias is used:
   # Create an alias with a specific model
   cagent alias add fast-coder agentcatalog/coder --model openai/gpt-4o-mini
 
-  # Create an alias with both options
+  # Create an alias with hidden tool results
+  cagent alias add quiet agentcatalog/coder --hide-tool-results
+
+  # Create an alias with multiple options
   cagent alias add turbo agentcatalog/coder --yolo --model anthropic/claude-sonnet-4-0`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -78,6 +83,7 @@ the alias is used:
 
 	cmd.Flags().BoolVar(&flags.yolo, "yolo", false, "Automatically approve all tool calls without prompting")
 	cmd.Flags().StringVar(&flags.model, "model", "", "Override agent model (format: [agent=]provider/model)")
+	cmd.Flags().BoolVar(&flags.hideToolResults, "hide-tool-results", false, "Hide tool call results in the TUI")
 
 	return cmd
 }
@@ -123,9 +129,10 @@ func runAliasAddCommand(cmd *cobra.Command, args []string, flags *aliasAddFlags)
 
 	// Create alias with options
 	alias := &userconfig.Alias{
-		Path:  absAgentPath,
-		Yolo:  flags.yolo,
-		Model: flags.model,
+		Path:            absAgentPath,
+		Yolo:            flags.yolo,
+		Model:           flags.model,
+		HideToolResults: flags.hideToolResults,
 	}
 
 	// Store the alias
@@ -146,6 +153,9 @@ func runAliasAddCommand(cmd *cobra.Command, args []string, flags *aliasAddFlags)
 	}
 	if flags.model != "" {
 		out.Printf("  Model: %s\n", flags.model)
+	}
+	if flags.hideToolResults {
+		out.Printf("  Hide tool results: enabled\n")
 	}
 
 	if name == "default" {
@@ -200,6 +210,9 @@ func runAliasListCommand(cmd *cobra.Command, args []string) error {
 		}
 		if alias.Model != "" {
 			options = append(options, "model="+alias.Model)
+		}
+		if alias.HideToolResults {
+			options = append(options, "hide-tool-results")
 		}
 
 		if len(options) > 0 {

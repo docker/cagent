@@ -69,6 +69,7 @@ func NewDefaultToolsetRegistry() *ToolsetRegistry {
 	r.Register("api", createAPITool)
 	r.Register("a2a", createA2ATool)
 	r.Register("lsp", createLSPTool)
+	r.Register("user_prompt", createUserPromptTool)
 	return r
 }
 
@@ -278,4 +279,8 @@ func createLSPTool(ctx context.Context, toolset latest.Toolset, _ string, runCon
 	}
 	env = append(env, os.Environ()...)
 	return builtin.NewLSPTool(toolset.Command, toolset.Args, env, runConfig.WorkingDir), nil
+}
+
+func createUserPromptTool(_ context.Context, _ latest.Toolset, _ string, _ *config.RuntimeConfig) (tools.ToolSet, error) {
+	return builtin.NewUserPromptTool(), nil
 }

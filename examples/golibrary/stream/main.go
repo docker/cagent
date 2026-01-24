@@ -63,7 +63,7 @@ func run(ctx context.Context) error {
 		case *runtime.StreamStoppedEvent:
 			log.Println("Stream stopped for session")
 		case *runtime.ToolCallConfirmationEvent:
-			rt.Resume(ctx, "approve-session")
+			rt.Resume(ctx, runtime.ResumeRequest{Type: runtime.ResumeTypeApproveSession})
 		case *runtime.ToolCallEvent:
 			log.Printf("Tool call: %s\n", e.ToolCall.Function.Name)
 		case *runtime.ToolCallResponseEvent:
