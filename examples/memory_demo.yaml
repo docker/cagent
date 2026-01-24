@@ -1,5 +1,4 @@
 #!/usr/bin/env cagent run
-version: "4"
 
 metadata:
   author: Memory System Demo
