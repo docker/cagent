@@ -20,6 +20,7 @@ import (
 	"github.com/docker/cagent/pkg/tui/components/scrollbar"
 	"github.com/docker/cagent/pkg/tui/components/spinner"
 	"github.com/docker/cagent/pkg/tui/components/tab"
+	"github.com/docker/cagent/pkg/tui/components/tool/taskstool"
 	"github.com/docker/cagent/pkg/tui/components/tool/todotool"
 	"github.com/docker/cagent/pkg/tui/components/toolcommon"
 	"github.com/docker/cagent/pkg/tui/core/layout"
@@ -43,6 +44,7 @@ type Model interface {
 
 	SetTokenUsage(event *runtime.TokenUsageEvent)
 	SetTodos(result *tools.ToolCallResult) error
+	SetTasks(result *tools.ToolCallResult) error
 	SetMode(mode Mode)
 	SetAgentInfo(agentName, model, description string)
 	SetTeamInfo(availableAgents []runtime.AgentDetails)
@@ -73,6 +75,7 @@ type model struct {
 	sessionUsage       map[string]*runtime.Usage // sessionID -> latest usage snapshot
 	sessionAgent       map[string]string         // sessionID -> agent name
 	todoComp           *todotool.SidebarComponent
+	tasksComp          *taskstool.SidebarComponent
 	mcpInit            bool
 	ragIndexing        map[string]*ragIndexingState // strategy name -> indexing state
 	spinner            spinner.Spinner
@@ -112,6 +115,7 @@ func New(sessionState *service.SessionState, opts ...Option) Model {
 		sessionUsage:       make(map[string]*runtime.Usage),
 		sessionAgent:       make(map[string]string),
 		todoComp:           todotool.NewSidebarComponent(),
+		tasksComp:          taskstool.NewSidebarComponent(),
 		spinner:            spinner.New(spinner.ModeSpinnerOnly, styles.SpinnerDotsHighlightStyle),
 		sessionTitle:       "New session",
 		ragIndexing:        make(map[string]*ragIndexingState),
@@ -146,6 +150,10 @@ func (m *model) SetTokenUsage(event *runtime.TokenUsageEvent) {
 
 func (m *model) SetTodos(result *tools.ToolCallResult) error {
 	return m.todoComp.SetTodos(result)
+}
+
+func (m *model) SetTasks(result *tools.ToolCallResult) error {
+	return m.tasksComp.SetTasks(result)
 }
 
 // SetAgentInfo sets the current agent information and updates the model in availableAgents
@@ -525,6 +533,9 @@ func (m *model) renderSections(contentWidth int) []string {
 
 	m.todoComp.SetSize(contentWidth)
 	appendSection(strings.TrimSuffix(m.todoComp.Render(), "\n"))
+
+	m.tasksComp.SetSize(contentWidth)
+	appendSection(strings.TrimSuffix(m.tasksComp.Render(), "\n"))
 
 	return lines
 }

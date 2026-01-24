@@ -219,9 +219,14 @@ func (p *chatPage) handleToolCallResponse(msg *runtime.ToolCallResponseEvent) te
 	}
 	toolCmd := p.messages.AddToolResult(msg, status)
 
-	// Update todo sidebar if this is a todo tool
-	if msg.ToolDefinition.Category == "todo" && !msg.Result.IsError {
-		_ = p.sidebar.SetTodos(msg.Result)
+	// Update sidebar for todo/tasks tools
+	if !msg.Result.IsError {
+		switch msg.ToolDefinition.Category {
+		case "todo":
+			_ = p.sidebar.SetTodos(msg.Result)
+		case "tasks":
+			_ = p.sidebar.SetTasks(msg.Result)
+		}
 	}
 
 	return tea.Batch(toolCmd, p.messages.ScrollToBottom(), spinnerCmd)
