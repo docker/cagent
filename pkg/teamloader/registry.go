@@ -12,7 +12,8 @@ import (
 	"github.com/docker/cagent/pkg/environment"
 	"github.com/docker/cagent/pkg/gateway"
 	"github.com/docker/cagent/pkg/js"
-	"github.com/docker/cagent/pkg/memory/database/sqlite"
+	"github.com/docker/cagent/pkg/memory"
+	_ "github.com/docker/cagent/pkg/memory/sqlite" // Register sqlite driver
 	"github.com/docker/cagent/pkg/path"
 	"github.com/docker/cagent/pkg/tools"
 	"github.com/docker/cagent/pkg/tools/a2a"
@@ -80,7 +81,7 @@ func createTodoTool(_ context.Context, toolset latest.Toolset, _ string, _ *conf
 	return builtin.NewTodoTool(), nil
 }
 
-func createMemoryTool(_ context.Context, toolset latest.Toolset, parentDir string, runConfig *config.RuntimeConfig) (tools.ToolSet, error) {
+func createMemoryTool(ctx context.Context, toolset latest.Toolset, parentDir string, runConfig *config.RuntimeConfig) (tools.ToolSet, error) {
 	var memoryPath string
 	if filepath.IsAbs(toolset.Path) {
 		memoryPath = ""
@@ -98,11 +99,19 @@ func createMemoryTool(_ context.Context, toolset latest.Toolset, parentDir strin
 		return nil, fmt.Errorf("failed to create memory database directory: %w", err)
 	}
 
-	db, err := sqlite.NewMemoryDatabase(validatedMemoryPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create memory database: %w", err)
+	// Use new driver-based approach
+	cfg := latest.MemoryConfig{
+		Kind: "sqlite",
+		Path: validatedMemoryPath,
 	}
 
+	driver, err := memory.CreateDriver(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create memory driver: %w", err)
+	}
+
+	// Adapt new driver to legacy database interface
+	db := memory.NewDatabaseAdapter(driver)
 	return builtin.NewMemoryTool(db), nil
 }
 

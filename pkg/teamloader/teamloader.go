@@ -12,6 +12,8 @@ import (
 	"github.com/docker/cagent/pkg/config"
 	"github.com/docker/cagent/pkg/config/latest"
 	"github.com/docker/cagent/pkg/js"
+	"github.com/docker/cagent/pkg/memory"
+	_ "github.com/docker/cagent/pkg/memory/sqlite" // Register sqlite driver
 	"github.com/docker/cagent/pkg/model/provider"
 	"github.com/docker/cagent/pkg/model/provider/options"
 	"github.com/docker/cagent/pkg/modelsdev"
@@ -113,6 +115,16 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 		return nil, err
 	}
 
+	// Create memory drivers from top-level memory configs
+	memoryDrivers := make(map[string]memory.Driver)
+	for name, memCfg := range cfg.Memory {
+		driver, err := memory.CreateDriver(ctx, memCfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create memory driver %q: %w", name, err)
+		}
+		memoryDrivers[name] = driver
+	}
+
 	// Create RAG managers
 	parentDir := cmp.Or(agentSource.ParentDir(), runConfig.WorkingDir)
 	ragManagers, err := rag.NewManagers(ctx, cfg, rag.ManagersBuildConfig{
@@ -173,6 +185,12 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 		if len(agentConfig.RAG) > 0 {
 			ragTools := createRAGToolsForAgent(&agentConfig, ragManagers)
 			agentTools = append(agentTools, ragTools...)
+		}
+
+		// Add memory tools if agent has memory scopes
+		if len(agentConfig.Memory) > 0 {
+			memoryTools := createMemoryToolsForAgent(&agentConfig, memoryDrivers)
+			agentTools = append(agentTools, memoryTools...)
 		}
 
 		opts = append(opts, agent.WithToolSets(agentTools...))
@@ -391,4 +409,32 @@ func createRAGToolsForAgent(agentConfig *latest.AgentConfig, allManagers map[str
 	}
 
 	return ragTools
+}
+
+// createMemoryToolsForAgent creates memory tools for an agent, one for each referenced memory scope
+func createMemoryToolsForAgent(agentConfig *latest.AgentConfig, allDrivers map[string]memory.Driver) []tools.ToolSet {
+	if len(agentConfig.Memory) == 0 {
+		return nil
+	}
+
+	var memoryTools []tools.ToolSet
+
+	for _, memName := range agentConfig.Memory {
+		driver, exists := allDrivers[memName]
+		if !exists {
+			slog.Error("Memory scope not found", "memory_scope", memName)
+			continue
+		}
+
+		// Adapt driver to legacy database interface
+		db := memory.NewDatabaseAdapter(driver)
+		memTool := builtin.NewMemoryTool(db)
+		memoryTools = append(memoryTools, memTool)
+
+		slog.Debug("Created memory tool for agent",
+			"memory_scope", memName,
+		)
+	}
+
+	return memoryTools
 }

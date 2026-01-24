@@ -1,0 +1,80 @@
+#!/usr/bin/env cagent run
+version: "3"
+
+metadata:
+  author: Memory System Demo
+  readme: |
+    Demonstrates the pluggable memory system with both long-term and short-term memory.
+
+    Memory strategies:
+    - **Long-term (SQLite)**: Persistent memory for user facts
+    - **Short-term (Whiteboard)**: Ephemeral shared context for multi-agent collaboration
+
+    Future backends (config-ready, implementation pending):
+    - Neo4j GraphRAG for knowledge graphs
+    - Qdrant for vector-based semantic search
+    - Redis for distributed whiteboard
+
+memory:
+  # Long-term persistent memory (current implementation)
+  user_facts:
+    kind: sqlite
+    strategy: long_term
+    path: ./memory/user_facts.db
+    description: "Persistent memory about the user"
+
+  # Short-term shared whiteboard (implementation pending)
+  # team_whiteboard:
+  #   kind: whiteboard
+  #   strategy: short_term
+  #   ttl: 3600  # 1 hour expiry
+  #   description: "Shared context for agent collaboration"
+
+  # GraphRAG with Neo4j (implementation pending)
+  # knowledge_graph:
+  #   kind: neo4j
+  #   strategy: long_term
+  #   connection:
+  #     url: bolt://localhost:7687
+  #     database: cagent
+  #     auth:
+  #       username: neo4j
+  #       password: ${NEO4J_PASSWORD}
+  #   description: "Knowledge graph for semantic relationships"
+
+agents:
+  root:
+    model: anthropic/claude-sonnet-4-5
+    description: "Assistant with long-term memory"
+    instruction: |
+      You are a helpful assistant with memory capabilities.
+      
+      Use the memory tool to remember things about the user.
+      Before responding, always check memories to personalize your responses.
+    memory:
+      - user_facts
+    toolsets:
+      - type: think
+
+  # Multi-agent example with shared whiteboard (pending whiteboard implementation)
+  # coordinator:
+  #   model: anthropic/claude-sonnet-4-5
+  #   description: "Coordinates team using shared whiteboard"
+  #   memory:
+  #     - team_whiteboard  # Shared with sub-agents
+  #     - user_facts       # Personal long-term memory
+  #   sub_agents:
+  #     - researcher
+  #     - writer
+  #
+  # researcher:
+  #   model: openai/gpt-4o
+  #   description: "Research specialist"
+  #   memory:
+  #     - team_whiteboard  # Shared whiteboard
+  #
+  # writer:
+  #   model: anthropic/claude-sonnet-4-5
+  #   description: "Writing specialist"
+  #   memory:
+  #     - team_whiteboard  # Shared whiteboard

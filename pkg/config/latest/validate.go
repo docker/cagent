@@ -2,6 +2,7 @@ package latest
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -16,8 +17,7 @@ func (t *Config) UnmarshalYAML(unmarshal func(any) error) error {
 }
 
 func (t *Config) validate() error {
-	for i := range t.Agents {
-		agent := t.Agents[i]
+	for agentName, agent := range t.Agents {
 		for j := range agent.Toolsets {
 			if err := agent.Toolsets[j].validate(); err != nil {
 				return err
@@ -27,6 +27,18 @@ func (t *Config) validate() error {
 			if err := agent.Hooks.validate(); err != nil {
 				return err
 			}
+		}
+		// Validate agent memory references exist in top-level memory map
+		for _, memRef := range agent.Memory {
+			if _, exists := t.Memory[memRef]; !exists {
+				return fmt.Errorf("agent %q: references undefined memory %q", agentName, memRef)
+			}
+		}
+	}
+
+	for name, mem := range t.Memory {
+		if err := mem.validate(name); err != nil {
+			return err
 		}
 	}
 
@@ -119,6 +131,92 @@ func (t *Toolset) validate() error {
 		if t.Command == "" {
 			return errors.New("lsp toolset requires a command to be set")
 		}
+	}
+
+	return nil
+}
+
+func (m *MemoryConfig) validate(name string) error {
+	if m.Kind == "" {
+		return fmt.Errorf("memory %q: kind is required", name)
+	}
+
+	validKinds := map[string]bool{
+		"sqlite":     true,
+		"neo4j":      true,
+		"qdrant":     true,
+		"redis":      true,
+		"whiteboard": true,
+	}
+	if !validKinds[m.Kind] {
+		return fmt.Errorf("memory %q: invalid kind %q, must be one of: sqlite, neo4j, qdrant, redis, whiteboard", name, m.Kind)
+	}
+
+	// Validate strategy if provided
+	if m.Strategy != "" {
+		validStrategies := map[string]bool{
+			"long_term":  true, // Persistent RAG-style memory (sqlite, neo4j, qdrant)
+			"short_term": true, // Ephemeral whiteboard-style memory (whiteboard, redis)
+		}
+		if !validStrategies[m.Strategy] {
+			return fmt.Errorf("memory %q: invalid strategy %q, must be one of: long_term, short_term", name, m.Strategy)
+		}
+
+		// Validate strategy matches kind semantics
+		longTermKinds := map[string]bool{"sqlite": true, "neo4j": true, "qdrant": true}
+		shortTermKinds := map[string]bool{"whiteboard": true, "redis": true}
+
+		if m.Strategy == "long_term" && shortTermKinds[m.Kind] {
+			return fmt.Errorf("memory %q: kind %q is not suitable for long_term strategy (use sqlite, neo4j, or qdrant)", name, m.Kind)
+		}
+		if m.Strategy == "short_term" && longTermKinds[m.Kind] && m.Kind != "redis" {
+			// Note: redis can be used for both strategies; sqlite/neo4j/qdrant are long-term only
+			if m.Kind != "redis" {
+				return fmt.Errorf("memory %q: kind %q is not suitable for short_term strategy (use whiteboard or redis)", name, m.Kind)
+			}
+		}
+	}
+
+	// Validate mode if provided
+	if m.Mode != "" {
+		validModes := map[string]bool{
+			"read_write":  true, // Default: full read/write access
+			"read_only":   true, // Read-only access (useful for shared knowledge bases)
+			"append_only": true, // Append-only (event-log style, no updates/deletes)
+		}
+		if !validModes[m.Mode] {
+			return fmt.Errorf("memory %q: invalid mode %q, must be one of: read_write, read_only, append_only", name, m.Mode)
+		}
+	}
+
+	// Validate auth completeness if present (check Connection is not nil first)
+	if m.Connection != nil && m.Connection.Auth != nil {
+		auth := m.Connection.Auth
+		hasUserPass := auth.Username != "" || auth.Password != ""
+		hasToken := auth.Token != ""
+
+		if hasUserPass && hasToken {
+			return fmt.Errorf("memory %q: auth must use either username/password or token, not both", name)
+		}
+		if hasUserPass && (auth.Username == "" || auth.Password == "") {
+			return fmt.Errorf("memory %q: auth requires both username and password when using user/password auth", name)
+		}
+	}
+
+	// For sqlite, path is required
+	if m.Kind == "sqlite" && m.Path == "" {
+		return fmt.Errorf("memory %q: sqlite requires a path", name)
+	}
+
+	// For remote backends, connection URL is typically required
+	remoteKinds := map[string]bool{"neo4j": true, "qdrant": true, "redis": true}
+	if remoteKinds[m.Kind] && (m.Connection == nil || m.Connection.URL == "") {
+		return fmt.Errorf("memory %q: %s requires connection.url", name, m.Kind)
+	}
+
+	// TTL validation: only meaningful for short-term/ephemeral memory
+	if m.TTL > 0 && m.Kind != "whiteboard" && m.Kind != "redis" {
+		return fmt.Errorf("memory %q: ttl is only supported for whiteboard and redis kinds", name)
 	}
 
 	return nil
