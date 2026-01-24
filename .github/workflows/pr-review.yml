@@ -55,7 +55,7 @@ jobs:
         if: steps.check.outputs.is_agent_comment == 'true'
         uses: actions/cache@8b402f58fbc84540c8b491a91e594a4576fec3d7
         with:
-          path: .github/pr-review-memory.db
+          path: .github/workflows/agents/pr-review-memory.db
           key: pr-review-memory-${{ github.repository }}
           restore-keys: |
             pr-review-memory-${{ github.repository }}
@@ -89,7 +89,7 @@ jobs:
         if: steps.check.outputs.is_agent_comment == 'true'
         uses: actions/cache/save@v4
         with:
-          path: .github/pr-review-memory.db
+          path: .github/workflows/agents/pr-review-memory.db
           key: pr-review-memory-${{ github.repository }}
 
   # ==========================================================================
@@ -131,7 +131,7 @@ jobs:
       - name: Restore reviewer memory database
         uses: actions/cache@8b402f58fbc84540c8b491a91e594a4576fec3d7
         with:
-          path: .github/pr-review-memory.db
+          path: .github/workflows/agents/pr-review-memory.db
           key: pr-review-memory-${{ github.repository }}
           restore-keys: |
             pr-review-memory-${{ github.repository }}
@@ -203,7 +203,7 @@ jobs:
         if: always()
         uses: actions/cache/save@v4
         with:
-          path: .github/pr-review-memory.db
+          path: .github/workflows/agents/pr-review-memory.db
           key: pr-review-memory-${{ github.repository }}
 
       - name: Add completion reaction
