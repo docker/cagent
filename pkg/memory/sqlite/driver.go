@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/docker/cagent/pkg/config/latest"
 	"github.com/docker/cagent/pkg/memory"
 	"github.com/docker/cagent/pkg/sqliteutil"
-	"github.com/google/uuid"
 )
 
 // Driver implements the memory.Driver interface using SQLite
@@ -46,7 +47,7 @@ func (f *Factory) CreateDriver(ctx context.Context, cfg latest.MemoryConfig) (me
 	return &Driver{db: db}, nil
 }
 
-func (d *Driver) Store(ctx context.Context, key string, value string) error {
+func (d *Driver) Store(ctx context.Context, key, value string) error {
 	if key == "" {
 		key = uuid.New().String()
 	}
@@ -62,23 +63,20 @@ func (d *Driver) Store(ctx context.Context, key string, value string) error {
 }
 
 func (d *Driver) Retrieve(ctx context.Context, query memory.Query) ([]memory.Entry, error) {
-	var rows *sql.Rows
-	var err error
+	var (
+		rows *sql.Rows
+		err  error
+	)
 
-	if query.ID != "" {
-		rows, err = d.db.QueryContext(ctx,
+	switch {
+	case query.ID != "":
+		rows, err = d.db.QueryContext(
+			ctx,
 			"SELECT id, created_at, content FROM memories WHERE id = ?",
-			query.ID)
-	} else if query.Semantic != "" {
-		// Semantic search not yet implemented for SQLite
-		// For now, fall back to retrieving all memories
-		// Future: Use FTS5 or vector extension for semantic search
-		sqlQuery := "SELECT id, created_at, content FROM memories ORDER BY created_at DESC"
-		if query.Limit > 0 {
-			sqlQuery = fmt.Sprintf("%s LIMIT %d", sqlQuery, query.Limit)
-		}
-		rows, err = d.db.QueryContext(ctx, sqlQuery)
-	} else {
+			query.ID,
+		)
+	default:
+		// Semantic search is not yet implemented for SQLite.
 		sqlQuery := "SELECT id, created_at, content FROM memories ORDER BY created_at DESC"
 		if query.Limit > 0 {
 			sqlQuery = fmt.Sprintf("%s LIMIT %d", sqlQuery, query.Limit)

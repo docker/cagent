@@ -2,6 +2,7 @@ package sqlite
 
 import "github.com/docker/cagent/pkg/memory"
 
-func init() {
+var _ = func() struct{} {
 	memory.RegisterFactory("sqlite", &Factory{})
-}
+	return struct{}{}
+}()

@@ -3,8 +3,9 @@ package memory
 import (
 	"context"
 
-	"github.com/docker/cagent/pkg/memory/database"
 	"github.com/google/uuid"
+
+	"github.com/docker/cagent/pkg/memory/database"
 )
 
 // DatabaseAdapter adapts the new Driver interface to the legacy database.Database interface

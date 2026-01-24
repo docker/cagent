@@ -5,12 +5,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/docker/cagent/pkg/config/latest"
 	"github.com/docker/cagent/pkg/memory"
 	"github.com/docker/cagent/pkg/memory/database"
 	"github.com/docker/cagent/pkg/memory/sqlite"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // MockDriver implements memory.Driver for testing
@@ -27,7 +28,7 @@ func NewMockDriver() *MockDriver {
 	}
 }
 
-func (m *MockDriver) Store(ctx context.Context, key string, value string) error {
+func (m *MockDriver) Store(ctx context.Context, key, value string) error {
 	m.stored[key] = value
 	m.entries = append(m.entries, memory.Entry{
 		ID:        key,
@@ -95,7 +96,7 @@ func TestRegistry(t *testing.T) {
 		assert.Nil(t, driver)
 
 		var unsupportedErr *memory.UnsupportedKindError
-		assert.ErrorAs(t, err, &unsupportedErr)
+		require.ErrorAs(t, err, &unsupportedErr)
 		assert.Equal(t, "unknown", unsupportedErr.Kind)
 	})
 }
@@ -199,12 +200,4 @@ func TestSQLiteDriverIntegration(t *testing.T) {
 	memories, err = adapter.GetMemories(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, memories)
-}
-
-// sqliteTestFactory wraps sqlite.Factory for testing (kept for reference)
-type sqliteTestFactory struct{}
-
-func (f *sqliteTestFactory) CreateDriver(ctx context.Context, cfg latest.MemoryConfig) (memory.Driver, error) {
-	factory := &sqlite.Factory{}
-	return factory.CreateDriver(ctx, cfg)
 }

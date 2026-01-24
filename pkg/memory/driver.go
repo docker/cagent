@@ -11,7 +11,7 @@ import (
 // Implementations support different strategies (long-term RAG, short-term whiteboard).
 type Driver interface {
 	// Store saves a memory entry with the given key and value
-	Store(ctx context.Context, key string, value string) error
+	Store(ctx context.Context, key, value string) error
 
 	// Retrieve fetches memory entries matching the query
 	Retrieve(ctx context.Context, query Query) ([]Entry, error)

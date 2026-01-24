@@ -73,7 +73,7 @@ func TestDriver_StoreAndRetrieve(t *testing.T) {
 
 	t.Run("retrieve all with limit", func(t *testing.T) {
 		// Add more entries
-		for i := 0; i < 5; i++ {
+		for range 5 {
 			err := driver.Store(ctx, "", "bulk value")
 			require.NoError(t, err)
 		}
