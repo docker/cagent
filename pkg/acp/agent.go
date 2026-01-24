@@ -185,7 +185,6 @@ func (a *Agent) NewSession(
 	_ context.Context,
 	params acp.NewSessionRequest,
 ) (acp.NewSessionResponse, error) {
-
 	// Generate a new session ID
 	sid := uuid.New().String()
 

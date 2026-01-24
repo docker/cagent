@@ -1058,24 +1058,34 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 	return events
 }
 
-// getTools retrieves all tools available to the current agent.
-// It aggregates tools from both agent-defined toolsets (YAML)
-// and dynamically injected toolsets (e.g. MCP/ACP),
-// ensuring all are started and ready before use.
+// getTools retrieves all tools available to the given agent.
+//
+// It aggregates tools from all toolsets associated with the agent, including:
+//   - Toolsets defined statically in the agent configuration (YAML)
+//   - Toolsets injected dynamically at runtime (e.g. MCP / ACP)
+//
+// Toolset failures are treated as non-fatal: if a toolset fails to start
+// or fails to expose its tools, it is skipped so that other toolsets
+// can still be used.
+//
+// Warnings are emitted at most once per invocation to avoid log spam,
+// even if multiple toolsets fail.
 func (r *LocalRuntime) getTools(
 	ctx context.Context,
 	a *agent.Agent,
 	sessionSpan trace.Span,
 	events chan Event,
 ) ([]tools.Tool, error) {
+	// Attach lifecycle markers to the session span for observability.
+	sessionSpan.AddEvent("getTools.start")
+	defer sessionSpan.AddEvent("getTools.end")
 
-	// Collect all toolsets available to the runtime:
-	// - toolsets defined on the agent (from YAML)
-	// - extra toolsets injected at runtime (e.g. MCP via ACP)
+	// Collect all toolsets available to this runtime instance.
+	// This includes both agent-defined and dynamically injected toolsets.
 	toolsets := r.allToolSets(a)
 
-	// Emit MCP initialization events if there are any toolsets at all.
-	// This reflects the actual runtime toolset set, not just YAML-defined ones.
+	// Emit MCP initialization events if there are any toolsets to process.
+	// This reflects the effective runtime toolset set, not just YAML-defined ones.
 	shouldEmitMCPInit := len(toolsets) > 0
 	if shouldEmitMCPInit {
 		events <- MCPInitStarted(a.Name())
@@ -1086,19 +1096,36 @@ func (r *LocalRuntime) getTools(
 		}
 	}()
 
-	var allTools []tools.Tool
+	var (
+		// allTools aggregates tools collected from all successfully loaded toolsets.
+		allTools []tools.Tool
 
-	// Iterate through all toolsets and collect their tools
+		// warned tracks whether a warning has already been emitted for this call.
+		// This ensures warnings are logged only once per invocation.
+		warned bool
+	)
+
+	// emitWarnOnce logs a warning only on its first invocation.
+	// Subsequent calls are ignored to prevent log spam when multiple toolsets fail.
+	emitWarnOnce := func(msg string, args ...any) {
+		if warned {
+			return
+		}
+		slog.Warn(msg, args...)
+		warned = true
+	}
+
+	// Iterate over all toolsets and collect their tools.
 	for _, toolset := range toolsets {
 
 		// Some toolsets (e.g. MCP) are startable and must be started
-		// before tools can be retrieved.
+		// before their tools can be retrieved.
 		if startable, ok := toolset.(*agent.StartableToolSet); ok {
 			if !startable.IsStarted() {
 				if err := startable.Start(ctx); err != nil {
 					// Toolset startup failures are non-fatal:
-					// log and skip this toolset so the runtime can continue.
-					slog.Warn(
+					// log once and skip this toolset.
+					emitWarnOnce(
 						"Toolset start failed; skipping",
 						"agent", a.Name(),
 						"toolset", fmt.Sprintf("%T", startable.ToolSet),
@@ -1109,12 +1136,12 @@ func (r *LocalRuntime) getTools(
 			}
 		}
 
-		// Retrieve tools exposed by this toolset
+		// Retrieve tools exposed by this toolset.
 		ts, err := toolset.Tools(ctx)
 		if err != nil {
-			// Failure to retrieve tools from one toolset
+			// Failure to retrieve tools from a single toolset
 			// should not prevent other toolsets from loading.
-			slog.Warn(
+			emitWarnOnce(
 				"Failed to get tools from toolset",
 				"agent", a.Name(),
 				"toolset", fmt.Sprintf("%T", toolset),
@@ -1123,10 +1150,11 @@ func (r *LocalRuntime) getTools(
 			continue
 		}
 
-		// Aggregate tools across all toolsets
+		// Aggregate tools across all successfully loaded toolsets.
 		allTools = append(allTools, ts...)
 	}
 
+	// Log the final number of tools available to the agent.
 	slog.Debug(
 		"Retrieved agent tools",
 		"agent", a.Name(),

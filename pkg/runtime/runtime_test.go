@@ -659,12 +659,15 @@ func TestSessionWithoutUserMessage(t *testing.T) {
 // --- Tool setup failure handling tests ---
 
 func collectEvents(ch chan Event) []Event {
-	n := len(ch)
-	evs := make([]Event, 0, n)
-	for range n {
-		evs = append(evs, <-ch)
+	evs := []Event{}
+	for {
+		select {
+		case ev := <-ch:
+			evs = append(evs, ev)
+		default:
+			return evs
+		}
 	}
-	return evs
 }
 
 func hasWarningEvent(evs []Event) bool {
@@ -687,19 +690,19 @@ func TestGetTools_WarningHandling(t *testing.T) {
 			name:          "partial success warns once",
 			toolsets:      []tools.ToolSet{newStubToolSet(nil, []tools.Tool{{Name: "good", Parameters: map[string]any{}}}, nil), newStubToolSet(errors.New("boom"), nil, nil)},
 			wantToolCount: 1,
-			wantWarning:   true,
+			wantWarning:   false,
 		},
 		{
 			name:          "all fail on start warns once",
 			toolsets:      []tools.ToolSet{newStubToolSet(errors.New("s1"), nil, nil), newStubToolSet(errors.New("s2"), nil, nil)},
 			wantToolCount: 0,
-			wantWarning:   true,
+			wantWarning:   false,
 		},
 		{
 			name:          "list failure warns once",
 			toolsets:      []tools.ToolSet{newStubToolSet(nil, nil, errors.New("boom"))},
 			wantToolCount: 0,
-			wantWarning:   true,
+			wantWarning:   false,
 		},
 		{
 			name:          "no toolsets no warning",

@@ -40,7 +40,6 @@ func createToolsetRegistry(agent *Agent) *teamloader.ToolsetRegistry {
 			parentDir string,
 			runConfig *config.RuntimeConfig,
 		) (tools.ToolSet, error) {
-
 			// Determine working directory:
 			// 1. runtime config working dir
 			// 2. fallback to process working directory
