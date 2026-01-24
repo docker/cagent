@@ -211,7 +211,14 @@ func Handle(transport http.RoundTripper, headerUpdater func(host string, req *ht
 func StreamCopy(c echo.Context, resp *http.Response) error {
 	ctx := c.Request().Context()
 
-	writer := c.Response().Writer.(io.ReaderFrom)
+	w := c.Response().Writer
+
+	rf, ok := w.(io.ReaderFrom)
+	if !ok {
+		// fallback seguro
+		_, err := io.Copy(w, resp.Body)
+		return err
+	}
 
 	for {
 		select {
@@ -219,9 +226,11 @@ func StreamCopy(c echo.Context, resp *http.Response) error {
 			slog.WarnContext(ctx, "client disconnected, stop streaming")
 			return nil
 		default:
-			n, err := writer.ReadFrom(io.LimitReader(resp.Body, 256))
+			n, err := rf.ReadFrom(io.LimitReader(resp.Body, 256))
 			if n > 0 {
-				c.Response().Flush() // keep flushing to client
+				if flusher, ok := w.(http.Flusher); ok {
+					flusher.Flush()
+				}
 			}
 			if err != nil {
 				if err == io.EOF || ctx.Err() != nil {

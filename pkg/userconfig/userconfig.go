@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sync"
 
 	"github.com/goccy/go-yaml"
 	"github.com/natefinch/atomic"
@@ -44,6 +45,8 @@ type Config struct {
 	ModelsGateway string `yaml:"models_gateway,omitempty"`
 	// Aliases maps alias names to alias configurations
 	Aliases map[string]*Alias `yaml:"aliases,omitempty"`
+
+	mu sync.RWMutex
 }
 
 // Path returns the path to the config file
@@ -187,6 +190,7 @@ func ValidateAliasName(name string) error {
 
 // SetAlias creates or updates an alias.
 // Returns an error if the alias name is invalid.
+// This method is concurrency-safe.
 func (c *Config) SetAlias(name string, alias *Alias) error {
 	if err := ValidateAliasName(name); err != nil {
 		return err
@@ -194,6 +198,10 @@ func (c *Config) SetAlias(name string, alias *Alias) error {
 	if alias == nil || alias.Path == "" {
 		return errors.New("agent path cannot be empty")
 	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.Aliases[name] = alias
 	return nil
 }
