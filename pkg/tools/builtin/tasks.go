@@ -11,13 +11,13 @@ import (
 )
 
 const (
-	ToolNameCreateTask       = "create_task"
-	ToolNameCreateTasks      = "create_tasks"
-	ToolNameUpdateTasks      = "update_tasks"
-	ToolNameListTasks        = "list_tasks"
-	ToolNameAddTaskDep       = "add_task_dependency"
-	ToolNameRemoveTaskDep    = "remove_task_dependency"
-	ToolNameGetBlockedTasks  = "get_blocked_tasks"
+	ToolNameCreateTask      = "create_task"
+	ToolNameCreateTasks     = "create_tasks"
+	ToolNameUpdateTasks     = "update_tasks"
+	ToolNameListTasks       = "list_tasks"
+	ToolNameAddTaskDep      = "add_task_dependency"
+	ToolNameRemoveTaskDep   = "remove_task_dependency"
+	ToolNameGetBlockedTasks = "get_blocked_tasks"
 )
 
 type TasksTool struct {
@@ -224,7 +224,7 @@ func (h *tasksHandler) createTasks(_ context.Context, params CreateTasksArgs) (*
 		for _, blockerID := range item.BlockedBy {
 			if !h.taskExists(blockerID) {
 				isEarlierInBatch := false
-				for j := 0; j < i; j++ {
+				for j := range i {
 					if fmt.Sprintf("task_%d", start+j+1) == blockerID {
 						isEarlierInBatch = true
 						break

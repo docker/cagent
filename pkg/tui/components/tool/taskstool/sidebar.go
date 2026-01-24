@@ -51,8 +51,7 @@ func (c *SidebarComponent) Render() string {
 	var lines []string
 
 	// Add summary stats
-	lines = append(lines, c.renderStats())
-	lines = append(lines, "")
+	lines = append(lines, c.renderStats(), "")
 
 	// Render each task
 	for _, task := range c.tasks {
