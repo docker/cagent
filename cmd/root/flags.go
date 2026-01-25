@@ -16,10 +16,13 @@ import (
 const (
 	flagModelsGateway = "models-gateway"
 	envModelsGateway  = "CAGENT_MODELS_GATEWAY"
+	flagTaskList      = "task-list"
+	envTaskListID     = "CAGENT_TASK_LIST_ID"
 )
 
 func addRuntimeConfigFlags(cmd *cobra.Command, runConfig *config.RuntimeConfig) {
 	addGatewayFlags(cmd, runConfig)
+	addTaskListFlags(cmd, runConfig)
 	cmd.PersistentFlags().StringSliceVar(&runConfig.EnvFiles, "env-from-file", nil, "Set environment variables from file")
 	cmd.PersistentFlags().BoolVar(&runConfig.GlobalCodeMode, "code-mode-tools", false, "Provide a single tool to call other tools via Javascript")
 	cmd.PersistentFlags().StringVar(&runConfig.WorkingDir, "working-dir", "", "Set the working directory for the session (applies to tools and relative paths)")
@@ -91,6 +94,25 @@ func addGatewayFlags(cmd *cobra.Command, runConfig *config.RuntimeConfig) {
 			return cmd.Parent().PersistentPreRunE(cmd, args)
 		}
 
+		return nil
+	}
+}
+
+func addTaskListFlags(cmd *cobra.Command, runConfig *config.RuntimeConfig) {
+	cmd.PersistentFlags().StringVar(&runConfig.TaskListID, flagTaskList, "", "Use a persistent task list with the given ID")
+
+	persistentPreRunE := cmd.PersistentPreRunE
+	cmd.PersistentPreRunE = func(c *cobra.Command, args []string) error {
+		// Precedence: CLI flag > environment variable
+		if runConfig.TaskListID != "" {
+			logFlagShadowing(os.Getenv(envTaskListID), envTaskListID, flagTaskList)
+		} else if taskListID := os.Getenv(envTaskListID); taskListID != "" {
+			runConfig.TaskListID = taskListID
+		}
+
+		if persistentPreRunE != nil {
+			return persistentPreRunE(c, args)
+		}
 		return nil
 	}
 }

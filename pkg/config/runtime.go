@@ -20,6 +20,7 @@ type Config struct {
 	ModelsGateway  string
 	GlobalCodeMode bool
 	WorkingDir     string
+	TaskListID     string // ID for persistent task list (from --task-list or CAGENT_TASK_LIST_ID)
 }
 
 func (runConfig *RuntimeConfig) Clone() *RuntimeConfig {

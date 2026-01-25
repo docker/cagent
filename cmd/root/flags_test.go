@@ -152,3 +152,53 @@ func TestCanonize(t *testing.T) {
 		})
 	}
 }
+
+func TestTaskListLogic(t *testing.T) {
+	tests := []struct {
+		name     string
+		env      string
+		args     []string
+		expected string
+	}{
+		{
+			name:     "empty_by_default",
+			expected: "",
+		},
+		{
+			name:     "from_env",
+			env:      "my-project",
+			expected: "my-project",
+		},
+		{
+			name:     "from_cli",
+			args:     []string{"--task-list", "cli-project"},
+			expected: "cli-project",
+		},
+		{
+			name:     "cli_overrides_env",
+			env:      "env-project",
+			args:     []string{"--task-list", "cli-project"},
+			expected: "cli-project",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("CAGENT_TASK_LIST_ID", tt.env)
+
+			cmd := &cobra.Command{
+				RunE: func(*cobra.Command, []string) error {
+					return nil
+				},
+			}
+			runConfig := config.RuntimeConfig{}
+			addTaskListFlags(cmd, &runConfig)
+
+			cmd.SetArgs(tt.args)
+			err := cmd.Execute()
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, runConfig.TaskListID)
+		})
+	}
+}

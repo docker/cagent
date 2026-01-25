@@ -158,22 +158,26 @@ func (c *SidebarComponent) renderTab(title, content string) string {
 func (c *SidebarComponent) getBlockerDescriptions(blockerIDs []string) []string {
 	result := make([]string, 0, len(blockerIDs))
 	for _, id := range blockerIDs {
-		found := false
-		for _, task := range c.tasks {
-			if task.ID == id {
-				// Truncate description to keep it short
-				desc := task.Description
-				if len(desc) > 20 {
-					desc = desc[:17] + "..."
-				}
-				result = append(result, desc)
-				found = true
-				break
-			}
+		desc := c.findTaskDescription(id)
+		if desc == "" {
+			desc = id // Fallback to ID if not found
 		}
-		if !found {
-			result = append(result, id) // Fallback to ID if not found
-		}
+		result = append(result, desc)
 	}
 	return result
+}
+
+// findTaskDescription finds and returns a truncated description for a task ID
+func (c *SidebarComponent) findTaskDescription(id string) string {
+	for _, task := range c.tasks {
+		if task.ID != id {
+			continue
+		}
+		desc := task.Description
+		if len(desc) > 20 {
+			desc = desc[:17] + "..."
+		}
+		return desc
+	}
+	return ""
 }
