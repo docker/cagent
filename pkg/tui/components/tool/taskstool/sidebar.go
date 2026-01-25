@@ -142,7 +142,8 @@ func (c *SidebarComponent) renderTaskLine(task builtin.Task) string {
 
 	// Add blocked-by indicator on next line if blocked
 	if isBlocked {
-		blockerText := styles.MutedStyle.Render("  → blocked by: " + strings.Join(task.BlockedBy, ", "))
+		blockerNames := c.getBlockerDescriptions(task.BlockedBy)
+		blockerText := styles.MutedStyle.Render("  → blocked by: " + strings.Join(blockerNames, ", "))
 		line += "\n" + toolcommon.TruncateText(blockerText, c.width)
 	}
 
@@ -151,4 +152,28 @@ func (c *SidebarComponent) renderTaskLine(task builtin.Task) string {
 
 func (c *SidebarComponent) renderTab(title, content string) string {
 	return tab.Render(title, content, c.width)
+}
+
+// getBlockerDescriptions returns short descriptions for the given blocker IDs
+func (c *SidebarComponent) getBlockerDescriptions(blockerIDs []string) []string {
+	result := make([]string, 0, len(blockerIDs))
+	for _, id := range blockerIDs {
+		found := false
+		for _, task := range c.tasks {
+			if task.ID == id {
+				// Truncate description to keep it short
+				desc := task.Description
+				if len(desc) > 20 {
+					desc = desc[:17] + "..."
+				}
+				result = append(result, desc)
+				found = true
+				break
+			}
+		}
+		if !found {
+			result = append(result, id) // Fallback to ID if not found
+		}
+	}
+	return result
 }
