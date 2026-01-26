@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -281,4 +282,100 @@ func TestDefaultTaskListID(t *testing.T) {
 	// Should be deterministic (same result on multiple calls)
 	listID2 := DefaultTaskListID()
 	assert.Equal(t, listID, listID2)
+}
+
+func TestDefaultTaskListID_Worktrees(t *testing.T) {
+	// Create a temp directory for our test repos
+	tmpDir := t.TempDir()
+
+	// Create main repo
+	mainRepo := filepath.Join(tmpDir, "main-repo")
+	require.NoError(t, os.MkdirAll(mainRepo, 0o755))
+
+	// Initialize git repo
+	cmd := exec.Command("git", "init")
+	cmd.Dir = mainRepo
+	require.NoError(t, cmd.Run())
+
+	// Configure git user for commits
+	cmd = exec.Command("git", "config", "user.email", "test@test.com")
+	cmd.Dir = mainRepo
+	require.NoError(t, cmd.Run())
+	cmd = exec.Command("git", "config", "user.name", "Test")
+	cmd.Dir = mainRepo
+	require.NoError(t, cmd.Run())
+
+	// Create initial commit (required for worktrees)
+	testFile := filepath.Join(mainRepo, "test.txt")
+	require.NoError(t, os.WriteFile(testFile, []byte("test"), 0o644))
+	cmd = exec.Command("git", "add", ".")
+	cmd.Dir = mainRepo
+	require.NoError(t, cmd.Run())
+	cmd = exec.Command("git", "commit", "-m", "initial")
+	cmd.Dir = mainRepo
+	require.NoError(t, cmd.Run())
+
+	// Create a worktree
+	worktree := filepath.Join(tmpDir, "worktree-feature")
+	cmd = exec.Command("git", "worktree", "add", "-b", "feature", worktree)
+	cmd.Dir = mainRepo
+	require.NoError(t, cmd.Run())
+
+	// Get task list ID from main repo
+	t.Chdir(mainRepo)
+	mainListID := DefaultTaskListID()
+
+	// Get task list ID from worktree
+	t.Chdir(worktree)
+	worktreeListID := DefaultTaskListID()
+
+	// Both should return the same ID (same underlying repo)
+	assert.Equal(t, mainListID, worktreeListID, "main repo and worktree should share the same task list ID")
+
+	// ID should contain the repo name
+	assert.Contains(t, mainListID, "main-repo")
+}
+
+func TestDefaultTaskListID_DifferentRepos(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create two separate repos
+	repo1 := filepath.Join(tmpDir, "project-alpha")
+	repo2 := filepath.Join(tmpDir, "project-beta")
+	require.NoError(t, os.MkdirAll(repo1, 0o755))
+	require.NoError(t, os.MkdirAll(repo2, 0o755))
+
+	// Initialize both repos
+	for _, repo := range []string{repo1, repo2} {
+		cmd := exec.Command("git", "init")
+		cmd.Dir = repo
+		require.NoError(t, cmd.Run())
+	}
+
+	// Get task list IDs
+	t.Chdir(repo1)
+	id1 := DefaultTaskListID()
+
+	t.Chdir(repo2)
+	id2 := DefaultTaskListID()
+
+	// Should be different
+	assert.NotEqual(t, id1, id2, "different repos should have different task list IDs")
+	assert.Contains(t, id1, "project-alpha")
+	assert.Contains(t, id2, "project-beta")
+}
+
+func TestDefaultTaskListID_NotGitRepo(t *testing.T) {
+	// Create a temp directory that's not a git repo
+	tmpDir := t.TempDir()
+	notGitDir := filepath.Join(tmpDir, "not-a-repo")
+	require.NoError(t, os.MkdirAll(notGitDir, 0o755))
+
+	t.Chdir(notGitDir)
+	listID := DefaultTaskListID()
+
+	// Should fallback to directory name + hash
+	assert.NotEmpty(t, listID)
+	assert.Contains(t, listID, "not-a-repo")
+	assert.Contains(t, listID, "-") // should still have hash
 }

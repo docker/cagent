@@ -192,8 +192,15 @@ func getGitCommonDir() string {
 		gitCommonDir = filepath.Join(cwd, gitCommonDir)
 	}
 
-	// Clean and return the parent of .git (the repo root)
+	// Clean the path
 	gitCommonDir = filepath.Clean(gitCommonDir)
+
+	// Resolve symlinks to get canonical path (important for macOS where /tmp -> /private/tmp)
+	gitCommonDir, err = filepath.EvalSymlinks(gitCommonDir)
+	if err != nil {
+		// If we can't resolve symlinks, use the cleaned path
+		gitCommonDir = filepath.Clean(gitCommonDir)
+	}
 
 	// If it ends with .git, return the parent directory
 	if filepath.Base(gitCommonDir) == ".git" {
