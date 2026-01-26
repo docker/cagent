@@ -168,7 +168,11 @@ IMPORTANT: Use these tools to track tasks with dependencies:
    - Mark as "completed" when done
 
 4. Visual indicators in list_tasks:
-   - ✓ = completed, ■ = in-progress, □ = pending, ⚠ = blocked`
+   - ✓ = completed, ■ = in-progress, □ = pending, ⚠ = blocked
+
+5. Persistence:
+   - Tasks are automatically saved and persist across sessions
+   - Tasks are shared across all worktrees of the same git repository`
 }
 
 func (h *tasksHandler) canStart(taskID string) (bool, []string) {
