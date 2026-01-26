@@ -379,3 +379,31 @@ func TestDefaultTaskListID_NotGitRepo(t *testing.T) {
 	assert.Contains(t, listID, "not-a-repo")
 	assert.Contains(t, listID, "-") // should still have hash
 }
+
+func TestTasksToolWithStore_LoadError(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	taskFile := filepath.Join(tmpDir, "corrupted.json")
+
+	// Write corrupted JSON
+	err := os.WriteFile(taskFile, []byte("not valid json{"), 0o644)
+	require.NoError(t, err)
+
+	// Create store pointing to corrupted file
+	store := NewFileTaskStoreWithDir("corrupted", tmpDir)
+	tool := NewTasksToolWithStore(store)
+
+	// All operations should fail with load error
+	result, err := tool.handler.listTasks(t.Context(), tools.ToolCall{})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assert.Contains(t, result.Output, "cannot list tasks")
+	assert.Contains(t, result.Output, "failed to load tasks")
+
+	// Create should also fail - prevents overwriting corrupted file
+	result, err = tool.handler.createTask(t.Context(), CreateTaskArgs{Description: "test"})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assert.Contains(t, result.Output, "cannot create task")
+}

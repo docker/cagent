@@ -83,6 +83,7 @@ type tasksHandler struct {
 	tasks    *concurrent.Slice[Task]
 	store    TaskStore
 	loadOnce sync.Once
+	loadErr  error // Captured error from initial load
 }
 
 // Shared instance for shared: true (no persistence)
@@ -122,11 +123,12 @@ func NewTasksToolWithStore(store TaskStore) *TasksTool {
 }
 
 // ensureLoaded loads tasks from store on first access (lazy loading)
-// Thread-safe via sync.Once
-func (h *tasksHandler) ensureLoaded() {
+// Thread-safe via sync.Once. Returns error if load failed.
+func (h *tasksHandler) ensureLoaded() error {
 	h.loadOnce.Do(func() {
 		tasks, err := h.store.Load()
 		if err != nil {
+			h.loadErr = fmt.Errorf("failed to load tasks: %w", err)
 			slog.Error("Failed to load tasks from store", "error", err)
 			return
 		}
@@ -139,6 +141,7 @@ func (h *tasksHandler) ensureLoaded() {
 			slog.Debug("Loaded tasks from store", "count", len(tasks))
 		}
 	})
+	return h.loadErr
 }
 
 // save persists tasks to store
@@ -251,7 +254,9 @@ func (h *tasksHandler) getUnblockedTasks(completedID string) []string {
 }
 
 func (h *tasksHandler) createTask(_ context.Context, params CreateTaskArgs) (*tools.ToolCallResult, error) {
-	h.ensureLoaded()
+	if err := h.ensureLoaded(); err != nil {
+		return tools.ResultError(fmt.Sprintf("cannot create task: %v", err)), nil
+	}
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -292,7 +297,9 @@ func (h *tasksHandler) createTask(_ context.Context, params CreateTaskArgs) (*to
 }
 
 func (h *tasksHandler) createTasks(_ context.Context, params CreateTasksArgs) (*tools.ToolCallResult, error) {
-	h.ensureLoaded()
+	if err := h.ensureLoaded(); err != nil {
+		return tools.ResultError(fmt.Sprintf("cannot create tasks: %v", err)), nil
+	}
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -366,7 +373,9 @@ func (h *tasksHandler) createTasks(_ context.Context, params CreateTasksArgs) (*
 }
 
 func (h *tasksHandler) updateTasks(_ context.Context, params UpdateTasksArgs) (*tools.ToolCallResult, error) {
-	h.ensureLoaded()
+	if err := h.ensureLoaded(); err != nil {
+		return tools.ResultError(fmt.Sprintf("cannot update tasks: %v", err)), nil
+	}
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -450,7 +459,9 @@ func (h *tasksHandler) allCompleted() bool {
 }
 
 func (h *tasksHandler) listTasks(_ context.Context, _ tools.ToolCall) (*tools.ToolCallResult, error) {
-	h.ensureLoaded()
+	if err := h.ensureLoaded(); err != nil {
+		return tools.ResultError(fmt.Sprintf("cannot list tasks: %v", err)), nil
+	}
 
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -505,7 +516,9 @@ func (h *tasksHandler) listTasks(_ context.Context, _ tools.ToolCall) (*tools.To
 }
 
 func (h *tasksHandler) addDependency(_ context.Context, params AddTaskDependencyArgs) (*tools.ToolCallResult, error) {
-	h.ensureLoaded()
+	if err := h.ensureLoaded(); err != nil {
+		return tools.ResultError(fmt.Sprintf("cannot add dependency: %v", err)), nil
+	}
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -569,7 +582,9 @@ func (h *tasksHandler) addDependency(_ context.Context, params AddTaskDependency
 }
 
 func (h *tasksHandler) removeDependency(_ context.Context, params RemoveTaskDependencyArgs) (*tools.ToolCallResult, error) {
-	h.ensureLoaded()
+	if err := h.ensureLoaded(); err != nil {
+		return tools.ResultError(fmt.Sprintf("cannot remove dependency: %v", err)), nil
+	}
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -625,7 +640,9 @@ func (h *tasksHandler) removeDependency(_ context.Context, params RemoveTaskDepe
 }
 
 func (h *tasksHandler) getBlockedTasks(_ context.Context, params GetBlockedTasksArgs) (*tools.ToolCallResult, error) {
-	h.ensureLoaded()
+	if err := h.ensureLoaded(); err != nil {
+		return tools.ResultError(fmt.Sprintf("cannot get blocked tasks: %v", err)), nil
+	}
 
 	h.mu.RLock()
 	defer h.mu.RUnlock()
