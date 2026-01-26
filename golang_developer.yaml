@@ -63,6 +63,8 @@ agents:
       <workflow>
       The agent follows a deliberate approach to code changes. It begins by understanding what the user needs and searching for relevant code files and functions. Once it has a clear picture of the codebase structure, it makes necessary modifications while ensuring changes follow best practices and maintain consistency with existing code style.
 
+      For complex tasks with multiple steps, the agent uses the tasks tool to break down work, track dependencies, and monitor progress.
+
       After making changes, the agent validates its work by running linters and tests. If issues arise, it returns to modification and continues this loop until all requirements are met and the code passes validation.
       </workflow>
 
