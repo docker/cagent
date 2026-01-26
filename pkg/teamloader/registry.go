@@ -82,21 +82,19 @@ func createTodoTool(_ context.Context, toolset latest.Toolset, _ string, _ *conf
 }
 
 func createTasksTool(_ context.Context, toolset latest.Toolset, _ string, runConfig *config.RuntimeConfig) (tools.ToolSet, error) {
-	// Determine task list ID: CLI/env takes precedence
+	// Determine task list ID: CLI/env takes precedence, otherwise auto-detect from git repo
 	listID := runConfig.TaskListID
+	if listID == "" {
+		listID = builtin.DefaultTaskListID()
+	}
+
+	store := builtin.NewFileTaskStore(listID)
 
 	if toolset.Shared {
-		// Shared mode uses in-memory storage (no persistence)
-		return builtin.NewSharedTasksTool(), nil
+		return builtin.NewSharedTasksToolWithStore(store), nil
 	}
 
-	if listID != "" {
-		// Use file-based persistence with the specified list ID
-		return builtin.NewTasksToolWithStore(builtin.NewFileTaskStore(listID)), nil
-	}
-
-	// Default: in-memory only (no persistence)
-	return builtin.NewTasksTool(), nil
+	return builtin.NewTasksToolWithStore(store), nil
 }
 
 func createMemoryTool(_ context.Context, toolset latest.Toolset, parentDir string, runConfig *config.RuntimeConfig) (tools.ToolSet, error) {

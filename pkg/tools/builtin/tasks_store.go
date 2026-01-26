@@ -1,10 +1,14 @@
 package builtin
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/docker/cagent/pkg/paths"
@@ -130,4 +134,72 @@ func (s *MemoryTaskStore) Load() ([]Task, error) {
 func (s *MemoryTaskStore) Save(_ []Task) error {
 	// No-op for memory store
 	return nil
+}
+
+// DefaultTaskListID returns a default task list ID based on the git repository.
+// It uses the git common dir (shared across worktrees) to generate a deterministic ID.
+// Format: <dirname>-<short-hash> (e.g., "cagent-a1b2c3d4")
+// Falls back to working directory if not in a git repo.
+func DefaultTaskListID() string {
+	// Try to get the git common directory (shared across worktrees)
+	repoPath := getGitCommonDir()
+	if repoPath == "" {
+		// Fallback to current working directory
+		var err error
+		repoPath, err = os.Getwd()
+		if err != nil {
+			return "default"
+		}
+	}
+
+	// Get the directory name
+	dirName := filepath.Base(repoPath)
+	// Remove .git suffix if present (for bare repos or .git dirs)
+	dirName = strings.TrimSuffix(dirName, ".git")
+	if dirName == "" || dirName == "." {
+		dirName = "project"
+	}
+
+	// Generate short hash of the full path for uniqueness
+	hash := sha256.Sum256([]byte(repoPath))
+	shortHash := hex.EncodeToString(hash[:])[:8]
+
+	return fmt.Sprintf("%s-%s", dirName, shortHash)
+}
+
+// getGitCommonDir returns the path to the git common directory.
+// This is the main .git directory shared across all worktrees.
+// Returns empty string if not in a git repository.
+func getGitCommonDir() string {
+	// First check if we're in a git repo at all
+	cmd := exec.Command("git", "rev-parse", "--git-common-dir")
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+
+	gitCommonDir := strings.TrimSpace(string(output))
+	if gitCommonDir == "" {
+		return ""
+	}
+
+	// Convert to absolute path if relative
+	if !filepath.IsAbs(gitCommonDir) {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return ""
+		}
+		gitCommonDir = filepath.Join(cwd, gitCommonDir)
+	}
+
+	// Clean and return the parent of .git (the repo root)
+	gitCommonDir = filepath.Clean(gitCommonDir)
+
+	// If it ends with .git, return the parent directory
+	if filepath.Base(gitCommonDir) == ".git" {
+		return filepath.Dir(gitCommonDir)
+	}
+
+	// For bare repos or other cases, return as-is
+	return gitCommonDir
 }

@@ -266,3 +266,19 @@ func TestFileTaskStore_AtomicWrite(t *testing.T) {
 	_, err = os.Stat(mainFile)
 	assert.NoError(t, err, "main file should exist")
 }
+
+func TestDefaultTaskListID(t *testing.T) {
+	// This test runs in the cagent repo, so it should detect the git repo
+	listID := DefaultTaskListID()
+
+	// Should be non-empty
+	assert.NotEmpty(t, listID)
+
+	// Should contain "cagent" (the repo name) and a hash
+	assert.Contains(t, listID, "cagent")
+	assert.Contains(t, listID, "-") // separator between name and hash
+
+	// Should be deterministic (same result on multiple calls)
+	listID2 := DefaultTaskListID()
+	assert.Equal(t, listID, listID2)
+}

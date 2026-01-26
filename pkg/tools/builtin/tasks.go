@@ -89,6 +89,21 @@ var NewSharedTasksTool = sync.OnceValue(func() *TasksTool {
 	return NewTasksToolWithStore(NewMemoryTaskStore())
 })
 
+// sharedTasksToolWithStore holds the shared instance when using a custom store
+var (
+	sharedTasksToolWithStore     *TasksTool
+	sharedTasksToolWithStoreOnce sync.Once
+)
+
+// NewSharedTasksToolWithStore creates or returns a shared TasksTool instance with the given store.
+// The first call sets the store; subsequent calls return the same instance.
+func NewSharedTasksToolWithStore(store TaskStore) *TasksTool {
+	sharedTasksToolWithStoreOnce.Do(func() {
+		sharedTasksToolWithStore = NewTasksToolWithStore(store)
+	})
+	return sharedTasksToolWithStore
+}
+
 // NewTasksTool creates a new TasksTool with in-memory storage only
 func NewTasksTool() *TasksTool {
 	return NewTasksToolWithStore(NewMemoryTaskStore())
