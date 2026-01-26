@@ -144,14 +144,14 @@ func TestTasksToolWithStore_LazyLoading(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Create tool - should not load yet
+	// Create tool - tasks slice should be empty before first operation
 	tool := NewTasksToolWithStore(NewFileTaskStoreWithDir("lazy-test", tmpDir))
-	assert.False(t, tool.handler.loaded)
+	assert.Equal(t, 0, tool.handler.tasks.Length())
 
 	// First operation triggers load
 	result, err := tool.handler.listTasks(t.Context(), tools.ToolCall{})
 	require.NoError(t, err)
-	assert.True(t, tool.handler.loaded)
+	assert.Equal(t, 1, tool.handler.tasks.Length())
 	assert.Contains(t, result.Output, "Pre-existing task")
 }
 

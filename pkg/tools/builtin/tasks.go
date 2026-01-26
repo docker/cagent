@@ -79,9 +79,10 @@ type GetBlockedTasksArgs struct {
 }
 
 type tasksHandler struct {
-	tasks  *concurrent.Slice[Task]
-	store  TaskStore
-	loaded bool
+	mu       sync.RWMutex
+	tasks    *concurrent.Slice[Task]
+	store    TaskStore
+	loadOnce sync.Once
 }
 
 // Shared instance for shared: true (no persistence)
@@ -120,28 +121,27 @@ func NewTasksToolWithStore(store TaskStore) *TasksTool {
 }
 
 // ensureLoaded loads tasks from store on first access (lazy loading)
+// Thread-safe via sync.Once
 func (h *tasksHandler) ensureLoaded() {
-	if h.loaded {
-		return
-	}
-	h.loaded = true
+	h.loadOnce.Do(func() {
+		tasks, err := h.store.Load()
+		if err != nil {
+			slog.Error("Failed to load tasks from store", "error", err)
+			return
+		}
 
-	tasks, err := h.store.Load()
-	if err != nil {
-		slog.Error("Failed to load tasks from store", "error", err)
-		return
-	}
+		for _, task := range tasks {
+			h.tasks.Append(task)
+		}
 
-	for _, task := range tasks {
-		h.tasks.Append(task)
-	}
-
-	if len(tasks) > 0 {
-		slog.Debug("Loaded tasks from store", "count", len(tasks))
-	}
+		if len(tasks) > 0 {
+			slog.Debug("Loaded tasks from store", "count", len(tasks))
+		}
+	})
 }
 
 // save persists tasks to store
+// Must be called with h.mu held (write lock)
 func (h *tasksHandler) save() {
 	if err := h.store.Save(h.tasks.All()); err != nil {
 		slog.Error("Failed to save tasks to store", "error", err)
@@ -249,6 +249,9 @@ func (h *tasksHandler) getUnblockedTasks(completedID string) []string {
 func (h *tasksHandler) createTask(_ context.Context, params CreateTaskArgs) (*tools.ToolCallResult, error) {
 	h.ensureLoaded()
 
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	for _, blockerID := range params.BlockedBy {
 		if !h.taskExists(blockerID) {
 			return tools.ResultError(fmt.Sprintf("invalid blocked_by reference: %s not found", blockerID)), nil
@@ -285,6 +288,9 @@ func (h *tasksHandler) createTask(_ context.Context, params CreateTaskArgs) (*to
 
 func (h *tasksHandler) createTasks(_ context.Context, params CreateTasksArgs) (*tools.ToolCallResult, error) {
 	h.ensureLoaded()
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
 
 	start := h.tasks.Length()
 	var createdIDs []string
@@ -334,6 +340,9 @@ func (h *tasksHandler) createTasks(_ context.Context, params CreateTasksArgs) (*
 
 func (h *tasksHandler) updateTasks(_ context.Context, params UpdateTasksArgs) (*tools.ToolCallResult, error) {
 	h.ensureLoaded()
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
 
 	var notFound, updated, blocked, newlyUnblocked []string
 	for _, update := range params.Updates {
@@ -415,6 +424,9 @@ func (h *tasksHandler) allCompleted() bool {
 func (h *tasksHandler) listTasks(_ context.Context, _ tools.ToolCall) (*tools.ToolCallResult, error) {
 	h.ensureLoaded()
 
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
 	var output strings.Builder
 	var completed, inProgress, pending, blockedCount int
 	h.tasks.Range(func(_ int, task Task) bool {
@@ -466,6 +478,9 @@ func (h *tasksHandler) listTasks(_ context.Context, _ tools.ToolCall) (*tools.To
 
 func (h *tasksHandler) addDependency(_ context.Context, params AddTaskDependencyArgs) (*tools.ToolCallResult, error) {
 	h.ensureLoaded()
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
 
 	task, idx := h.findTask(params.TaskID)
 	if idx == -1 {
@@ -528,6 +543,9 @@ func (h *tasksHandler) addDependency(_ context.Context, params AddTaskDependency
 func (h *tasksHandler) removeDependency(_ context.Context, params RemoveTaskDependencyArgs) (*tools.ToolCallResult, error) {
 	h.ensureLoaded()
 
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	task, idx := h.findTask(params.TaskID)
 	if idx == -1 {
 		return tools.ResultError(fmt.Sprintf("task not found: %s", params.TaskID)), nil
@@ -580,6 +598,9 @@ func (h *tasksHandler) removeDependency(_ context.Context, params RemoveTaskDepe
 
 func (h *tasksHandler) getBlockedTasks(_ context.Context, params GetBlockedTasksArgs) (*tools.ToolCallResult, error) {
 	h.ensureLoaded()
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
 
 	var output strings.Builder
 	output.WriteString("Blocked tasks:\n")

@@ -1,6 +1,7 @@
 package builtin
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -589,4 +590,83 @@ func TestTasksTool_Schema(t *testing.T) {
 	for _, tt := range allTools {
 		assert.Equal(t, "tasks", tt.Category)
 	}
+}
+
+// =============================================================================
+// Unit Tests: Concurrency
+// =============================================================================
+
+func TestTasksTool_ConcurrentCreates(t *testing.T) {
+	t.Parallel()
+	tool := NewTasksTool()
+
+	const numGoroutines = 10
+	done := make(chan bool, numGoroutines)
+
+	for i := range numGoroutines {
+		go func(idx int) {
+			_, err := tool.handler.createTask(t.Context(), CreateTaskArgs{
+				Description: fmt.Sprintf("Task from goroutine %d", idx),
+			})
+			assert.NoError(t, err)
+			done <- true
+		}(i)
+	}
+
+	// Wait for all goroutines
+	for range numGoroutines {
+		<-done
+	}
+
+	// Verify all tasks were created with unique IDs
+	tasks := tool.handler.tasks.All()
+	assert.Len(t, tasks, numGoroutines)
+
+	ids := make(map[string]bool)
+	for _, task := range tasks {
+		assert.False(t, ids[task.ID], "duplicate task ID: %s", task.ID)
+		ids[task.ID] = true
+	}
+}
+
+func TestTasksTool_ConcurrentUpdates(t *testing.T) {
+	t.Parallel()
+	tool := NewTasksTool()
+
+	// Create initial tasks
+	for i := range 5 {
+		_, err := tool.handler.createTask(t.Context(), CreateTaskArgs{
+			Description: fmt.Sprintf("Task %d", i+1),
+		})
+		require.NoError(t, err)
+	}
+
+	const numGoroutines = 10
+	done := make(chan bool, numGoroutines)
+
+	// Concurrent updates and reads
+	for i := range numGoroutines {
+		go func(idx int) {
+			if idx%2 == 0 {
+				// Update a task
+				taskID := fmt.Sprintf("task_%d", (idx%5)+1)
+				_, _ = tool.handler.updateTasks(t.Context(), UpdateTasksArgs{
+					Updates: []TaskUpdate{{ID: taskID, Status: "in-progress"}},
+				})
+			} else {
+				// List tasks
+				_, _ = tool.handler.listTasks(t.Context(), tools.ToolCall{})
+			}
+			done <- true
+		}(i)
+	}
+
+	// Wait for all goroutines
+	for range numGoroutines {
+		<-done
+	}
+
+	// Verify tasks are still consistent
+	tasks := tool.handler.tasks.All()
+	assert.Len(t, tasks, 5)
 }
