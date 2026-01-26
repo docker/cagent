@@ -10,13 +10,24 @@ import (
 	"github.com/docker/cagent/pkg/tools"
 )
 
+// newTestTasksTool creates a new TasksTool for testing (not the singleton)
+func newTestTasksTool() *TasksTool {
+	return newTasksToolWithStore(&noopTaskStore{})
+}
+
+// noopTaskStore is a TaskStore that doesn't persist anything (for unit tests)
+type noopTaskStore struct{}
+
+func (s *noopTaskStore) Load() ([]Task, error) { return []Task{}, nil }
+func (s *noopTaskStore) Save(_ []Task) error   { return nil }
+
 // =============================================================================
 // Unit Tests: Task Creation with Dependencies
 // =============================================================================
 
 func TestTasksTool_CreateTask_Basic(t *testing.T) {
 	t.Parallel()
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	result, err := tool.handler.createTask(t.Context(), CreateTaskArgs{
 		Description: "Setup database",
@@ -33,7 +44,7 @@ func TestTasksTool_CreateTask_Basic(t *testing.T) {
 
 func TestTasksTool_CreateTask_WithBlockedBy(t *testing.T) {
 	t.Parallel()
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	// Create prerequisite tasks first
 	_, err := tool.handler.createTask(t.Context(), CreateTaskArgs{Description: "Task 1"})
@@ -58,7 +69,7 @@ func TestTasksTool_CreateTask_WithBlockedBy(t *testing.T) {
 
 func TestTasksTool_CreateTask_WithInvalidBlockedBy(t *testing.T) {
 	t.Parallel()
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	result, err := tool.handler.createTask(t.Context(), CreateTaskArgs{
 		Description: "Some task",
@@ -72,7 +83,7 @@ func TestTasksTool_CreateTask_WithInvalidBlockedBy(t *testing.T) {
 
 func TestTasksTool_CreateTask_WithOwner(t *testing.T) {
 	t.Parallel()
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	result, err := tool.handler.createTask(t.Context(), CreateTaskArgs{
 		Description: "Backend task",
@@ -89,7 +100,7 @@ func TestTasksTool_CreateTask_WithOwner(t *testing.T) {
 
 func TestTasksTool_CreateTasks_Batch(t *testing.T) {
 	t.Parallel()
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	result, err := tool.handler.createTasks(t.Context(), CreateTasksArgs{
 		Tasks: []CreateTaskItem{
@@ -111,7 +122,7 @@ func TestTasksTool_CreateTasks_Batch(t *testing.T) {
 
 func TestTasksTool_CreateTasks_CircularDependency(t *testing.T) {
 	t.Parallel()
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	// Try to create tasks with circular dependency
 	result, err := tool.handler.createTasks(t.Context(), CreateTasksArgs{
@@ -133,7 +144,7 @@ func TestTasksTool_CreateTasks_CircularDependency(t *testing.T) {
 
 func TestTasksTool_CreateTasks_MutualDependency(t *testing.T) {
 	t.Parallel()
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	// Create a task first
 	_, err := tool.handler.createTask(t.Context(), CreateTaskArgs{Description: "Existing task"})
@@ -155,7 +166,7 @@ func TestTasksTool_CreateTasks_MutualDependency(t *testing.T) {
 
 func TestTasksTool_CreateTasks_SelfDependency(t *testing.T) {
 	t.Parallel()
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	// Try to create a task that depends on itself
 	result, err := tool.handler.createTasks(t.Context(), CreateTasksArgs{
@@ -175,7 +186,7 @@ func TestTasksTool_CreateTasks_SelfDependency(t *testing.T) {
 
 func TestTasksTool_CanStart_NoDependencies(t *testing.T) {
 	t.Parallel()
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	_, err := tool.handler.createTask(t.Context(), CreateTaskArgs{Description: "Independent task"})
 	require.NoError(t, err)
@@ -187,7 +198,7 @@ func TestTasksTool_CanStart_NoDependencies(t *testing.T) {
 
 func TestTasksTool_CanStart_WithPendingBlockers(t *testing.T) {
 	t.Parallel()
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	_, err := tool.handler.createTask(t.Context(), CreateTaskArgs{Description: "Blocker"})
 	require.NoError(t, err)
@@ -204,7 +215,7 @@ func TestTasksTool_CanStart_WithPendingBlockers(t *testing.T) {
 
 func TestTasksTool_CanStart_WithCompletedBlockers(t *testing.T) {
 	t.Parallel()
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	_, err := tool.handler.createTask(t.Context(), CreateTaskArgs{Description: "Blocker"})
 	require.NoError(t, err)
@@ -227,7 +238,7 @@ func TestTasksTool_CanStart_WithCompletedBlockers(t *testing.T) {
 
 func TestTasksTool_CanStart_MultipleBlockers_PartiallyCompleted(t *testing.T) {
 	t.Parallel()
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	_, err := tool.handler.createTasks(t.Context(), CreateTasksArgs{
 		Tasks: []CreateTaskItem{
@@ -255,7 +266,7 @@ func TestTasksTool_CanStart_MultipleBlockers_PartiallyCompleted(t *testing.T) {
 
 func TestTasksTool_UpdateTasks_CannotStartBlocked(t *testing.T) {
 	t.Parallel()
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	_, err := tool.handler.createTask(t.Context(), CreateTaskArgs{Description: "Blocker"})
 	require.NoError(t, err)
@@ -276,7 +287,7 @@ func TestTasksTool_UpdateTasks_CannotStartBlocked(t *testing.T) {
 
 func TestTasksTool_UpdateTasks_CanStartAfterBlockerCompleted(t *testing.T) {
 	t.Parallel()
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	_, err := tool.handler.createTask(t.Context(), CreateTaskArgs{Description: "Blocker"})
 	require.NoError(t, err)
@@ -304,7 +315,7 @@ func TestTasksTool_UpdateTasks_CanStartAfterBlockerCompleted(t *testing.T) {
 
 func TestTasksTool_UpdateTasks_CompletionUnblocks(t *testing.T) {
 	t.Parallel()
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	_, err := tool.handler.createTasks(t.Context(), CreateTasksArgs{
 		Tasks: []CreateTaskItem{
@@ -335,7 +346,7 @@ func TestTasksTool_UpdateTasks_CompletionUnblocks(t *testing.T) {
 
 func TestTasksTool_ListTasks_Empty(t *testing.T) {
 	t.Parallel()
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	result, err := tool.handler.listTasks(t.Context(), tools.ToolCall{})
 
@@ -345,7 +356,7 @@ func TestTasksTool_ListTasks_Empty(t *testing.T) {
 
 func TestTasksTool_ListTasks_WithDependencies(t *testing.T) {
 	t.Parallel()
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	_, err := tool.handler.createTasks(t.Context(), CreateTasksArgs{
 		Tasks: []CreateTaskItem{
@@ -366,7 +377,7 @@ func TestTasksTool_ListTasks_WithDependencies(t *testing.T) {
 
 func TestTasksTool_ListTasks_StatusIcons(t *testing.T) {
 	t.Parallel()
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	_, err := tool.handler.createTasks(t.Context(), CreateTasksArgs{
 		Tasks: []CreateTaskItem{
@@ -395,7 +406,7 @@ func TestTasksTool_ListTasks_StatusIcons(t *testing.T) {
 
 func TestTasksTool_ListTasks_ShowsOwner(t *testing.T) {
 	t.Parallel()
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	_, err := tool.handler.createTask(t.Context(), CreateTaskArgs{
 		Description: "Backend work",
@@ -411,7 +422,7 @@ func TestTasksTool_ListTasks_ShowsOwner(t *testing.T) {
 
 func TestTasksTool_ListTasks_Stats(t *testing.T) {
 	t.Parallel()
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	_, err := tool.handler.createTasks(t.Context(), CreateTasksArgs{
 		Tasks: []CreateTaskItem{
@@ -445,7 +456,7 @@ func TestTasksTool_ListTasks_Stats(t *testing.T) {
 
 func TestTasksTool_AddDependency(t *testing.T) {
 	t.Parallel()
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	_, err := tool.handler.createTasks(t.Context(), CreateTasksArgs{
 		Tasks: []CreateTaskItem{
@@ -470,7 +481,7 @@ func TestTasksTool_AddDependency(t *testing.T) {
 
 func TestTasksTool_AddDependency_PreventCircular(t *testing.T) {
 	t.Parallel()
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	_, err := tool.handler.createTask(t.Context(), CreateTaskArgs{Description: "First"})
 	require.NoError(t, err)
@@ -493,7 +504,7 @@ func TestTasksTool_AddDependency_PreventCircular(t *testing.T) {
 
 func TestTasksTool_AddDependency_PreventSelfDependency(t *testing.T) {
 	t.Parallel()
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	_, err := tool.handler.createTask(t.Context(), CreateTaskArgs{Description: "Task"})
 	require.NoError(t, err)
@@ -510,7 +521,7 @@ func TestTasksTool_AddDependency_PreventSelfDependency(t *testing.T) {
 
 func TestTasksTool_RemoveDependency(t *testing.T) {
 	t.Parallel()
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	_, err := tool.handler.createTask(t.Context(), CreateTaskArgs{Description: "First"})
 	require.NoError(t, err)
@@ -539,7 +550,7 @@ func TestTasksTool_RemoveDependency(t *testing.T) {
 
 func TestTasksTool_GetBlockedTasks(t *testing.T) {
 	t.Parallel()
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	_, err := tool.handler.createTasks(t.Context(), CreateTasksArgs{
 		Tasks: []CreateTaskItem{
@@ -560,7 +571,7 @@ func TestTasksTool_GetBlockedTasks(t *testing.T) {
 
 func TestTasksTool_GetBlockedTasks_FilterByBlocker(t *testing.T) {
 	t.Parallel()
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	_, err := tool.handler.createTasks(t.Context(), CreateTasksArgs{
 		Tasks: []CreateTaskItem{
@@ -588,18 +599,20 @@ func TestTasksTool_GetBlockedTasks_FilterByBlocker(t *testing.T) {
 func TestTasksTool_SharedInstance(t *testing.T) {
 	t.Parallel()
 
-	shared1 := NewSharedTasksTool()
-	shared2 := NewSharedTasksTool()
-	assert.Same(t, shared1, shared2, "NewSharedTasksTool should return same instance")
+	// NewTasksTool is now a singleton
+	shared1 := NewTasksTool()
+	shared2 := NewTasksTool()
+	assert.Same(t, shared1, shared2, "NewTasksTool should return same instance")
 
-	nonShared1 := NewTasksTool()
-	nonShared2 := NewTasksTool()
-	assert.NotSame(t, nonShared1, nonShared2, "NewTasksTool should return different instances")
+	// newTestTasksTool creates separate instances for testing
+	nonShared1 := newTestTasksTool()
+	nonShared2 := newTestTasksTool()
+	assert.NotSame(t, nonShared1, nonShared2, "newTestTasksTool should return different instances")
 }
 
 func TestTasksTool_CrossAgentSharing(t *testing.T) {
 	// Simulates two agents sharing a task list
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	// Agent A creates a task
 	_, err := tool.handler.createTask(t.Context(), CreateTaskArgs{
@@ -640,7 +653,7 @@ func TestTasksTool_CrossAgentSharing(t *testing.T) {
 
 func TestTasksTool_Schema(t *testing.T) {
 	t.Parallel()
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	allTools, err := tool.Tools(t.Context())
 	require.NoError(t, err)
@@ -658,7 +671,7 @@ func TestTasksTool_Schema(t *testing.T) {
 
 func TestTasksTool_ConcurrentCreates(t *testing.T) {
 	t.Parallel()
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	const numGoroutines = 10
 	done := make(chan bool, numGoroutines)
@@ -691,7 +704,7 @@ func TestTasksTool_ConcurrentCreates(t *testing.T) {
 
 func TestTasksTool_ConcurrentUpdates(t *testing.T) {
 	t.Parallel()
-	tool := NewTasksTool()
+	tool := newTestTasksTool()
 
 	// Create initial tasks
 	for i := range 5 {

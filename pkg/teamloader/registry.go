@@ -81,20 +81,13 @@ func createTodoTool(_ context.Context, toolset latest.Toolset, _ string, _ *conf
 	return builtin.NewTodoTool(), nil
 }
 
-func createTasksTool(_ context.Context, toolset latest.Toolset, _ string, runConfig *config.RuntimeConfig) (tools.ToolSet, error) {
-	// Determine task list ID: CLI/env takes precedence, otherwise auto-detect from git repo
-	listID := runConfig.TaskListID
-	if listID == "" {
-		listID = builtin.DefaultTaskListID()
+func createTasksTool(_ context.Context, _ latest.Toolset, _ string, runConfig *config.RuntimeConfig) (tools.ToolSet, error) {
+	// Override list ID if provided via CLI flag or env var
+	if runConfig.TaskListID != "" {
+		builtin.SetTaskListID(runConfig.TaskListID)
 	}
-
-	store := builtin.NewFileTaskStore(listID)
-
-	if toolset.Shared {
-		return builtin.NewSharedTasksToolWithStore(store), nil
-	}
-
-	return builtin.NewTasksToolWithStore(store), nil
+	// Tasks are always shared and persisted - singleton based on git repo
+	return builtin.NewTasksTool(), nil
 }
 
 func createMemoryTool(_ context.Context, toolset latest.Toolset, parentDir string, runConfig *config.RuntimeConfig) (tools.ToolSet, error) {

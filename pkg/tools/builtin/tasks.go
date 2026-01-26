@@ -86,34 +86,37 @@ type tasksHandler struct {
 	loadErr  error // Captured error from initial load
 }
 
-// Shared instance for shared: true (no persistence)
-var NewSharedTasksTool = sync.OnceValue(func() *TasksTool {
-	return NewTasksToolWithStore(NewMemoryTaskStore())
-})
-
-// sharedTasksToolWithStore holds the shared instance when using a custom store
+// tasksTool holds the singleton instance
 var (
-	sharedTasksToolWithStore     *TasksTool
-	sharedTasksToolWithStoreOnce sync.Once
+	tasksTool     *TasksTool
+	tasksToolOnce sync.Once
+	tasksToolOpts struct {
+		listID string
+	}
 )
 
-// NewSharedTasksToolWithStore creates or returns a shared TasksTool instance with the given store.
-// Note: Only the first call's store is used; subsequent calls return the same instance.
-// This is safe because all agents in a shared context use the same listID.
-func NewSharedTasksToolWithStore(store TaskStore) *TasksTool {
-	sharedTasksToolWithStoreOnce.Do(func() {
-		sharedTasksToolWithStore = NewTasksToolWithStore(store)
-	})
-	return sharedTasksToolWithStore
+// SetTaskListID allows overriding the default task list ID (call before NewTasksTool)
+// This is used by the --task-list CLI flag.
+func SetTaskListID(id string) {
+	tasksToolOpts.listID = id
 }
 
-// NewTasksTool creates a new TasksTool with in-memory storage only
+// NewTasksTool returns the shared TasksTool instance.
+// All agents share the same task list, persisted to ~/.cagent/tasks/<repo-id>.json
 func NewTasksTool() *TasksTool {
-	return NewTasksToolWithStore(NewMemoryTaskStore())
+	tasksToolOnce.Do(func() {
+		listID := tasksToolOpts.listID
+		if listID == "" {
+			listID = DefaultTaskListID()
+		}
+		store := NewFileTaskStore(listID)
+		tasksTool = newTasksToolWithStore(store)
+	})
+	return tasksTool
 }
 
-// NewTasksToolWithStore creates a new TasksTool with the specified store
-func NewTasksToolWithStore(store TaskStore) *TasksTool {
+// newTasksToolWithStore creates a new TasksTool with the specified store (for testing)
+func newTasksToolWithStore(store TaskStore) *TasksTool {
 	return &TasksTool{
 		handler: &tasksHandler{
 			tasks: concurrent.NewSlice[Task](),
@@ -183,7 +186,7 @@ IMPORTANT: Use these tools to track tasks with dependencies:
 }
 
 func (h *tasksHandler) canStart(taskID string) (bool, []string) {
-	task, idx := h.tasks.Find(func(t Task) bool { return t.ID == taskID })
+	task, idx := h.findTask(taskID)
 	if idx == -1 {
 		return false, []string{"task not found"}
 	}
@@ -192,7 +195,7 @@ func (h *tasksHandler) canStart(taskID string) (bool, []string) {
 	}
 	var pendingBlockers []string
 	for _, blockerID := range task.BlockedBy {
-		blocker, blockerIdx := h.tasks.Find(func(t Task) bool { return t.ID == blockerID })
+		blocker, blockerIdx := h.findTask(blockerID)
 		if blockerIdx != -1 && blocker.Status != "completed" {
 			pendingBlockers = append(pendingBlockers, blockerID)
 		}
@@ -211,6 +214,34 @@ func (h *tasksHandler) findTask(id string) (*Task, int) {
 func (h *tasksHandler) taskExists(id string) bool {
 	_, idx := h.findTask(id)
 	return idx != -1
+}
+
+// addBlockerLink adds taskID to the Blocks list of blockerID
+func (h *tasksHandler) addBlockerLink(blockerID, taskID string) {
+	_, idx := h.findTask(blockerID)
+	if idx != -1 {
+		h.tasks.Update(idx, func(t Task) Task {
+			t.Blocks = append(t.Blocks, taskID)
+			return t
+		})
+	}
+}
+
+// removeBlockerLink removes taskID from the Blocks list of blockerID
+func (h *tasksHandler) removeBlockerLink(blockerID, taskID string) {
+	_, idx := h.findTask(blockerID)
+	if idx != -1 {
+		h.tasks.Update(idx, func(t Task) Task {
+			var newBlocks []string
+			for _, b := range t.Blocks {
+				if b != taskID {
+					newBlocks = append(newBlocks, b)
+				}
+			}
+			t.Blocks = newBlocks
+			return t
+		})
+	}
 }
 
 func (h *tasksHandler) hasCircularDependency(taskID string, newBlockedBy []string) bool {
@@ -276,13 +307,7 @@ func (h *tasksHandler) createTask(_ context.Context, params CreateTaskArgs) (*to
 	}
 	h.tasks.Append(task)
 	for _, blockerID := range params.BlockedBy {
-		_, idx := h.findTask(blockerID)
-		if idx != -1 {
-			h.tasks.Update(idx, func(t Task) Task {
-				t.Blocks = append(t.Blocks, id)
-				return t
-			})
-		}
+		h.addBlockerLink(blockerID, id)
 	}
 
 	saveWarning := h.save()
@@ -354,13 +379,7 @@ func (h *tasksHandler) createTasks(_ context.Context, params CreateTasksArgs) (*
 		h.tasks.Append(task)
 		createdIDs = append(createdIDs, id)
 		for _, blockerID := range item.BlockedBy {
-			_, idx := h.findTask(blockerID)
-			if idx != -1 {
-				h.tasks.Update(idx, func(t Task) Task {
-					t.Blocks = append(t.Blocks, id)
-					return t
-				})
-			}
+			h.addBlockerLink(blockerID, id)
 		}
 	}
 
@@ -564,13 +583,7 @@ func (h *tasksHandler) addDependency(_ context.Context, params AddTaskDependency
 		return t
 	})
 	for _, blockerID := range added {
-		_, blockerIdx := h.findTask(blockerID)
-		if blockerIdx != -1 {
-			h.tasks.Update(blockerIdx, func(t Task) Task {
-				t.Blocks = append(t.Blocks, params.TaskID)
-				return t
-			})
-		}
+		h.addBlockerLink(blockerID, params.TaskID)
 	}
 
 	saveWarning := h.save()
@@ -616,19 +629,7 @@ func (h *tasksHandler) removeDependency(_ context.Context, params RemoveTaskDepe
 		return t
 	})
 	for _, blockerID := range removed {
-		_, blockerIdx := h.findTask(blockerID)
-		if blockerIdx != -1 {
-			h.tasks.Update(blockerIdx, func(t Task) Task {
-				var newBlocks []string
-				for _, b := range t.Blocks {
-					if b != params.TaskID {
-						newBlocks = append(newBlocks, b)
-					}
-				}
-				t.Blocks = newBlocks
-				return t
-			})
-		}
+		h.removeBlockerLink(blockerID, params.TaskID)
 	}
 
 	saveWarning := h.save()

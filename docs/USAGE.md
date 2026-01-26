@@ -861,8 +861,7 @@ toolsets:
   - type: think # Enables the think tool
   - type: todo # Enable the simple todo list tool
     shared: boolean # Should the todo list be shared between agents (optional)
-  - type: tasks # Enable the tasks tool with dependencies and persistence
-    shared: boolean # Should tasks be shared between agents (optional)
+  - type: tasks # Enable the tasks tool with dependencies and persistence (always shared)
   - type: memory # Allows the agent to store memories to a local sqlite db
     path: ./mem.db # Path to the sqlite database for memory storage (optional)
 ```
@@ -924,17 +923,17 @@ agents:
 
 **Multi-agent sharing:**
 
+Tasks are automatically shared across all agents - no configuration needed:
+
 ```yaml
 agents:
   coordinator:
     toolsets:
       - type: tasks
-        shared: true  # Share task list across all agents
     sub_agents: [backend, frontend]
   backend:
     toolsets:
       - type: tasks
-        shared: true
   frontend:
     toolsets:
       - type: tasks

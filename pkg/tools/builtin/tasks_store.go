@@ -37,20 +37,26 @@ type FileTaskStore struct {
 	mu      sync.RWMutex
 }
 
-// NewFileTaskStore creates a new file-based task store
-func NewFileTaskStore(listID string) *FileTaskStore {
-	return &FileTaskStore{
-		listID:  listID,
-		baseDir: paths.GetTasksDir(),
+// FileTaskStoreOption configures a FileTaskStore
+type FileTaskStoreOption func(*FileTaskStore)
+
+// WithBaseDir sets a custom base directory (for testing)
+func WithBaseDir(dir string) FileTaskStoreOption {
+	return func(s *FileTaskStore) {
+		s.baseDir = dir
 	}
 }
 
-// NewFileTaskStoreWithDir creates a file-based task store with a custom directory (for testing)
-func NewFileTaskStoreWithDir(listID, baseDir string) *FileTaskStore {
-	return &FileTaskStore{
+// NewFileTaskStore creates a new file-based task store
+func NewFileTaskStore(listID string, opts ...FileTaskStoreOption) *FileTaskStore {
+	s := &FileTaskStore{
 		listID:  listID,
-		baseDir: baseDir,
+		baseDir: paths.GetTasksDir(),
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 func (s *FileTaskStore) filePath() string {
@@ -116,23 +122,6 @@ func (s *FileTaskStore) Save(tasks []Task) error {
 		return fmt.Errorf("renaming task file: %w", err)
 	}
 
-	return nil
-}
-
-// MemoryTaskStore implements TaskStore with in-memory storage only (no persistence)
-// Used when no listID is provided
-type MemoryTaskStore struct{}
-
-func NewMemoryTaskStore() *MemoryTaskStore {
-	return &MemoryTaskStore{}
-}
-
-func (s *MemoryTaskStore) Load() ([]Task, error) {
-	return []Task{}, nil
-}
-
-func (s *MemoryTaskStore) Save(_ []Task) error {
-	// No-op for memory store
 	return nil
 }
 
