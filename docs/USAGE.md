@@ -911,6 +911,7 @@ agents:
 - **Cycle detection**: Prevents circular dependencies
 - **Automatic persistence**: Tasks persist across sessions, stored in `~/.cagent/tasks/`
 - **Git-aware**: Tasks are shared across all worktrees of the same git repository
+- **Always shared**: All agents automatically share the same task list
 
 **Available tools:**
 - `create_task` - Create a single task with optional dependencies
@@ -937,7 +938,6 @@ agents:
   frontend:
     toolsets:
       - type: tasks
-        shared: true
 ```
 
 **Custom task list ID:**

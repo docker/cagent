@@ -182,7 +182,8 @@ IMPORTANT: Use these tools to track tasks with dependencies:
 
 5. Persistence:
    - Tasks are automatically saved and persist across sessions
-   - Tasks are shared across all worktrees of the same git repository`
+   - Tasks are shared across all worktrees of the same git repository
+   - All agents share the same task list automatically`
 }
 
 func (h *tasksHandler) canStart(taskID string) (bool, []string) {
