@@ -25,7 +25,8 @@ type ToolsetCreator func(ctx context.Context, toolset latest.Toolset, parentDir 
 
 // ToolsetRegistry manages the registration of toolset creators by type
 type ToolsetRegistry struct {
-	creators map[string]ToolsetCreator
+	creators        map[string]ToolsetCreator
+	sharedTasksTool *builtin.TasksTool // Shared instance for all agents
 }
 
 // NewToolsetRegistry creates a new empty toolset registry
@@ -48,6 +49,11 @@ func (r *ToolsetRegistry) Get(toolsetType string) (ToolsetCreator, bool) {
 
 // CreateTool creates a toolset using the registered creator for the given type
 func (r *ToolsetRegistry) CreateTool(ctx context.Context, toolset latest.Toolset, parentDir string, runConfig *config.RuntimeConfig) (tools.ToolSet, error) {
+	// Special case for tasks - always returns shared instance
+	if toolset.Type == "tasks" {
+		return r.GetOrCreateTasksTool(runConfig), nil
+	}
+
 	creator, ok := r.Get(toolset.Type)
 	if !ok {
 		return nil, fmt.Errorf("unknown toolset type: %s", toolset.Type)
@@ -59,7 +65,7 @@ func NewDefaultToolsetRegistry() *ToolsetRegistry {
 	r := NewToolsetRegistry()
 	// Register all built-in toolset creators
 	r.Register("todo", createTodoTool)
-	r.Register("tasks", createTasksTool)
+	// Note: "tasks" is handled specially in CreateTool - no registration needed
 	r.Register("memory", createMemoryTool)
 	r.Register("think", createThinkTool)
 	r.Register("shell", createShellTool)
@@ -81,13 +87,17 @@ func createTodoTool(_ context.Context, toolset latest.Toolset, _ string, _ *conf
 	return builtin.NewTodoTool(), nil
 }
 
-func createTasksTool(_ context.Context, _ latest.Toolset, _ string, runConfig *config.RuntimeConfig) (tools.ToolSet, error) {
-	// Override list ID if provided via CLI flag or env var
-	if runConfig.TaskListID != "" {
-		builtin.SetTaskListID(runConfig.TaskListID)
+// GetOrCreateTasksTool returns the shared TasksTool instance, creating it if needed
+func (r *ToolsetRegistry) GetOrCreateTasksTool(runConfig *config.RuntimeConfig) *builtin.TasksTool {
+	if r.sharedTasksTool == nil {
+		listID := runConfig.TaskListID
+		if listID == "" {
+			listID = builtin.DefaultTaskListID()
+		}
+		store := builtin.NewFileTaskStore(listID)
+		r.sharedTasksTool = builtin.NewTasksTool(store)
 	}
-	// Tasks are always shared and persisted - singleton based on git repo
-	return builtin.NewTasksTool(), nil
+	return r.sharedTasksTool
 }
 
 func createMemoryTool(_ context.Context, toolset latest.Toolset, parentDir string, runConfig *config.RuntimeConfig) (tools.ToolSet, error) {

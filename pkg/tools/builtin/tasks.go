@@ -86,37 +86,8 @@ type tasksHandler struct {
 	loadErr  error // Captured error from initial load
 }
 
-// tasksTool holds the singleton instance
-var (
-	tasksTool     *TasksTool
-	tasksToolOnce sync.Once
-	tasksToolOpts struct {
-		listID string
-	}
-)
-
-// SetTaskListID allows overriding the default task list ID (call before NewTasksTool)
-// This is used by the --task-list CLI flag.
-func SetTaskListID(id string) {
-	tasksToolOpts.listID = id
-}
-
-// NewTasksTool returns the shared TasksTool instance.
-// All agents share the same task list, persisted to ~/.cagent/tasks/<repo-id>.json
-func NewTasksTool() *TasksTool {
-	tasksToolOnce.Do(func() {
-		listID := tasksToolOpts.listID
-		if listID == "" {
-			listID = DefaultTaskListID()
-		}
-		store := NewFileTaskStore(listID)
-		tasksTool = newTasksToolWithStore(store)
-	})
-	return tasksTool
-}
-
-// newTasksToolWithStore creates a new TasksTool with the specified store (for testing)
-func newTasksToolWithStore(store TaskStore) *TasksTool {
+// NewTasksTool creates a new TasksTool with the specified store
+func NewTasksTool(store TaskStore) *TasksTool {
 	return &TasksTool{
 		handler: &tasksHandler{
 			tasks: concurrent.NewSlice[Task](),

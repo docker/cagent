@@ -95,7 +95,7 @@ func TestTasksToolWithStore_Persistence(t *testing.T) {
 
 	// Create first tool instance and add a task
 	store1 := NewFileTaskStore("persistent-test", WithBaseDir(tmpDir))
-	tool1 := newTasksToolWithStore(store1)
+	tool1 := NewTasksTool(store1)
 
 	_, err := tool1.handler.createTask(t.Context(), CreateTaskArgs{
 		Description: "Persistent task",
@@ -104,7 +104,7 @@ func TestTasksToolWithStore_Persistence(t *testing.T) {
 
 	// Create second tool instance with same store ID
 	store2 := NewFileTaskStore("persistent-test", WithBaseDir(tmpDir))
-	tool2 := newTasksToolWithStore(store2)
+	tool2 := NewTasksTool(store2)
 
 	// Should load the task from the first instance
 	result, err := tool2.handler.listTasks(t.Context(), tools.ToolCall{})
@@ -125,7 +125,7 @@ func TestTasksToolWithStore_LazyLoading(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create tool - tasks slice should be empty before first operation
-	tool := newTasksToolWithStore(NewFileTaskStore("lazy-test", WithBaseDir(tmpDir)))
+	tool := NewTasksTool(NewFileTaskStore("lazy-test", WithBaseDir(tmpDir)))
 	assert.Equal(t, 0, tool.handler.tasks.Length())
 
 	// First operation triggers load
@@ -142,7 +142,7 @@ func TestTasksToolWithStore_PersistsDependencies(t *testing.T) {
 
 	// Create tasks with dependencies
 	store1 := NewFileTaskStore("deps-test", WithBaseDir(tmpDir))
-	tool1 := newTasksToolWithStore(store1)
+	tool1 := NewTasksTool(store1)
 
 	// Create first task
 	_, err := tool1.handler.createTask(t.Context(), CreateTaskArgs{
@@ -159,7 +159,7 @@ func TestTasksToolWithStore_PersistsDependencies(t *testing.T) {
 
 	// Load in new instance
 	store2 := NewFileTaskStore("deps-test", WithBaseDir(tmpDir))
-	tool2 := newTasksToolWithStore(store2)
+	tool2 := NewTasksTool(store2)
 
 	result, err := tool2.handler.listTasks(t.Context(), tools.ToolCall{})
 	require.NoError(t, err)
@@ -175,7 +175,7 @@ func TestTasksToolWithStore_PersistsStatusChanges(t *testing.T) {
 
 	// Create and complete a task
 	store1 := NewFileTaskStore("status-test", WithBaseDir(tmpDir))
-	tool1 := newTasksToolWithStore(store1)
+	tool1 := NewTasksTool(store1)
 
 	_, err := tool1.handler.createTask(t.Context(), CreateTaskArgs{
 		Description: "Task to complete",
@@ -189,7 +189,7 @@ func TestTasksToolWithStore_PersistsStatusChanges(t *testing.T) {
 
 	// Load in new instance - should see in-progress status
 	store2 := NewFileTaskStore("status-test", WithBaseDir(tmpDir))
-	tool2 := newTasksToolWithStore(store2)
+	tool2 := NewTasksTool(store2)
 
 	result, err := tool2.handler.listTasks(t.Context(), tools.ToolCall{})
 	require.NoError(t, err)
@@ -203,7 +203,7 @@ func TestTasksToolWithStore_ClearsOnAllCompleted(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	store := NewFileTaskStore("clear-test", WithBaseDir(tmpDir))
-	tool := newTasksToolWithStore(store)
+	tool := NewTasksTool(store)
 
 	// Create and complete a task
 	_, err := tool.handler.createTask(t.Context(), CreateTaskArgs{
@@ -218,7 +218,7 @@ func TestTasksToolWithStore_ClearsOnAllCompleted(t *testing.T) {
 
 	// Load in new instance - should be empty (cleared when all completed)
 	store2 := NewFileTaskStore("clear-test", WithBaseDir(tmpDir))
-	tool2 := newTasksToolWithStore(store2)
+	tool2 := NewTasksTool(store2)
 
 	result, err := tool2.handler.listTasks(t.Context(), tools.ToolCall{})
 	require.NoError(t, err)
@@ -372,7 +372,7 @@ func TestTasksToolWithStore_LoadError(t *testing.T) {
 
 	// Create store pointing to corrupted file
 	store := NewFileTaskStore("corrupted", WithBaseDir(tmpDir))
-	tool := newTasksToolWithStore(store)
+	tool := NewTasksTool(store)
 
 	// All operations should fail with load error
 	result, err := tool.handler.listTasks(t.Context(), tools.ToolCall{})

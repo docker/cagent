@@ -10,9 +10,9 @@ import (
 	"github.com/docker/cagent/pkg/tools"
 )
 
-// newTestTasksTool creates a new TasksTool for testing (not the singleton)
+// newTestTasksTool creates a new TasksTool for testing (not shared)
 func newTestTasksTool() *TasksTool {
-	return newTasksToolWithStore(&noopTaskStore{})
+	return NewTasksTool(&noopTaskStore{})
 }
 
 // noopTaskStore is a TaskStore that doesn't persist anything (for unit tests)
@@ -599,15 +599,15 @@ func TestTasksTool_GetBlockedTasks_FilterByBlocker(t *testing.T) {
 func TestTasksTool_SharedInstance(t *testing.T) {
 	t.Parallel()
 
-	// NewTasksTool is now a singleton
-	shared1 := NewTasksTool()
-	shared2 := NewTasksTool()
-	assert.Same(t, shared1, shared2, "NewTasksTool should return same instance")
+	// NewTasksTool with same store returns different instances
+	// Sharing is handled at the registry level, not in the constructor
+	store := &noopTaskStore{}
+	tool1 := NewTasksTool(store)
+	tool2 := NewTasksTool(store)
+	assert.NotSame(t, tool1, tool2, "NewTasksTool should return different instances")
 
-	// newTestTasksTool creates separate instances for testing
-	nonShared1 := newTestTasksTool()
-	nonShared2 := newTestTasksTool()
-	assert.NotSame(t, nonShared1, nonShared2, "newTestTasksTool should return different instances")
+	// But they share the same store, so changes are visible
+	// (in production, registry ensures single instance)
 }
 
 func TestTasksTool_CrossAgentSharing(t *testing.T) {
