@@ -97,7 +97,8 @@ var (
 )
 
 // NewSharedTasksToolWithStore creates or returns a shared TasksTool instance with the given store.
-// The first call sets the store; subsequent calls return the same instance.
+// Note: Only the first call's store is used; subsequent calls return the same instance.
+// This is safe because all agents in a shared context use the same listID.
 func NewSharedTasksToolWithStore(store TaskStore) *TasksTool {
 	sharedTasksToolWithStoreOnce.Do(func() {
 		sharedTasksToolWithStore = NewTasksToolWithStore(store)
@@ -142,10 +143,13 @@ func (h *tasksHandler) ensureLoaded() {
 
 // save persists tasks to store
 // Must be called with h.mu held (write lock)
-func (h *tasksHandler) save() {
+// Returns an error message to append to output if save fails, empty string on success
+func (h *tasksHandler) save() string {
 	if err := h.store.Save(h.tasks.All()); err != nil {
 		slog.Error("Failed to save tasks to store", "error", err)
+		return fmt.Sprintf(" (warning: failed to persist - %v)", err)
 	}
+	return ""
 }
 
 func (t *TasksTool) Instructions() string {
@@ -276,13 +280,14 @@ func (h *tasksHandler) createTask(_ context.Context, params CreateTaskArgs) (*to
 		}
 	}
 
-	h.save()
+	saveWarning := h.save()
 
 	var output strings.Builder
 	fmt.Fprintf(&output, "Created task [%s]: %s", id, params.Description)
 	if len(params.BlockedBy) > 0 {
 		fmt.Fprintf(&output, " (blocked by %s)", strings.Join(params.BlockedBy, ", "))
 	}
+	output.WriteString(saveWarning)
 	return &tools.ToolCallResult{Output: output.String(), Meta: h.tasks.All()}, nil
 }
 
@@ -293,22 +298,44 @@ func (h *tasksHandler) createTasks(_ context.Context, params CreateTasksArgs) (*
 	defer h.mu.Unlock()
 
 	start := h.tasks.Length()
-	var createdIDs []string
+
+	// Build a map of task IDs that will be created in this batch
+	batchIDs := make(map[string]int) // ID -> index in batch
+	for i := range params.Tasks {
+		batchIDs[fmt.Sprintf("task_%d", start+i+1)] = i
+	}
+
+	// Validate all tasks before creating any
 	for i, item := range params.Tasks {
+		taskID := fmt.Sprintf("task_%d", start+i+1)
 		for _, blockerID := range item.BlockedBy {
-			if !h.taskExists(blockerID) {
-				isEarlierInBatch := false
-				for j := range i {
-					if fmt.Sprintf("task_%d", start+j+1) == blockerID {
-						isEarlierInBatch = true
-						break
+			// Check for self-dependency
+			if blockerID == taskID {
+				return tools.ResultError(fmt.Sprintf("task cannot depend on itself: %s", taskID)), nil
+			}
+
+			// Check if blocker is in this batch
+			if blockerIdx, inBatch := batchIDs[blockerID]; inBatch {
+				// Must be earlier in the batch (can't depend on later tasks)
+				if blockerIdx >= i {
+					return tools.ResultError(fmt.Sprintf("invalid blocked_by reference: %s must be created before %s", blockerID, taskID)), nil
+				}
+				// Check for mutual dependency (direct cycle in batch)
+				for _, blockerBlockedBy := range params.Tasks[blockerIdx].BlockedBy {
+					if blockerBlockedBy == taskID {
+						return tools.ResultError(fmt.Sprintf("circular dependency detected: %s and %s block each other", taskID, blockerID)), nil
 					}
 				}
-				if !isEarlierInBatch {
-					return tools.ResultError(fmt.Sprintf("invalid blocked_by reference: %s not found", blockerID)), nil
-				}
+			} else if !h.taskExists(blockerID) {
+				// Not in batch and doesn't exist in store
+				return tools.ResultError(fmt.Sprintf("invalid blocked_by reference: %s not found", blockerID)), nil
 			}
 		}
+	}
+
+	// All validations passed, create the tasks
+	var createdIDs []string
+	for i, item := range params.Tasks {
 		id := fmt.Sprintf("task_%d", start+i+1)
 		task := Task{
 			ID:          id,
@@ -330,10 +357,10 @@ func (h *tasksHandler) createTasks(_ context.Context, params CreateTasksArgs) (*
 		}
 	}
 
-	h.save()
+	saveWarning := h.save()
 
 	return &tools.ToolCallResult{
-		Output: fmt.Sprintf("Created %d tasks: %s", len(params.Tasks), strings.Join(createdIDs, ", ")),
+		Output: fmt.Sprintf("Created %d tasks: %s%s", len(params.Tasks), strings.Join(createdIDs, ", "), saveWarning),
 		Meta:   h.tasks.All(),
 	}, nil
 }
@@ -401,7 +428,8 @@ func (h *tasksHandler) updateTasks(_ context.Context, params UpdateTasksArgs) (*
 		h.tasks.Clear()
 	}
 
-	h.save()
+	saveWarning := h.save()
+	output.WriteString(saveWarning)
 
 	return &tools.ToolCallResult{Output: output.String(), Meta: h.tasks.All()}, nil
 }
@@ -532,10 +560,10 @@ func (h *tasksHandler) addDependency(_ context.Context, params AddTaskDependency
 		}
 	}
 
-	h.save()
+	saveWarning := h.save()
 
 	return &tools.ToolCallResult{
-		Output: fmt.Sprintf("Added dependency: %s is now blocked by %s", params.TaskID, strings.Join(added, ", ")),
+		Output: fmt.Sprintf("Added dependency: %s is now blocked by %s%s", params.TaskID, strings.Join(added, ", "), saveWarning),
 		Meta:   h.tasks.All(),
 	}, nil
 }
@@ -588,10 +616,10 @@ func (h *tasksHandler) removeDependency(_ context.Context, params RemoveTaskDepe
 		}
 	}
 
-	h.save()
+	saveWarning := h.save()
 
 	return &tools.ToolCallResult{
-		Output: fmt.Sprintf("Removed dependency: %s is no longer blocked by %s", params.TaskID, strings.Join(removed, ", ")),
+		Output: fmt.Sprintf("Removed dependency: %s is no longer blocked by %s%s", params.TaskID, strings.Join(removed, ", "), saveWarning),
 		Meta:   h.tasks.All(),
 	}, nil
 }

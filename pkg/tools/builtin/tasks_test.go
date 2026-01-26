@@ -109,6 +109,66 @@ func TestTasksTool_CreateTasks_Batch(t *testing.T) {
 	assert.Equal(t, []string{"task_2"}, tasks[2].BlockedBy)
 }
 
+func TestTasksTool_CreateTasks_CircularDependency(t *testing.T) {
+	t.Parallel()
+	tool := NewTasksTool()
+
+	// Try to create tasks with circular dependency
+	result, err := tool.handler.createTasks(t.Context(), CreateTasksArgs{
+		Tasks: []CreateTaskItem{
+			{Description: "Task A", BlockedBy: []string{"task_2"}},
+			{Description: "Task B", BlockedBy: []string{"task_1"}},
+		},
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	// First task depends on second task which comes later in batch - invalid order
+	assert.Contains(t, result.Output, "task_2 must be created before task_1")
+
+	// No tasks should have been created
+	tasks := tool.handler.tasks.All()
+	assert.Empty(t, tasks)
+}
+
+func TestTasksTool_CreateTasks_MutualDependency(t *testing.T) {
+	t.Parallel()
+	tool := NewTasksTool()
+
+	// Create a task first
+	_, err := tool.handler.createTask(t.Context(), CreateTaskArgs{Description: "Existing task"})
+	require.NoError(t, err)
+
+	// Try to create tasks where second depends on first, and first depends on second
+	// This is a real circular dependency since task_1 exists
+	result, err := tool.handler.createTasks(t.Context(), CreateTasksArgs{
+		Tasks: []CreateTaskItem{
+			{Description: "Task A", BlockedBy: []string{"task_1"}}, // task_2 blocked by existing task_1
+			{Description: "Task B", BlockedBy: []string{"task_2"}}, // task_3 blocked by task_2 (in batch)
+		},
+	})
+
+	require.NoError(t, err)
+	assert.False(t, result.IsError) // This should work - it's a valid chain
+	assert.Contains(t, result.Output, "Created 2 tasks")
+}
+
+func TestTasksTool_CreateTasks_SelfDependency(t *testing.T) {
+	t.Parallel()
+	tool := NewTasksTool()
+
+	// Try to create a task that depends on itself
+	result, err := tool.handler.createTasks(t.Context(), CreateTasksArgs{
+		Tasks: []CreateTaskItem{
+			{Description: "Self-referential", BlockedBy: []string{"task_1"}},
+		},
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assert.Contains(t, result.Output, "cannot depend on itself")
+}
+
 // =============================================================================
 // Unit Tests: canStart Logic
 // =============================================================================
