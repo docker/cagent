@@ -88,6 +88,38 @@ func TestFileTaskStore_SanitizesListID(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestFileTaskStore_EmptyListID(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	tests := []struct {
+		name   string
+		listID string
+	}{
+		{"empty string", ""},
+		{"dot", "."},
+		{"double dot", ".."},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := NewFileTaskStore(tt.listID, WithBaseDir(tmpDir))
+
+			err := store.Save([]Task{{ID: "task_1", Description: "Test", Status: "pending"}})
+			require.NoError(t, err)
+
+			// Should use "default" as filename
+			expectedPath := filepath.Join(tmpDir, "default.json")
+			_, err = os.Stat(expectedPath)
+			require.NoError(t, err)
+
+			// Cleanup for next test
+			os.Remove(expectedPath)
+		})
+	}
+}
+
 func TestTasksToolWithStore_Persistence(t *testing.T) {
 	t.Parallel()
 

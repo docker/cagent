@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/docker/cagent/pkg/paths"
 )
@@ -62,6 +63,10 @@ func NewFileTaskStore(listID string, opts ...FileTaskStoreOption) *FileTaskStore
 func (s *FileTaskStore) filePath() string {
 	// Sanitize listID to be safe as filename
 	safeID := filepath.Base(s.listID)
+	// Handle empty, ".", or ".." values
+	if safeID == "" || safeID == "." || safeID == ".." {
+		safeID = "default"
+	}
 	return filepath.Join(s.baseDir, safeID+".json")
 }
 
@@ -112,7 +117,8 @@ func (s *FileTaskStore) Save(tasks []Task) error {
 	}
 
 	// Write atomically using temp file + rename
-	tmpPath := path + ".tmp"
+	// Use unique temp filename to avoid race conditions between processes
+	tmpPath := fmt.Sprintf("%s.%d.%d.tmp", path, os.Getpid(), time.Now().UnixNano())
 	if err := os.WriteFile(tmpPath, data, 0o600); err != nil {
 		return fmt.Errorf("writing task file: %w", err)
 	}
@@ -160,7 +166,6 @@ func DefaultTaskListID() string {
 // This is the main .git directory shared across all worktrees.
 // Returns empty string if not in a git repository.
 func getGitCommonDir() string {
-	// First check if we're in a git repo at all
 	cmd := exec.Command("git", "rev-parse", "--git-common-dir")
 	output, err := cmd.Output()
 	if err != nil {
@@ -181,18 +186,21 @@ func getGitCommonDir() string {
 		gitCommonDir = filepath.Join(cwd, gitCommonDir)
 	}
 
-	// Clean the path
+	// Clean the path first
 	gitCommonDir = filepath.Clean(gitCommonDir)
 
+	// Check for .git BEFORE resolving symlinks to handle cases where
+	// .git is a symlink to a path that doesn't end with .git
+	isGitDir := filepath.Base(gitCommonDir) == ".git"
+
 	// Resolve symlinks to get canonical path (important for macOS where /tmp -> /private/tmp)
-	gitCommonDir, err = filepath.EvalSymlinks(gitCommonDir)
-	if err != nil {
-		// If we can't resolve symlinks, use the cleaned path
-		gitCommonDir = filepath.Clean(gitCommonDir)
+	resolved, err := filepath.EvalSymlinks(gitCommonDir)
+	if err == nil {
+		gitCommonDir = resolved
 	}
 
-	// If it ends with .git, return the parent directory
-	if filepath.Base(gitCommonDir) == ".git" {
+	// If it was a .git directory, return the parent
+	if isGitDir {
 		return filepath.Dir(gitCommonDir)
 	}
 
