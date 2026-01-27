@@ -33,20 +33,20 @@ type Task struct {
 	ID          string   `json:"id" jsonschema:"ID of the task"`
 	Description string   `json:"description" jsonschema:"Description of the task"`
 	Status      string   `json:"status" jsonschema:"Status: pending, in-progress, or completed"`
-	BlockedBy   []string `json:"blocked_by,omitempty" jsonschema:"IDs of tasks that must be completed before this one can start"`
-	Blocks      []string `json:"blocks,omitempty" jsonschema:"IDs of tasks that are waiting for this one to complete"`
+	BlockedBy   []string `json:"blocked_by,omitempty" jsonschema:"Task IDs (e.g. task_1, task_2) that must be completed before this one can start"`
+	Blocks      []string `json:"blocks,omitempty" jsonschema:"Task IDs that are waiting for this one to complete"`
 	Owner       string   `json:"owner,omitempty" jsonschema:"Owner/assignee of this task"`
 }
 
 type CreateTaskArgs struct {
 	Description string   `json:"description" jsonschema:"Description of the task,required"`
-	BlockedBy   []string `json:"blocked_by,omitempty" jsonschema:"IDs of tasks that must be completed before this one can start"`
+	BlockedBy   []string `json:"blocked_by,omitempty" jsonschema:"Task IDs (e.g. task_1, task_2) that must be completed first"`
 	Owner       string   `json:"owner,omitempty" jsonschema:"Owner/assignee of this task"`
 }
 
 type CreateTaskItem struct {
 	Description string   `json:"description" jsonschema:"Description of the task,required"`
-	BlockedBy   []string `json:"blocked_by,omitempty" jsonschema:"IDs of tasks that must be completed before this one can start"`
+	BlockedBy   []string `json:"blocked_by,omitempty" jsonschema:"Task IDs (e.g. task_1, task_2) that must be completed first. For batch creation, use task_N where N is the 1-based position in the final list."`
 	Owner       string   `json:"owner,omitempty" jsonschema:"Owner/assignee of this task"`
 }
 
@@ -661,7 +661,7 @@ func (t *TasksTool) Tools(context.Context) ([]tools.Tool, error) {
 		{
 			Name:        ToolNameCreateTask,
 			Category:    "tasks",
-			Description: "Create a new task. Use blocked_by to specify dependencies on other tasks.",
+			Description: "Create a new task. Use blocked_by with task IDs (e.g. [\"task_1\", \"task_2\"]) to specify dependencies.",
 			Parameters:  tools.MustSchemaFor[CreateTaskArgs](),
 			Handler:     tools.NewHandler(t.handler.createTask),
 			Annotations: tools.ToolAnnotations{Title: "Create Task", ReadOnlyHint: true},
@@ -669,7 +669,7 @@ func (t *TasksTool) Tools(context.Context) ([]tools.Tool, error) {
 		{
 			Name:        ToolNameCreateTasks,
 			Category:    "tasks",
-			Description: "Create multiple tasks at once with dependencies.",
+			Description: "Create multiple tasks at once with dependencies. Task IDs are assigned as task_1, task_2, etc. Use these IDs in blocked_by.",
 			Parameters:  tools.MustSchemaFor[CreateTasksArgs](),
 			Handler:     tools.NewHandler(t.handler.createTasks),
 			Annotations: tools.ToolAnnotations{Title: "Create Tasks", ReadOnlyHint: true},
