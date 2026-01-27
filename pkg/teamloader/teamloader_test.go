@@ -12,6 +12,7 @@ import (
 
 	"github.com/docker/cagent/pkg/config"
 	"github.com/docker/cagent/pkg/config/latest"
+	"github.com/docker/cagent/pkg/memory"
 )
 
 // skipExamples contains example files that require cloud-specific configurations
@@ -224,5 +225,40 @@ func TestIsThinkingBudgetDisabled(t *testing.T) {
 			got := isThinkingBudgetDisabled(tt.budget)
 			assert.Equal(t, tt.expected, got)
 		})
+	}
+}
+
+type noopMemoryDriver struct{}
+
+func (noopMemoryDriver) Store(context.Context, string, string) error { return nil }
+func (noopMemoryDriver) Retrieve(context.Context, memory.Query) ([]memory.Entry, error) {
+	return nil, nil
+}
+func (noopMemoryDriver) Delete(context.Context, string) error { return nil }
+func (noopMemoryDriver) Close() error                         { return nil }
+
+func TestCreateMemoryToolsForAgent_MultipleScopes_UsesUniqueToolNames(t *testing.T) {
+	t.Parallel()
+
+	agentCfg := &latest.AgentConfig{
+		Memory: []string{"long-term", "long term"},
+	}
+
+	drivers := map[string]memory.Driver{
+		"long-term": noopMemoryDriver{},
+		"long term": noopMemoryDriver{},
+	}
+
+	toolsets := createMemoryToolsForAgent(agentCfg, drivers)
+	require.Len(t, toolsets, 2)
+
+	seen := make(map[string]bool)
+	for _, ts := range toolsets {
+		toolsList, err := ts.Tools(t.Context())
+		require.NoError(t, err)
+		for _, tl := range toolsList {
+			require.False(t, seen[tl.Name], "tool name collision: %s", tl.Name)
+			seen[tl.Name] = true
+		}
 	}
 }

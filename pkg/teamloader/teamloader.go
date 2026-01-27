@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -24,6 +25,8 @@ import (
 	"github.com/docker/cagent/pkg/tools/builtin"
 	"github.com/docker/cagent/pkg/tools/codemode"
 )
+
+var nonToolNameChars = regexp.MustCompile(`[^a-zA-Z0-9_-]+`)
 
 var defaultMaxTokens int64 = 32000
 
@@ -84,7 +87,7 @@ func Load(ctx context.Context, agentSource config.Source, runConfig *config.Runt
 
 // LoadWithConfig loads an agent team and returns both the team and config info
 // needed for runtime model switching.
-func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *config.RuntimeConfig, opts ...Opt) (*LoadResult, error) {
+func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *config.RuntimeConfig, opts ...Opt) (res *LoadResult, err error) {
 	var loadOpts loadOptions
 	loadOpts.toolsetRegistry = NewDefaultToolsetRegistry()
 
@@ -117,6 +120,16 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 
 	// Create memory drivers from top-level memory configs
 	memoryDrivers := make(map[string]memory.Driver)
+	defer func() {
+		if err == nil {
+			return
+		}
+		for name, driver := range memoryDrivers {
+			if closeErr := driver.Close(); closeErr != nil {
+				slog.Error("Failed to close memory driver after load failure", "name", name, "error", closeErr)
+			}
+		}
+	}()
 	for name, memCfg := range cfg.Memory {
 		driver, err := memory.CreateDriver(ctx, memCfg)
 		if err != nil {
@@ -242,6 +255,7 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 		Team: team.New(
 			team.WithAgents(agents...),
 			team.WithRAGManagers(ragManagers),
+			team.WithMemoryDrivers(memoryDrivers),
 			team.WithPermissions(permChecker),
 		),
 		Models:             cfg.Models,
@@ -418,6 +432,8 @@ func createMemoryToolsForAgent(agentConfig *latest.AgentConfig, allDrivers map[s
 	}
 
 	var memoryTools []tools.ToolSet
+	multiScope := len(agentConfig.Memory) > 1
+	usedPrefixes := make(map[string]int)
 
 	for _, memName := range agentConfig.Memory {
 		driver, exists := allDrivers[memName]
@@ -428,7 +444,20 @@ func createMemoryToolsForAgent(agentConfig *latest.AgentConfig, allDrivers map[s
 
 		// Adapt driver to legacy database interface
 		db := memory.NewDatabaseAdapter(driver)
-		memTool := builtin.NewMemoryTool(db)
+		var memTool tools.ToolSet
+		if !multiScope {
+			memTool = builtin.NewMemoryTool(db)
+		} else {
+			prefix := nonToolNameChars.ReplaceAllString(memName, "_")
+			if prefix == "" {
+				prefix = "memory"
+			}
+			usedPrefixes[prefix]++
+			if usedPrefixes[prefix] > 1 {
+				prefix = fmt.Sprintf("%s_%d", prefix, usedPrefixes[prefix])
+			}
+			memTool = builtin.NewMemoryToolWithPrefix(db, prefix)
+		}
 		memoryTools = append(memoryTools, memTool)
 
 		slog.Debug("Created memory tool for agent",

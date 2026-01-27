@@ -25,14 +25,24 @@ type DB interface {
 type MemoryTool struct {
 	tools.BaseToolSet
 	db DB
+	// namePrefix, when set, namespaces the tool names to avoid collisions
+	// (e.g., "<prefix>_get_memories").
+	namePrefix string
 }
 
 // Make sure Memory Tool implements the ToolSet Interface
 var _ tools.ToolSet = (*MemoryTool)(nil)
 
 func NewMemoryTool(manager DB) *MemoryTool {
+	return NewMemoryToolWithPrefix(manager, "")
+}
+
+// NewMemoryToolWithPrefix creates a MemoryTool that uses prefixed tool names.
+// When prefix is empty, tool names are the legacy unprefixed names.
+func NewMemoryToolWithPrefix(manager DB, prefix string) *MemoryTool {
 	return &MemoryTool{
-		db: manager,
+		db:         manager,
+		namePrefix: prefix,
 	}
 }
 
@@ -45,19 +55,30 @@ type DeleteMemoryArgs struct {
 }
 
 func (t *MemoryTool) Instructions() string {
+	getMemoriesTool := ToolNameGetMemories
+	if t.namePrefix != "" {
+		getMemoriesTool = t.namePrefix + "_" + ToolNameGetMemories
+	}
 	return `## Using the memory tool
 
-Before taking any action or responding to the user use the "get_memories" tool to remember things about the user.
+Before taking any action or responding to the user use the "` + getMemoriesTool + `" tool to remember things about the user.
 Do not talk about using the tool, just use it.
 
 ## Rules
 - Use the memory tool generously to remember things about the user.`
 }
 
+func (t *MemoryTool) toolName(base string) string {
+	if t.namePrefix == "" {
+		return base
+	}
+	return t.namePrefix + "_" + base
+}
+
 func (t *MemoryTool) Tools(context.Context) ([]tools.Tool, error) {
 	return []tools.Tool{
 		{
-			Name:         ToolNameAddMemory,
+			Name:         t.toolName(ToolNameAddMemory),
 			Category:     "memory",
 			Description:  "Add a new memory to the database",
 			Parameters:   tools.MustSchemaFor[AddMemoryArgs](),
@@ -68,7 +89,7 @@ func (t *MemoryTool) Tools(context.Context) ([]tools.Tool, error) {
 			},
 		},
 		{
-			Name:         ToolNameGetMemories,
+			Name:         t.toolName(ToolNameGetMemories),
 			Category:     "memory",
 			Description:  "Retrieve all stored memories",
 			OutputSchema: tools.MustSchemaFor[[]database.UserMemory](),
@@ -79,7 +100,7 @@ func (t *MemoryTool) Tools(context.Context) ([]tools.Tool, error) {
 			},
 		},
 		{
-			Name:         ToolNameDeleteMemory,
+			Name:         t.toolName(ToolNameDeleteMemory),
 			Category:     "memory",
 			Description:  "Delete a specific memory by ID",
 			Parameters:   tools.MustSchemaFor[DeleteMemoryArgs](),

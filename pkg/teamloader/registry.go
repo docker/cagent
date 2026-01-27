@@ -3,6 +3,7 @@ package teamloader
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -20,6 +21,20 @@ import (
 	"github.com/docker/cagent/pkg/tools/builtin"
 	"github.com/docker/cagent/pkg/tools/mcp"
 )
+
+type toolSetWithCloser struct {
+	tools.ToolSet
+	closer io.Closer
+}
+
+func (t toolSetWithCloser) Stop(ctx context.Context) error {
+	stopErr := t.ToolSet.Stop(ctx)
+	closeErr := t.closer.Close()
+	if stopErr != nil {
+		return stopErr
+	}
+	return closeErr
+}
 
 // ToolsetCreator is a function that creates a toolset based on the provided configuration
 type ToolsetCreator func(ctx context.Context, toolset latest.Toolset, parentDir string, runConfig *config.RuntimeConfig) (tools.ToolSet, error)
@@ -112,7 +127,10 @@ func createMemoryTool(ctx context.Context, toolset latest.Toolset, parentDir str
 
 	// Adapt new driver to legacy database interface
 	db := memory.NewDatabaseAdapter(driver)
-	return builtin.NewMemoryTool(db), nil
+	return toolSetWithCloser{
+		ToolSet: builtin.NewMemoryTool(db),
+		closer:  driver,
+	}, nil
 }
 
 func createThinkTool(_ context.Context, _ latest.Toolset, _ string, _ *config.RuntimeConfig) (tools.ToolSet, error) {
