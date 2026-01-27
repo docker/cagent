@@ -32,7 +32,7 @@ type Mode int
 
 const (
 	ModeVertical Mode = iota
-	ModeHorizontal
+	ModeCollapsed
 )
 
 // Model represents a sidebar component
@@ -54,6 +54,20 @@ type Model interface {
 	LoadFromSession(sess *session.Session)
 	// HandleClick checks if click is on the star and returns true if handled
 	HandleClick(x, y int) bool
+	// IsCollapsed returns whether the sidebar is collapsed
+	IsCollapsed() bool
+	// ToggleCollapsed toggles the collapsed state
+	ToggleCollapsed()
+	// SetCollapsed sets the collapsed state directly
+	SetCollapsed(collapsed bool)
+	// CollapsedHeight returns the number of lines needed for collapsed mode
+	CollapsedHeight(contentWidth int) int
+	// GetPreferredWidth returns the user's preferred width (for resize persistence)
+	GetPreferredWidth() int
+	// SetPreferredWidth sets the user's preferred width
+	SetPreferredWidth(width int)
+	// ClampWidth ensures width is within valid bounds for the given window width
+	ClampWidth(width, windowInnerWidth int) int
 }
 
 // ragIndexingState tracks per-strategy indexing progress
@@ -76,6 +90,7 @@ type model struct {
 	mcpInit            bool
 	ragIndexing        map[string]*ragIndexingState // strategy name -> indexing state
 	spinner            spinner.Spinner
+	spinnerActive      bool // true when spinner is registered with animation coordinator
 	mode               Mode
 	sessionTitle       string
 	sessionStarred     bool
@@ -94,6 +109,8 @@ type model struct {
 	queuedMessages     []string // Truncated preview of queued messages
 	streamCancelled    bool     // true after ESC cancel until next StreamStartedEvent
 	reasoningSupported bool     // true if current model supports reasoning (default: true / fail-open)
+	collapsed          bool     // true when sidebar is collapsed
+	preferredWidth     int      // user's preferred width (persisted across collapse/expand)
 }
 
 // Option is a functional option for configuring the sidebar.
@@ -118,7 +135,8 @@ func New(sessionState *service.SessionState, opts ...Option) Model {
 		sessionState:       sessionState,
 		scrollbar:          scrollbar.New(),
 		workingDirectory:   getCurrentWorkingDirectory(),
-		reasoningSupported: true, // Default to true (fail-open)
+		reasoningSupported: true,
+		preferredWidth:     DefaultWidth,
 	}
 	for _, opt := range opts {
 		opt(m)
@@ -128,6 +146,34 @@ func New(sessionState *service.SessionState, opts ...Option) Model {
 
 func (m *model) Init() tea.Cmd {
 	return nil
+}
+
+// needsSpinner returns true if any spinner-driving state is active.
+func (m *model) needsSpinner() bool {
+	return m.workingAgent != "" || m.toolsLoading || m.mcpInit
+}
+
+// startSpinner registers the spinner with the animation coordinator if not already active.
+// Safe to call multiple times - only the first call registers.
+func (m *model) startSpinner() tea.Cmd {
+	if m.spinnerActive {
+		return nil // Already registered
+	}
+	m.spinnerActive = true
+	return m.spinner.Init()
+}
+
+// stopSpinner unregisters the spinner from the animation coordinator if no state needs it.
+// Only actually stops if currently active AND no spinner-driving state remains.
+func (m *model) stopSpinner() {
+	if !m.spinnerActive {
+		return // Not registered
+	}
+	if m.needsSpinner() {
+		return // Still needed by another state
+	}
+	m.spinnerActive = false
+	m.spinner.Stop()
 }
 
 func (m *model) SetTokenUsage(event *runtime.TokenUsageEvent) {
@@ -200,7 +246,7 @@ func (m *model) SetQueuedMessages(queuedMessages ...string) {
 // x and y are coordinates relative to the sidebar's top-left corner
 // This does NOT toggle the state - caller should handle that
 func (m *model) HandleClick(x, y int) bool {
-	// Don't handle clicks if session has no content (star isn't shown)
+	// Don't handle star clicks if session has no content (star isn't shown)
 	if !m.sessionHasContent {
 		return false
 	}
@@ -213,8 +259,8 @@ func (m *model) HandleClick(x, y int) bool {
 		return false
 	}
 
-	if m.mode == ModeHorizontal {
-		// In horizontal mode, star is at the beginning of first line (y=0)
+	if m.mode == ModeCollapsed {
+		// In collapsed mode, star is at the beginning of first line (y=0)
 		return y == 0
 	}
 	// In vertical mode, star is below tab title and TabStyle padding
@@ -321,10 +367,17 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		if m.streamCancelled {
 			return m, nil
 		}
-		m.mcpInit = true
-		return m, m.spinner.Init()
+		if !m.mcpInit {
+			m.mcpInit = true
+			cmd := m.startSpinner()
+			return m, cmd
+		}
+		return m, nil
 	case *runtime.MCPInitFinishedEvent:
-		m.mcpInit = false
+		if m.mcpInit {
+			m.mcpInit = false
+			m.stopSpinner() // Will only stop if no other state needs it
+		}
 		return m, nil
 	case *runtime.RAGIndexingStartedEvent:
 		// Ignore if stream was cancelled (stale event from before cancellation)
@@ -350,7 +403,10 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	case *runtime.RAGIndexingCompletedEvent:
 		key := msg.RAGName + "/" + msg.StrategyName
 		slog.Debug("Sidebar received RAG indexing completed event", "rag", msg.RAGName, "strategy", msg.StrategyName)
-		delete(m.ragIndexing, key)
+		if state, exists := m.ragIndexing[key]; exists {
+			state.spinner.Stop()
+			delete(m.ragIndexing, key)
+		}
 		return m, nil
 	case *runtime.SessionTitleEvent:
 		m.sessionTitle = msg.Title
@@ -359,9 +415,11 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		// New stream starting - reset cancelled flag and enable spinner
 		m.streamCancelled = false
 		m.workingAgent = msg.AgentName
-		return m, m.spinner.Init()
+		cmd := m.startSpinner()
+		return m, cmd
 	case *runtime.StreamStoppedEvent:
 		m.workingAgent = ""
+		m.stopSpinner() // Will only stop if no other state needs it
 		return m, nil
 	case *runtime.AgentInfoEvent:
 		m.SetAgentInfo(msg.AgentName, msg.Model, msg.Description)
@@ -379,8 +437,10 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		}
 		m.SetToolsetInfo(msg.AvailableTools, msg.Loading)
 		if msg.Loading {
-			return m, m.spinner.Init()
+			cmd := m.startSpinner()
+			return m, cmd
 		}
+		m.stopSpinner() // Will only stop if no other state needs it
 		return m, nil
 	case messages.StreamCancelledMsg:
 		// Clear all spinner-driving state when stream is cancelled via ESC
@@ -388,8 +448,14 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		m.workingAgent = ""
 		m.toolsLoading = false
 		m.mcpInit = false
-		// Clear any in-flight RAG indexing state
-		for k := range m.ragIndexing {
+		// Force-stop main spinner if it was active (state is now cleared)
+		if m.spinnerActive {
+			m.spinnerActive = false
+			m.spinner.Stop()
+		}
+		// Stop and clear any in-flight RAG indexing spinners
+		for k, state := range m.ragIndexing {
+			state.spinner.Stop()
 			delete(m.ragIndexing, k)
 		}
 		return m, nil
@@ -420,7 +486,7 @@ func (m *model) View() string {
 	if m.mode == ModeVertical {
 		content = m.verticalView()
 	} else {
-		content = m.horizontalView()
+		content = m.collapsedView()
 	}
 
 	// Apply horizontal padding
@@ -446,23 +512,129 @@ func (m *model) starIndicator() string {
 	return styles.StarIndicator(m.sessionStarred)
 }
 
-func (m *model) horizontalView() string {
-	// Compute content width (no scrollbar in horizontal mode)
-	contentWidth := m.contentWidth(false)
-	usageSummary := m.tokenUsageSummary()
+// collapsedLayout holds the computed layout decisions for collapsed mode.
+// Computing this once avoids duplicating the layout logic between CollapsedHeight and collapsedView.
+type collapsedLayout struct {
+	titleWithStar    string
+	workingIndicator string
+	workingDir       string
+	usageSummary     string
 
-	titleWithStar := m.starIndicator() + m.sessionTitle
+	// Layout decisions
+	titleAndIndicatorOnOneLine bool
+	wdAndUsageOnOneLine        bool
+	contentWidth               int
+}
 
-	wi := m.workingIndicatorHorizontal()
-	titleGapWidth := contentWidth - lipgloss.Width(titleWithStar) - lipgloss.Width(wi)
-	title := fmt.Sprintf("%s%*s%s", titleWithStar, titleGapWidth, "", wi)
+func (m *model) computeCollapsedLayout(contentWidth int) collapsedLayout {
+	h := collapsedLayout{
+		titleWithStar:    m.starIndicator() + m.sessionTitle,
+		workingIndicator: m.workingIndicatorCollapsed(),
+		workingDir:       m.workingDirectory,
+		usageSummary:     m.tokenUsageSummary(),
+		contentWidth:     contentWidth,
+	}
 
-	gapWidth := contentWidth - lipgloss.Width(m.workingDirectory) - lipgloss.Width(usageSummary)
-	return lipgloss.JoinVertical(lipgloss.Top, title, fmt.Sprintf("%s%*s%s", styles.MutedStyle.Render(m.workingDirectory), gapWidth, "", usageSummary))
+	titleWidth := lipgloss.Width(h.titleWithStar)
+	wiWidth := lipgloss.Width(h.workingIndicator)
+	wdWidth := lipgloss.Width(h.workingDir)
+	usageWidth := lipgloss.Width(h.usageSummary)
+
+	// Title and indicator fit on one line if:
+	// - no working indicator AND title fits, OR
+	// - both fit together with gap
+	h.titleAndIndicatorOnOneLine = (h.workingIndicator == "" && titleWidth <= contentWidth) ||
+		(h.workingIndicator != "" && titleWidth+minGap+wiWidth <= contentWidth)
+	h.wdAndUsageOnOneLine = wdWidth+minGap+usageWidth <= contentWidth
+
+	return h
+}
+
+func (h collapsedLayout) lineCount() int {
+	lines := 1 // divider
+
+	switch {
+	case h.titleAndIndicatorOnOneLine:
+		lines++
+	case h.workingIndicator == "":
+		// No working indicator but title wraps
+		lines += linesNeeded(lipgloss.Width(h.titleWithStar), h.contentWidth)
+	default:
+		// Title and working indicator on separate lines, each may wrap
+		lines += linesNeeded(lipgloss.Width(h.titleWithStar), h.contentWidth)
+		lines += linesNeeded(lipgloss.Width(h.workingIndicator), h.contentWidth)
+	}
+
+	if h.wdAndUsageOnOneLine {
+		lines++
+	} else {
+		lines += linesNeeded(lipgloss.Width(h.workingDir), h.contentWidth)
+		if h.usageSummary != "" {
+			lines += linesNeeded(lipgloss.Width(h.usageSummary), h.contentWidth)
+		}
+	}
+
+	return lines
+}
+
+func (h collapsedLayout) render() string {
+	var lines []string
+
+	// Title line(s)
+	switch {
+	case h.titleAndIndicatorOnOneLine:
+		if h.workingIndicator == "" {
+			lines = append(lines, h.titleWithStar)
+		} else {
+			gap := h.contentWidth - lipgloss.Width(h.titleWithStar) - lipgloss.Width(h.workingIndicator)
+			lines = append(lines, fmt.Sprintf("%s%*s%s", h.titleWithStar, gap, "", h.workingIndicator))
+		}
+	case h.workingIndicator == "":
+		// No working indicator but title wraps - just output title (lipgloss will wrap)
+		lines = append(lines, h.titleWithStar)
+	default:
+		// Title and working indicator on separate lines
+		lines = append(lines, h.titleWithStar, h.workingIndicator)
+	}
+
+	// Working directory + usage line(s)
+	if h.wdAndUsageOnOneLine {
+		gap := h.contentWidth - lipgloss.Width(h.workingDir) - lipgloss.Width(h.usageSummary)
+		lines = append(lines, fmt.Sprintf("%s%*s%s", styles.MutedStyle.Render(h.workingDir), gap, "", h.usageSummary))
+	} else {
+		lines = append(lines, styles.MutedStyle.Render(h.workingDir))
+		if h.usageSummary != "" {
+			lines = append(lines, h.usageSummary)
+		}
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Top, lines...)
+}
+
+// linesNeeded calculates how many lines are needed to display text of given width
+// within a container of contentWidth. Returns at least 1 line.
+func linesNeeded(textWidth, contentWidth int) int {
+	if contentWidth <= 0 || textWidth <= 0 {
+		return 1
+	}
+	return max(1, (textWidth+contentWidth-1)/contentWidth)
+}
+
+// CollapsedHeight returns the number of lines needed for collapsed mode.
+func (m *model) CollapsedHeight(outerWidth int) int {
+	contentWidth := outerWidth - m.layoutCfg.PaddingLeft - m.layoutCfg.PaddingRight
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+	return m.computeCollapsedLayout(contentWidth).lineCount()
+}
+
+func (m *model) collapsedView() string {
+	return m.computeCollapsedLayout(m.contentWidth(false)).render()
 }
 
 func (m *model) verticalView() string {
-	visibleLines := m.height - headerLines
+	visibleLines := m.height
 
 	// Two-pass rendering: first check if scrollbar is needed
 	// Pass 1: render without scrollbar to count lines
@@ -590,8 +762,8 @@ func (m *model) workingIndicator() string {
 	return strings.Join(indicators, "\n")
 }
 
-// workingIndicatorHorizontal returns a single-line version of the working indicator for horizontal mode
-func (m *model) workingIndicatorHorizontal() string {
+// workingIndicatorCollapsed returns a single-line version of the working indicator for collapsed mode
+func (m *model) workingIndicatorCollapsed() string {
 	var labels []string
 
 	if m.mcpInit {
@@ -880,4 +1052,45 @@ func (m *model) metrics(scrollbarVisible bool) Metrics {
 // is determined during render.
 func (m *model) contentWidth(scrollbarVisible bool) int {
 	return m.metrics(scrollbarVisible).ContentWidth
+}
+
+// IsCollapsed returns whether the sidebar is collapsed
+func (m *model) IsCollapsed() bool {
+	return m.collapsed
+}
+
+// ToggleCollapsed toggles the collapsed state of the sidebar.
+// When expanding, if the preferred width is below minimum (e.g., after drag-to-collapse),
+// it resets to the default width.
+func (m *model) ToggleCollapsed() {
+	m.collapsed = !m.collapsed
+	if !m.collapsed && m.preferredWidth < MinWidth {
+		m.preferredWidth = DefaultWidth
+	}
+}
+
+// SetCollapsed sets the collapsed state directly.
+// When expanding, if the preferred width is below minimum (e.g., after drag-to-collapse),
+// it resets to the default width.
+func (m *model) SetCollapsed(collapsed bool) {
+	m.collapsed = collapsed
+	if !collapsed && m.preferredWidth < MinWidth {
+		m.preferredWidth = DefaultWidth
+	}
+}
+
+// GetPreferredWidth returns the user's preferred width
+func (m *model) GetPreferredWidth() int {
+	return m.preferredWidth
+}
+
+// SetPreferredWidth sets the user's preferred width
+func (m *model) SetPreferredWidth(width int) {
+	m.preferredWidth = width
+}
+
+// ClampWidth ensures width is within valid bounds for the given window inner width
+func (m *model) ClampWidth(width, windowInnerWidth int) int {
+	maxWidth := min(int(float64(windowInnerWidth)*MaxWidthPercent), windowInnerWidth-20)
+	return max(MinWidth, min(width, maxWidth))
 }

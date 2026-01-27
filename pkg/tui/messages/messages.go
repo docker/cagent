@@ -19,6 +19,7 @@ type (
 	ToggleYoloMsg                  struct{}
 	ToggleThinkingMsg              struct{}
 	ToggleHideToolResultsMsg       struct{}
+	ToggleSidebarMsg               struct{} // Toggle sidebar visibility
 	StartShellMsg                  struct{}
 	SwitchAgentMsg                 struct{ AgentName string }
 	OpenSessionBrowserMsg          struct{}

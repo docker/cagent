@@ -39,6 +39,11 @@ func (p *chatPage) handleKeyPress(msg tea.KeyPressMsg) (layout.Model, tea.Cmd, b
 		model, cmd := p.messages.Update(editfile.ToggleDiffViewMsg{})
 		p.messages = model.(messages.Model)
 		return p, cmd, true
+
+	case key.Matches(msg, p.keyMap.ToggleSidebar):
+		p.sidebar.ToggleCollapsed()
+		cmd := p.SetSize(p.width, p.height)
+		return p, cmd, true
 	}
 
 	// Route other keys to focused component
@@ -62,15 +67,32 @@ func (p *chatPage) handleMouseClick(msg tea.MouseClickMsg) (layout.Model, tea.Cm
 		p.isDragging = true
 		return p, nil
 	}
+
+	// Handle sidebar toggle glyph click
+	if msg.Button == tea.MouseLeft && p.isOnSidebarToggleGlyph(msg.X, msg.Y) {
+		p.sidebar.ToggleCollapsed()
+		cmd := p.SetSize(p.width, p.height)
+		return p, cmd
+	}
+
+	// Handle sidebar resize handle click (starts potential drag)
+	if msg.Button == tea.MouseLeft && p.isOnSidebarHandle(msg.X, msg.Y) {
+		p.isDraggingSidebar = true
+		p.sidebarDragStartX = msg.X
+		p.sidebarDragStartWidth = p.sidebar.GetPreferredWidth()
+		p.sidebarDragMoved = false
+		return p, nil
+	}
+
 	// Check if click is on the star in sidebar
 	if msg.Button == tea.MouseLeft && p.handleSidebarClick(msg.X, msg.Y) {
-		// Emit toggle message to persist the change
 		sess := p.app.Session()
 		if sess != nil {
 			return p, core.CmdHandler(msgtypes.ToggleSessionStarMsg{SessionID: sess.ID})
 		}
 		return p, nil
 	}
+
 	cmd := p.routeMouseEvent(msg, msg.Y)
 	return p, cmd
 }
@@ -80,6 +102,17 @@ func (p *chatPage) handleMouseMotion(msg tea.MouseMotionMsg) (layout.Model, tea.
 	if p.isDragging {
 		cmd := p.handleResize(msg.Y)
 		return p, cmd
+	}
+	if p.isDraggingSidebar {
+		delta := p.sidebarDragStartX - msg.X
+		if max(delta, -delta) >= dragThreshold {
+			p.sidebarDragMoved = true
+		}
+		if p.sidebarDragMoved {
+			cmd := p.handleSidebarResize(msg.X)
+			return p, cmd
+		}
+		return p, nil
 	}
 	p.isHoveringHandle = p.isOnResizeLine(msg.Y)
 	cmd := p.routeMouseEvent(msg, msg.Y)
@@ -92,23 +125,57 @@ func (p *chatPage) handleMouseRelease(msg tea.MouseReleaseMsg) (layout.Model, te
 		p.isDragging = false
 		return p, nil
 	}
+	if p.isDraggingSidebar {
+		p.isDraggingSidebar = false
+		return p, nil
+	}
 	cmd := p.routeMouseEvent(msg, msg.Y)
 	return p, cmd
 }
 
 // handleMouseWheel handles mouse wheel events.
 func (p *chatPage) handleMouseWheel(msg tea.MouseWheelMsg) (layout.Model, tea.Cmd) {
-	// Check if mouse is over the sidebar in vertical mode
-	if p.width >= minWindowWidth {
+	sl := p.computeSidebarLayout()
+
+	if sl.mode == sidebarVertical && !p.sidebar.IsCollapsed() {
 		adjustedX := msg.X - styles.AppPaddingLeft
-		innerWidth := p.width - 2
-		chatWidth := max(1, innerWidth-sidebarWidth)
-		if adjustedX >= chatWidth {
+		if sl.isInSidebar(adjustedX) {
 			model, cmd := p.sidebar.Update(msg)
 			p.sidebar = model.(sidebar.Model)
 			return p, cmd
 		}
 	}
+
 	cmd := p.routeMouseEvent(msg, msg.Y)
 	return p, cmd
+}
+
+// handleSidebarResize adjusts sidebar width based on drag position.
+func (p *chatPage) handleSidebarResize(x int) tea.Cmd {
+	innerWidth := p.width - appPaddingHorizontal
+	delta := p.sidebarDragStartX - x
+	newWidth := p.sidebarDragStartWidth + delta
+
+	// Auto-collapse if dragged below minimum
+	if newWidth < sidebar.MinWidth {
+		if !p.sidebar.IsCollapsed() {
+			// Set preferredWidth to 0 so expanding resets to default
+			p.sidebar.SetPreferredWidth(0)
+			p.sidebar.SetCollapsed(true)
+			return p.SetSize(p.width, p.height)
+		}
+		return nil
+	}
+
+	// Auto-expand if dragged back above minimum
+	if p.sidebar.IsCollapsed() {
+		p.sidebar.SetCollapsed(false)
+	}
+
+	newWidth = p.sidebar.ClampWidth(newWidth, innerWidth)
+	if newWidth != p.sidebar.GetPreferredWidth() {
+		p.sidebar.SetPreferredWidth(newWidth)
+		return p.SetSize(p.width, p.height)
+	}
+	return nil
 }

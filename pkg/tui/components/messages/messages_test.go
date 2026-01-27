@@ -13,6 +13,7 @@ import (
 	"github.com/docker/cagent/pkg/chat"
 	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/tools"
+	"github.com/docker/cagent/pkg/tui/animation"
 	"github.com/docker/cagent/pkg/tui/components/reasoningblock"
 	"github.com/docker/cagent/pkg/tui/core/layout"
 	"github.com/docker/cagent/pkg/tui/service"
@@ -664,4 +665,155 @@ func TestRenderCacheInvalidatesOnChildUpdate(t *testing.T) {
 	view2 := m.View()
 	assert.Contains(t, view2, "frame-1")
 	assert.NotEqual(t, view1, view2, "View should change after Update with non-nil child cmd")
+}
+
+func TestRenderCacheInvalidatesOnAnimationTickWithAnimatedContent(t *testing.T) {
+	t.Parallel()
+
+	sessionState := &service.SessionState{}
+	m := NewScrollableView(80, 24, sessionState).(*model)
+	m.SetSize(80, 24)
+
+	// Add a running tool call which has a spinner (animated content)
+	toolMsg := types.ToolCallMessage("root", tools.ToolCall{
+		ID:       "call-1",
+		Function: tools.FunctionCall{Name: "running_tool", Arguments: `{}`},
+	}, tools.Tool{Name: "running_tool", Description: "A running tool"}, types.ToolStatusRunning)
+	m.messages = append(m.messages, toolMsg)
+	m.views = append(m.views, m.createToolCallView(toolMsg))
+	m.renderDirty = true
+
+	// First render
+	view1 := m.View()
+	require.Contains(t, view1, "running_tool")
+
+	// Clear the dirty flag to simulate cached state
+	m.renderDirty = false
+
+	// Send animation tick - should invalidate cache because we have animated content
+	m.Update(animation.TickMsg{Frame: 1})
+
+	// Cache should be marked dirty
+	assert.True(t, m.renderDirty, "renderDirty should be true after animation tick with animated content")
+}
+
+func TestRenderCacheNotInvalidatedOnAnimationTickWithoutAnimatedContent(t *testing.T) {
+	t.Parallel()
+
+	sessionState := &service.SessionState{}
+	m := NewScrollableView(80, 24, sessionState).(*model)
+	m.SetSize(80, 24)
+
+	// Add a completed tool call (no spinner - not animated)
+	toolMsg := types.ToolCallMessage("root", tools.ToolCall{
+		ID:       "call-1",
+		Function: tools.FunctionCall{Name: "completed_tool", Arguments: `{}`},
+	}, tools.Tool{Name: "completed_tool", Description: "A completed tool"}, types.ToolStatusCompleted)
+	m.messages = append(m.messages, toolMsg)
+	m.views = append(m.views, m.createToolCallView(toolMsg))
+	m.renderDirty = true
+
+	// First render
+	view1 := m.View()
+	require.Contains(t, view1, "completed_tool")
+
+	// Clear the dirty flag to simulate cached state
+	m.renderDirty = false
+
+	// Send animation tick - should NOT invalidate cache because no animated content
+	m.Update(animation.TickMsg{Frame: 1})
+
+	// Cache should still be clean (not dirty)
+	assert.False(t, m.renderDirty, "renderDirty should remain false after animation tick without animated content")
+}
+
+func TestHasAnimatedContent(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		setupFunc    func(m *model)
+		wantAnimated bool
+	}{
+		{
+			name:         "empty model",
+			setupFunc:    func(_ *model) {},
+			wantAnimated: false,
+		},
+		{
+			name: "spinner message",
+			setupFunc: func(m *model) {
+				msg := types.Spinner()
+				m.messages = append(m.messages, msg)
+				m.views = append(m.views, m.createMessageView(msg))
+			},
+			wantAnimated: true,
+		},
+		{
+			name: "loading message",
+			setupFunc: func(m *model) {
+				msg := types.Loading("Loading...")
+				m.messages = append(m.messages, msg)
+				m.views = append(m.views, m.createMessageView(msg))
+			},
+			wantAnimated: true,
+		},
+		{
+			name: "pending tool call",
+			setupFunc: func(m *model) {
+				toolMsg := types.ToolCallMessage("root", tools.ToolCall{
+					ID:       "call-1",
+					Function: tools.FunctionCall{Name: "pending_tool", Arguments: `{}`},
+				}, tools.Tool{Name: "pending_tool"}, types.ToolStatusPending)
+				m.messages = append(m.messages, toolMsg)
+				m.views = append(m.views, m.createToolCallView(toolMsg))
+			},
+			wantAnimated: true,
+		},
+		{
+			name: "running tool call",
+			setupFunc: func(m *model) {
+				toolMsg := types.ToolCallMessage("root", tools.ToolCall{
+					ID:       "call-1",
+					Function: tools.FunctionCall{Name: "running_tool", Arguments: `{}`},
+				}, tools.Tool{Name: "running_tool"}, types.ToolStatusRunning)
+				m.messages = append(m.messages, toolMsg)
+				m.views = append(m.views, m.createToolCallView(toolMsg))
+			},
+			wantAnimated: true,
+		},
+		{
+			name: "completed tool call",
+			setupFunc: func(m *model) {
+				toolMsg := types.ToolCallMessage("root", tools.ToolCall{
+					ID:       "call-1",
+					Function: tools.FunctionCall{Name: "completed_tool", Arguments: `{}`},
+				}, tools.Tool{Name: "completed_tool"}, types.ToolStatusCompleted)
+				m.messages = append(m.messages, toolMsg)
+				m.views = append(m.views, m.createToolCallView(toolMsg))
+			},
+			wantAnimated: false,
+		},
+		{
+			name: "assistant message",
+			setupFunc: func(m *model) {
+				msg := types.Agent(types.MessageTypeAssistant, "root", "Hello")
+				m.messages = append(m.messages, msg)
+				m.views = append(m.views, m.createMessageView(msg))
+			},
+			wantAnimated: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			sessionState := &service.SessionState{}
+			m := NewScrollableView(80, 24, sessionState).(*model)
+			m.SetSize(80, 24)
+			tt.setupFunc(m)
+			got := m.hasAnimatedContent()
+			assert.Equal(t, tt.wantAnimated, got)
+		})
+	}
 }

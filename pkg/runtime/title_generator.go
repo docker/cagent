@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 
 	"github.com/docker/cagent/pkg/agent"
@@ -14,8 +15,8 @@ import (
 )
 
 const (
-	titleSystemPrompt     = "You are a helpful AI assistant that generates concise, descriptive titles for conversations. You will be given a conversation history and asked to create a title that captures the main topic."
-	titleUserPromptFormat = "Based on the following message a user sent to an AI assistant, generate a short, descriptive title (maximum 50 characters) that captures the main topic or purpose of the conversation. Return ONLY the title text, nothing else.\n\nUser message: %s\n\n"
+	titleSystemPrompt     = "You are a helpful AI assistant that generates concise, descriptive titles for conversations. You will be given a conversation history and asked to create a single-line title that captures the main topic. Never use newlines or line breaks in your response."
+	titleUserPromptFormat = "Based on the following message a user sent to an AI assistant, generate a short, descriptive title (maximum 50 characters) that captures the main topic or purpose of the conversation. Return ONLY the title text on a single line, nothing else. Do not include any newlines, explanations, or formatting.\n\nUser message: %s\n\n"
 )
 
 type titleGenerator struct {
@@ -82,7 +83,29 @@ func (t *titleGenerator) generate(ctx context.Context, sess *session.Session, fi
 		return
 	}
 
+	// Sanitize the title to ensure it's a single line
+	title = sanitizeTitle(title)
+	if title == "" {
+		return
+	}
+
 	sess.Title = title
 	slog.Debug("Generated session title", "session_id", sess.ID, "title", title)
 	events <- SessionTitle(sess.ID, title)
+}
+
+// sanitizeTitle ensures the title is a single line by taking only the first
+// non-empty line and stripping any control characters that could break TUI rendering.
+func sanitizeTitle(title string) string {
+	// Split by newlines and take the first non-empty line
+	lines := strings.Split(title, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			// Remove any remaining carriage returns
+			line = strings.ReplaceAll(line, "\r", "")
+			return line
+		}
+	}
+	return ""
 }

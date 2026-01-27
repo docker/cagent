@@ -17,7 +17,7 @@ type ToggleDiffViewMsg struct{}
 
 // New creates the edit_file tool UI model.
 func New(msg *types.Message, sessionState *service.SessionState) layout.Model {
-	return toolcommon.NewBase(msg, sessionState, render)
+	return toolcommon.NewBaseWithCollapsed(msg, sessionState, render, renderCollapsed)
 }
 
 // render displays the edit_file tool output in the TUI.
@@ -100,4 +100,52 @@ func render(
 	}
 
 	return content
+}
+
+// renderCollapsed renders a simplified view for collapsed reasoning blocks.
+// Shows only the file path and +N / -M line counts.
+func renderCollapsed(
+	msg *types.Message,
+	s spinner.Spinner,
+	_ *service.SessionState,
+	width,
+	_ int,
+) string {
+	var args builtin.EditFileArgs
+	if err := json.Unmarshal([]byte(msg.ToolCall.Function.Arguments), &args); err != nil {
+		return ""
+	}
+
+	// Error state
+	if msg.ToolStatus == types.ToolStatusError {
+		if msg.Content == "" {
+			return ""
+		}
+		line := fmt.Sprintf(
+			"%s%s %s",
+			toolcommon.Icon(msg, s),
+			styles.ToolNameError.Render(msg.ToolDefinition.DisplayName()),
+			styles.ToolErrorMessageStyle.Render(msg.Content),
+		)
+		return styles.BaseStyle.MaxWidth(width).Render(line)
+	}
+
+	// Count added/removed lines
+	added, removed := countDiffLines(msg.ToolCall, msg.ToolStatus)
+	var diffSummary string
+	if added > 0 || removed > 0 {
+		addStr := styles.DiffAddStyle.Render(fmt.Sprintf("+%d", added))
+		remStr := styles.DiffRemoveStyle.Render(fmt.Sprintf("-%d", removed))
+		diffSummary = fmt.Sprintf(" %s / %s", addStr, remStr)
+	}
+
+	line := fmt.Sprintf(
+		"%s%s %s%s",
+		toolcommon.Icon(msg, s),
+		styles.ToolName.Render(msg.ToolDefinition.DisplayName()),
+		styles.ToolMessageStyle.Render(toolcommon.ShortenPath(args.Path)),
+		diffSummary,
+	)
+
+	return styles.BaseStyle.MaxWidth(width).Render(line)
 }

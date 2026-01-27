@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
@@ -14,18 +15,22 @@ import (
 
 // betaStreamAdapter adapts the Anthropic Beta stream to our interface
 type betaStreamAdapter struct {
-	stream   *ssestream.Stream[anthropic.BetaRawMessageStreamEventUnion]
-	toolCall bool
-	toolID   string
+	stream     *ssestream.Stream[anthropic.BetaRawMessageStreamEventUnion]
+	trackUsage bool
+	toolCall   bool
+	toolID     string
 	// For single retry on context length error
-	retryFn func() *betaStreamAdapter
-	retried bool
+	retryFn            func() *betaStreamAdapter
+	retried            bool
+	getResponseTrailer func() http.Header
 }
 
 // newBetaStreamAdapter creates a new Beta stream adapter
-func newBetaStreamAdapter(stream *ssestream.Stream[anthropic.BetaRawMessageStreamEventUnion]) *betaStreamAdapter {
+func (c *Client) newBetaStreamAdapter(stream *ssestream.Stream[anthropic.BetaRawMessageStreamEventUnion], trackUsage bool) *betaStreamAdapter {
 	return &betaStreamAdapter{
-		stream: stream,
+		stream:             stream,
+		trackUsage:         trackUsage,
+		getResponseTrailer: c.getResponseTrailer,
 	}
 }
 
@@ -111,11 +116,13 @@ func (a *betaStreamAdapter) Recv() (chat.MessageStreamResponse, error) {
 			return response, fmt.Errorf("unknown delta type: %T", deltaVariant)
 		}
 	case anthropic.BetaRawMessageDeltaEvent:
-		response.Usage = &chat.Usage{
-			InputTokens:       eventVariant.Usage.InputTokens,
-			OutputTokens:      eventVariant.Usage.OutputTokens,
-			CachedInputTokens: eventVariant.Usage.CacheReadInputTokens,
-			CacheWriteTokens:  eventVariant.Usage.CacheCreationInputTokens,
+		if a.trackUsage {
+			response.Usage = &chat.Usage{
+				InputTokens:       eventVariant.Usage.InputTokens,
+				OutputTokens:      eventVariant.Usage.OutputTokens,
+				CachedInputTokens: eventVariant.Usage.CacheReadInputTokens,
+				CacheWriteTokens:  eventVariant.Usage.CacheCreationInputTokens,
+			}
 		}
 	case anthropic.BetaRawMessageStopEvent:
 		if a.toolCall {

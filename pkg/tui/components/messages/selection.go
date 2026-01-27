@@ -74,7 +74,7 @@ func (s *selectionState) detectClickType(line, col int) int {
 	now := time.Now()
 	colDiff := col - s.lastClickCol
 	isConsecutive := !s.lastClickTime.IsZero() &&
-		now.Sub(s.lastClickTime) < 500*time.Millisecond &&
+		now.Sub(s.lastClickTime) < styles.DoubleClickThreshold &&
 		line == s.lastClickLine &&
 		colDiff >= -1 && colDiff <= 1
 

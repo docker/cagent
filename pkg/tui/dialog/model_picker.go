@@ -179,9 +179,6 @@ func (d *modelPickerDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	return d, nil
 }
 
-// doubleClickThreshold is the maximum time between clicks to count as a double-click
-const doubleClickThreshold = 400 * time.Millisecond
-
 // handleMouseClick handles mouse click events on the dialog
 func (d *modelPickerDialog) handleMouseClick(msg tea.MouseClickMsg) (layout.Model, tea.Cmd) {
 	// Check if click is on the scrollbar
@@ -197,7 +194,7 @@ func (d *modelPickerDialog) handleMouseClick(msg tea.MouseClickMsg) (layout.Mode
 			now := time.Now()
 
 			// Check for double-click: same index within threshold
-			if modelIdx == d.lastClickIndex && now.Sub(d.lastClickTime) < doubleClickThreshold {
+			if modelIdx == d.lastClickIndex && now.Sub(d.lastClickTime) < styles.DoubleClickThreshold {
 				// Double-click: confirm selection
 				d.selected = modelIdx
 				d.lastClickTime = time.Time{} // Reset to prevent triple-click

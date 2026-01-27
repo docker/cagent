@@ -187,11 +187,13 @@ func (p *chatPage) handleStreamStopped(msg *runtime.StreamStoppedEvent) tea.Cmd 
 	return tea.Batch(p.messages.ScrollToBottom(), spinnerCmd, sidebarCmd, queueCmd, exitCmd)
 }
 
+// handlePartialToolCall processes partial tool call events by rendering each
+// tool call as it streams in. The tool call appears with its name and a static
+// "pending" indicator (not animated) to show it's receiving data.
 func (p *chatPage) handlePartialToolCall(msg *runtime.PartialToolCallEvent) tea.Cmd {
 	p.setPendingResponse(false)
-	spinnerCmd := p.setWorking(true)
 	toolCmd := p.messages.AddOrUpdateToolCall(msg.AgentName, msg.ToolCall, msg.ToolDefinition, types.ToolStatusPending)
-	return tea.Batch(toolCmd, p.messages.ScrollToBottom(), spinnerCmd)
+	return tea.Batch(toolCmd, p.messages.ScrollToBottom())
 }
 
 func (p *chatPage) handleToolCallConfirmation(msg *runtime.ToolCallConfirmationEvent) tea.Cmd {

@@ -14,8 +14,17 @@ const (
 	// Line 0: tab title, Line 1: TabStyle top padding, Line 2: star + title.
 	verticalStarY = 2
 
-	// headerLines is the number of lines reserved for non-scrollable header content.
-	headerLines = 1
+	// minGap is the minimum gap between elements when laying out side-by-side.
+	minGap = 2
+
+	// DefaultWidth is the default sidebar width in vertical mode.
+	DefaultWidth = 40
+
+	// MinWidth is the minimum sidebar width before auto-collapsing.
+	MinWidth = 20
+
+	// MaxWidthPercent is the maximum sidebar width as a percentage of window.
+	MaxWidthPercent = 0.5
 )
 
 // LayoutConfig defines the spacing and sizing parameters for the sidebar.

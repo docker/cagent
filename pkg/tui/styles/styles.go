@@ -2,6 +2,7 @@ package styles
 
 import (
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
@@ -156,7 +157,12 @@ var (
 )
 
 // Base Styles
-const AppPaddingLeft = 1 // Keep in sync with AppStyle padding
+const (
+	AppPaddingLeft = 1 // Keep in sync with AppStyle padding
+
+	// DoubleClickThreshold is the maximum time between clicks to register as a double-click
+	DoubleClickThreshold = 400 * time.Millisecond
+)
 
 var (
 	NoStyle   = lipgloss.NewStyle()

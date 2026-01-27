@@ -15,6 +15,7 @@ import (
 	"github.com/docker/cagent/pkg/app"
 	"github.com/docker/cagent/pkg/audio/transcribe"
 	"github.com/docker/cagent/pkg/runtime"
+	"github.com/docker/cagent/pkg/tui/animation"
 	"github.com/docker/cagent/pkg/tui/commands"
 	"github.com/docker/cagent/pkg/tui/components/completion"
 	"github.com/docker/cagent/pkg/tui/components/notification"
@@ -150,6 +151,19 @@ func (a *appModel) Bindings() []key.Binding {
 // Update handles incoming messages and updates the application state
 func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	// Handle global animation tick - broadcast to all components
+	case animation.TickMsg:
+		var cmds []tea.Cmd
+		// Forward to chat page (which forwards to all child components with animations)
+		updated, cmd := a.chatPage.Update(msg)
+		a.chatPage = updated.(chat.Page)
+		cmds = append(cmds, cmd)
+		// Continue ticking if any animations are still active
+		if animation.HasActive() {
+			cmds = append(cmds, animation.StartTick())
+		}
+		return a, tea.Batch(cmds...)
+
 	// Handle dialog-specific messages first
 	case dialog.OpenDialogMsg, dialog.CloseDialogMsg:
 		u, dialogCmd := a.dialog.Update(msg)

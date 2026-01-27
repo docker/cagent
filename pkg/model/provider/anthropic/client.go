@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"strings"
 
@@ -27,7 +29,20 @@ import (
 // It holds the anthropic client and model config
 type Client struct {
 	base.Config
-	clientFn func(context.Context) (anthropic.Client, error)
+	clientFn         func(context.Context) (anthropic.Client, error)
+	lastHTTPResponse *http.Response
+}
+
+func (c *Client) getResponseTrailer() http.Header {
+	if c.lastHTTPResponse == nil {
+		return nil
+	}
+
+	if c.lastHTTPResponse.Body != nil {
+		_, _ = io.Copy(io.Discard, c.lastHTTPResponse.Body)
+	}
+
+	return c.lastHTTPResponse.Trailer
 }
 
 // adjustMaxTokensForThinking checks if max_tokens needs adjustment for thinking_budget.
@@ -116,7 +131,14 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 		}
 	}
 
-	var clientFn func(context.Context) (anthropic.Client, error)
+	anthropicClient := &Client{
+		Config: base.Config{
+			ModelConfig:  *cfg,
+			ModelOptions: globalOptions,
+			Env:          env,
+		},
+	}
+
 	if gateway := globalOptions.Gateway(); gateway == "" {
 		authToken, _ := env.Get(ctx, "ANTHROPIC_API_KEY")
 		if authToken == "" {
@@ -132,7 +154,7 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 			requestOptions = append(requestOptions, option.WithBaseURL(cfg.BaseURL))
 		}
 		client := anthropic.NewClient(requestOptions...)
-		clientFn = func(context.Context) (anthropic.Client, error) {
+		anthropicClient.clientFn = func(context.Context) (anthropic.Client, error) {
 			return client, nil
 		}
 	} else {
@@ -143,7 +165,7 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 		}
 
 		// When using a Gateway, tokens are short-lived.
-		clientFn = func(ctx context.Context) (anthropic.Client, error) {
+		anthropicClient.clientFn = func(ctx context.Context) (anthropic.Client, error) {
 			// Query a fresh auth token each time the client is used
 			authToken, _ := env.Get(ctx, environment.DockerDesktopTokenEnv)
 			if authToken == "" {
@@ -168,6 +190,7 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 			}
 
 			client := anthropic.NewClient(
+				option.WithResponseInto(&anthropicClient.lastHTTPResponse),
 				option.WithAuthToken(authToken),
 				option.WithAPIKey(authToken),
 				option.WithBaseURL(baseURL),
@@ -180,14 +203,7 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 
 	slog.Debug("Anthropic client created successfully", "model", cfg.Model)
 
-	return &Client{
-		Config: base.Config{
-			ModelConfig:  *cfg,
-			ModelOptions: globalOptions,
-			Env:          env,
-		},
-		clientFn: clientFn,
-	}, nil
+	return anthropicClient, nil
 }
 
 // CreateChatCompletionStream creates a streaming chat completion request
@@ -304,7 +320,7 @@ func (c *Client) CreateChatCompletionStream(
 
 	stream := client.Messages.NewStreaming(ctx, params, betaHeader)
 	trackUsage := c.ModelConfig.TrackUsage == nil || *c.ModelConfig.TrackUsage
-	ad := newStreamAdapter(stream, trackUsage)
+	ad := c.newStreamAdapter(stream, trackUsage)
 
 	// Set up single retry for context length errors
 	ad.retryFn = func() *streamAdapter {
@@ -321,7 +337,7 @@ func (c *Client) CreateChatCompletionStream(
 		slog.Warn("Retrying with clamped max_tokens after context length error", "original max_tokens", maxTokens, "clamped max_tokens", newMaxTokens, "used tokens", used)
 		retryParams := params
 		retryParams.MaxTokens = newMaxTokens
-		return newStreamAdapter(client.Messages.NewStreaming(ctx, retryParams, betaHeader), trackUsage)
+		return c.newStreamAdapter(client.Messages.NewStreaming(ctx, retryParams, betaHeader), trackUsage)
 	}
 
 	slog.Debug("Anthropic chat completion stream created successfully", "model", c.ModelConfig.Model)

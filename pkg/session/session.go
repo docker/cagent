@@ -121,74 +121,13 @@ type MessageUsageRecord struct {
 	Usage     chat.Usage `json:"usage"`
 }
 
-// Permission mode constants
-const (
-	// PermissionModeAsk requires user confirmation each time the tool is called
-	PermissionModeAsk = "ask"
-	// PermissionModeAlwaysAllow auto-approves the tool without user confirmation
-	PermissionModeAlwaysAllow = "always_allow"
-)
-
-// ToolPermission defines permission settings for a single tool
-type ToolPermission struct {
-	// Enabled controls whether the tool is available (default: true if not set)
-	Enabled *bool `json:"enabled,omitempty"`
-	// Mode is the permission mode: "ask" (default) or "always_allow"
-	Mode string `json:"mode,omitempty"`
-}
-
-// PermissionsConfig defines session-level tool permission overrides.
-// It supports both per-tool settings (Tools map) and pattern-based rules (Allow/Deny arrays).
+// PermissionsConfig defines session-level tool permission overrides
+// using pattern-based rules (Allow/Deny arrays).
 type PermissionsConfig struct {
-	// Tools maps tool names to their permission settings.
-	// Takes priority over Allow patterns when a tool is explicitly configured.
-	Tools map[string]ToolPermission `json:"tools,omitempty"`
 	// Allow lists tool name patterns that are auto-approved without user confirmation.
-	// Used as fallback when tool is not in Tools map.
 	Allow []string `json:"allow,omitempty"`
 	// Deny lists tool name patterns that are always rejected.
 	Deny []string `json:"deny,omitempty"`
-}
-
-// GetToolPermission returns the permission settings for a specific tool.
-// Returns nil if the tool is not explicitly configured in the Tools map.
-func (p *PermissionsConfig) GetToolPermission(toolName string) *ToolPermission {
-	if p == nil || p.Tools == nil {
-		return nil
-	}
-	perm, exists := p.Tools[toolName]
-	if !exists {
-		return nil
-	}
-	return &perm
-}
-
-// IsToolEnabled checks if a tool is enabled based on the Tools map.
-// Returns true if the tool is not in the map (not explicitly disabled).
-// Returns the Enabled value if the tool is in the map.
-func (p *PermissionsConfig) IsToolEnabled(toolName string) bool {
-	perm := p.GetToolPermission(toolName)
-	if perm == nil {
-		return true // Not in map, default to enabled
-	}
-	if perm.Enabled == nil {
-		return true // In map but Enabled not set, default to enabled
-	}
-	return *perm.Enabled
-}
-
-// GetToolMode returns the permission mode for a specific tool.
-// Returns empty string if the tool is not in the Tools map.
-// Returns the Mode value if set, otherwise returns PermissionModeAsk as default.
-func (p *PermissionsConfig) GetToolMode(toolName string) string {
-	perm := p.GetToolPermission(toolName)
-	if perm == nil {
-		return "" // Not in map, no mode specified
-	}
-	if perm.Mode == "" {
-		return PermissionModeAsk // Default to ask
-	}
-	return perm.Mode
 }
 
 // Message is a message from an agent

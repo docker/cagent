@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/docker/cagent/pkg/tools"
+	"github.com/docker/cagent/pkg/tui/animation"
 	"github.com/docker/cagent/pkg/tui/service"
 	"github.com/docker/cagent/pkg/tui/types"
 )
@@ -365,20 +366,20 @@ func TestReasoningBlockCompletedToolGracePeriod(t *testing.T) {
 
 	// Complete the tool - this should set the grace period
 	result := &tools.ToolCallResult{Output: "Done!"}
-	cmd := block.UpdateToolResult("call-1", "Done!", types.ToolStatusCompleted, result)
-
-	// The command should include a tick for the fade start
-	require.NotNil(t, cmd, "UpdateToolResult should return a command with fade tick")
+	block.UpdateToolResult("call-1", "Done!", types.ToolStatusCompleted, result)
 
 	// Tool should still be visible immediately after completion (within visible period)
 	view = block.View()
 	stripped = ansi.Strip(view)
 	assert.Contains(t, stripped, "grace_tool", "Completed tool should be visible during visible period")
-	assert.Equal(t, 0, block.GetToolFadeLevel("call-1"), "Tool should not be fading yet")
+	assert.InDelta(t, 0.0, block.GetToolFadeProgress("call-1"), 0.001, "Tool should not be fading yet")
 
 	// Advance time past the total grace period (visible + fade)
 	totalDuration := completedToolVisibleDuration + completedToolFadeDuration
 	fakeNow = fakeNow.Add(totalDuration + time.Second)
+
+	// Send a tick to update fade progress (this is what happens in production)
+	block.Update(animation.TickMsg{Frame: 1})
 
 	// Now the tool should be hidden
 	view = block.View()
@@ -396,7 +397,8 @@ func TestReasoningBlockFadingState(t *testing.T) {
 	originalNowFunc := nowFunc
 	t.Cleanup(func() { nowFunc = originalNowFunc })
 
-	fakeNow := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
+	completionTime := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
+	fakeNow := completionTime
 	nowFunc = func() time.Time { return fakeNow }
 
 	sessionState := &service.SessionState{}
@@ -416,16 +418,19 @@ func TestReasoningBlockFadingState(t *testing.T) {
 	result := &tools.ToolCallResult{Output: "Done!"}
 	block.UpdateToolResult("call-1", "Done!", types.ToolStatusCompleted, result)
 
-	// Initially not fading (level 0)
-	assert.Equal(t, 0, block.GetToolFadeLevel("call-1"), "Tool should not be fading immediately after completion")
+	// Initially not fading (progress 0) - we're in the visible period
+	assert.InDelta(t, 0.0, block.GetToolFadeProgress("call-1"), 0.001, "Tool should not be fading immediately after completion")
 
 	// Capture view before fading
 	viewBeforeFade := block.View()
 
-	// Advance fade by one step
-	cmd := block.AdvanceFade("call-1")
-	require.NotNil(t, cmd, "AdvanceFade should return a command")
-	assert.Equal(t, 1, block.GetToolFadeLevel("call-1"), "Tool should be at fade level 1")
+	// Advance time to just past the visible duration (fade starts)
+	fadeStartTime := completionTime.Add(completedToolVisibleDuration)
+	fakeNow = fadeStartTime.Add(time.Millisecond)
+
+	// Send animation tick to compute fade progress based on elapsed time
+	block.Update(animation.TickMsg{Frame: 1})
+	assert.Greater(t, block.GetToolFadeProgress("call-1"), 0.0, "Tool should have non-zero fade progress just after fade starts")
 
 	// Capture view after fading started
 	viewAfterFade := block.View()
@@ -437,11 +442,26 @@ func TestReasoningBlockFadingState(t *testing.T) {
 	// The raw view (with ANSI codes) should be different due to faded color
 	assert.NotEqual(t, viewBeforeFade, viewAfterFade, "View should change when fading starts")
 
-	// Advance through all fade steps
-	for i := 2; i <= completedToolFadeSteps; i++ {
-		cmd = block.AdvanceFade("call-1")
-		require.NotNil(t, cmd, "AdvanceFade should return a command at step %d", i)
-		assert.Equal(t, i, block.GetToolFadeLevel("call-1"), "Fade level should be %d", i)
+	// Test time-based fade progress at specific timestamps (tick-rate independent)
+	// The fade progress is computed from elapsed time, not from tick count
+	testCases := []struct {
+		name             string
+		elapsed          time.Duration // time since fade start
+		expectedProgress float64
+	}{
+		{"25% through fade", completedToolFadeDuration / 4, 0.25},
+		{"50% through fade", completedToolFadeDuration / 2, 0.5},
+		{"75% through fade", completedToolFadeDuration * 3 / 4, 0.75},
+		{"100% through fade", completedToolFadeDuration, 1.0},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			fakeNow = fadeStartTime.Add(tc.elapsed)
+			block.Update(animation.TickMsg{Frame: 99}) // Frame number doesn't matter for time-based fade
+			assert.InDelta(t, tc.expectedProgress, block.GetToolFadeProgress("call-1"), 0.001,
+				"Fade progress should be %v at %v elapsed", tc.expectedProgress, tc.elapsed)
+		})
 	}
 }
 
@@ -476,32 +496,62 @@ func TestReasoningBlockCompletedToolNoGracePeriodWhenAddedAsCompleted(t *testing
 	assert.Contains(t, stripped, "restored_tool", "Pre-completed tool should be visible in expanded view")
 }
 
-func TestReasoningBlockGraceExpiredMsgContainsBlockID(t *testing.T) {
+func TestReasoningBlockID(t *testing.T) {
+	t.Parallel()
+
+	sessionState := &service.SessionState{}
+	block := New("test-block-123", "root", sessionState)
+	block.SetSize(80, 24)
+
+	// Verify the block ID is correct
+	assert.Equal(t, "test-block-123", block.ID())
+}
+
+func TestReasoningBlockNeedsTick(t *testing.T) {
 	// Not parallel - modifies package-level nowFunc
 
 	// Save original nowFunc and restore after test
 	originalNowFunc := nowFunc
 	t.Cleanup(func() { nowFunc = originalNowFunc })
 
-	fakeNow := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
+	completionTime := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
+	fakeNow := completionTime
 	nowFunc = func() time.Time { return fakeNow }
 
 	sessionState := &service.SessionState{}
-	block := New("test-block-123", "root", sessionState)
+	block := New("test-1", "root", sessionState)
 	block.SetSize(80, 24)
 
-	// Add a running tool call
+	block.SetReasoning("Thinking...")
+
+	// Block with no tools doesn't need tick
+	assert.False(t, block.NeedsTick(), "Block with no tools should not need tick")
+
+	// Add a running tool call - needs tick for spinner
 	toolMsg := types.ToolCallMessage("root", tools.ToolCall{
 		ID:       "call-1",
 		Function: tools.FunctionCall{Name: "test_tool", Arguments: `{}`},
 	}, tools.Tool{Name: "test_tool"}, types.ToolStatusRunning)
 	block.AddToolCall(toolMsg)
+	assert.True(t, block.NeedsTick(), "Block with running tool should need tick")
 
-	// Complete the tool
+	// Complete the tool - still needs tick during visibility/fade window
 	result := &tools.ToolCallResult{Output: "Done!"}
-	cmd := block.UpdateToolResult("call-1", "Done!", types.ToolStatusCompleted, result)
-	require.NotNil(t, cmd, "UpdateToolResult should return a command")
+	block.UpdateToolResult("call-1", "Done!", types.ToolStatusCompleted, result)
+	assert.True(t, block.NeedsTick(), "Block with completed tool in grace period should need tick")
 
-	// Verify the block ID is correct
-	assert.Equal(t, "test-block-123", block.ID())
+	// During visible period - still needs tick
+	fakeNow = completionTime.Add(completedToolVisibleDuration / 2)
+	block.Update(animation.TickMsg{Frame: 1})
+	assert.True(t, block.NeedsTick(), "Block should need tick during visible period")
+
+	// During fade period - still needs tick
+	fakeNow = completionTime.Add(completedToolVisibleDuration + completedToolFadeDuration/2)
+	block.Update(animation.TickMsg{Frame: 2})
+	assert.True(t, block.NeedsTick(), "Block should need tick during fade period")
+
+	// After grace period ends - no longer needs tick
+	fakeNow = completionTime.Add(completedToolVisibleDuration + completedToolFadeDuration + time.Second)
+	block.Update(animation.TickMsg{Frame: 3})
+	assert.False(t, block.NeedsTick(), "Block should not need tick after grace period ends")
 }

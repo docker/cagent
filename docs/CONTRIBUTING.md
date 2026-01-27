@@ -86,10 +86,6 @@ This agent is an *expert Golang developer specializing in the Docker `cagent` mu
 Ask it anything about `cagent`. It can be questions about the current code or about
 improvements to the code. It can also fix issues and implement new features!
 
-## Project Architecture
-
-More info about the architecture behind `cagent` can be found [here](/docs/architecture.md)
-
 ## Add a new model provider
 
 More details on how to add a new model provider can be found in [PROVIDERS.md](/docs/PROVIDERS.md)

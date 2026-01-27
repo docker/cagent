@@ -3,12 +3,11 @@ package spinner
 import (
 	"math/rand/v2"
 	"strings"
-	"sync/atomic"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/docker/cagent/pkg/tui/animation"
 	"github.com/docker/cagent/pkg/tui/core/layout"
 	"github.com/docker/cagent/pkg/tui/styles"
 )
@@ -20,13 +19,6 @@ const (
 	ModeSpinnerOnly
 )
 
-var lastID atomic.Int64
-
-type tickMsg struct {
-	tag int
-	id  int
-}
-
 type Spinner struct {
 	dotsStyle           lipgloss.Style
 	styledSpinnerFrames []string // pre-rendered spinner frames
@@ -34,8 +26,6 @@ type Spinner struct {
 	currentMessage      string
 	lightPosition       int
 	frame               int
-	id                  int
-	tag                 int
 	direction           int // 1 for forward, -1 for backward
 	pauseFrames         int
 }
@@ -84,7 +74,6 @@ func New(mode Mode, dotsStyle lipgloss.Style) Spinner {
 		mode:                mode,
 		currentMessage:      defaultMessages[rand.IntN(len(defaultMessages))],
 		lightPosition:       -3,
-		id:                  int(lastID.Add(1)),
 		direction:           1,
 	}
 }
@@ -94,32 +83,27 @@ func (s Spinner) Reset() Spinner {
 }
 
 func (s Spinner) Update(message tea.Msg) (layout.Model, tea.Cmd) {
-	msg, ok := message.(tickMsg)
-	if !ok || (msg.id > 0 && msg.id != s.id) || (msg.tag > 0 && msg.tag != s.tag) {
-		return s, nil
-	}
-
-	s.tag++
-	s.frame++
-
-	// Light animation only needed for ModeBoth
-	if s.mode == ModeBoth {
-		if s.pauseFrames > 0 {
-			s.pauseFrames--
-			if s.pauseFrames == 0 {
-				s.direction = -1
-			}
-		} else {
-			s.lightPosition += s.direction
-			if s.direction == 1 && s.lightPosition > len([]rune(s.currentMessage))+2 {
-				s.pauseFrames = 6
-			} else if s.direction == -1 && s.lightPosition < -3 {
-				s.direction = 1
+	if msg, ok := message.(animation.TickMsg); ok {
+		// Respond to global animation tick (all spinners advance together)
+		s.frame = msg.Frame
+		// Light animation for ModeBoth spinners
+		if s.mode == ModeBoth {
+			if s.pauseFrames > 0 {
+				s.pauseFrames--
+				if s.pauseFrames == 0 {
+					s.direction = -1
+				}
+			} else {
+				s.lightPosition += s.direction
+				if s.direction == 1 && s.lightPosition > len([]rune(s.currentMessage))+2 {
+					s.pauseFrames = 6
+				} else if s.direction == -1 && s.lightPosition < -3 {
+					s.direction = 1
+				}
 			}
 		}
 	}
-
-	return s, s.Tick()
+	return s, nil
 }
 
 func (s Spinner) View() string {
@@ -131,11 +115,17 @@ func (s Spinner) View() string {
 }
 
 func (s Spinner) SetSize(_, _ int) tea.Cmd { return nil }
-func (s Spinner) Init() tea.Cmd            { return s.Tick() }
-func (s Spinner) Tick() tea.Cmd {
-	return tea.Tick(50*time.Millisecond, func(time.Time) tea.Msg {
-		return tickMsg{id: s.id, tag: s.tag}
-	})
+
+// Init registers the spinner with the animation coordinator.
+// If this is the first active animation, it starts the global tick.
+func (s Spinner) Init() tea.Cmd {
+	return animation.StartTickIfFirst()
+}
+
+// Stop unregisters the spinner from the animation coordinator.
+// Call this when the spinner is no longer active/visible.
+func (s Spinner) Stop() {
+	animation.Unregister()
 }
 
 var spinnerChars = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}

@@ -102,11 +102,12 @@ func ExtractField[T any](field func(T) string) func(string) string {
 }
 
 func Icon(msg *types.Message, inProgress spinner.Spinner) string {
-	if msg.ToolStatus == types.ToolStatusPending || msg.ToolStatus == types.ToolStatusRunning {
-		return styles.NoStyle.MarginLeft(2).Render(inProgress.View())
-	}
-
 	switch msg.ToolStatus {
+	case types.ToolStatusRunning, types.ToolStatusPending:
+		// Animated spinner for both executing and streaming tool calls.
+		// With centralized animation ticks, all spinners share a single tick
+		// so there's no performance penalty for multiple animated spinners.
+		return styles.NoStyle.MarginLeft(2).Render(inProgress.View())
 	case types.ToolStatusCompleted:
 		return styles.ToolCompletedIcon.Render("✓")
 	case types.ToolStatusError:
