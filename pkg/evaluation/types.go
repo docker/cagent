@@ -18,25 +18,28 @@ type EvalCriteria struct {
 // EvalSession extends session.Session with evaluation criteria.
 type EvalSession struct {
 	session.Session
-	Evals EvalCriteria `json:"evals"`
+	Evals      EvalCriteria `json:"evals"`
+	SourcePath string       `json:"-"` // Path to the source eval file (not serialized)
 }
 
 // Result contains the evaluation results for a single test case.
 type Result struct {
-	Title             string   `json:"title"`
-	Question          string   `json:"question"`
-	Response          string   `json:"response"`
-	Cost              float64  `json:"cost"`
-	OutputTokens      int64    `json:"output_tokens"`
-	Size              string   `json:"size"`
-	SizeExpected      string   `json:"size_expected"`
-	ToolCallsScore    float64  `json:"tool_calls_score"`
-	ToolCallsExpected float64  `json:"tool_calls_score_expected"`
-	HandoffsMatch     bool     `json:"handoffs"`
-	RelevancePassed   float64  `json:"relevance"`
-	RelevanceExpected float64  `json:"relevance_expected"`
-	FailedRelevance   []string `json:"failed_relevance,omitempty"`
-	Error             string   `json:"error,omitempty"`
+	InputPath         string           `json:"input_path"`
+	Title             string           `json:"title"`
+	Question          string           `json:"question"`
+	Response          string           `json:"response"`
+	Cost              float64          `json:"cost"`
+	OutputTokens      int64            `json:"output_tokens"`
+	Size              string           `json:"size"`
+	SizeExpected      string           `json:"size_expected"`
+	ToolCallsScore    float64          `json:"tool_calls_score"`
+	ToolCallsExpected float64          `json:"tool_calls_score_expected"`
+	HandoffsMatch     bool             `json:"handoffs"`
+	RelevancePassed   float64          `json:"relevance"`
+	RelevanceExpected float64          `json:"relevance_expected"`
+	FailedRelevance   []string         `json:"failed_relevance,omitempty"`
+	Error             string           `json:"error,omitempty"`
+	RawOutput         []map[string]any `json:"raw_output,omitempty"`
 }
 
 // checkResults returns successes and failures for this result.
