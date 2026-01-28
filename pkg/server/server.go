@@ -53,6 +53,8 @@ func New(ctx context.Context, sessionStore session.Store, runConfig *config.Runt
 	group.POST("/sessions/:id/thinking/toggle", s.toggleSessionThinking)
 	// Update session permissions
 	group.PATCH("/sessions/:id/permissions", s.updateSessionPermissions)
+	// Update session title
+	group.PATCH("/sessions/:id/title", s.updateSessionTitle)
 	// Create a new session
 	group.POST("/sessions", s.createSession)
 	// Delete a session
@@ -237,6 +239,23 @@ func (s *Server) updateSessionPermissions(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{"message": "session permissions updated"})
+}
+
+func (s *Server) updateSessionTitle(c echo.Context) error {
+	sessionID := c.Param("id")
+	var req api.UpdateSessionTitleRequest
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("invalid request body: %v", err))
+	}
+
+	if err := s.sm.UpdateSessionTitle(c.Request().Context(), sessionID, req.Title); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("failed to update session title: %v", err))
+	}
+
+	return c.JSON(http.StatusOK, api.UpdateSessionTitleResponse{
+		ID:    sessionID,
+		Title: req.Title,
+	})
 }
 
 func (s *Server) deleteSession(c echo.Context) error {

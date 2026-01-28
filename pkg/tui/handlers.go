@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -9,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/atotto/clipboard"
 
+	"github.com/docker/cagent/pkg/app"
 	"github.com/docker/cagent/pkg/browser"
 	"github.com/docker/cagent/pkg/evaluation"
 	"github.com/docker/cagent/pkg/modelsdev"
@@ -114,6 +116,41 @@ func (a *appModel) handleToggleSessionStar(sessionID string) (tea.Model, tea.Cmd
 	}
 
 	return a, nil
+}
+
+func (a *appModel) handleSetSessionTitle(title string) (tea.Model, tea.Cmd) {
+	if err := a.application.UpdateSessionTitle(context.Background(), title); err != nil {
+		if errors.Is(err, app.ErrTitleGenerating) {
+			return a, notification.WarningCmd("Title is being generated, please wait")
+		}
+		return a, notification.ErrorCmd(fmt.Sprintf("Failed to set session title: %v", err))
+	}
+	// Title will be updated via SessionTitleEvent emitted by UpdateSessionTitle
+	return a, notification.SuccessCmd(fmt.Sprintf("Title set to: %s", title))
+}
+
+func (a *appModel) handleRegenerateTitle() (tea.Model, tea.Cmd) {
+	sess := a.application.Session()
+	if sess == nil {
+		return a, notification.ErrorCmd("No active session")
+	}
+
+	if len(sess.GetLastUserMessages(1)) == 0 {
+		return a, notification.ErrorCmd("Cannot regenerate title: no user message in session")
+	}
+
+	// Trigger regeneration - returns error if already in progress
+	if err := a.application.RegenerateSessionTitle(context.Background()); err != nil {
+		if errors.Is(err, app.ErrTitleGenerating) {
+			return a, notification.WarningCmd("Title is being generated, please wait")
+		}
+		return a, notification.ErrorCmd(fmt.Sprintf("Failed to regenerate title: %v", err))
+	}
+
+	// Show spinner while regenerating - the spinner will be cleared when SessionTitleEvent arrives
+	spinnerCmd := a.chatPage.SetTitleRegenerating(true)
+
+	return a, tea.Batch(spinnerCmd, notification.SuccessCmd("Regenerating title..."))
 }
 
 func (a *appModel) handleEvalSession(filename string) (tea.Model, tea.Cmd) {

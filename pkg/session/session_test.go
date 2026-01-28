@@ -318,3 +318,79 @@ func TestUpdateLastAssistantMessageUsage_UpdatesOnlyLast(t *testing.T) {
 	assert.InEpsilon(t, 0.02, messages[2].Message.Cost, 0.0001)
 	assert.Equal(t, "new-model", messages[2].Message.Model)
 }
+
+func TestGetLastUserMessages(t *testing.T) {
+	t.Parallel()
+
+	testAgent := &agent.Agent{}
+
+	t.Run("empty session returns empty slice", func(t *testing.T) {
+		t.Parallel()
+		s := New()
+		assert.Empty(t, s.GetLastUserMessages(2))
+	})
+
+	t.Run("session with fewer messages than requested returns all", func(t *testing.T) {
+		t.Parallel()
+		s := New()
+		s.AddMessage(NewAgentMessage(testAgent, &chat.Message{
+			Role:    chat.MessageRoleUser,
+			Content: "Only message",
+		}))
+		msgs := s.GetLastUserMessages(2)
+		assert.Len(t, msgs, 1)
+		assert.Equal(t, "Only message", msgs[0])
+	})
+
+	t.Run("session returns last n user messages in order", func(t *testing.T) {
+		t.Parallel()
+		s := New()
+		s.AddMessage(NewAgentMessage(testAgent, &chat.Message{
+			Role:    chat.MessageRoleUser,
+			Content: "First",
+		}))
+		s.AddMessage(NewAgentMessage(testAgent, &chat.Message{
+			Role:    chat.MessageRoleAssistant,
+			Content: "Response 1",
+		}))
+		s.AddMessage(NewAgentMessage(testAgent, &chat.Message{
+			Role:    chat.MessageRoleUser,
+			Content: "Second",
+		}))
+		s.AddMessage(NewAgentMessage(testAgent, &chat.Message{
+			Role:    chat.MessageRoleAssistant,
+			Content: "Response 2",
+		}))
+		s.AddMessage(NewAgentMessage(testAgent, &chat.Message{
+			Role:    chat.MessageRoleUser,
+			Content: "Third",
+		}))
+
+		msgs := s.GetLastUserMessages(2)
+		assert.Len(t, msgs, 2)
+		assert.Equal(t, "Second", msgs[0]) // Ordered oldest to newest
+		assert.Equal(t, "Third", msgs[1])
+	})
+
+	t.Run("skips empty user messages", func(t *testing.T) {
+		t.Parallel()
+		s := New()
+		s.AddMessage(NewAgentMessage(testAgent, &chat.Message{
+			Role:    chat.MessageRoleUser,
+			Content: "First",
+		}))
+		s.AddMessage(NewAgentMessage(testAgent, &chat.Message{
+			Role:    chat.MessageRoleUser,
+			Content: "   ", // Empty after trim
+		}))
+		s.AddMessage(NewAgentMessage(testAgent, &chat.Message{
+			Role:    chat.MessageRoleUser,
+			Content: "Third",
+		}))
+
+		msgs := s.GetLastUserMessages(2)
+		assert.Len(t, msgs, 2)
+		assert.Equal(t, "First", msgs[0])
+		assert.Equal(t, "Third", msgs[1])
+	})
+}

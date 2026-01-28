@@ -12,6 +12,7 @@ import (
 	"github.com/docker/cagent/pkg/creator"
 	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/session"
+	"github.com/docker/cagent/pkg/sessiontitle"
 	"github.com/docker/cagent/pkg/telemetry"
 	"github.com/docker/cagent/pkg/tui"
 )
@@ -73,6 +74,13 @@ func (f *newFlags) runNewCommand(cmd *cobra.Command, args []string) error {
 }
 
 func runTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, opts ...app.Opt) error {
+	// For local runtime, create and pass a title generator
+	if localRt, ok := rt.(*runtime.LocalRuntime); ok {
+		if model := localRt.CurrentAgent().Model(); model != nil {
+			opts = append(opts, app.WithTitleGenerator(sessiontitle.New(model)))
+		}
+	}
+
 	a := app.New(ctx, rt, sess, opts...)
 	m := tui.New(ctx, a)
 

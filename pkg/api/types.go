@@ -159,3 +159,14 @@ type ResumeElicitationRequest struct {
 	Action  string         `json:"action"`  // "accept", "decline", or "cancel"
 	Content map[string]any `json:"content"` // The submitted form data (only present when action is "accept")
 }
+
+// UpdateSessionTitleRequest represents a request to update a session's title
+type UpdateSessionTitleRequest struct {
+	Title string `json:"title"`
+}
+
+// UpdateSessionTitleResponse represents the response from updating a session's title
+type UpdateSessionTitleResponse struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}

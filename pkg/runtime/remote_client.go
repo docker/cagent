@@ -29,6 +29,9 @@ type RemoteClient interface {
 
 	// RunAgentWithAgentName executes an agent with a specific agent name
 	RunAgentWithAgentName(ctx context.Context, sessionID, agent, agentName string, messages []api.Message) (<-chan Event, error)
+
+	// UpdateSessionTitle updates the title of a session
+	UpdateSessionTitle(ctx context.Context, sessionID, title string) error
 }
 
 // Verify that both clients implement RemoteClient

@@ -1,11 +1,16 @@
 package chat
 
 import (
+	"context"
+	"errors"
+
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/docker/cagent/pkg/app"
 	"github.com/docker/cagent/pkg/tui/components/editor"
 	"github.com/docker/cagent/pkg/tui/components/messages"
+	"github.com/docker/cagent/pkg/tui/components/notification"
 	"github.com/docker/cagent/pkg/tui/components/sidebar"
 	"github.com/docker/cagent/pkg/tui/components/tool/editfile"
 	"github.com/docker/cagent/pkg/tui/core"
@@ -17,6 +22,22 @@ import (
 // handleKeyPress handles keyboard input events for the chat page.
 // Returns the updated model and command, plus a bool indicating if the event was handled.
 func (p *chatPage) handleKeyPress(msg tea.KeyPressMsg) (layout.Model, tea.Cmd, bool) {
+	// When editing title, route keypresses to the sidebar
+	if p.sidebar.IsEditingTitle() {
+		switch msg.Key().Code {
+		case tea.KeyEnter:
+			newTitle := p.sidebar.CommitTitleEdit()
+			cmd := p.persistSessionTitle(newTitle)
+			return p, cmd, true
+		case tea.KeyEscape:
+			p.sidebar.CancelTitleEdit()
+			return p, nil, true
+		default:
+			cmd := p.sidebar.UpdateTitleInput(msg)
+			return p, cmd, true
+		}
+	}
+
 	switch {
 	case key.Matches(msg, p.keyMap.Tab):
 		if p.focusedPanel == PanelEditor {
@@ -61,6 +82,21 @@ func (p *chatPage) handleKeyPress(msg tea.KeyPressMsg) (layout.Model, tea.Cmd, b
 	return p, nil, false
 }
 
+// persistSessionTitle saves the new session title to the store
+func (p *chatPage) persistSessionTitle(newTitle string) tea.Cmd {
+	return func() tea.Msg {
+		if err := p.app.UpdateSessionTitle(context.Background(), newTitle); err != nil {
+			// Show warning if title generation is in progress
+			if errors.Is(err, app.ErrTitleGenerating) {
+				return notification.ShowMsg{Text: "Title is being generated, please wait", Type: notification.TypeWarning}
+			}
+			// Log other errors but don't show them
+			return nil
+		}
+		return nil
+	}
+}
+
 // handleMouseClick handles mouse click events.
 func (p *chatPage) handleMouseClick(msg tea.MouseClickMsg) (layout.Model, tea.Cmd) {
 	if p.isOnResizeHandle(msg.X, msg.Y) {
@@ -84,13 +120,20 @@ func (p *chatPage) handleMouseClick(msg tea.MouseClickMsg) (layout.Model, tea.Cm
 		return p, nil
 	}
 
-	// Check if click is on the star in sidebar
-	if msg.Button == tea.MouseLeft && p.handleSidebarClick(msg.X, msg.Y) {
-		sess := p.app.Session()
-		if sess != nil {
-			return p, core.CmdHandler(msgtypes.ToggleSessionStarMsg{SessionID: sess.ID})
+	// Check if click is on the star or title in sidebar
+	if msg.Button == tea.MouseLeft {
+		clickResult := p.handleSidebarClickType(msg.X, msg.Y)
+		switch clickResult {
+		case sidebar.ClickStar:
+			sess := p.app.Session()
+			if sess != nil {
+				return p, core.CmdHandler(msgtypes.ToggleSessionStarMsg{SessionID: sess.ID})
+			}
+			return p, nil
+		case sidebar.ClickPencil:
+			p.sidebar.BeginTitleEdit()
+			return p, nil
 		}
-		return p, nil
 	}
 
 	cmd := p.routeMouseEvent(msg, msg.Y)

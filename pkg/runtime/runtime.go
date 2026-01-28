@@ -174,7 +174,6 @@ type LocalRuntime struct {
 	elicitationEventsChannel    chan Event             // Current events channel for sending elicitation requests
 	elicitationEventsChannelMux sync.RWMutex           // Protects elicitationEventsChannel
 	ragInitialized              atomic.Bool
-	titleGen                    *titleGenerator
 	sessionCompactor            *sessionCompactor
 	sessionStore                session.Store
 	workingDir                  string   // Working directory for hooks execution
@@ -287,7 +286,6 @@ func New(agents *team.Team, opts ...Opt) (*LocalRuntime, error) {
 		return nil, fmt.Errorf("agent %s has no valid model", defaultAgent.Name())
 	}
 
-	r.titleGen = newTitleGenerator(model)
 	r.sessionCompactor = newSessionCompactor(model, r.sessionStore)
 
 	slog.Debug("Creating new runtime", "agent", r.currentAgent, "available_agents", agents.Size())
@@ -677,8 +675,6 @@ func (r *LocalRuntime) finalizeEventChannel(ctx context.Context, sess *session.S
 	events <- StreamStopped(sess.ID, r.currentAgent)
 
 	telemetry.RecordSessionEnd(ctx)
-
-	r.titleGen.Wait()
 }
 
 // RunStream starts the agent's interaction loop and returns a channel of events
@@ -732,11 +728,6 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 		defer r.finalizeEventChannel(ctx, sess, events)
 
 		r.registerDefaultTools()
-
-		if sess.Title == "" {
-			userMessage := sess.GetLastUserMessageContent()
-			r.titleGen.Generate(ctx, sess, userMessage, events)
-		}
 
 		iteration := 0
 		// Use a runtime copy of maxIterations so we don't modify the session's persistent config

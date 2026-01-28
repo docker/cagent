@@ -111,6 +111,8 @@ type Page interface {
 	GetInputHeight() int
 	// SetSessionStarred updates the sidebar star indicator
 	SetSessionStarred(starred bool)
+	// SetTitleRegenerating sets the title regenerating state on the sidebar
+	SetTitleRegenerating(regenerating bool) tea.Cmd
 	// InsertText inserts text at the current cursor position in the editor
 	InsertText(text string)
 	// SetRecording sets the recording mode on the editor
@@ -959,22 +961,26 @@ func (p *chatPage) SetSessionStarred(starred bool) {
 	p.sidebar.SetSessionStarred(starred)
 }
 
-// handleSidebarClick checks if a click in the sidebar area should toggle the star.
-// Returns true if the click was handled.
-func (p *chatPage) handleSidebarClick(x, y int) bool {
+func (p *chatPage) SetTitleRegenerating(regenerating bool) tea.Cmd {
+	return p.sidebar.SetTitleRegenerating(regenerating)
+}
+
+// handleSidebarClickType checks what was clicked in the sidebar area.
+// Returns the type of click (star, title, or none).
+func (p *chatPage) handleSidebarClickType(x, y int) sidebar.ClickResult {
 	adjustedX := x - styles.AppPaddingLeft
 	sl := p.computeSidebarLayout()
 
 	switch sl.mode {
 	case sidebarCollapsedNarrow, sidebarCollapsed:
-		return p.sidebar.HandleClick(adjustedX, y)
+		return p.sidebar.HandleClickType(adjustedX, y)
 	case sidebarVertical:
 		if sl.isInSidebar(adjustedX) {
-			return p.sidebar.HandleClick(adjustedX-sl.sidebarStartX, y)
+			return p.sidebar.HandleClickType(adjustedX-sl.sidebarStartX, y)
 		}
 	}
 
-	return false
+	return sidebar.ClickNone
 }
 
 // routeMouseEvent routes mouse events to the appropriate component based on coordinates.

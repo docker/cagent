@@ -30,6 +30,7 @@ func (m *mockChatPage) CompactSession(string) tea.Cmd          { return nil }
 func (m *mockChatPage) Cleanup()                               { m.cleanupCalled = true }
 func (m *mockChatPage) GetInputHeight() int                    { return 0 }
 func (m *mockChatPage) SetSessionStarred(bool)                 {}
+func (m *mockChatPage) SetTitleRegenerating(bool) tea.Cmd      { return nil }
 func (m *mockChatPage) InsertText(string)                      {}
 func (m *mockChatPage) SetRecording(bool) tea.Cmd              { return nil }
 func (m *mockChatPage) SendEditorContent() tea.Cmd             { return nil }

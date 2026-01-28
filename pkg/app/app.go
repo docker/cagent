@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -19,6 +20,7 @@ import (
 	"github.com/docker/cagent/pkg/config/types"
 	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/session"
+	"github.com/docker/cagent/pkg/sessiontitle"
 	"github.com/docker/cagent/pkg/tools"
 	mcptools "github.com/docker/cagent/pkg/tools/mcp"
 	"github.com/docker/cagent/pkg/tui/messages"
@@ -32,8 +34,10 @@ type App struct {
 	events                 chan tea.Msg
 	throttleDuration       time.Duration
 	cancel                 context.CancelFunc
-	currentAgentModel      string // Tracks the current agent's model ID from AgentInfoEvent
-	exitAfterFirstResponse bool   // Exit TUI after first assistant response completes
+	currentAgentModel      string                  // Tracks the current agent's model ID from AgentInfoEvent
+	exitAfterFirstResponse bool                    // Exit TUI after first assistant response completes
+	titleGenerating        atomic.Bool             // True when title generation is in progress
+	titleGen               *sessiontitle.Generator // Title generator for local runtime (nil for remote)
 }
 
 // Opt is an option for creating a new App.
@@ -57,6 +61,14 @@ func WithFirstMessageAttachment(path string) Opt {
 func WithExitAfterFirstResponse() Opt {
 	return func(a *App) {
 		a.exitAfterFirstResponse = true
+	}
+}
+
+// WithTitleGenerator sets the title generator for local title generation.
+// If not set, title generation will be handled by the runtime (for remote) or skipped.
+func WithTitleGenerator(gen *sessiontitle.Generator) Opt {
+	return func(a *App) {
+		a.titleGen = gen
 	}
 }
 
@@ -222,6 +234,13 @@ func (a *App) EmitStartupInfo(ctx context.Context, events chan runtime.Event) {
 // Run one agent loop
 func (a *App) Run(ctx context.Context, cancel context.CancelFunc, message string, attachments map[string]string) {
 	a.cancel = cancel
+
+	// If this is the first message and no title exists, start local title generation
+	if a.session.Title == "" && a.titleGen != nil {
+		a.titleGenerating.Store(true)
+		go a.generateTitle(ctx, []string{message})
+	}
+
 	go func() {
 		if len(attachments) > 0 {
 			multiContent := []chat.MessagePart{
@@ -247,6 +266,12 @@ func (a *App) Run(ctx context.Context, cancel context.CancelFunc, message string
 			if ctx.Err() != nil {
 				continue
 			}
+
+			// Clear titleGenerating flag when title is generated (from server for remote runtime)
+			if _, ok := event.(*runtime.SessionTitleEvent); ok {
+				a.titleGenerating.Store(false)
+			}
+
 			a.events <- event
 		}
 	}()
@@ -256,6 +281,23 @@ func (a *App) Run(ctx context.Context, cancel context.CancelFunc, message string
 // This is used for special cases like image attachments.
 func (a *App) RunWithMessage(ctx context.Context, cancel context.CancelFunc, msg *session.Message) {
 	a.cancel = cancel
+
+	// If this is the first message and no title exists, start local title generation
+	if a.session.Title == "" && a.titleGen != nil {
+		a.titleGenerating.Store(true)
+		// Extract text content from the message for title generation
+		userMessage := msg.Message.Content
+		if userMessage == "" && len(msg.Message.MultiContent) > 0 {
+			for _, part := range msg.Message.MultiContent {
+				if part.Type == chat.MessagePartTypeText {
+					userMessage = part.Text
+					break
+				}
+			}
+		}
+		go a.generateTitle(ctx, []string{userMessage})
+	}
+
 	go func() {
 		a.session.AddMessage(msg)
 		for event := range a.runtime.RunStream(ctx, a.session) {
@@ -264,6 +306,12 @@ func (a *App) RunWithMessage(ctx context.Context, cancel context.CancelFunc, msg
 			if ctx.Err() != nil {
 				continue
 			}
+
+			// Clear titleGenerating flag when title is generated (from server for remote runtime)
+			if _, ok := event.(*runtime.SessionTitleEvent); ok {
+				a.titleGenerating.Store(false)
+			}
+
 			a.events <- event
 		}
 	}()
@@ -723,4 +771,118 @@ func (a *App) mergeEvents(events []tea.Msg) []tea.Msg {
 func (a *App) ExportHTML(ctx context.Context, filename string) (string, error) {
 	agentInfo := a.runtime.CurrentAgentInfo(ctx)
 	return export.SessionToFile(a.session, agentInfo.Description, filename)
+}
+
+// UpdateSessionTitle updates the current session's title and persists it.
+// It works with both local and remote runtimes.
+// ErrTitleGenerating is returned when attempting to set a title while generation is in progress.
+var ErrTitleGenerating = fmt.Errorf("title generation in progress, please wait")
+
+func (a *App) UpdateSessionTitle(ctx context.Context, title string) error {
+	if a.session == nil {
+		return fmt.Errorf("no active session")
+	}
+
+	// Prevent manual title edits while generation is in progress
+	if a.titleGenerating.Load() {
+		return ErrTitleGenerating
+	}
+
+	// Update in-memory session
+	a.session.Title = title
+
+	// Check if runtime is a RemoteRuntime and use its UpdateSessionTitle method
+	if remoteRT, ok := a.runtime.(*runtime.RemoteRuntime); ok {
+		if err := remoteRT.UpdateSessionTitle(ctx, title); err != nil {
+			return fmt.Errorf("failed to update session title on remote: %w", err)
+		}
+	} else if store := a.runtime.SessionStore(); store != nil {
+		// For local runtime, persist via session store
+		if err := store.UpdateSession(ctx, a.session); err != nil {
+			return fmt.Errorf("failed to persist session title: %w", err)
+		}
+	}
+
+	// Emit a SessionTitleEvent to update the UI consistently
+	a.events <- runtime.SessionTitle(a.session.ID, title)
+	return nil
+}
+
+// IsTitleGenerating returns true if title generation is currently in progress.
+func (a *App) IsTitleGenerating() bool {
+	return a.titleGenerating.Load()
+}
+
+// generateTitle generates a title using the local title generator.
+// This method always clears the titleGenerating flag when done (success or failure).
+// It should be called in a goroutine.
+func (a *App) generateTitle(ctx context.Context, userMessages []string) {
+	// Always clear the flag when done, whether success or failure
+	defer a.titleGenerating.Store(false)
+
+	if a.titleGen == nil {
+		slog.Debug("No title generator available, skipping title generation")
+		return
+	}
+
+	title, err := a.titleGen.Generate(ctx, a.session.ID, userMessages)
+	if err != nil {
+		slog.Error("Failed to generate session title", "session_id", a.session.ID, "error", err)
+		return
+	}
+
+	if title == "" {
+		return
+	}
+
+	// Update the session title
+	a.session.Title = title
+
+	// Persist the title
+	if remoteRT, ok := a.runtime.(*runtime.RemoteRuntime); ok {
+		if err := remoteRT.UpdateSessionTitle(ctx, title); err != nil {
+			slog.Error("Failed to persist title on remote", "session_id", a.session.ID, "error", err)
+		}
+	} else if store := a.runtime.SessionStore(); store != nil {
+		if err := store.UpdateSession(ctx, a.session); err != nil {
+			slog.Error("Failed to persist title", "session_id", a.session.ID, "error", err)
+		}
+	}
+
+	// Emit the title event to update the UI
+	a.events <- runtime.SessionTitle(a.session.ID, title)
+}
+
+// RegenerateSessionTitle triggers AI-based title regeneration for the current session.
+// Returns ErrTitleGenerating if a title generation is already in progress.
+func (a *App) RegenerateSessionTitle(ctx context.Context) error {
+	if a.session == nil {
+		return fmt.Errorf("no active session")
+	}
+
+	// Check if title generation is already in progress
+	if a.titleGenerating.Load() {
+		return ErrTitleGenerating
+	}
+
+	// For local runtime with title generator, use it directly
+	if a.titleGen != nil {
+		a.titleGenerating.Store(true)
+
+		// Collect user messages for title generation
+		var userMessages []string
+		for _, msg := range a.session.GetAllMessages() {
+			if msg.Message.Role == chat.MessageRoleUser {
+				userMessages = append(userMessages, msg.Message.Content)
+			}
+		}
+
+		go a.generateTitle(ctx, userMessages)
+		return nil
+	}
+
+	// For remote runtime, title regeneration is not yet supported
+	// (the server would need to implement this)
+	slog.Debug("Title regeneration not available for remote runtime", "session_id", a.session.ID)
+	return fmt.Errorf("title regeneration not available")
 }

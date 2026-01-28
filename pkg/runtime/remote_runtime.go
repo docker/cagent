@@ -415,4 +415,12 @@ func (r *RemoteRuntime) SessionStore() session.Store {
 func (r *RemoteRuntime) ResetStartupInfo() {
 }
 
+// UpdateSessionTitle updates the title of the current session on the remote server.
+func (r *RemoteRuntime) UpdateSessionTitle(ctx context.Context, title string) error {
+	if r.sessionID == "" {
+		return fmt.Errorf("cannot update session title: no session ID available")
+	}
+	return r.client.UpdateSessionTitle(ctx, r.sessionID, title)
+}
+
 var _ Runtime = (*RemoteRuntime)(nil)

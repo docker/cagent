@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -139,4 +140,131 @@ func TestApp_NewSession_WithNilSession(t *testing.T) {
 	require.NotNil(t, app.Session(), "NewSession should create a new session")
 	// Default values
 	assert.False(t, app.Session().Thinking, "NewSession with nil should use default thinking=true")
+}
+
+func TestApp_UpdateSessionTitle(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+
+	t.Run("updates title in session", func(t *testing.T) {
+		t.Parallel()
+
+		rt := &mockRuntime{}
+		sess := session.New()
+		events := make(chan tea.Msg, 16)
+		app := &App{
+			runtime: rt,
+			session: sess,
+			events:  events,
+		}
+
+		err := app.UpdateSessionTitle(ctx, "New Title")
+		require.NoError(t, err)
+
+		assert.Equal(t, "New Title", sess.Title)
+
+		// Check that an event was emitted
+		select {
+		case event := <-events:
+			titleEvent, ok := event.(*runtime.SessionTitleEvent)
+			require.True(t, ok, "should emit SessionTitleEvent")
+			assert.Equal(t, "New Title", titleEvent.Title)
+		default:
+			t.Fatal("expected SessionTitleEvent to be emitted")
+		}
+	})
+
+	t.Run("returns error when no session", func(t *testing.T) {
+		t.Parallel()
+
+		rt := &mockRuntime{}
+		app := &App{
+			runtime: rt,
+			session: nil,
+		}
+
+		err := app.UpdateSessionTitle(ctx, "New Title")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no active session")
+	})
+
+	t.Run("returns ErrTitleGenerating when generation in progress", func(t *testing.T) {
+		t.Parallel()
+
+		rt := &mockRuntime{}
+		sess := session.New()
+		events := make(chan tea.Msg, 16)
+		app := &App{
+			runtime: rt,
+			session: sess,
+			events:  events,
+		}
+
+		// Simulate title generation in progress
+		app.titleGenerating.Store(true)
+
+		err := app.UpdateSessionTitle(ctx, "New Title")
+		require.ErrorIs(t, err, ErrTitleGenerating)
+
+		// Title should not be updated
+		assert.Empty(t, sess.Title)
+	})
+}
+
+func TestApp_RegenerateSessionTitle(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+
+	t.Run("returns error when no session", func(t *testing.T) {
+		t.Parallel()
+
+		rt := &mockRuntime{}
+		app := &App{
+			runtime: rt,
+			session: nil,
+		}
+
+		err := app.RegenerateSessionTitle(ctx)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no active session")
+	})
+
+	t.Run("returns error when no title generator is available", func(t *testing.T) {
+		t.Parallel()
+
+		rt := &mockRuntime{}
+		sess := session.New()
+		events := make(chan tea.Msg, 16)
+		app := &App{
+			runtime: rt,
+			session: sess,
+			events:  events,
+			// titleGen is nil - no title generator available
+		}
+
+		err := app.RegenerateSessionTitle(ctx)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "title regeneration not available")
+	})
+
+	t.Run("returns ErrTitleGenerating when already generating", func(t *testing.T) {
+		t.Parallel()
+
+		rt := &mockRuntime{}
+		sess := session.New()
+		events := make(chan tea.Msg, 16)
+		app := &App{
+			runtime: rt,
+			session: sess,
+			events:  events,
+		}
+
+		// Simulate title generation already in progress
+		app.titleGenerating.Store(true)
+
+		err := app.RegenerateSessionTitle(ctx)
+		require.ErrorIs(t, err, ErrTitleGenerating)
+	})
 }

@@ -25,6 +25,8 @@ type (
 	OpenSessionBrowserMsg          struct{}
 	LoadSessionMsg                 struct{ SessionID string }
 	ToggleSessionStarMsg           struct{ SessionID string }         // Toggle star on a session; empty ID means current session
+	SetSessionTitleMsg             struct{ Title string }             // Set session title to specified value
+	RegenerateTitleMsg             struct{}                           // Regenerate the session title using the AI
 	AttachFileMsg                  struct{ FilePath string }          // Attach a file directly or open file picker if empty/directory
 	InsertFileRefMsg               struct{ FilePath string }          // Insert @filepath reference into editor
 	OpenModelPickerMsg             struct{}                           // Open the model picker dialog

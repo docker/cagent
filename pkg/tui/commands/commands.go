@@ -77,6 +77,22 @@ func builtInSessionCommands() []Item {
 			},
 		},
 		{
+			ID:           "session.title",
+			Label:        "Title",
+			SlashCommand: "/title",
+			Description:  "Set or regenerate session title (usage: /title [new title])",
+			Category:     "Session",
+			Execute: func(arg string) tea.Cmd {
+				arg = strings.TrimSpace(arg)
+				if arg == "" {
+					// No argument: regenerate title
+					return core.CmdHandler(messages.RegenerateTitleMsg{})
+				}
+				// With argument: set title
+				return core.CmdHandler(messages.SetSessionTitleMsg{Title: arg})
+			},
+		},
+		{
 			ID:           "session.model",
 			Label:        "Model",
 			SlashCommand: "/model",

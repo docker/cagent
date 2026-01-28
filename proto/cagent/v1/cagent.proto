@@ -30,6 +30,9 @@ service AgentService {
   // ToggleToolApproval toggles the YOLO mode for a session.
   rpc ToggleToolApproval(ToggleToolApprovalRequest) returns (ToggleToolApprovalResponse);
 
+  // UpdateSessionTitle updates the title of a session.
+  rpc UpdateSessionTitle(UpdateSessionTitleRequest) returns (UpdateSessionTitleResponse);
+
   // ResumeElicitation resumes an elicitation request.
   rpc ResumeElicitation(ResumeElicitationRequest) returns (ResumeElicitationResponse);
 
@@ -155,6 +158,7 @@ message DeleteSessionResponse {}
 message ResumeSessionRequest {
   string id = 1;
   string confirmation = 2; // "approve", "approve-session", or "reject"
+  string reason = 3; // optional reason for rejection
 }
 
 // ResumeSessionResponse is the response for ResumeSession.
@@ -167,6 +171,18 @@ message ToggleToolApprovalRequest {
 
 // ToggleToolApprovalResponse is the response for ToggleToolApproval.
 message ToggleToolApprovalResponse {}
+
+// UpdateSessionTitleRequest is the request for UpdateSessionTitle.
+message UpdateSessionTitleRequest {
+  string session_id = 1;
+  string title = 2;
+}
+
+// UpdateSessionTitleResponse is the response for UpdateSessionTitle.
+message UpdateSessionTitleResponse {
+  string session_id = 1;
+  string title = 2;
+}
 
 // ResumeElicitationRequest is the request for ResumeElicitation.
 message ResumeElicitationRequest {

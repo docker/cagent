@@ -266,6 +266,12 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a.handleToggleSessionStar(sessionID)
 
+	case messages.SetSessionTitleMsg:
+		return a.handleSetSessionTitle(msg.Title)
+
+	case messages.RegenerateTitleMsg:
+		return a.handleRegenerateTitle()
+
 	case messages.StartShellMsg:
 		return a.startShell()
 
