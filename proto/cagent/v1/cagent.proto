@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package cagent.v1;
 
+import "google/protobuf/timestamp.proto";
+
 option go_package = "github.com/docker/cagent/gen/proto/cagent/v1;cagentv1";
 
 // AgentService provides operations for managing agents and sessions.
@@ -337,6 +339,16 @@ message TokenUsageEvent {
   string session_id = 1;
   Usage usage = 2;
   string agent_name = 3;
+  SessionMetrics metrics = 4;
+}
+
+message SessionMetrics {
+  int32 user_messages = 1;
+  int32 assistant_messages = 2;
+  int32 tool_calls = 3;
+  int32 tool_errors = 4;
+  google.protobuf.Timestamp started_at = 5;
+  google.protobuf.Timestamp ended_at = 6;
 }
 
 // LastMessageUsage contains per-message usage data for the last message.

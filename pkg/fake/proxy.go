@@ -338,13 +338,14 @@ func SimulatedStreamCopy(c echo.Context, resp *http.Response, chunkDelay time.Du
 	ctx := c.Request().Context()
 	writer := c.Response().Writer
 
-	reader := bufio.NewReaderSize(resp.Body, 64*1024)
+	w := c.Response().Writer
 
-	// Reuse timer to avoid allocations per chunk
-	timer := time.NewTimer(chunkDelay)
-	defer timer.Stop()
-
-	dataPrefix := []byte("data:")
+	rf, ok := w.(io.ReaderFrom)
+	if !ok {
+		// fallback seguro
+		_, err := io.Copy(w, resp.Body)
+		return err
+	}
 
 	for {
 		select {
@@ -352,73 +353,11 @@ func SimulatedStreamCopy(c echo.Context, resp *http.Response, chunkDelay time.Du
 			slog.WarnContext(ctx, "client disconnected, stop streaming")
 			return nil
 		default:
-		}
-
-		line, err := reader.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
-				// Write any remaining data without newline
-				if len(line) > 0 {
-					_, _ = writer.Write(line)
-					c.Response().Flush()
+			n, err := rf.ReadFrom(io.LimitReader(resp.Body, 256))
+			if n > 0 {
+				if flusher, ok := w.(http.Flusher); ok {
+					flusher.Flush()
 				}
-				return nil
-			}
-			return err
-		}
-
-		// Write the line (already includes newline from ReadBytes)
-		if _, err := writer.Write(line); err != nil {
-			return err
-		}
-
-		// Add delay after data lines (SSE events start with "data:")
-		if bytes.HasPrefix(line, dataPrefix) {
-			c.Response().Flush()
-			timer.Reset(chunkDelay)
-			select {
-			case <-ctx.Done():
-				return nil
-			case <-timer.C:
-			}
-		}
-	}
-}
-
-// streamReadResult holds the result of a streaming read operation.
-type streamReadResult struct {
-	n   int64
-	err error
-}
-
-// StreamCopy copies a streaming response to the client.
-// It properly handles context cancellation during blocking reads.
-func StreamCopy(c echo.Context, resp *http.Response) error {
-	ctx := c.Request().Context()
-	writer := c.Response().Writer.(io.ReaderFrom)
-
-	// Use a channel to receive read results from a goroutine.
-	// This allows us to properly select on context cancellation
-	// even when the read is blocking.
-	resultCh := make(chan streamReadResult, 1)
-
-	for {
-		// Start a goroutine to perform the blocking read
-		go func() {
-			n, err := writer.ReadFrom(io.LimitReader(resp.Body, 256))
-			resultCh <- streamReadResult{n: n, err: err}
-		}()
-
-		// Wait for either context cancellation or read completion
-		select {
-		case <-ctx.Done():
-			slog.WarnContext(ctx, "client disconnected, stop streaming")
-			// Close the response body to unblock the read goroutine
-			resp.Body.Close()
-			return nil
-		case result := <-resultCh:
-			if result.n > 0 {
-				c.Response().Flush() // keep flushing to client
 			}
 			if result.err != nil {
 				// io.EOF or context canceled means normal completion

@@ -66,10 +66,8 @@ type Config struct {
 	ModelsGateway string `yaml:"models_gateway,omitempty"`
 	// Aliases maps alias names to alias configurations
 	Aliases map[string]*Alias `yaml:"aliases,omitempty"`
-	// Settings contains global user settings
-	Settings *Settings `yaml:"settings,omitempty"`
-	// CredentialHelper configures an external command to retrieve Docker credentials
-	CredentialHelper *CredentialHelper `yaml:"credential_helper,omitempty"`
+
+	mu sync.RWMutex
 }
 
 // Path returns the path to the config file
@@ -225,11 +223,8 @@ func ValidateAliasName(name string) error {
 }
 
 // SetAlias creates or updates an alias.
-// Returns an error if the alias name or alias configuration is invalid.
-//
-// This method is safe for concurrent use. Writes to the Aliases map
-// are protected by a mutex to avoid concurrent map write panics when
-// aliases are modified from multiple goroutines.
+// Returns an error if the alias name is invalid.
+// This method is concurrency-safe.
 func (c *Config) SetAlias(name string, alias *Alias) error {
 	if err := ValidateAliasName(name); err != nil {
 		return err
