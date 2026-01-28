@@ -943,8 +943,9 @@ Included in `cagent` are a series of built-in tools that can greatly enhance the
 toolsets:
   - type: filesystem # Grants the agent filesystem access
   - type: think # Enables the think tool
-  - type: todo # Enable the todo list tool
+  - type: todo # Enable the simple todo list tool
     shared: boolean # Should the todo list be shared between agents (optional)
+  - type: tasks # Enable the tasks tool with dependencies and persistence (always shared)
   - type: memory # Allows the agent to store memories to a local sqlite db
     path: ./mem.db # Path to the sqlite database for memory storage (optional)
 ```
@@ -965,7 +966,7 @@ agents:
 
 ### Todo Tool
 
-The todo tool helps agents manage task lists:
+The todo tool helps agents manage simple task lists:
 
 ```yaml
 agents:
@@ -973,6 +974,67 @@ agents:
     # ... other config
     toolsets:
       - type: todo
+```
+
+### Tasks Tool
+
+The tasks tool provides advanced task management with dependencies, blocking relationships, and automatic persistence:
+
+```yaml
+agents:
+  root:
+    # ... other config
+    toolsets:
+      - type: tasks
+```
+
+**Features:**
+- **Dependencies**: Tasks can be blocked by other tasks (`blocked_by`)
+- **Status tracking**: `pending`, `in-progress`, `completed`
+- **Blocking enforcement**: Cannot start a blocked task until dependencies are completed
+- **Cycle detection**: Prevents circular dependencies
+- **Automatic persistence**: Tasks persist across sessions, stored in `~/.cagent/tasks/`
+- **Git-aware**: Tasks are shared across all worktrees of the same git repository
+- **Always shared**: All agents automatically share the same task list
+
+**Available tools:**
+- `create_task` - Create a single task with optional dependencies
+- `create_tasks` - Create multiple tasks at once
+- `update_tasks` - Update task status or owner
+- `list_tasks` - List all tasks with visual indicators (✓ done, ■ in-progress, □ pending, ⚠ blocked)
+- `add_task_dependency` - Add dependencies to an existing task
+- `remove_task_dependency` - Remove dependencies from a task
+- `get_blocked_tasks` - List tasks that are currently blocked
+
+**Multi-agent sharing:**
+
+Tasks are automatically shared across all agents - no configuration needed:
+
+```yaml
+agents:
+  coordinator:
+    toolsets:
+      - type: tasks
+    sub_agents: [backend, frontend]
+  backend:
+    toolsets:
+      - type: tasks
+  frontend:
+    toolsets:
+      - type: tasks
+```
+
+**Custom task list ID:**
+
+By default, tasks are stored based on the git repository. You can override this with a custom ID:
+
+```bash
+# Via CLI flag
+cagent run agent.yaml --task-list my-project
+
+# Via environment variable
+export CAGENT_TASK_LIST_ID="my-project"
+cagent run agent.yaml
 ```
 
 ### Memory Tool

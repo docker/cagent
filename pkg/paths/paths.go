@@ -41,3 +41,8 @@ func GetHomeDir() string {
 	}
 	return filepath.Clean(homeDir)
 }
+
+// GetTasksDir returns the directory for storing task lists.
+func GetTasksDir() string {
+	return filepath.Join(GetDataDir(), "tasks")
+}

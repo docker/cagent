@@ -1,0 +1,16 @@
+version: "2"
+
+agents:
+  root:
+    model: openai/gpt-5-mini
+    description: Test agent for tasks with dependencies
+    instruction: |
+      You are a helpful assistant that uses tasks tools with dependencies.
+      
+      When creating tasks:
+      - Use blocked_by to specify dependencies
+      - Use owner to assign tasks
+      
+      Always use the tasks tools to track work.
+    toolsets:
+      - type: tasks
