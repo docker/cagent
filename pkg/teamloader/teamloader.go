@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -12,6 +13,8 @@ import (
 	"github.com/docker/cagent/pkg/config"
 	"github.com/docker/cagent/pkg/config/latest"
 	"github.com/docker/cagent/pkg/js"
+	"github.com/docker/cagent/pkg/memory"
+	_ "github.com/docker/cagent/pkg/memory/sqlite" // Register sqlite driver
 	"github.com/docker/cagent/pkg/model/provider"
 	"github.com/docker/cagent/pkg/model/provider/options"
 	"github.com/docker/cagent/pkg/modelsdev"
@@ -22,6 +25,8 @@ import (
 	"github.com/docker/cagent/pkg/tools/builtin"
 	"github.com/docker/cagent/pkg/tools/codemode"
 )
+
+var nonToolNameChars = regexp.MustCompile(`[^a-zA-Z0-9_-]+`)
 
 var defaultMaxTokens int64 = 32000
 
@@ -82,7 +87,7 @@ func Load(ctx context.Context, agentSource config.Source, runConfig *config.Runt
 
 // LoadWithConfig loads an agent team and returns both the team and config info
 // needed for runtime model switching.
-func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *config.RuntimeConfig, opts ...Opt) (*LoadResult, error) {
+func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *config.RuntimeConfig, opts ...Opt) (res *LoadResult, err error) {
 	var loadOpts loadOptions
 	loadOpts.toolsetRegistry = NewDefaultToolsetRegistry()
 
@@ -111,6 +116,26 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 	env := runConfig.EnvProvider()
 	if err := config.CheckRequiredEnvVars(ctx, cfg, runConfig.ModelsGateway, env); err != nil {
 		return nil, err
+	}
+
+	// Create memory drivers from top-level memory configs
+	memoryDrivers := make(map[string]memory.Driver)
+	defer func() {
+		if err == nil {
+			return
+		}
+		for name, driver := range memoryDrivers {
+			if closeErr := driver.Close(); closeErr != nil {
+				slog.Error("Failed to close memory driver after load failure", "name", name, "error", closeErr)
+			}
+		}
+	}()
+	for name, memCfg := range cfg.Memory {
+		driver, err := memory.CreateDriver(ctx, memCfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create memory driver %q: %w", name, err)
+		}
+		memoryDrivers[name] = driver
 	}
 
 	// Create RAG managers
@@ -175,6 +200,12 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 			agentTools = append(agentTools, ragTools...)
 		}
 
+		// Add memory tools if agent has memory scopes
+		if len(agentConfig.Memory) > 0 {
+			memoryTools := createMemoryToolsForAgent(&agentConfig, memoryDrivers)
+			agentTools = append(agentTools, memoryTools...)
+		}
+
 		opts = append(opts, agent.WithToolSets(agentTools...))
 
 		ag := agent.New(agentConfig.Name, agentConfig.Instruction, opts...)
@@ -224,6 +255,7 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 		Team: team.New(
 			team.WithAgents(agents...),
 			team.WithRAGManagers(ragManagers),
+			team.WithMemoryDrivers(memoryDrivers),
 			team.WithPermissions(permChecker),
 		),
 		Models:             cfg.Models,
@@ -391,4 +423,47 @@ func createRAGToolsForAgent(agentConfig *latest.AgentConfig, allManagers map[str
 	}
 
 	return ragTools
+}
+
+// createMemoryToolsForAgent creates memory tools for an agent, one for each referenced memory scope
+func createMemoryToolsForAgent(agentConfig *latest.AgentConfig, allDrivers map[string]memory.Driver) []tools.ToolSet {
+	if len(agentConfig.Memory) == 0 {
+		return nil
+	}
+
+	var memoryTools []tools.ToolSet
+	multiScope := len(agentConfig.Memory) > 1
+	usedPrefixes := make(map[string]int)
+
+	for _, memName := range agentConfig.Memory {
+		driver, exists := allDrivers[memName]
+		if !exists {
+			slog.Error("Memory scope not found", "memory_scope", memName)
+			continue
+		}
+
+		// Adapt driver to legacy database interface
+		db := memory.NewDatabaseAdapter(driver)
+		var memTool tools.ToolSet
+		if !multiScope {
+			memTool = builtin.NewMemoryTool(db)
+		} else {
+			prefix := nonToolNameChars.ReplaceAllString(memName, "_")
+			if prefix == "" {
+				prefix = "memory"
+			}
+			usedPrefixes[prefix]++
+			if usedPrefixes[prefix] > 1 {
+				prefix = fmt.Sprintf("%s_%d", prefix, usedPrefixes[prefix])
+			}
+			memTool = builtin.NewMemoryToolWithPrefix(db, prefix)
+		}
+		memoryTools = append(memoryTools, memTool)
+
+		slog.Debug("Created memory tool for agent",
+			"memory_scope", memName,
+		)
+	}
+
+	return memoryTools
 }

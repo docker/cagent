@@ -9,14 +9,16 @@ import (
 
 	"github.com/docker/cagent/pkg/agent"
 	"github.com/docker/cagent/pkg/config/types"
+	"github.com/docker/cagent/pkg/memory"
 	"github.com/docker/cagent/pkg/permissions"
 	"github.com/docker/cagent/pkg/rag"
 )
 
 type Team struct {
-	agents      []*agent.Agent
-	ragManagers map[string]*rag.Manager
-	permissions *permissions.Checker
+	agents        []*agent.Agent
+	ragManagers   map[string]*rag.Manager
+	memoryDrivers map[string]memory.Driver
+	permissions   *permissions.Checker
 }
 
 type Opt func(*Team)
@@ -30,6 +32,12 @@ func WithAgents(agents ...*agent.Agent) Opt {
 func WithRAGManagers(managers map[string]*rag.Manager) Opt {
 	return func(t *Team) {
 		t.ragManagers = managers
+	}
+}
+
+func WithMemoryDrivers(drivers map[string]memory.Driver) Opt {
+	return func(t *Team) {
+		t.memoryDrivers = drivers
 	}
 }
 
@@ -127,6 +135,11 @@ func (t *Team) StopToolSets(ctx context.Context) error {
 	for _, agent := range t.agents {
 		if err := agent.StopToolSets(ctx); err != nil {
 			return fmt.Errorf("failed to stop tool sets: %w", err)
+		}
+	}
+	for name, driver := range t.memoryDrivers {
+		if err := driver.Close(); err != nil {
+			slog.Error("Failed to close memory driver", "name", name, "error", err)
 		}
 	}
 	for name, mgr := range t.ragManagers {

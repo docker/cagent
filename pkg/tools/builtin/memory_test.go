@@ -144,3 +144,22 @@ func TestMemoryTool_ParametersAreObjects(t *testing.T) {
 		assert.Equal(t, "object", m["type"])
 	}
 }
+
+func TestMemoryTool_WithPrefix_NamespacesToolNames(t *testing.T) {
+	t.Parallel()
+
+	manager := new(MockDB)
+	toolset := NewMemoryToolWithPrefix(manager, "longterm")
+
+	all, err := toolset.Tools(t.Context())
+	require.NoError(t, err)
+
+	names := make([]string, 0, len(all))
+	for _, tl := range all {
+		names = append(names, tl.Name)
+	}
+
+	assert.Contains(t, names, "longterm_"+ToolNameAddMemory)
+	assert.Contains(t, names, "longterm_"+ToolNameGetMemories)
+	assert.Contains(t, names, "longterm_"+ToolNameDeleteMemory)
+}

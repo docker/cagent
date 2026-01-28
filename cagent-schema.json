@@ -51,6 +51,13 @@
         "$ref": "#/definitions/RAGConfig"
       }
     },
+    "memory": {
+      "type": "object",
+      "description": "Map of memory scope configurations for pluggable memory backends",
+      "additionalProperties": {
+        "$ref": "#/definitions/MemoryConfig"
+      }
+    },
     "metadata": {
       "$ref": "#/definitions/Metadata",
       "description": "Configuration metadata"
@@ -273,6 +280,13 @@
         "rag": {
           "type": "array",
           "description": "List of RAG sources to use for this agent",
+          "items": {
+            "type": "string"
+          }
+        },
+        "memory": {
+          "type": "array",
+          "description": "List of memory scopes to use for this agent",
           "items": {
             "type": "string"
           }
@@ -1296,6 +1310,80 @@
       "required": [
         "strategies"
       ],
+      "additionalProperties": false
+    },
+    "MemoryConfig": {
+      "type": "object",
+      "description": "Memory scope configuration for pluggable memory backends supporting long-term (RAG-style) and short-term (whiteboard) strategies",
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "description": "Memory backend type",
+          "enum": ["sqlite", "neo4j", "qdrant", "redis", "whiteboard"]
+        },
+        "strategy": {
+          "type": "string",
+          "description": "Memory strategy: long_term (persistent RAG-style) or short_term (ephemeral whiteboard)",
+          "enum": ["long_term", "short_term"]
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of this memory scope"
+        },
+        "path": {
+          "type": "string",
+          "description": "File path for file-based backends (sqlite)"
+        },
+        "ttl": {
+          "type": "integer",
+          "description": "Time-to-live in seconds for ephemeral memory (whiteboard, redis)",
+          "minimum": 0
+        },
+        "mode": {
+          "type": "string",
+          "description": "Access mode for the memory",
+          "enum": ["read_write", "read_only", "append_only"]
+        },
+        "connection": {
+          "type": "object",
+          "description": "Connection details for remote backends",
+          "properties": {
+            "url": {
+              "type": "string",
+              "description": "Connection URL for the memory backend"
+            },
+            "database": {
+              "type": "string",
+              "description": "Database name (for backends supporting multiple databases)"
+            },
+            "collection": {
+              "type": "string",
+              "description": "Collection/table name (for vector stores)"
+            },
+            "auth": {
+              "type": "object",
+              "description": "Authentication credentials",
+              "properties": {
+                "username": {
+                  "type": "string",
+                  "description": "Username for basic authentication"
+                },
+                "password": {
+                  "type": "string",
+                  "description": "Password for basic authentication"
+                },
+                "token": {
+                  "type": "string",
+                  "description": "Token for token-based authentication"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
       "additionalProperties": false
     }
   }

@@ -18,6 +18,7 @@ type Config struct {
 	Providers   map[string]ProviderConfig `json:"providers,omitempty"`
 	Models      map[string]ModelConfig    `json:"models,omitempty"`
 	RAG         map[string]RAGConfig      `json:"rag,omitempty"`
+	Memory      map[string]MemoryConfig   `json:"memory,omitempty"`
 	Metadata    Metadata                  `json:"metadata,omitempty"`
 	Permissions *PermissionsConfig        `json:"permissions,omitempty"`
 }
@@ -119,6 +120,7 @@ type AgentConfig struct {
 	SubAgents               []string          `json:"sub_agents,omitempty"`
 	Handoffs                []string          `json:"handoffs,omitempty"`
 	RAG                     []string          `json:"rag,omitempty"`
+	Memory                  []string          `json:"memory,omitempty"`
 	AddDate                 bool              `json:"add_date,omitempty"`
 	AddEnvironmentInfo      bool              `json:"add_environment_info,omitempty"`
 	CodeModeTools           bool              `json:"code_mode_tools,omitempty"`
@@ -1002,4 +1004,46 @@ func (h *HookDefinition) validate(prefix string, index int) error {
 	}
 
 	return nil
+}
+
+// MemoryConfig represents a named memory scope configuration.
+// Memory scopes define how agents store and retrieve information.
+type MemoryConfig struct {
+	// Kind specifies the memory backend type: sqlite, whiteboard, neo4j, qdrant, redis.
+	Kind string `json:"kind"`
+	// Strategy specifies the memory strategy: "long_term" (persistent RAG-style) or "short_term" (ephemeral whiteboard).
+	// Default is "long_term" for sqlite/neo4j/qdrant, "short_term" for whiteboard/redis.
+	Strategy string `json:"strategy,omitempty"`
+	// Description is an optional human-readable description of this memory scope.
+	Description string `json:"description,omitempty"`
+	// Connection holds connection details for remote backends.
+	Connection *MemoryConnectionConfig `json:"connection,omitempty"`
+	// Path is the file path for file-based backends like sqlite.
+	Path string `json:"path,omitempty"`
+	// TTL is the time-to-live in seconds for ephemeral memory (e.g., whiteboard). 0 means no expiry.
+	TTL int `json:"ttl,omitempty"`
+	// Mode specifies the access mode: "read_write" (default), "read_only", or "append_only" (event-log style).
+	Mode string `json:"mode,omitempty"`
+}
+
+// MemoryConnectionConfig holds connection details for remote memory backends.
+type MemoryConnectionConfig struct {
+	// URL is the connection URL for the memory backend.
+	URL string `json:"url"`
+	// Database is the database name (for backends that support multiple databases).
+	Database string `json:"database,omitempty"`
+	// Collection is the collection/table name (for vector stores).
+	Collection string `json:"collection,omitempty"`
+	// Auth holds authentication credentials.
+	Auth *MemoryAuthConfig `json:"auth,omitempty"`
+}
+
+// MemoryAuthConfig holds authentication credentials for memory backends.
+type MemoryAuthConfig struct {
+	// Username for basic authentication.
+	Username string `json:"username,omitempty"`
+	// Password for basic authentication.
+	Password string `json:"password,omitempty"`
+	// Token for token-based authentication.
+	Token string `json:"token,omitempty"`
 }

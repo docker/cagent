@@ -3,6 +3,7 @@ package teamloader
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -12,13 +13,28 @@ import (
 	"github.com/docker/cagent/pkg/environment"
 	"github.com/docker/cagent/pkg/gateway"
 	"github.com/docker/cagent/pkg/js"
-	"github.com/docker/cagent/pkg/memory/database/sqlite"
+	"github.com/docker/cagent/pkg/memory"
+	_ "github.com/docker/cagent/pkg/memory/sqlite" // Register sqlite driver
 	"github.com/docker/cagent/pkg/path"
 	"github.com/docker/cagent/pkg/tools"
 	"github.com/docker/cagent/pkg/tools/a2a"
 	"github.com/docker/cagent/pkg/tools/builtin"
 	"github.com/docker/cagent/pkg/tools/mcp"
 )
+
+type toolSetWithCloser struct {
+	tools.ToolSet
+	closer io.Closer
+}
+
+func (t toolSetWithCloser) Stop(ctx context.Context) error {
+	stopErr := t.ToolSet.Stop(ctx)
+	closeErr := t.closer.Close()
+	if stopErr != nil {
+		return stopErr
+	}
+	return closeErr
+}
 
 // ToolsetCreator is a function that creates a toolset based on the provided configuration
 type ToolsetCreator func(ctx context.Context, toolset latest.Toolset, parentDir string, runConfig *config.RuntimeConfig) (tools.ToolSet, error)
@@ -80,7 +96,7 @@ func createTodoTool(_ context.Context, toolset latest.Toolset, _ string, _ *conf
 	return builtin.NewTodoTool(), nil
 }
 
-func createMemoryTool(_ context.Context, toolset latest.Toolset, parentDir string, runConfig *config.RuntimeConfig) (tools.ToolSet, error) {
+func createMemoryTool(ctx context.Context, toolset latest.Toolset, parentDir string, runConfig *config.RuntimeConfig) (tools.ToolSet, error) {
 	var memoryPath string
 	if filepath.IsAbs(toolset.Path) {
 		memoryPath = ""
@@ -98,12 +114,23 @@ func createMemoryTool(_ context.Context, toolset latest.Toolset, parentDir strin
 		return nil, fmt.Errorf("failed to create memory database directory: %w", err)
 	}
 
-	db, err := sqlite.NewMemoryDatabase(validatedMemoryPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create memory database: %w", err)
+	// Use new driver-based approach
+	cfg := latest.MemoryConfig{
+		Kind: "sqlite",
+		Path: validatedMemoryPath,
 	}
 
-	return builtin.NewMemoryTool(db), nil
+	driver, err := memory.CreateDriver(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create memory driver: %w", err)
+	}
+
+	// Adapt new driver to legacy database interface
+	db := memory.NewDatabaseAdapter(driver)
+	return toolSetWithCloser{
+		ToolSet: builtin.NewMemoryTool(db),
+		closer:  driver,
+	}, nil
 }
 
 func createThinkTool(_ context.Context, _ latest.Toolset, _ string, _ *config.RuntimeConfig) (tools.ToolSet, error) {
