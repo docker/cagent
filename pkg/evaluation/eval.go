@@ -52,12 +52,16 @@ func NewRunner(agentSource config.Source, runConfig *config.RuntimeConfig, evals
 }
 
 // Evaluate is the main entry point for running evaluations.
-func Evaluate(ctx context.Context, out io.Writer, isTTY bool, ttyFd int, agentFilename, evalsDir string, runConfig *config.RuntimeConfig, concurrency int, judgeModel provider.Provider, only []string) (*EvalRun, error) {
-	return EvaluateWithName(ctx, out, isTTY, ttyFd, GenerateRunName(), agentFilename, evalsDir, runConfig, concurrency, judgeModel, only)
+// ttyOut is used for progress bar rendering (should be the console/TTY).
+// out is used for results and status messages (can be tee'd to a log file).
+func Evaluate(ctx context.Context, ttyOut, out io.Writer, isTTY bool, ttyFd int, agentFilename, evalsDir string, runConfig *config.RuntimeConfig, concurrency int, judgeModel provider.Provider, only []string) (*EvalRun, error) {
+	return EvaluateWithName(ctx, ttyOut, out, isTTY, ttyFd, GenerateRunName(), agentFilename, evalsDir, runConfig, concurrency, judgeModel, only)
 }
 
 // EvaluateWithName runs evaluations with a specified run name.
-func EvaluateWithName(ctx context.Context, out io.Writer, isTTY bool, ttyFd int, runName, agentFilename, evalsDir string, runConfig *config.RuntimeConfig, concurrency int, judgeModel provider.Provider, only []string) (*EvalRun, error) {
+// ttyOut is used for progress bar rendering (should be the console/TTY).
+// out is used for results and status messages (can be tee'd to a log file).
+func EvaluateWithName(ctx context.Context, ttyOut, out io.Writer, isTTY bool, ttyFd int, runName, agentFilename, evalsDir string, runConfig *config.RuntimeConfig, concurrency int, judgeModel provider.Provider, only []string) (*EvalRun, error) {
 	agentSource, err := config.Resolve(agentFilename)
 	if err != nil {
 		return nil, fmt.Errorf("resolving agent: %w", err)
@@ -73,7 +77,7 @@ func EvaluateWithName(ctx context.Context, out io.Writer, isTTY bool, ttyFd int,
 	fmt.Fprintf(out, "Evaluation run: %s\n", runName)
 
 	startTime := time.Now()
-	results, err := runner.Run(ctx, out, isTTY)
+	results, err := runner.Run(ctx, ttyOut, out, isTTY)
 	duration := time.Since(startTime)
 
 	summary := computeSummary(results)
@@ -101,7 +105,9 @@ type workItem struct {
 }
 
 // Run executes all evaluations concurrently and returns results.
-func (r *Runner) Run(ctx context.Context, out io.Writer, isTTY bool) ([]Result, error) {
+// ttyOut is used for progress bar rendering (should be the console/TTY).
+// out is used for results and status messages (can be tee'd to a log file).
+func (r *Runner) Run(ctx context.Context, ttyOut, out io.Writer, isTTY bool) ([]Result, error) {
 	fmt.Fprintln(out, "Loading evaluation sessions...")
 	evals, err := r.loadEvalSessions(ctx)
 	if err != nil {
@@ -109,7 +115,7 @@ func (r *Runner) Run(ctx context.Context, out io.Writer, isTTY bool) ([]Result, 
 	}
 	fmt.Fprintf(out, "Running %d evaluations with concurrency %d\n\n", len(evals), r.concurrency)
 
-	progress := newProgressBar(out, r.ttyFd, len(evals), isTTY)
+	progress := newProgressBar(ttyOut, out, r.ttyFd, len(evals), isTTY)
 	progress.start()
 	defer progress.stop()
 
