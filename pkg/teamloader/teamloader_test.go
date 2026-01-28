@@ -101,10 +101,10 @@ func TestLoadExamples(t *testing.T) {
 	}
 
 	// Load all the examples.
+	// Note: don't use t.Parallel() to avoid SQLite lock contention when
+	// multiple RAG examples share the same relative database paths (e.g., ./bm25.db).
 	for _, agentFilename := range examples {
 		t.Run(agentFilename, func(t *testing.T) {
-			t.Parallel()
-
 			agentSource, err := config.Resolve(agentFilename)
 			require.NoError(t, err)
 
