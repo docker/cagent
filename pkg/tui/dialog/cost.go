@@ -202,17 +202,17 @@ func (d *costDialog) renderContent(contentWidth, maxHeight int) string {
 		RenderTitle("Session Cost Details", contentWidth, styles.DialogTitleStyle),
 		RenderSeparator(contentWidth),
 		"",
-		sectionStyle.Render("Total"),
+		sectionStyle().Render("Total"),
 		"",
-		accentStyle.Render(formatCost(data.total.cost)),
+		accentStyle().Render(formatCost(data.total.cost)),
 		d.renderInputLine(data.total, true),
-		fmt.Sprintf("%s %s", labelStyle.Render("output:"), valueStyle.Render(formatTokenCount(data.total.OutputTokens))),
+		fmt.Sprintf("%s %s", labelStyle().Render("output:"), valueStyle().Render(formatTokenCount(data.total.OutputTokens))),
 		"",
 	}
 
 	// By Model Section
 	if len(data.models) > 0 {
-		lines = append(lines, sectionStyle.Render("By Model"), "")
+		lines = append(lines, sectionStyle().Render("By Model"), "")
 		for _, m := range data.models {
 			lines = append(lines, d.renderUsageLine(m))
 		}
@@ -221,7 +221,7 @@ func (d *costDialog) renderContent(contentWidth, maxHeight int) string {
 
 	// By Message Section
 	if len(data.messages) > 0 {
-		lines = append(lines, sectionStyle.Render("By Message"), "")
+		lines = append(lines, sectionStyle().Render("By Message"), "")
 		for _, m := range data.messages {
 			lines = append(lines, d.renderUsageLine(m))
 		}
@@ -235,9 +235,9 @@ func (d *costDialog) renderContent(contentWidth, maxHeight int) string {
 }
 
 func (d *costDialog) renderInputLine(u totalUsage, showBreakdown bool) string {
-	line := fmt.Sprintf("%s %s", labelStyle.Render("input:"), valueStyle.Render(formatTokenCount(u.totalInput())))
+	line := fmt.Sprintf("%s %s", labelStyle().Render("input:"), valueStyle().Render(formatTokenCount(u.totalInput())))
 	if showBreakdown && (u.CachedInputTokens > 0 || u.CacheWriteTokens > 0) {
-		line += valueStyle.Render(fmt.Sprintf(" (%s new + %s cached + %s cache write)",
+		line += valueStyle().Render(fmt.Sprintf(" (%s new + %s cached + %s cache write)",
 			formatTokenCount(u.InputTokens),
 			formatTokenCount(u.CachedInputTokens),
 			formatTokenCount(u.CacheWriteTokens)))
@@ -247,12 +247,12 @@ func (d *costDialog) renderInputLine(u totalUsage, showBreakdown bool) string {
 
 func (d *costDialog) renderUsageLine(u totalUsage) string {
 	return fmt.Sprintf("%s  %s %s  %s %s  %s",
-		accentStyle.Render(padRight(formatCostPadded(u.cost))),
-		labelStyle.Render("input:"),
-		valueStyle.Render(padRight(formatTokenCount(u.totalInput()))),
-		labelStyle.Render("output:"),
-		valueStyle.Render(padRight(formatTokenCount(u.OutputTokens))),
-		accentStyle.Render(u.label))
+		accentStyle().Render(padRight(formatCostPadded(u.cost))),
+		labelStyle().Render("input:"),
+		valueStyle().Render(padRight(formatTokenCount(u.totalInput()))),
+		labelStyle().Render("output:"),
+		valueStyle().Render(padRight(formatTokenCount(u.OutputTokens))),
+		accentStyle().Render(u.label))
 }
 
 func (d *costDialog) applyScrolling(allLines []string, contentWidth, maxHeight int) string {
@@ -323,13 +323,22 @@ func (d *costDialog) renderPlainText() string {
 	return strings.Join(lines, "\n")
 }
 
-// Styles
-var (
-	sectionStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(styles.ColorTextSecondary))
-	labelStyle   = lipgloss.NewStyle().Bold(true)
-	valueStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(styles.ColorTextSecondary))
-	accentStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(styles.ColorHighlight))
-)
+// Style getters - use functions to pick up theme changes dynamically
+func sectionStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Bold(true).Foreground(styles.TextSecondary)
+}
+
+func labelStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Bold(true)
+}
+
+func valueStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(styles.TextSecondary)
+}
+
+func accentStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(styles.Highlight)
+}
 
 func formatCost(cost float64) string {
 	if cost < 0.0001 {

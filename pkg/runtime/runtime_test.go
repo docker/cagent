@@ -177,7 +177,7 @@ func runSession(t *testing.T, sess *session.Session, stream *mockStream) []Event
 	root := agent.New("root", "You are a test agent", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	sess.Title = "Unit Test"
@@ -213,13 +213,22 @@ func TestSimple(t *testing.T) {
 
 	events := runSession(t, sess, stream)
 
+	// Extract the actual message from MessageAddedEvent to use in comparison
+	// (it contains dynamic fields like CreatedAt that we can't predict)
+	require.Len(t, events, 9)
+	msgAdded := events[6].(*MessageAddedEvent)
+	require.NotNil(t, msgAdded.Message)
+	require.Equal(t, "Hello", msgAdded.Message.Message.Content)
+	require.Equal(t, chat.MessageRoleAssistant, msgAdded.Message.Message.Role)
+
 	expectedEvents := []Event{
 		AgentInfo("root", "test/mock-model", "", ""),
 		TeamInfo([]AgentDetails{{Name: "root", Provider: "test", Model: "mock-model"}}, "root"),
 		ToolsetInfo(0, false, "root"),
-		UserMessage("Hi"),
+		UserMessage("Hi", sess.ID),
 		StreamStarted(sess.ID, "root"),
 		AgentChoice("root", "Hello"),
+		MessageAdded(sess.ID, msgAdded.Message, "root"),
 		TokenUsageWithMessage(sess.ID, "root", 3, 2, 5, 0, 0, &MessageUsage{
 			Usage: chat.Usage{InputTokens: 3, OutputTokens: 2},
 			Model: "test/mock-model",
@@ -244,17 +253,24 @@ func TestMultipleContentChunks(t *testing.T) {
 
 	events := runSession(t, sess, stream)
 
+	// Extract the actual message from MessageAddedEvent to use in comparison
+	// (it contains dynamic fields like CreatedAt that we can't predict)
+	require.Len(t, events, 13)
+	msgAdded := events[10].(*MessageAddedEvent)
+	require.NotNil(t, msgAdded.Message)
+
 	expectedEvents := []Event{
 		AgentInfo("root", "test/mock-model", "", ""),
 		TeamInfo([]AgentDetails{{Name: "root", Provider: "test", Model: "mock-model"}}, "root"),
 		ToolsetInfo(0, false, "root"),
-		UserMessage("Please greet me"),
+		UserMessage("Please greet me", sess.ID),
 		StreamStarted(sess.ID, "root"),
 		AgentChoice("root", "Hello "),
 		AgentChoice("root", "there, "),
 		AgentChoice("root", "how "),
 		AgentChoice("root", "are "),
 		AgentChoice("root", "you?"),
+		MessageAdded(sess.ID, msgAdded.Message, "root"),
 		TokenUsageWithMessage(sess.ID, "root", 8, 12, 20, 0, 0, &MessageUsage{
 			Usage: chat.Usage{InputTokens: 8, OutputTokens: 12},
 			Model: "test/mock-model",
@@ -277,15 +293,22 @@ func TestWithReasoning(t *testing.T) {
 
 	events := runSession(t, sess, stream)
 
+	// Extract the actual message from MessageAddedEvent to use in comparison
+	// (it contains dynamic fields like CreatedAt that we can't predict)
+	require.Len(t, events, 11)
+	msgAdded := events[8].(*MessageAddedEvent)
+	require.NotNil(t, msgAdded.Message)
+
 	expectedEvents := []Event{
 		AgentInfo("root", "test/mock-model", "", ""),
 		TeamInfo([]AgentDetails{{Name: "root", Provider: "test", Model: "mock-model"}}, "root"),
 		ToolsetInfo(0, false, "root"),
-		UserMessage("Hi"),
+		UserMessage("Hi", sess.ID),
 		StreamStarted(sess.ID, "root"),
 		AgentChoiceReasoning("root", "Let me think about this..."),
 		AgentChoiceReasoning("root", " I should respond politely."),
 		AgentChoice("root", "Hello, how can I help you?"),
+		MessageAdded(sess.ID, msgAdded.Message, "root"),
 		TokenUsageWithMessage(sess.ID, "root", 10, 15, 25, 0, 0, &MessageUsage{
 			Usage: chat.Usage{InputTokens: 10, OutputTokens: 15},
 			Model: "test/mock-model",
@@ -309,16 +332,23 @@ func TestMixedContentAndReasoning(t *testing.T) {
 
 	events := runSession(t, sess, stream)
 
+	// Extract the actual message from MessageAddedEvent to use in comparison
+	// (it contains dynamic fields like CreatedAt that we can't predict)
+	require.Len(t, events, 12)
+	msgAdded := events[9].(*MessageAddedEvent)
+	require.NotNil(t, msgAdded.Message)
+
 	expectedEvents := []Event{
 		AgentInfo("root", "test/mock-model", "", ""),
 		TeamInfo([]AgentDetails{{Name: "root", Provider: "test", Model: "mock-model"}}, "root"),
 		ToolsetInfo(0, false, "root"),
-		UserMessage("Hi there"),
+		UserMessage("Hi there", sess.ID),
 		StreamStarted(sess.ID, "root"),
 		AgentChoiceReasoning("root", "The user wants a greeting"),
 		AgentChoice("root", "Hello!"),
 		AgentChoiceReasoning("root", " I should be friendly"),
 		AgentChoice("root", " How can I help you today?"),
+		MessageAdded(sess.ID, msgAdded.Message, "root"),
 		TokenUsageWithMessage(sess.ID, "root", 15, 20, 35, 0, 0, &MessageUsage{
 			Usage: chat.Usage{InputTokens: 15, OutputTokens: 20},
 			Model: "test/mock-model",
@@ -352,7 +382,7 @@ func TestErrorEvent(t *testing.T) {
 	root := agent.New("root", "You are a test agent", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	sess := session.New(session.WithUserMessage("Hi"))
@@ -388,7 +418,7 @@ func TestContextCancellation(t *testing.T) {
 	root := agent.New("root", "You are a test agent", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	sess := session.New(session.WithUserMessage("Hi"))
@@ -615,7 +645,7 @@ func TestCompaction(t *testing.T) {
 	tm := team.New(team.WithAgents(root))
 
 	// Enable compaction and provide a model store with context limit = 100
-	rt, err := New(tm, WithSessionCompaction(true), WithModelStore(mockModelStoreWithLimit{limit: 100}))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(true), WithModelStore(mockModelStoreWithLimit{limit: 100}))
 	require.NoError(t, err)
 
 	sess := session.New(session.WithUserMessage("Start"))
@@ -713,7 +743,7 @@ func TestGetTools_WarningHandling(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			root := agent.New("root", "test", agent.WithToolSets(tt.toolsets...), agent.WithModel(&mockProvider{}))
 			tm := team.New(team.WithAgents(root))
-			rt, err := New(tm, WithModelStore(mockModelStore{}))
+			rt, err := NewLocalRuntime(tm, WithModelStore(mockModelStore{}))
 			require.NoError(t, err)
 
 			events := make(chan Event, 10)
@@ -753,7 +783,7 @@ func TestSummarize_EmptySession(t *testing.T) {
 	root := agent.New("root", "You are a test agent", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	sess := session.New()
@@ -784,7 +814,7 @@ func TestProcessToolCalls_UnknownTool_NoToolResultMessage(t *testing.T) {
 	root := agent.New("root", "You are a test agent", agent.WithModel(&mockProvider{}))
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	// Register default tools (contains only transfer_task) to ensure unknown tool isn't matched
@@ -833,7 +863,7 @@ func TestEmitStartupInfo(t *testing.T) {
 	)
 	tm := team.New(team.WithAgents(root, other))
 
-	rt, err := New(tm, WithCurrentAgent("startup-test-agent"), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(tm, WithCurrentAgent("startup-test-agent"), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	// Create a channel to collect events
@@ -888,7 +918,7 @@ func TestPermissions_DenyBlocksToolExecution(t *testing.T) {
 		team.WithPermissions(permChecker),
 	)
 
-	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	sess := session.New(session.WithUserMessage("Test"))
@@ -952,7 +982,7 @@ func TestPermissions_AllowAutoApprovesTool(t *testing.T) {
 		team.WithPermissions(permChecker),
 	)
 
-	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	sess := session.New(session.WithUserMessage("Test"))
@@ -987,7 +1017,7 @@ func TestPermissions_DenyTakesPriorityOverAllow(t *testing.T) {
 		team.WithPermissions(permChecker),
 	)
 
-	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	sess := session.New(session.WithUserMessage("Test"))
@@ -1029,7 +1059,7 @@ func TestSessionPermissions_DenyBlocksToolExecution(t *testing.T) {
 	root := agent.New("root", "You are a test agent", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	// Create session with permissions that deny the tool
@@ -1089,7 +1119,7 @@ func TestSessionPermissions_AllowAutoApprovesTool(t *testing.T) {
 	)
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	// Create session with permissions that allow the tool
@@ -1128,7 +1158,7 @@ func TestSessionPermissions_TakePriorityOverTeamPermissions(t *testing.T) {
 		team.WithPermissions(teamPermChecker),
 	)
 
-	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	// Session denies the tool (should override team allow)
@@ -1188,7 +1218,7 @@ func TestToolRejectionWithReason(t *testing.T) {
 	)
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	sess := session.New(session.WithUserMessage("Test"))
@@ -1244,7 +1274,7 @@ func TestToolRejectionWithoutReason(t *testing.T) {
 	)
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	sess := session.New(session.WithUserMessage("Test"))

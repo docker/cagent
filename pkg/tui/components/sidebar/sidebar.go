@@ -459,6 +459,31 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 			delete(m.ragIndexing, k)
 		}
 		return m, nil
+	case messages.ThemeChangedMsg:
+		// Theme changed - recreate spinners with new colors
+		// The spinner pre-renders frames with colors, so we need to recreate it
+		var cmds []tea.Cmd
+
+		// Recreate main spinner
+		wasActive := m.spinnerActive
+		if wasActive {
+			m.spinner.Stop()
+		}
+		m.spinner = spinner.New(spinner.ModeSpinnerOnly, styles.SpinnerDotsHighlightStyle)
+		if wasActive {
+			cmd := m.spinner.Init()
+			m.spinnerActive = true
+			cmds = append(cmds, cmd)
+		}
+
+		// Recreate all RAG indexing spinners
+		for _, state := range m.ragIndexing {
+			state.spinner.Stop()
+			state.spinner = spinner.New(spinner.ModeSpinnerOnly, styles.SpinnerDotsHighlightStyle)
+			cmds = append(cmds, state.spinner.Init())
+		}
+
+		return m, tea.Batch(cmds...)
 	default:
 		var cmds []tea.Cmd
 

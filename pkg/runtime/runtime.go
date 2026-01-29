@@ -247,8 +247,9 @@ func WithEnv(env []string) Opt {
 	}
 }
 
-// New creates a new runtime for an agent and its team
-func New(agents *team.Team, opts ...Opt) (*LocalRuntime, error) {
+// NewLocalRuntime creates a new LocalRuntime without the persistence wrapper.
+// This is useful for testing or when persistence is handled externally.
+func NewLocalRuntime(agents *team.Team, opts ...Opt) (*LocalRuntime, error) {
 	modelsStore, err := modelsdev.NewStore()
 	if err != nil {
 		return nil, err
@@ -288,7 +289,7 @@ func New(agents *team.Team, opts ...Opt) (*LocalRuntime, error) {
 	}
 
 	r.titleGen = newTitleGenerator(model)
-	r.sessionCompactor = newSessionCompactor(model, r.sessionStore)
+	r.sessionCompactor = newSessionCompactor(model)
 
 	slog.Debug("Creating new runtime", "agent", r.currentAgent, "available_agents", agents.Size())
 
@@ -724,7 +725,7 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 
 		messages := sess.GetMessages(a)
 		if sess.SendUserMessage {
-			events <- UserMessage(messages[len(messages)-1].Content)
+			events <- UserMessage(messages[len(messages)-1].Content, sess.ID)
 		}
 
 		events <- StreamStarted(sess.ID, a.Name())
@@ -784,8 +785,7 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 							CreatedAt: time.Now().Format(time.RFC3339),
 						}
 
-						sess.AddMessage(session.NewAgentMessage(a, &assistantMessage))
-						r.saveSession(ctx, sess)
+						addAgentMessage(sess, a, &assistantMessage, events)
 						return
 					}
 
@@ -951,8 +951,7 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 					msgUsage.RateLimit = *res.RateLimit
 				}
 
-				sess.AddMessage(session.NewAgentMessage(a, &assistantMessage))
-				r.saveSession(ctx, sess)
+				addAgentMessage(sess, a, &assistantMessage, events)
 				slog.Debug("Added assistant message to session", "agent", a.Name(), "total_messages", len(sess.GetAllMessages()))
 			} else {
 				slog.Debug("Skipping empty assistant message (no content and no tool calls)", "agent", a.Name())
@@ -1511,8 +1510,7 @@ func (r *LocalRuntime) executeToolWithHandler(
 		ToolCallID: toolCall.ID,
 		CreatedAt:  time.Now().Format(time.RFC3339),
 	}
-	sess.AddMessage(session.NewAgentMessage(a, &toolResponseMsg))
-	r.saveSession(ctx, sess)
+	addAgentMessage(sess, a, &toolResponseMsg, events)
 }
 
 // runTool executes agent tools from toolsets (MCP, filesystem, etc.).
@@ -1591,9 +1589,15 @@ func (r *LocalRuntime) runAgentTool(ctx context.Context, handler ToolHandlerFunc
 		})
 }
 
+func addAgentMessage(sess *session.Session, a *agent.Agent, msg *chat.Message, events chan Event) {
+	agentMsg := session.NewAgentMessage(a, msg)
+	sess.AddMessage(agentMsg)
+	events <- MessageAdded(sess.ID, agentMsg, a.Name())
+}
+
 // addToolErrorResponse adds a tool error response to the session and emits the event.
 // This consolidates the common pattern used by validation, rejection, and cancellation responses.
-func (r *LocalRuntime) addToolErrorResponse(ctx context.Context, sess *session.Session, toolCall tools.ToolCall, tool tools.Tool, events chan Event, a *agent.Agent, errorMsg string) {
+func (r *LocalRuntime) addToolErrorResponse(_ context.Context, sess *session.Session, toolCall tools.ToolCall, tool tools.Tool, events chan Event, a *agent.Agent, errorMsg string) {
 	events <- ToolCallResponse(toolCall, tool, tools.ResultError(errorMsg), errorMsg, a.Name())
 
 	toolResponseMsg := chat.Message{
@@ -1602,18 +1606,7 @@ func (r *LocalRuntime) addToolErrorResponse(ctx context.Context, sess *session.S
 		ToolCallID: toolCall.ID,
 		CreatedAt:  time.Now().Format(time.RFC3339),
 	}
-	sess.AddMessage(session.NewAgentMessage(a, &toolResponseMsg))
-	r.saveSession(ctx, sess)
-}
-
-// saveSession persists the session to the store, but only for root sessions.
-// Sub-sessions (those with a ParentID) are not persisted as standalone entries;
-// they are embedded within the parent session's Messages array.
-func (r *LocalRuntime) saveSession(ctx context.Context, sess *session.Session) {
-	if sess.IsSubSession() {
-		return
-	}
-	_ = r.sessionStore.UpdateSession(ctx, sess)
+	addAgentMessage(sess, a, &toolResponseMsg, events)
 }
 
 // startSpan wraps tracer.Start, returning a no-op span if the tracer is nil.
@@ -1707,6 +1700,7 @@ func (r *LocalRuntime) handleTaskTransfer(ctx context.Context, sess *session.Ses
 	sess.Thinking = s.Thinking
 
 	sess.AddSubSession(s)
+	evts <- SubSessionCompleted(sess.ID, s, a.Name())
 
 	slog.Debug("Task transfer completed", "agent", params.Agent, "task", params.Task)
 

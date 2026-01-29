@@ -170,6 +170,7 @@ During TUI sessions, you can use special slash commands. Type `/` to see all ava
 | `/sessions` | Browse and load past sessions                                       |
 | `/shell`    | Start a shell                                                       |
 | `/star`     | Toggle star on current session                                      |
+| `/theme`    | Change the color theme (see [Theming](#theming))                    |
 | `/think`    | Toggle thinking/reasoning mode                                      |
 | `/yolo`     | Toggle automatic approval of tool calls                             |
 
@@ -194,6 +195,89 @@ The `/model` command (or `ctrl+m`) allows you to change the AI model used by the
 **Persistence:** Your model choice is saved with the session. When you reload a past session using `/sessions`, the model you selected will automatically be restored.
 
 To revert to the agent's default model, select the model marked with "(default)" in the picker.
+
+#### Theming
+
+The TUI supports customizable color themes. You can create and use custom themes to personalize the appearance of the terminal interface.
+
+**Theme Configuration:**
+
+Your theme preference is saved globally in `~/.config/cagent/config.yaml` under `settings.theme`. If not set, the built-in default theme is used.
+
+**Creating Custom Themes:**
+
+Create theme files in `~/.cagent/themes/` as YAML files (`.yaml` or `.yml`). Theme files are **partial overrides** — you only need to specify the colors you want to change. Any omitted keys fall back to the built-in default theme values.
+
+```yaml
+# ~/.cagent/themes/my-theme.yaml
+name: "My Custom Theme"
+
+colors:
+  # Backgrounds
+  background: "#1a1a2e"
+  background_alt: "#16213e"
+  
+  # Text colors
+  text_bright: "#ffffff"
+  text_primary: "#e8e8e8"
+  text_secondary: "#b0b0b0"
+  text_muted: "#707070"
+  
+  # Accent colors
+  accent: "#4fc3f7"
+  brand: "#1d96f3"
+  
+  # Status colors
+  success: "#4caf50"
+  error: "#f44336"
+  warning: "#ff9800"
+  info: "#00bcd4"
+
+# Optional: Customize syntax highlighting colors
+chroma:
+  comment: "#6a9955"
+  keyword: "#569cd6"
+  literal_string: "#ce9178"
+
+# Optional: Customize markdown rendering colors
+markdown:
+  heading: "#4fc3f7"
+  link: "#569cd6"
+  code: "#ce9178"
+```
+
+**Applying Themes:**
+
+- **In user config** (`~/.config/cagent/config.yaml`):
+  ```yaml
+  settings:
+    theme: my-theme  # References ~/.cagent/themes/my-theme.yaml
+  ```
+
+- **At runtime**: Use the `/theme` command to open the theme picker and select from available themes. Your selection is automatically saved to user config and persists across sessions.
+
+**Hot Reload:** Custom theme files are automatically watched for changes. When you edit a user theme file (in `~/.cagent/themes/`), the changes are applied immediately without needing to restart cagent or re-select the theme. This makes it easy to customize themes while seeing changes in real-time.
+
+
+> **Note:** All user themes are partial overrides applied on top of the `default` theme. If you want to customize a built-in theme, copy the full YAML from the [built-in themes on GitHub](https://github.com/docker/cagent/tree/main/pkg/tui/styles/themes) into `~/.cagent/themes/` and edit the copy. Otherwise, omitted values will use `default` colors, not the original theme's colors.
+
+**Built-in Themes:**
+
+The following themes are included:
+- `default` — The built-in default theme with a dark color scheme
+- `catppuccin-latte`, `catppuccin-mocha` — Catppuccin themes (light and dark)
+- `dracula` — Dracula dark theme
+- `gruvbox-dark`, `gruvbox-light` — Gruvbox themes
+- `nord` — Nord dark theme
+- `one-dark` — One Dark theme
+- `solarized-dark` — Solarized dark theme
+- `tokyo-night` — Tokyo Night dark theme
+
+**Available Color Keys:**
+
+Themes can customize colors in three sections: `colors`, `chroma` (syntax highlighting), and `markdown` (markdown rendering).
+
+See the [built-in themes on GitHub](https://github.com/docker/cagent/tree/main/pkg/tui/styles/themes) for complete examples.
 
 ## 🔧 Configuration Reference
 

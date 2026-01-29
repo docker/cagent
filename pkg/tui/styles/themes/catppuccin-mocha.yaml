@@ -1,0 +1,93 @@
+version: 1
+name: "Catppuccin Mocha"
+colors:
+  # Text colors
+  text_bright: "#cdd6f4"
+  text_primary: "#cdd6f4"
+  text_secondary: "#bac2de"
+  text_muted: "#9399b2"
+  text_faint: "#6c7086"
+  
+  # Accent colors
+  accent: "#89b4fa"
+  accent_muted: "#7f849c"
+  
+  # Background colors
+  background: "#1e1e2e"
+  background_alt: "#313244"
+  
+  # Border colors
+  border_secondary: "#585b70"
+  
+  # Status colors
+  success: "#a6e3a1"
+  error: "#f38ba8"
+  warning: "#f9e2af"
+  info: "#89dceb"
+  highlight: "#f5c2e7"
+  
+  # Brand colors
+  # NOTE: Used as selection background in dialogs - must be dark for white text
+  brand: "#3a5a8a"
+  brand_bg: "#1e1e2e"
+  
+  # Error colors
+  error_strong: "#f38ba8"
+  error_dark: "#3d2a36"
+  
+  # Spinner colors
+  spinner_dim: "#b4befe"
+  spinner_bright: "#c4c7fe"
+  spinner_brightest: "#d4d4fe"
+  
+  # Diff colors
+  diff_add_bg: "#1e3a1e"
+  diff_remove_bg: "#3d2a36"
+  
+  # UI element colors
+  line_number: "#7f849c"
+  separator: "#585b70"
+  selected: "#585b70"
+  selected_fg: "#ffffff"
+  suggestion_ghost: "#7f849c"
+  tab_bg: "#181825"
+  placeholder: "#9399b2"
+  
+  # Badge colors
+  badge_accent: "#cba6f7"
+  badge_info: "#89dceb"
+  badge_success: "#a6e3a1"
+
+chroma:
+  # Syntax highlighting colors - Catppuccin style
+  comment: "#7f849c"
+  comment_preproc: "#f5c2e7"
+  keyword: "#cba6f7"
+  keyword_reserved: "#f38ba8"
+  keyword_namespace: "#89dceb"
+  keyword_type: "#89b4fa"
+  operator: "#89dceb"
+  punctuation: "#cdd6f4"
+  name_builtin: "#fab387"
+  name_tag: "#f38ba8"
+  name_attribute: "#89b4fa"
+  name_decorator: "#f9e2af"
+  literal_number: "#fab387"
+  literal_string: "#a6e3a1"
+  literal_string_escape: "#94e2d5"
+  generic_deleted: "#f38ba8"
+  generic_subheading: "#7f849c"
+  background: "#1e1e2e"
+  error_fg: "#f38ba8"
+  error_bg: "#3d2a36"
+  success: "#a6e3a1"
+
+markdown:
+  heading: "#89b4fa"
+  link: "#74c7ec"
+  strong: "#cdd6f4"
+  code: "#fab387"
+  code_bg: "#313244"
+  blockquote: "#bac2de"
+  list: "#cdd6f4"
+  hr: "#585b70"

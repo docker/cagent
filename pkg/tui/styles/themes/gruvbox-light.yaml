@@ -1,0 +1,93 @@
+version: 1
+name: "Gruvbox Light"
+colors:
+  # Text colors - using darker gruvbox colors for better contrast on light bg
+  text_bright: "#282828"
+  text_primary: "#282828"
+  text_secondary: "#3c3836"
+  text_muted: "#504945"
+  text_faint: "#7c6f64"
+  
+  # Accent colors
+  accent: "#076678"
+  accent_muted: "#427b58"
+  
+  # Background colors
+  background: "#fbf1c7"
+  background_alt: "#ebdbb2"
+  
+  # Border colors
+  border_secondary: "#928374"
+  
+  # Status colors
+  success: "#79740e"
+  error: "#9d0006"
+  warning: "#b57614"
+  info: "#076678"
+  highlight: "#8f3f71"
+  
+  # Brand colors
+  # NOTE: Used as selection background in dialogs - must be dark for white text
+  brand: "#3a6a3c"
+  brand_bg: "#ebdbb2"
+  
+  # Error colors
+  error_strong: "#9d0006"
+  error_dark: "#f9e0e0"
+  
+  # Spinner colors
+  spinner_dim: "#076678"
+  spinner_bright: "#458588"
+  spinner_brightest: "#83a598"
+  
+  # Diff colors
+  diff_add_bg: "#d5e5d0"
+  diff_remove_bg: "#f2dede"
+  
+  # UI element colors
+  line_number: "#7c6f64"
+  separator: "#a89984"
+  selected: "#d5c4a1"
+  selected_fg: "#ffffff"
+  suggestion_ghost: "#7c6f64"
+  tab_bg: "#ebdbb2"
+  placeholder: "#504945"
+  
+  # Badge colors
+  badge_accent: "#8f3f71"
+  badge_info: "#076678"
+  badge_success: "#79740e"
+
+chroma:
+  # Syntax highlighting colors - Gruvbox Light style
+  comment: "#928374"
+  comment_preproc: "#af3a03"
+  keyword: "#9d0006"
+  keyword_reserved: "#8f3f71"
+  keyword_namespace: "#427b58"
+  keyword_type: "#b57614"
+  operator: "#af3a03"
+  punctuation: "#3c3836"
+  name_builtin: "#8f3f71"
+  name_tag: "#9d0006"
+  name_attribute: "#b57614"
+  name_decorator: "#af3a03"
+  literal_number: "#8f3f71"
+  literal_string: "#79740e"
+  literal_string_escape: "#427b58"
+  generic_deleted: "#cc241d"
+  generic_subheading: "#928374"
+  background: "#fbf1c7"
+  error_fg: "#cc241d"
+  error_bg: "#f2d5d5"
+  success: "#79740e"
+
+markdown:
+  heading: "#076678"
+  link: "#427b58"
+  strong: "#3c3836"
+  code: "#b57614"
+  code_bg: "#f2e5bc"
+  blockquote: "#7c6f64"
+  list: "#3c3836"
+  hr: "#bdae93"

@@ -649,8 +649,7 @@ func (d *modelPickerDialog) View() string {
 
 	// Show error message if present
 	if d.errMsg != "" {
-		errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6B6B"))
-		contentBuilder.AddContent(errorStyle.Render("⚠ " + d.errMsg))
+		contentBuilder.AddContent(styles.ErrorStyle.Render("⚠ " + d.errMsg))
 	}
 
 	content := contentBuilder.

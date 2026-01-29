@@ -124,12 +124,14 @@ func printSummary(out io.Writer, summary Summary, duration time.Duration) {
 }
 
 func printMetric(out io.Writer, label string, passed, total int) {
-	ratio := float64(passed) / float64(total)
-	fmt.Fprintf(out, "%s %14s: %d/%d passed (%.1f%%)\n", statusIcon(ratio), label, passed, total, ratio*100)
+	printMetricFloat(out, label, float64(passed), float64(total))
 }
 
 func printMetricFloat(out io.Writer, label string, passed, total float64) {
-	ratio := passed / total
+	ratio := 0.0
+	if total > 0 {
+		ratio = passed / total
+	}
 	fmt.Fprintf(out, "%s %14s: %.0f/%.0f passed (%.1f%%)\n", statusIcon(ratio), label, passed, total, ratio*100)
 }
 

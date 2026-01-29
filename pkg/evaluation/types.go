@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/docker/cagent/pkg/model/provider"
 	"github.com/docker/cagent/pkg/session"
 )
 
@@ -18,25 +17,28 @@ type EvalCriteria struct {
 // EvalSession extends session.Session with evaluation criteria.
 type EvalSession struct {
 	session.Session
-	Evals EvalCriteria `json:"evals"`
+	Evals      EvalCriteria `json:"evals"`
+	SourcePath string       `json:"-"` // Path to the source eval file (not serialized)
 }
 
 // Result contains the evaluation results for a single test case.
 type Result struct {
-	Title             string   `json:"title"`
-	Question          string   `json:"question"`
-	Response          string   `json:"response"`
-	Cost              float64  `json:"cost"`
-	OutputTokens      int64    `json:"output_tokens"`
-	Size              string   `json:"size"`
-	SizeExpected      string   `json:"size_expected"`
-	ToolCallsScore    float64  `json:"tool_calls_score"`
-	ToolCallsExpected float64  `json:"tool_calls_score_expected"`
-	HandoffsMatch     bool     `json:"handoffs"`
-	RelevancePassed   float64  `json:"relevance"`
-	RelevanceExpected float64  `json:"relevance_expected"`
-	FailedRelevance   []string `json:"failed_relevance,omitempty"`
-	Error             string   `json:"error,omitempty"`
+	InputPath         string           `json:"input_path"`
+	Title             string           `json:"title"`
+	Question          string           `json:"question"`
+	Response          string           `json:"response"`
+	Cost              float64          `json:"cost"`
+	OutputTokens      int64            `json:"output_tokens"`
+	Size              string           `json:"size"`
+	SizeExpected      string           `json:"size_expected"`
+	ToolCallsScore    float64          `json:"tool_calls_score"`
+	ToolCallsExpected float64          `json:"tool_calls_score_expected"`
+	HandoffsMatch     bool             `json:"handoffs"`
+	RelevancePassed   float64          `json:"relevance"`
+	RelevanceExpected float64          `json:"relevance_expected"`
+	FailedRelevance   []string         `json:"failed_relevance,omitempty"`
+	Error             string           `json:"error,omitempty"`
+	RawOutput         []map[string]any `json:"raw_output,omitempty"`
 }
 
 // checkResults returns successes and failures for this result.
@@ -110,10 +112,14 @@ type EvalRun struct {
 
 // Config holds configuration for evaluation runs.
 type Config struct {
-	JudgeModel  provider.Provider // Model for relevance checking (optional)
-	Concurrency int               // Number of concurrent runs (0 = number of CPUs)
-	TTYFd       int               // File descriptor for terminal size queries (e.g., int(os.Stdout.Fd()))
-	Only        []string          // Only run evaluations matching these patterns
+	AgentFilename  string   // Path to the agent configuration file
+	EvalsDir       string   // Directory containing evaluation files
+	JudgeModel     string   // Model for relevance checking (format: provider/model, optional)
+	Concurrency    int      // Number of concurrent runs (0 = number of CPUs)
+	TTYFd          int      // File descriptor for terminal size queries (e.g., int(os.Stdout.Fd()))
+	Only           []string // Only run evaluations matching these patterns
+	BaseImage      string   // Custom base Docker image for running evaluations
+	KeepContainers bool     // If true, don't remove containers after evaluation (skip --rm)
 }
 
 // Session helper functions
@@ -127,11 +133,7 @@ func getFirstUserMessage(sess *session.Session) string {
 	return ""
 }
 
-func extractToolCalls(sess *session.Session) []string {
-	return extractToolCallsFromItems(sess.Messages)
-}
-
-func extractToolCallsFromItems(items []session.Item) []string {
+func extractToolCalls(items []session.Item) []string {
 	var names []string
 	for _, item := range items {
 		if item.Message != nil {
@@ -140,7 +142,7 @@ func extractToolCallsFromItems(items []session.Item) []string {
 			}
 		}
 		if item.SubSession != nil {
-			names = append(names, extractToolCallsFromItems(item.SubSession.Messages)...)
+			names = append(names, extractToolCalls(item.SubSession.Messages)...)
 		}
 	}
 	return names

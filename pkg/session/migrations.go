@@ -3,8 +3,12 @@ package session
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Migration represents a database migration
@@ -15,6 +19,8 @@ type Migration struct {
 	UpSQL       string
 	DownSQL     string
 	AppliedAt   time.Time
+	// UpFunc is an optional Go function to run after UpSQL (for data migrations)
+	UpFunc func(ctx context.Context, db *sql.DB) error
 }
 
 // MigrationManager handles database migrations
@@ -99,9 +105,12 @@ func (m *MigrationManager) applyMigration(ctx context.Context, migration *Migrat
 		_ = tx.Rollback()
 	}()
 
-	_, err = tx.ExecContext(ctx, migration.UpSQL)
-	if err != nil {
-		return fmt.Errorf("failed to execute migration SQL: %w", err)
+	// Execute SQL migration if present
+	if migration.UpSQL != "" {
+		_, err = tx.ExecContext(ctx, migration.UpSQL)
+		if err != nil {
+			return fmt.Errorf("failed to execute migration SQL: %w", err)
+		}
 	}
 
 	_, err = tx.ExecContext(ctx,
@@ -114,6 +123,13 @@ func (m *MigrationManager) applyMigration(ctx context.Context, migration *Migrat
 	err = tx.Commit()
 	if err != nil {
 		return fmt.Errorf("failed to commit migration transaction: %w", err)
+	}
+
+	// Execute Go function migration if present (after SQL is committed)
+	if migration.UpFunc != nil {
+		if err := migration.UpFunc(ctx, m.db); err != nil {
+			return fmt.Errorf("failed to execute migration function: %w", err)
+		}
 	}
 
 	return nil
@@ -242,5 +258,214 @@ func getAllMigrations() []Migration {
 			UpSQL:       `ALTER TABLE sessions ADD COLUMN thinking BOOLEAN DEFAULT 1`,
 			DownSQL:     `ALTER TABLE sessions DROP COLUMN thinking`,
 		},
+		{
+			ID:          14,
+			Name:        "014_normalize_session_items",
+			Description: "Add session_items table and parent_id column for normalized session storage",
+			UpSQL: `
+				-- Add parent_id column for sub-session relationship
+				ALTER TABLE sessions ADD COLUMN parent_id TEXT REFERENCES sessions(id) ON DELETE CASCADE;
+
+				-- Create index on parent_id for efficient sub-session lookups
+				CREATE INDEX IF NOT EXISTS idx_sessions_parent_id ON sessions(parent_id);
+
+				-- Create session_items table for normalized item storage
+				CREATE TABLE IF NOT EXISTS session_items (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					session_id TEXT NOT NULL,
+					position INTEGER NOT NULL,
+					item_type TEXT NOT NULL,
+					agent_name TEXT,
+					message_json TEXT,
+					implicit BOOLEAN DEFAULT 0,
+					subsession_id TEXT,
+					summary_text TEXT,
+					FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+					FOREIGN KEY (subsession_id) REFERENCES sessions(id) ON DELETE SET NULL
+				);
+
+				-- Create index for efficient session item lookups
+				CREATE INDEX IF NOT EXISTS idx_session_items_session ON session_items(session_id, position);
+			`,
+			DownSQL: `
+				DROP INDEX IF EXISTS idx_session_items_session;
+				DROP TABLE IF EXISTS session_items;
+				DROP INDEX IF EXISTS idx_sessions_parent_id;
+				-- SQLite doesn't support DROP COLUMN directly in older versions
+			`,
+		},
+		{
+			ID:          15,
+			Name:        "015_migrate_messages_to_session_items",
+			Description: "Migrate existing messages JSON data to session_items table",
+			UpFunc:      migrateMessagesToSessionItems,
+		},
+		{
+			ID:          16,
+			Name:        "016_drop_messages_column",
+			Description: "Remove the legacy messages JSON column from sessions table",
+			UpSQL:       `ALTER TABLE sessions DROP COLUMN messages`,
+		},
 	}
+}
+
+// migrateMessagesToSessionItems migrates data from the messages JSON column to the session_items table
+func migrateMessagesToSessionItems(ctx context.Context, db *sql.DB) error {
+	slog.Info("Starting migration of messages to session_items")
+
+	// Get all sessions that have messages but no items yet
+	rows, err := db.QueryContext(ctx, `
+		SELECT s.id, s.messages 
+		FROM sessions s 
+		WHERE s.messages IS NOT NULL 
+		  AND s.messages != '' 
+		  AND s.messages != '[]'
+		  AND NOT EXISTS (SELECT 1 FROM session_items si WHERE si.session_id = s.id)
+	`)
+	if err != nil {
+		return fmt.Errorf("querying sessions: %w", err)
+	}
+	defer rows.Close()
+
+	var sessionsToMigrate []struct {
+		id       string
+		messages string
+	}
+
+	for rows.Next() {
+		var id, messages string
+		if err := rows.Scan(&id, &messages); err != nil {
+			return fmt.Errorf("scanning session: %w", err)
+		}
+		sessionsToMigrate = append(sessionsToMigrate, struct {
+			id       string
+			messages string
+		}{id, messages})
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating sessions: %w", err)
+	}
+
+	slog.Info("Found sessions to migrate", "count", len(sessionsToMigrate))
+
+	// Migrate each session
+	for _, sess := range sessionsToMigrate {
+		if err := migrateSessionMessages(ctx, db, sess.id, sess.messages, ""); err != nil {
+			slog.Warn("Failed to migrate session, skipping", "session_id", sess.id, "error", err)
+			continue
+		}
+	}
+
+	slog.Info("Completed migration of messages to session_items")
+	return nil
+}
+
+// migrateSessionMessages migrates a single session's messages to session_items
+func migrateSessionMessages(ctx context.Context, db *sql.DB, sessionID, messagesJSON, parentID string) error {
+	var items []Item
+	if err := json.Unmarshal([]byte(messagesJSON), &items); err != nil {
+		return fmt.Errorf("unmarshaling messages: %w", err)
+	}
+
+	// Update parent_id if this is a sub-session
+	if parentID != "" {
+		_, err := db.ExecContext(ctx, "UPDATE sessions SET parent_id = ? WHERE id = ?", parentID, sessionID)
+		if err != nil {
+			return fmt.Errorf("updating parent_id: %w", err)
+		}
+	}
+
+	for position, item := range items {
+		if err := migrateItem(ctx, db, sessionID, position, &item); err != nil {
+			return fmt.Errorf("migrating item at position %d: %w", position, err)
+		}
+	}
+
+	return nil
+}
+
+// migrateItem migrates a single Item to session_items
+func migrateItem(ctx context.Context, db *sql.DB, sessionID string, position int, item *Item) error {
+	switch {
+	case item.Message != nil:
+		// Migrate message
+		msgJSON, err := json.Marshal(item.Message.Message)
+		if err != nil {
+			return fmt.Errorf("marshaling message: %w", err)
+		}
+		_, err = db.ExecContext(ctx,
+			`INSERT INTO session_items (session_id, position, item_type, agent_name, message_json, implicit)
+			 VALUES (?, ?, 'message', ?, ?, ?)`,
+			sessionID, position, item.Message.AgentName, string(msgJSON), item.Message.Implicit)
+		if err != nil {
+			return fmt.Errorf("inserting message item: %w", err)
+		}
+
+	case item.SubSession != nil:
+		// Create sub-session and link to parent
+		subSessionID := item.SubSession.ID
+		if subSessionID == "" {
+			subSessionID = uuid.New().String()
+		}
+
+		// Check if sub-session already exists
+		var exists int
+		err := db.QueryRowContext(ctx, "SELECT 1 FROM sessions WHERE id = ?", subSessionID).Scan(&exists)
+		switch {
+		case err == sql.ErrNoRows:
+			// Create the sub-session
+			subMessagesJSON, jsonErr := json.Marshal(item.SubSession.Messages)
+			if jsonErr != nil {
+				return fmt.Errorf("marshaling sub-session messages: %w", jsonErr)
+			}
+
+			_, execErr := db.ExecContext(ctx,
+				`INSERT INTO sessions (id, messages, tools_approved, input_tokens, output_tokens, title, cost, 
+				 send_user_message, max_iterations, working_dir, created_at, starred, permissions, 
+				 agent_model_overrides, custom_models_used, thinking, parent_id)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				subSessionID, string(subMessagesJSON), item.SubSession.ToolsApproved,
+				item.SubSession.InputTokens, item.SubSession.OutputTokens, item.SubSession.Title,
+				item.SubSession.Cost, item.SubSession.SendUserMessage, item.SubSession.MaxIterations,
+				item.SubSession.WorkingDir, item.SubSession.CreatedAt.Format(time.RFC3339),
+				item.SubSession.Starred, "", "{}", "[]", item.SubSession.Thinking, sessionID)
+			if execErr != nil {
+				return fmt.Errorf("inserting sub-session: %w", execErr)
+			}
+
+			// Recursively migrate sub-session messages
+			if migrateErr := migrateSessionMessages(ctx, db, subSessionID, string(subMessagesJSON), sessionID); migrateErr != nil {
+				return fmt.Errorf("migrating sub-session messages: %w", migrateErr)
+			}
+		case err != nil:
+			return fmt.Errorf("checking sub-session existence: %w", err)
+		default:
+			// Sub-session exists, just update parent_id
+			_, updateErr := db.ExecContext(ctx, "UPDATE sessions SET parent_id = ? WHERE id = ?", sessionID, subSessionID)
+			if updateErr != nil {
+				return fmt.Errorf("updating sub-session parent_id: %w", updateErr)
+			}
+		}
+
+		// Insert subsession reference item
+		_, err = db.ExecContext(ctx,
+			`INSERT INTO session_items (session_id, position, item_type, subsession_id)
+			 VALUES (?, ?, 'subsession', ?)`,
+			sessionID, position, subSessionID)
+		if err != nil {
+			return fmt.Errorf("inserting subsession item: %w", err)
+		}
+
+	case item.Summary != "":
+		// Migrate summary
+		_, err := db.ExecContext(ctx,
+			`INSERT INTO session_items (session_id, position, item_type, summary_text)
+			 VALUES (?, ?, 'summary', ?)`,
+			sessionID, position, item.Summary)
+		if err != nil {
+			return fmt.Errorf("inserting summary item: %w", err)
+		}
+	}
+
+	return nil
 }

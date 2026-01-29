@@ -23,13 +23,12 @@ exec "$@"
 EOF
 RUN chmod +x /run.sh
 
-FROM docker/cagent:edge AS cagent
-
 FROM scratch
 COPY --from=dind / /
-COPY --from=cagent /cagent /
+COPY --from=docker/cagent:edge /cagent /
 WORKDIR /working_dir
-{{if .CopyWorkingDir}}COPY . ./
-{{end}}ENV TELEMETRY_ENABLED=false
+ENV TELEMETRY_ENABLED=false
 ENV CAGENT_HIDE_TELEMETRY_BANNER=1
 ENTRYPOINT ["/run.sh", "/cagent", "exec", "--yolo", "--json"]
+{{if .CopyWorkingDir}}COPY . ./
+{{end}}

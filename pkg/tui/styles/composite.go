@@ -20,6 +20,14 @@ var (
 	styleSeqCacheMu sync.RWMutex
 )
 
+// clearStyleSeqCache clears the style sequence cache.
+// Called when the theme changes to ensure styles are re-computed with new colors.
+func clearStyleSeqCache() {
+	styleSeqCacheMu.Lock()
+	styleSeqCache = make(map[string]string)
+	styleSeqCacheMu.Unlock()
+}
+
 // getStyleSeq returns the ANSI escape sequence for a style's colors only.
 // Results are cached for repeated calls with the same style.
 func getStyleSeq(style lipgloss.Style) string {

@@ -654,7 +654,7 @@ func TestProgressBarColors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			var buf bytes.Buffer
-			p := newProgressBar(&buf, 0, 10, tt.isTTY)
+			p := newProgressBar(&buf, &buf, 0, 10, tt.isTTY)
 
 			assert.Equal(t, tt.wantGreen, p.green("test"))
 			assert.Equal(t, tt.wantRed, p.red("test"))
@@ -720,7 +720,7 @@ func TestProgressBarPrintResult(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			var buf bytes.Buffer
-			p := newProgressBar(&buf, 0, 10, false) // non-TTY for simpler output
+			p := newProgressBar(&buf, &buf, 0, 10, false) // non-TTY for simpler output
 			p.printResult(tt.result)
 			output := buf.String()
 
@@ -735,7 +735,7 @@ func TestProgressBarCompleteCountsBasedOnCheckResults(t *testing.T) {
 	t.Parallel()
 
 	var buf bytes.Buffer
-	p := newProgressBar(&buf, 0, 10, false)
+	p := newProgressBar(&buf, &buf, 0, 10, false)
 
 	// Complete with a result that has no error but failed checks
 	p.complete("test1", false) // failed checks

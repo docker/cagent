@@ -25,8 +25,7 @@ type StatusBar struct {
 // New creates a new StatusBar instance
 func New(help core.KeyMapHelp) StatusBar {
 	return StatusBar{
-		help:              help,
-		cachedVersionText: styles.MutedStyle.Render("cagent " + version.Version),
+		help: help,
 	}
 }
 
@@ -58,8 +57,21 @@ func (s *StatusBar) formatHelpString(bindings []key.Binding) string {
 	return strings.Join(helpParts, "  ")
 }
 
+// InvalidateCache clears all cached values.
+// Call this when the theme changes to pick up new colors.
+func (s *StatusBar) InvalidateCache() {
+	s.cachedHelpText = ""
+	s.cachedVersionText = ""
+	s.cachedBindingsLen = 0
+}
+
 // View renders the status bar
 func (s *StatusBar) View() string {
+	// Regenerate version text if empty
+	if s.cachedVersionText == "" {
+		s.cachedVersionText = styles.MutedStyle.Render("cagent " + version.Version)
+	}
+
 	var helpText string
 	if s.help != nil {
 		help := s.help.Help()

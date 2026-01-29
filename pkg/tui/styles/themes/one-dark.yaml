@@ -1,0 +1,93 @@
+version: 1
+name: "One Dark"
+colors:
+  # Text colors
+  text_bright: "#abb2bf"
+  text_primary: "#abb2bf"
+  text_secondary: "#636d83"
+  text_muted: "#636d83"
+  text_faint: "#3e4451"
+  
+  # Accent colors
+  accent: "#61afef"
+  accent_muted: "#5c6370"
+  
+  # Background colors
+  background: "#282c34"
+  background_alt: "#32363e"
+  
+  # Border colors
+  border_secondary: "#5c6370"
+  
+  # Status colors
+  success: "#98c379"
+  error: "#e06c75"
+  warning: "#e5c07b"
+  info: "#56b6c2"
+  highlight: "#c678dd"
+  
+  # Brand colors
+  # NOTE: Used as selection background in dialogs - must be dark for white text
+  brand: "#2c5a8a"
+  brand_bg: "#282c34"
+  
+  # Error colors
+  error_strong: "#e06c75"
+  error_dark: "#3e2a2e"
+  
+  # Spinner colors
+  spinner_dim: "#61afef"
+  spinner_bright: "#71bfef"
+  spinner_brightest: "#81cfef"
+  
+  # Diff colors
+  diff_add_bg: "#2d3d29"
+  diff_remove_bg: "#3e2a2e"
+  
+  # UI element colors
+  line_number: "#5c6370"
+  separator: "#3e4451"
+  selected: "#3e4451"
+  selected_fg: "#ffffff"
+  suggestion_ghost: "#5c6370"
+  tab_bg: "#21252b"
+  placeholder: "#636d83"
+  
+  # Badge colors
+  badge_accent: "#c678dd"
+  badge_info: "#56b6c2"
+  badge_success: "#98c379"
+
+chroma:
+  # Syntax highlighting colors - One Dark style
+  comment: "#5c6370"
+  comment_preproc: "#c678dd"
+  keyword: "#c678dd"
+  keyword_reserved: "#e06c75"
+  keyword_namespace: "#56b6c2"
+  keyword_type: "#61afef"
+  operator: "#56b6c2"
+  punctuation: "#abb2bf"
+  name_builtin: "#e5c07b"
+  name_tag: "#e06c75"
+  name_attribute: "#d19a66"
+  name_decorator: "#e5c07b"
+  literal_number: "#d19a66"
+  literal_string: "#98c379"
+  literal_string_escape: "#56b6c2"
+  generic_deleted: "#e06c75"
+  generic_subheading: "#5c6370"
+  background: "#282c34"
+  error_fg: "#e06c75"
+  error_bg: "#3e2a2e"
+  success: "#98c379"
+
+markdown:
+  heading: "#61afef"
+  link: "#56b6c2"
+  strong: "#abb2bf"
+  code: "#e5c07b"
+  code_bg: "#32363e"
+  blockquote: "#636d83"
+  list: "#abb2bf"
+  hr: "#3e4451"

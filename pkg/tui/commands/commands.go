@@ -186,6 +186,16 @@ func builtInSessionCommands() []Item {
 				return core.CmdHandler(messages.AttachFileMsg{FilePath: arg})
 			},
 		},
+		{
+			ID:           "settings.theme",
+			Label:        "Theme",
+			SlashCommand: "/theme",
+			Description:  "Change the color theme",
+			Category:     "Settings",
+			Execute: func(string) tea.Cmd {
+				return core.CmdHandler(messages.OpenThemePickerMsg{})
+			},
+		},
 	}
 
 	// Add speak command on supported platforms (macOS only)

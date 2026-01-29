@@ -1,0 +1,6 @@
+# syntax=docker/dockerfile:1
+
+FROM {{.BaseImage}}
+WORKDIR /working_dir
+{{if .CopyWorkingDir}}COPY . ./
+{{end}}

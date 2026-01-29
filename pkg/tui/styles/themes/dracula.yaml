@@ -1,0 +1,93 @@
+version: 1
+name: "Dracula"
+colors:
+  # Text colors
+  text_bright: "#f8f8f2"
+  text_primary: "#f8f8f2"
+  text_secondary: "#6272a4"
+  text_muted: "#6272a4"
+  text_faint: "#44475a"
+  
+  # Accent colors
+  accent: "#8be9fd"
+  accent_muted: "#6272a4"
+  
+  # Background colors
+  background: "#282a36"
+  background_alt: "#44475a"
+  
+  # Border colors
+  border_secondary: "#6272a4"
+  
+  # Status colors
+  success: "#50fa7b"
+  error: "#ff5555"
+  warning: "#f1fa8c"
+  info: "#8be9fd"
+  highlight: "#ff79c6"
+  
+  # Brand colors
+  # NOTE: Used as selection background in dialogs - must be dark for white text
+  brand: "#5a4080"
+  brand_bg: "#282a36"
+  
+  # Error colors
+  error_strong: "#ff5555"
+  error_dark: "#44282a"
+  
+  # Spinner colors
+  spinner_dim: "#bd93f9"
+  spinner_bright: "#c9a6f9"
+  spinner_brightest: "#d5b9f9"
+  
+  # Diff colors
+  diff_add_bg: "#2a4a2a"
+  diff_remove_bg: "#4a2a2a"
+  
+  # UI element colors
+  line_number: "#6272a4"
+  separator: "#44475a"
+  selected: "#44475a"
+  selected_fg: "#ffffff"
+  suggestion_ghost: "#6272a4"
+  tab_bg: "#282a36"
+  placeholder: "#6272a4"
+  
+  # Badge colors
+  badge_accent: "#bd93f9"
+  badge_info: "#8be9fd"
+  badge_success: "#50fa7b"
+
+chroma:
+  # Syntax highlighting colors - Dracula style
+  comment: "#6272a4"
+  comment_preproc: "#ff79c6"
+  keyword: "#ff79c6"
+  keyword_reserved: "#bd93f9"
+  keyword_namespace: "#8be9fd"
+  keyword_type: "#bd93f9"
+  operator: "#ff79c6"
+  punctuation: "#f8f8f2"
+  name_builtin: "#50fa7b"
+  name_tag: "#ff79c6"
+  name_attribute: "#8be9fd"
+  name_decorator: "#f1fa8c"
+  literal_number: "#bd93f9"
+  literal_string: "#f1fa8c"
+  literal_string_escape: "#ff79c6"
+  generic_deleted: "#ff5555"
+  generic_subheading: "#6272a4"
+  background: "#282a36"
+  error_fg: "#ff5555"
+  error_bg: "#44282a"
+  success: "#50fa7b"
+
+markdown:
+  heading: "#bd93f9"
+  link: "#8be9fd"
+  strong: "#f8f8f2"
+  code: "#ff79c6"
+  code_bg: "#44475a"
+  blockquote: "#6272a4"
+  list: "#f8f8f2"
+  hr: "#44475a"

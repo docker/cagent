@@ -479,6 +479,43 @@ func (p *chatPage) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	case msgtypes.ClearQueueMsg:
 		return p.handleClearQueue()
 
+	case msgtypes.ThemeChangedMsg:
+		// Theme changed - forward to all child components to invalidate caches
+		var cmds []tea.Cmd
+
+		model, cmd := p.messages.Update(msg)
+		p.messages = model.(messages.Model)
+		cmds = append(cmds, cmd)
+
+		editorModel, editorCmd := p.editor.Update(msg)
+		p.editor = editorModel.(editor.Editor)
+		cmds = append(cmds, editorCmd)
+
+		// Forward to sidebar to ensure it picks up new theme colors
+		sidebarModel, sidebarCmd := p.sidebar.Update(msg)
+		p.sidebar = sidebarModel.(sidebar.Model)
+		cmds = append(cmds, sidebarCmd)
+
+		// Recreate spinners with new colors (they pre-render frames)
+		if p.working {
+			p.spinner.Stop()
+			p.spinner = spinner.New(spinner.ModeSpinnerOnly, styles.SpinnerDotsHighlightStyle)
+			cmds = append(cmds, p.spinner.Init())
+		} else {
+			// Just recreate without reinitializing
+			p.spinner = spinner.New(spinner.ModeSpinnerOnly, styles.SpinnerDotsHighlightStyle)
+		}
+
+		if p.pendingResponse {
+			p.pendingSpinner.Stop()
+			p.pendingSpinner = spinner.New(spinner.ModeBoth, styles.SpinnerDotsAccentStyle)
+			cmds = append(cmds, p.pendingSpinner.Init())
+		} else {
+			p.pendingSpinner = spinner.New(spinner.ModeBoth, styles.SpinnerDotsAccentStyle)
+		}
+
+		return p, tea.Batch(cmds...)
+
 	default:
 		// Try to handle as a runtime event
 		if handled, cmd := p.handleRuntimeEvent(msg); handled {
@@ -728,7 +765,6 @@ func (p *chatPage) GetInputHeight() int {
 func (p *chatPage) Bindings() []key.Binding {
 	bindings := []key.Binding{
 		p.keyMap.Tab,
-		p.keyMap.Cancel,
 	}
 
 	if p.focusedPanel == PanelChat {
