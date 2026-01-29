@@ -1,6 +1,8 @@
 package session
 
 import (
+	"database/sql"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -702,4 +704,253 @@ func TestBackupDatabase(t *testing.T) {
 		err := backupDatabase(dbPath)
 		require.NoError(t, err)
 	})
+}
+
+// TestBackwardCompatibility_ReadLegacyMessages verifies that new code can read
+// sessions that were created by older cagent versions (messages in JSON column only).
+func TestBackwardCompatibility_ReadLegacyMessages(t *testing.T) {
+	tempDB := filepath.Join(t.TempDir(), "test_legacy.db")
+
+	store, err := NewSQLiteSessionStore(tempDB)
+	require.NoError(t, err)
+	defer store.(*SQLiteSessionStore).Close()
+
+	sqliteStore := store.(*SQLiteSessionStore)
+
+	// Simulate a legacy session by inserting directly into the sessions table
+	// with messages in the JSON column and NO entries in session_items
+	legacyMessages := []Item{
+		NewMessageItem(UserMessage("Hello from legacy")),
+		NewMessageItem(&Message{
+			AgentName: "test-agent",
+			Message: chat.Message{
+				Role:    chat.MessageRoleAssistant,
+				Content: "Hi from legacy agent!",
+			},
+		}),
+	}
+
+	legacyMessagesJSON, err := json.Marshal(legacyMessages)
+	require.NoError(t, err)
+
+	_, err = sqliteStore.db.ExecContext(t.Context(),
+		`INSERT INTO sessions (id, messages, tools_approved, input_tokens, output_tokens, title, cost, send_user_message, max_iterations, working_dir, created_at, starred, permissions, agent_model_overrides, custom_models_used, thinking)
+		 VALUES (?, ?, 0, 0, 0, 'Legacy Session', 0, 1, 0, '', ?, 0, '', '{}', '[]', 1)`,
+		"legacy-session", string(legacyMessagesJSON), time.Now().Format(time.RFC3339))
+	require.NoError(t, err)
+
+	// Now read the session using the store API - it should fall back to messages column
+	retrieved, err := store.GetSession(t.Context(), "legacy-session")
+	require.NoError(t, err)
+	require.NotNil(t, retrieved)
+
+	// Verify messages were read from the legacy column
+	assert.Len(t, retrieved.Messages, 2)
+	assert.Equal(t, "Hello from legacy", retrieved.Messages[0].Message.Message.Content)
+	assert.Equal(t, "test-agent", retrieved.Messages[1].Message.AgentName)
+	assert.Equal(t, "Hi from legacy agent!", retrieved.Messages[1].Message.Message.Content)
+}
+
+// TestForwardCompatibility_MessagesColumnPopulated verifies that new code populates
+// the messages column so older cagent versions can read sessions.
+func TestForwardCompatibility_MessagesColumnPopulated(t *testing.T) {
+	tempDB := filepath.Join(t.TempDir(), "test_forward.db")
+
+	store, err := NewSQLiteSessionStore(tempDB)
+	require.NoError(t, err)
+	defer store.(*SQLiteSessionStore).Close()
+
+	sqliteStore := store.(*SQLiteSessionStore)
+
+	// Create a session using the new API
+	session := &Session{
+		ID:        "new-session",
+		CreatedAt: time.Now(),
+	}
+	err = store.AddSession(t.Context(), session)
+	require.NoError(t, err)
+
+	// Add messages using the new granular API
+	_, err = store.AddMessage(t.Context(), "new-session", UserMessage("Hello from new code"))
+	require.NoError(t, err)
+
+	_, err = store.AddMessage(t.Context(), "new-session", &Message{
+		AgentName: "new-agent",
+		Message: chat.Message{
+			Role:    chat.MessageRoleAssistant,
+			Content: "Response from new agent",
+		},
+	})
+	require.NoError(t, err)
+
+	// Verify messages column is populated (how old cagent would read it)
+	var messagesJSON string
+	err = sqliteStore.db.QueryRowContext(t.Context(),
+		"SELECT messages FROM sessions WHERE id = ?", "new-session").Scan(&messagesJSON)
+	require.NoError(t, err)
+	assert.NotEmpty(t, messagesJSON)
+	assert.NotEqual(t, "[]", messagesJSON)
+
+	// Parse and verify the messages column content
+	var items []Item
+	err = json.Unmarshal([]byte(messagesJSON), &items)
+	require.NoError(t, err)
+
+	assert.Len(t, items, 2)
+	assert.Equal(t, "Hello from new code", items[0].Message.Message.Content)
+	assert.Equal(t, "new-agent", items[1].Message.AgentName)
+	assert.Equal(t, "Response from new agent", items[1].Message.Message.Content)
+}
+
+// TestForwardCompatibility_SubSessionPopulated verifies that sub-sessions
+// are properly serialized to the messages column for backward compatibility.
+func TestForwardCompatibility_SubSessionPopulated(t *testing.T) {
+	tempDB := filepath.Join(t.TempDir(), "test_subsession.db")
+
+	store, err := NewSQLiteSessionStore(tempDB)
+	require.NoError(t, err)
+	defer store.(*SQLiteSessionStore).Close()
+
+	sqliteStore := store.(*SQLiteSessionStore)
+
+	// Create parent session
+	parentSession := &Session{
+		ID:        "parent-session",
+		CreatedAt: time.Now(),
+	}
+	err = store.AddSession(t.Context(), parentSession)
+	require.NoError(t, err)
+
+	// Add a message to parent
+	_, err = store.AddMessage(t.Context(), "parent-session", UserMessage("Start task"))
+	require.NoError(t, err)
+
+	// Create and add a sub-session
+	subSession := &Session{
+		ID:        "sub-session",
+		CreatedAt: time.Now(),
+		Messages: []Item{
+			NewMessageItem(UserMessage("Sub task")),
+			NewMessageItem(&Message{
+				AgentName: "sub-agent",
+				Message: chat.Message{
+					Role:    chat.MessageRoleAssistant,
+					Content: "Sub response",
+				},
+			}),
+		},
+	}
+	err = store.AddSubSession(t.Context(), "parent-session", subSession)
+	require.NoError(t, err)
+
+	// Verify parent's messages column contains the sub-session
+	var messagesJSON string
+	err = sqliteStore.db.QueryRowContext(t.Context(),
+		"SELECT messages FROM sessions WHERE id = ?", "parent-session").Scan(&messagesJSON)
+	require.NoError(t, err)
+
+	var items []Item
+	err = json.Unmarshal([]byte(messagesJSON), &items)
+	require.NoError(t, err)
+
+	assert.Len(t, items, 2) // user message + subsession
+	assert.Equal(t, "Start task", items[0].Message.Message.Content)
+	assert.NotNil(t, items[1].SubSession)
+	assert.Equal(t, "sub-session", items[1].SubSession.ID)
+	assert.Len(t, items[1].SubSession.Messages, 2)
+}
+
+// TestForwardCompatibility_SummaryPopulated verifies that summaries
+// are properly serialized to the messages column for backward compatibility.
+func TestForwardCompatibility_SummaryPopulated(t *testing.T) {
+	tempDB := filepath.Join(t.TempDir(), "test_summary.db")
+
+	store, err := NewSQLiteSessionStore(tempDB)
+	require.NoError(t, err)
+	defer store.(*SQLiteSessionStore).Close()
+
+	sqliteStore := store.(*SQLiteSessionStore)
+
+	// Create session
+	session := &Session{
+		ID:        "summary-session",
+		CreatedAt: time.Now(),
+	}
+	err = store.AddSession(t.Context(), session)
+	require.NoError(t, err)
+
+	// Add messages and a summary
+	_, err = store.AddMessage(t.Context(), "summary-session", UserMessage("Hello"))
+	require.NoError(t, err)
+
+	err = store.AddSummary(t.Context(), "summary-session", "This is a summary of the conversation.")
+	require.NoError(t, err)
+
+	// Verify messages column contains the summary
+	var messagesJSON string
+	err = sqliteStore.db.QueryRowContext(t.Context(),
+		"SELECT messages FROM sessions WHERE id = ?", "summary-session").Scan(&messagesJSON)
+	require.NoError(t, err)
+
+	var items []Item
+	err = json.Unmarshal([]byte(messagesJSON), &items)
+	require.NoError(t, err)
+
+	assert.Len(t, items, 2)
+	assert.Equal(t, "Hello", items[0].Message.Message.Content)
+	assert.Equal(t, "This is a summary of the conversation.", items[1].Summary)
+}
+
+// TestMigration_ExistingMessagesToSessionItems verifies that the migration
+// properly converts legacy messages JSON to session_items table.
+func TestMigration_ExistingMessagesToSessionItems(t *testing.T) {
+	tempDB := filepath.Join(t.TempDir(), "test_migration.db")
+
+	// First, create a database with the legacy schema (before migrations)
+	db, err := sql.Open("sqlite", tempDB)
+	require.NoError(t, err)
+
+	// Create minimal schema
+	_, err = db.ExecContext(t.Context(), `
+		CREATE TABLE sessions (
+			id TEXT PRIMARY KEY,
+			messages TEXT,
+			created_at TEXT
+		)
+	`)
+	require.NoError(t, err)
+
+	// Insert a legacy session with messages
+	legacyMessages := []Item{
+		NewMessageItem(UserMessage("Legacy message 1")),
+		NewMessageItem(&Message{
+			AgentName: "legacy-agent",
+			Message: chat.Message{
+				Role:    chat.MessageRoleAssistant,
+				Content: "Legacy response",
+			},
+		}),
+	}
+	legacyJSON, err := json.Marshal(legacyMessages)
+	require.NoError(t, err)
+
+	_, err = db.ExecContext(t.Context(),
+		"INSERT INTO sessions (id, messages, created_at) VALUES (?, ?, ?)",
+		"migration-test-session", string(legacyJSON), time.Now().Format(time.RFC3339))
+	require.NoError(t, err)
+
+	db.Close()
+
+	// Now open with the store, which runs migrations
+	store, err := NewSQLiteSessionStore(tempDB)
+	require.NoError(t, err)
+	defer store.(*SQLiteSessionStore).Close()
+
+	// Session should be readable via the new API
+	retrieved, err := store.GetSession(t.Context(), "migration-test-session")
+	require.NoError(t, err)
+
+	assert.Len(t, retrieved.Messages, 2)
+	assert.Equal(t, "Legacy message 1", retrieved.Messages[0].Message.Message.Content)
+	assert.Equal(t, "legacy-agent", retrieved.Messages[1].Message.AgentName)
 }
