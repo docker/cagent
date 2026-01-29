@@ -41,5 +41,3 @@ func TestTeamStopToolSets_ClosesMemoryDrivers(t *testing.T) {
 	require.NoError(t, tm.StopToolSets(t.Context()))
 	assert.True(t, driver.closed.Load())
 }
-
-
