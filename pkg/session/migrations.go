@@ -300,12 +300,9 @@ func getAllMigrations() []Migration {
 			Description: "Migrate existing messages JSON data to session_items table",
 			UpFunc:      migrateMessagesToSessionItems,
 		},
-		{
-			ID:          16,
-			Name:        "016_drop_messages_column",
-			Description: "Remove the legacy messages JSON column from sessions table",
-			UpSQL:       `ALTER TABLE sessions DROP COLUMN messages`,
-		},
+		// Note: We intentionally keep the messages column for backward compatibility.
+		// Old versions of cagent can still read sessions via the messages column,
+		// while new versions read from session_items but also write to messages.
 	}
 }
 

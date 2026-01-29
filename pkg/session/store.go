@@ -233,6 +233,45 @@ func (s *InMemorySessionStore) AddSummary(_ context.Context, sessionID, summary 
 	return nil
 }
 
+// querier is an interface that abstracts *sql.DB and *sql.Tx for query operations.
+type querier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+// SQLiteSessionStore implements Store using SQLite
+type SQLiteSessionStore struct {
+	db *sql.DB
+}
+
+// syncMessagesColumn rebuilds the messages JSON column from session_items for backward compatibility.
+// This allows older versions of cagent to read sessions created by newer versions.
+func (s *SQLiteSessionStore) syncMessagesColumn(ctx context.Context, sessionID string) error {
+	return s.syncMessagesColumnWith(ctx, s.db, sessionID)
+}
+
+// syncMessagesColumnTx is like syncMessagesColumn but uses an existing transaction.
+func (s *SQLiteSessionStore) syncMessagesColumnTx(ctx context.Context, tx *sql.Tx, sessionID string) error {
+	return s.syncMessagesColumnWith(ctx, tx, sessionID)
+}
+
+// syncMessagesColumnWith rebuilds the messages JSON column using the provided querier.
+func (s *SQLiteSessionStore) syncMessagesColumnWith(ctx context.Context, q querier, sessionID string) error {
+	items, err := s.loadSessionItemsWith(ctx, q, sessionID)
+	if err != nil {
+		return fmt.Errorf("loading session items: %w", err)
+	}
+
+	messagesJSON, err := json.Marshal(items)
+	if err != nil {
+		return fmt.Errorf("marshaling messages: %w", err)
+	}
+
+	_, err = q.ExecContext(ctx, "UPDATE sessions SET messages = ? WHERE id = ?", string(messagesJSON), sessionID)
+	return err
+}
+
 // UpdateSessionTokens updates only token/cost fields.
 func (s *InMemorySessionStore) UpdateSessionTokens(_ context.Context, sessionID string, inputTokens, outputTokens int64, cost float64) error {
 	if sessionID == "" {
@@ -259,11 +298,6 @@ func (s *InMemorySessionStore) UpdateSessionTitle(_ context.Context, sessionID, 
 	}
 	session.Title = title
 	return nil
-}
-
-// SQLiteSessionStore implements Store using SQLite
-type SQLiteSessionStore struct {
-	db *sql.DB
 }
 
 // NewSQLiteSessionStore creates a new SQLite session store
@@ -569,9 +603,16 @@ type sessionItemRow struct {
 	summaryText  sql.NullString
 }
 
-// loadSessionItems loads all items for a session from the session_items table
+// loadSessionItems loads all items for a session from the session_items table.
+// If no items exist in session_items, it falls back to the legacy messages JSON column
+// for backward compatibility with sessions created by older cagent versions.
 func (s *SQLiteSessionStore) loadSessionItems(ctx context.Context, sessionID string) ([]Item, error) {
-	rows, err := s.db.QueryContext(ctx,
+	return s.loadSessionItemsWith(ctx, s.db, sessionID)
+}
+
+// loadSessionItemsWith loads items using the provided querier (db or tx).
+func (s *SQLiteSessionStore) loadSessionItemsWith(ctx context.Context, q querier, sessionID string) ([]Item, error) {
+	rows, err := q.QueryContext(ctx,
 		`SELECT position, item_type, agent_name, message_json, implicit, subsession_id, summary_text
 		 FROM session_items WHERE session_id = ? ORDER BY position`, sessionID)
 	if err != nil {
@@ -595,6 +636,11 @@ func (s *SQLiteSessionStore) loadSessionItems(ctx context.Context, sessionID str
 	}
 	rows.Close()
 
+	// If no session_items found, fall back to legacy messages column
+	if len(rawRows) == 0 {
+		return s.loadMessagesFromLegacyColumn(ctx, sessionID)
+	}
+
 	// Now process the collected rows, making recursive calls as needed
 	var items []Item
 	for _, row := range rawRows {
@@ -613,8 +659,8 @@ func (s *SQLiteSessionStore) loadSessionItems(ctx context.Context, sessionID str
 			})
 
 		case "subsession":
-			// Recursively get sub-session (safe now that rows is closed)
-			subSession, err := s.GetSession(ctx, row.subsessionID.String)
+			// Recursively load sub-session
+			subSession, err := s.loadSessionWith(ctx, q, row.subsessionID.String)
 			if err != nil {
 				return nil, fmt.Errorf("getting sub-session %s: %w", row.subsessionID.String, err)
 			}
@@ -623,6 +669,54 @@ func (s *SQLiteSessionStore) loadSessionItems(ctx context.Context, sessionID str
 		case "summary":
 			items = append(items, Item{Summary: row.summaryText.String})
 		}
+	}
+
+	return items, nil
+}
+
+// loadSessionWith loads a session using the provided querier.
+func (s *SQLiteSessionStore) loadSessionWith(ctx context.Context, q querier, id string) (*Session, error) {
+	row := q.QueryRowContext(ctx,
+		"SELECT id, tools_approved, input_tokens, output_tokens, title, cost, send_user_message, max_iterations, working_dir, created_at, starred, permissions, agent_model_overrides, custom_models_used, thinking, parent_id FROM sessions WHERE id = ?", id)
+
+	sess, err := scanSession(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	// Load messages
+	items, err := s.loadSessionItemsWith(ctx, q, id)
+	if err != nil {
+		return nil, fmt.Errorf("loading session items: %w", err)
+	}
+	sess.Messages = items
+
+	return sess, nil
+}
+
+// loadMessagesFromLegacyColumn loads messages from the legacy messages JSON column.
+// This is used for backward compatibility with sessions created by older cagent versions
+// that haven't been migrated to the session_items table yet.
+func (s *SQLiteSessionStore) loadMessagesFromLegacyColumn(ctx context.Context, sessionID string) ([]Item, error) {
+	var messagesJSON sql.NullString
+	err := s.db.QueryRowContext(ctx, "SELECT messages FROM sessions WHERE id = ?", sessionID).Scan(&messagesJSON)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	if !messagesJSON.Valid || messagesJSON.String == "" || messagesJSON.String == "[]" {
+		return nil, nil
+	}
+
+	var items []Item
+	if err := json.Unmarshal([]byte(messagesJSON.String), &items); err != nil {
+		return nil, fmt.Errorf("unmarshaling legacy messages: %w", err)
 	}
 
 	return items, nil
@@ -856,6 +950,11 @@ func (s *SQLiteSessionStore) AddMessage(ctx context.Context, sessionID string, m
 		return 0, fmt.Errorf("getting last insert id: %w", err)
 	}
 
+	// Update messages column for backward compatibility with older cagent versions
+	if err := s.syncMessagesColumn(ctx, sessionID); err != nil {
+		slog.Warn("[STORE] Failed to sync messages column", "session_id", sessionID, "error", err)
+	}
+
 	slog.Debug("[STORE] AddMessage", "session_id", sessionID, "message_id", id, "role", msg.Message.Role, "agent", msg.AgentName)
 	return id, nil
 }
@@ -881,6 +980,15 @@ func (s *SQLiteSessionStore) UpdateMessage(ctx context.Context, messageID int64,
 
 	if rowsAffected == 0 {
 		return ErrNotFound
+	}
+
+	// Get session ID for this message to sync the messages column
+	var sessionID string
+	err = s.db.QueryRowContext(ctx, "SELECT session_id FROM session_items WHERE id = ?", messageID).Scan(&sessionID)
+	if err == nil {
+		if syncErr := s.syncMessagesColumn(ctx, sessionID); syncErr != nil {
+			slog.Warn("[STORE] Failed to sync messages column", "session_id", sessionID, "error", syncErr)
+		}
 	}
 
 	slog.Debug("[STORE] UpdateMessage", "message_id", messageID, "role", msg.Message.Role, "agent", msg.AgentName)
@@ -923,6 +1031,14 @@ func (s *SQLiteSessionStore) AddSubSession(ctx context.Context, parentSessionID 
 		parentSessionID, parentSessionID, subSession.ID)
 	if err != nil {
 		return fmt.Errorf("inserting subsession reference: %w", err)
+	}
+
+	// 5. Update messages column for both parent and sub-session for backward compatibility
+	if err := s.syncMessagesColumnTx(ctx, tx, parentSessionID); err != nil {
+		slog.Warn("[STORE] Failed to sync parent messages column", "session_id", parentSessionID, "error", err)
+	}
+	if err := s.syncMessagesColumnTx(ctx, tx, subSession.ID); err != nil {
+		slog.Warn("[STORE] Failed to sync sub-session messages column", "session_id", subSession.ID, "error", err)
 	}
 
 	return tx.Commit()
@@ -1030,7 +1146,16 @@ func (s *SQLiteSessionStore) AddSummary(ctx context.Context, sessionID, summary 
 		`INSERT INTO session_items (session_id, position, item_type, summary_text)
 		 VALUES (?, (SELECT COALESCE(MAX(position), -1) + 1 FROM session_items WHERE session_id = ?), 'summary', ?)`,
 		sessionID, sessionID, summary)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Update messages column for backward compatibility with older cagent versions
+	if syncErr := s.syncMessagesColumn(ctx, sessionID); syncErr != nil {
+		slog.Warn("[STORE] Failed to sync messages column", "session_id", sessionID, "error", syncErr)
+	}
+
+	return nil
 }
 
 // UpdateSessionTokens updates only token/cost fields.
