@@ -5,10 +5,11 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/docker/cagent/pkg/memory"
-	"github.com/docker/cagent/pkg/team"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/docker/cagent/pkg/memory"
+	"github.com/docker/cagent/pkg/team"
 )
 
 type closeTrackingDriver struct {
