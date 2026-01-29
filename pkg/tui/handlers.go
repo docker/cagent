@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/atotto/clipboard"
@@ -20,11 +21,13 @@ import (
 	"github.com/docker/cagent/pkg/tui/messages"
 	"github.com/docker/cagent/pkg/tui/page/chat"
 	"github.com/docker/cagent/pkg/tui/service"
+	"github.com/docker/cagent/pkg/tui/styles"
 )
 
 // Session management handlers
 
 func (a *appModel) handleNewSession() (tea.Model, tea.Cmd) {
+	// Theme is now global - no per-session theme reset needed
 	a.application.NewSession()
 	sess := a.application.Session()
 	a.sessionState = service.NewSessionState(sess)
@@ -32,7 +35,10 @@ func (a *appModel) handleNewSession() (tea.Model, tea.Cmd) {
 	a.dialog = dialog.New()
 	a.statusBar.SetHelp(a.chatPage)
 
-	return a, tea.Batch(a.Init(), a.handleWindowResize(a.wWidth, a.wHeight))
+	return a, tea.Batch(
+		a.Init(),
+		a.handleWindowResize(a.wWidth, a.wHeight),
+	)
 }
 
 func (a *appModel) handleOpenSessionBrowser() (tea.Model, tea.Cmd) {
@@ -67,6 +73,8 @@ func (a *appModel) handleLoadSession(sessionID string) (tea.Model, tea.Cmd) {
 
 	slog.Debug("Loaded session from store", "session_id", sessionID, "model_overrides", sess.AgentModelOverrides)
 
+	// Theme is now global - no per-session theme switching needed
+
 	// Cancel current session and replace with loaded one
 	a.application.ReplaceSession(context.Background(), sess)
 	a.sessionState = service.NewSessionState(sess)
@@ -74,7 +82,10 @@ func (a *appModel) handleLoadSession(sessionID string) (tea.Model, tea.Cmd) {
 	a.dialog = dialog.New()
 	a.statusBar.SetHelp(a.chatPage)
 
-	return a, tea.Batch(a.Init(), a.handleWindowResize(a.wWidth, a.wHeight))
+	return a, tea.Batch(
+		a.Init(),
+		a.handleWindowResize(a.wWidth, a.wHeight),
+	)
 }
 
 func (a *appModel) handleToggleSessionStar(sessionID string) (tea.Model, tea.Cmd) {
@@ -344,6 +355,117 @@ func (a *appModel) handleChangeModel(modelRef string) (tea.Model, tea.Cmd) {
 		return a, notification.SuccessCmd("Model reset to default")
 	}
 	return a, notification.SuccessCmd(fmt.Sprintf("Model changed to %s", modelRef))
+}
+
+// Theme handlers
+
+func (a *appModel) handleOpenThemePicker() (tea.Model, tea.Cmd) {
+	// Get available themes
+	themeRefs, err := styles.ListThemeRefs()
+	if err != nil {
+		return a, notification.ErrorCmd(fmt.Sprintf("Failed to list themes: %v", err))
+	}
+
+	// Get the currently active global theme
+	currentTheme := styles.CurrentTheme()
+	currentRef := currentTheme.Ref
+
+	// Build theme choices
+	var choices []dialog.ThemeChoice
+
+	for _, ref := range themeRefs {
+		theme, loadErr := styles.LoadTheme(ref)
+		if loadErr != nil {
+			continue
+		}
+
+		// Use YAML name, or filename as fallback
+		name := theme.Name
+		if name == "" {
+			name = strings.TrimPrefix(ref, styles.UserThemePrefix)
+		}
+
+		choices = append(choices, dialog.ThemeChoice{
+			Ref:       ref,
+			Name:      name,
+			IsCurrent: ref == currentRef,
+			IsDefault: ref == styles.DefaultThemeRef,
+			IsBuiltin: styles.IsBuiltinTheme(ref),
+		})
+	}
+
+	return a, core.CmdHandler(dialog.OpenDialogMsg{
+		Model: dialog.NewThemePickerDialog(choices, currentRef),
+	})
+}
+
+func (a *appModel) handleChangeTheme(themeRef string) (tea.Model, tea.Cmd) {
+	// Skip if selecting the already-persisted theme - preview already applied it visually,
+	// so no need for notification, cache invalidation, or re-persisting.
+	if styles.GetPersistedThemeRef() == themeRef {
+		return a, nil
+	}
+
+	// Load and apply the theme
+	theme, err := styles.LoadTheme(themeRef)
+	if err != nil {
+		return a, notification.ErrorCmd(fmt.Sprintf("Failed to load theme: %v", err))
+	}
+
+	styles.ApplyTheme(theme)
+
+	// Invalidate caches synchronously
+	a.invalidateCachesForThemeChange()
+
+	// Persist to user config (global setting)
+	if err := styles.SaveThemeToUserConfig(themeRef); err != nil {
+		slog.Warn("Failed to save theme to user config", "theme", themeRef, "error", err)
+	}
+
+	return a, tea.Sequence(
+		notification.SuccessCmd(fmt.Sprintf("Theme changed to %s", theme.Name)),
+		core.CmdHandler(messages.ThemeChangedMsg{}),
+	)
+}
+
+// handleThemePreview applies a theme temporarily for live preview (without persisting).
+func (a *appModel) handleThemePreview(themeRef string) (tea.Model, tea.Cmd) {
+	// Skip if already on this theme - no need to invalidate caches
+	if current := styles.CurrentTheme(); current != nil && current.Ref == themeRef {
+		return a, nil
+	}
+
+	// Load and apply the theme (without persisting)
+	theme, err := styles.LoadTheme(themeRef)
+	if err != nil {
+		// Silently fail for preview - don't show error notification
+		return a, nil
+	}
+
+	styles.ApplyTheme(theme)
+
+	// Apply theme changed logic synchronously to ensure View() renders with updated styles
+	return a.applyThemeChanged()
+}
+
+// handleThemeCancelPreview restores the original theme when the user cancels the theme picker.
+func (a *appModel) handleThemeCancelPreview(originalRef string) (tea.Model, tea.Cmd) {
+	// Skip if already on the original theme - no need to invalidate caches
+	if current := styles.CurrentTheme(); current != nil && current.Ref == originalRef {
+		return a, nil
+	}
+
+	// Load and apply the original theme
+	theme, err := styles.LoadTheme(originalRef)
+	if err != nil {
+		// Fall back to default theme if original can't be loaded
+		theme = styles.DefaultTheme()
+	}
+
+	styles.ApplyTheme(theme)
+
+	// Apply theme changed logic (invalidates caches, updates watcher, forwards messages)
+	return a.applyThemeChanged()
 }
 
 // Speech-to-text handlers

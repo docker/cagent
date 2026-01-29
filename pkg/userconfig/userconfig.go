@@ -40,6 +40,9 @@ func (a *Alias) HasOptions() bool {
 type Settings struct {
 	// HideToolResults hides tool call results in the TUI by default
 	HideToolResults bool `yaml:"hide_tool_results,omitempty"`
+	// Theme is the default theme reference (e.g., "dark", "light")
+	// Theme files are loaded from ~/.cagent/themes/<theme>.yaml
+	Theme string `yaml:"theme,omitempty"`
 }
 
 // CredentialHelper contains configuration for a credential helper command

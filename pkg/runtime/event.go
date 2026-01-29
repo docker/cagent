@@ -5,6 +5,7 @@ import (
 
 	"github.com/docker/cagent/pkg/chat"
 	"github.com/docker/cagent/pkg/config/types"
+	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/tools"
 )
 
@@ -22,16 +23,18 @@ func (a AgentContext) GetAgentName() string { return a.AgentName }
 
 // UserMessageEvent is sent when a user message is received
 type UserMessageEvent struct {
-	Type    string `json:"type"`
-	Message string `json:"message"`
+	Type      string `json:"type"`
+	Message   string `json:"message"`
+	SessionID string `json:"session_id"`
 }
 
 func (e *UserMessageEvent) GetAgentName() string { return "" }
 
-func UserMessage(message string) Event {
+func UserMessage(message, sessionID string) Event {
 	return &UserMessageEvent{
-		Type:    "user_message",
-		Message: message,
+		Type:      "user_message",
+		Message:   message,
+		SessionID: sessionID,
 	}
 }
 
@@ -524,5 +527,45 @@ func HookBlocked(toolCall tools.ToolCall, toolDefinition tools.Tool, message, ag
 		ToolDefinition: toolDefinition,
 		Message:        message,
 		AgentContext:   AgentContext{AgentName: agentName},
+	}
+}
+
+// MessageAddedEvent is emitted when a message is added to the session.
+// This event is used by the PersistentRuntime wrapper to persist messages.
+type MessageAddedEvent struct {
+	Type      string           `json:"type"`
+	SessionID string           `json:"session_id"`
+	Message   *session.Message `json:"-"`
+	AgentContext
+}
+
+func (e *MessageAddedEvent) GetAgentName() string { return e.AgentName }
+
+func MessageAdded(sessionID string, msg *session.Message, agentName string) Event {
+	return &MessageAddedEvent{
+		Type:         "message_added",
+		SessionID:    sessionID,
+		Message:      msg,
+		AgentContext: AgentContext{AgentName: agentName},
+	}
+}
+
+// SubSessionCompletedEvent is emitted when a sub-session completes and is added to parent.
+// This event is used by the PersistentRuntime wrapper to persist sub-sessions.
+type SubSessionCompletedEvent struct {
+	Type            string `json:"type"`
+	ParentSessionID string `json:"parent_session_id"`
+	SubSession      any    `json:"sub_session"` // *session.Session
+	AgentContext
+}
+
+func (e *SubSessionCompletedEvent) GetAgentName() string { return e.AgentName }
+
+func SubSessionCompleted(parentSessionID string, subSession any, agentName string) Event {
+	return &SubSessionCompletedEvent{
+		Type:            "sub_session_completed",
+		ParentSessionID: parentSessionID,
+		SubSession:      subSession,
+		AgentContext:    AgentContext{AgentName: agentName},
 	}
 }

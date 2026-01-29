@@ -17,6 +17,7 @@ import (
 	"github.com/docker/cagent/pkg/tui/components/markdown"
 	"github.com/docker/cagent/pkg/tui/components/tool"
 	"github.com/docker/cagent/pkg/tui/core/layout"
+	"github.com/docker/cagent/pkg/tui/messages"
 	"github.com/docker/cagent/pkg/tui/service"
 	"github.com/docker/cagent/pkg/tui/styles"
 	"github.com/docker/cagent/pkg/tui/types"
@@ -369,7 +370,11 @@ func (m *Model) Init() tea.Cmd {
 
 // Update handles messages.
 func (m *Model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
-	if _, ok := msg.(animation.TickMsg); ok {
+	switch msg.(type) {
+	case messages.ThemeChangedMsg:
+		// Theme changed - invalidate cached rendering
+		m.cache = nil
+	case animation.TickMsg:
 		// Compute fade levels based on elapsed time (tick-rate independent)
 		m.computeFadeProgressAt(nowFunc())
 		// Unregister if no more fading tools (uses fadeProgress computed above)

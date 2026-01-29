@@ -22,6 +22,7 @@ import (
 	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/teamloader"
 	"github.com/docker/cagent/pkg/telemetry"
+	"github.com/docker/cagent/pkg/tui/styles"
 )
 
 type runExecFlags struct {
@@ -234,6 +235,11 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 	}
 	defer cleanup()
 
+	// Apply theme before TUI starts
+	if tui {
+		applyTheme()
+	}
+
 	if f.dryRun {
 		out.Println("Dry run mode enabled. Agent initialized but will not execute.")
 		return nil
@@ -360,9 +366,11 @@ func (f *runExecFlags) createLocalRuntimeAndSession(ctx context.Context, loadRes
 
 		// Apply any stored model overrides from the session
 		if len(sess.AgentModelOverrides) > 0 {
-			for agentName, modelRef := range sess.AgentModelOverrides {
-				if err := localRt.SetAgentModel(ctx, agentName, modelRef); err != nil {
-					slog.Warn("Failed to apply stored model override", "agent", agentName, "model", modelRef, "error", err)
+			if modelSwitcher, ok := localRt.(runtime.ModelSwitcher); ok {
+				for agentName, modelRef := range sess.AgentModelOverrides {
+					if err := modelSwitcher.SetAgentModel(ctx, agentName, modelRef); err != nil {
+						slog.Warn("Failed to apply stored model override", "agent", agentName, "model", modelRef, "error", err)
+					}
 				}
 			}
 		}
@@ -439,4 +447,22 @@ func (f *runExecFlags) handleRunMode(ctx context.Context, rt runtime.Runtime, se
 	}
 
 	return runTUI(ctx, rt, sess, opts...)
+}
+
+// applyTheme applies the theme from user config, or the built-in default.
+func applyTheme() {
+	// Resolve theme from user config > built-in default
+	themeRef := styles.DefaultThemeRef
+	if userSettings := config.GetUserSettings(); userSettings.Theme != "" {
+		themeRef = userSettings.Theme
+	}
+
+	theme, err := styles.LoadTheme(themeRef)
+	if err != nil {
+		slog.Warn("Failed to load theme, using default", "theme", themeRef, "error", err)
+		theme = styles.DefaultTheme()
+	}
+
+	styles.ApplyTheme(theme)
+	slog.Debug("Applied theme", "theme_ref", themeRef, "theme_name", theme.Name)
 }

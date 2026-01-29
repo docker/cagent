@@ -24,6 +24,7 @@ type apiFlags struct {
 	fakeResponses    string
 	recordPath       string
 	connectRPC       bool
+	exitOnStdinEOF   bool
 	runConfig        config.RuntimeConfig
 }
 
@@ -45,6 +46,8 @@ func newAPICmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&flags.fakeResponses, "fake", "", "Replay AI responses from cassette file (for testing)")
 	cmd.PersistentFlags().StringVar(&flags.recordPath, "record", "", "Record AI API interactions to cassette file")
 	cmd.PersistentFlags().BoolVar(&flags.connectRPC, "connect-rpc", false, "Use Connect-RPC protocol instead of HTTP/JSON API")
+	cmd.PersistentFlags().BoolVar(&flags.exitOnStdinEOF, "exit-on-stdin-eof", false, "Exit when stdin is closed (for integration with parent processes)")
+	_ = cmd.PersistentFlags().MarkHidden("exit-on-stdin-eof")
 	cmd.MarkFlagsMutuallyExclusive("fake", "record")
 	addRuntimeConfigFlags(cmd, &flags.runConfig)
 
@@ -75,11 +78,13 @@ func monitorStdin(ctx context.Context, cancel context.CancelFunc, stdin *os.File
 }
 
 func (f *apiFlags) runAPICommand(cmd *cobra.Command, args []string) error {
+	f.runConfig.ModelsGateway = "http://localhost:7777"
+
 	telemetry.TrackCommand("api", args)
 
 	ctx := cmd.Context()
 
-	// Save stdin before clearing it, so we can monitor for parent death
+	// Save stdin before clearing it, so we can optionally monitor for parent process death
 	stdin := os.Stdin
 
 	out := cli.NewPrinter(cmd.OutOrStdout())
@@ -89,8 +94,9 @@ func (f *apiFlags) runAPICommand(cmd *cobra.Command, args []string) error {
 	os.Stdin = nil
 
 	// Monitor stdin for EOF to detect parent process death.
+	// Only enabled when --exit-on-stdin-eof flag is passed.
 	// When spawned with piped stdio, stdin closes when the parent process dies.
-	if stdin != nil {
+	if f.exitOnStdinEOF && stdin != nil {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithCancel(ctx)
 		defer cancel()

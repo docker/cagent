@@ -160,9 +160,27 @@ type cachedStyles struct {
 var (
 	globalStyles     *cachedStyles
 	globalStylesOnce sync.Once
+	globalStylesMu   sync.Mutex
 )
 
+// ResetStyles resets the cached markdown styles so they will be rebuilt on next use.
+// Call this when the theme changes to pick up new colors.
+func ResetStyles() {
+	globalStylesMu.Lock()
+	globalStyles = nil
+	globalStylesOnce = sync.Once{}
+	globalStylesMu.Unlock()
+
+	// Also clear chroma syntax highlighting cache
+	chromaStyleCacheMu.Lock()
+	chromaStyleCache = make(map[chroma.TokenType]ansiStyle)
+	chromaStyleCacheMu.Unlock()
+}
+
 func getGlobalStyles() *cachedStyles {
+	globalStylesMu.Lock()
+	defer globalStylesMu.Unlock()
+
 	globalStylesOnce.Do(func() {
 		mdStyle := styles.MarkdownStyle()
 
@@ -207,7 +225,7 @@ func getGlobalStyles() *cachedStyles {
 				buildAnsiStyle(headingLipStyles[5]),
 			},
 			ansiBlockquote:   buildAnsiStyle(blockquoteLipStyle),
-			ansiFootnote:     buildAnsiStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Italic(true)),
+			ansiFootnote:     buildAnsiStyle(lipgloss.NewStyle().Foreground(styles.TextSecondary).Italic(true)),
 			styleTaskTicked:  mdStyle.Task.Ticked,
 			styleTaskUntick:  mdStyle.Task.Unticked,
 			listIndent:       int(mdStyle.List.LevelIndent),

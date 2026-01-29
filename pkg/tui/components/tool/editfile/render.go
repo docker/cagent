@@ -49,6 +49,16 @@ var (
 	lexerCacheMu sync.RWMutex
 )
 
+// InvalidateCaches clears all render caches.
+// Call this when the theme changes to pick up new colors.
+func InvalidateCaches() {
+	cacheMu.Lock()
+	for _, c := range cache {
+		c.renderCached = false
+	}
+	cacheMu.Unlock()
+}
+
 type chromaToken struct {
 	Text  string
 	Style lipgloss.Style

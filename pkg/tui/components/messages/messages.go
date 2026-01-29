@@ -188,6 +188,19 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		m.invalidateAllItems()
 		return m, nil
 
+	case messages.ThemeChangedMsg:
+		// Theme changed - invalidate all render caches
+		m.invalidateAllItems()
+		editfile.InvalidateCaches()
+		for i, view := range m.views {
+			updatedView, cmd := view.Update(msg)
+			m.views[i] = updatedView
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		return m, tea.Batch(cmds...)
+
 	case reasoningblock.BlockMsg:
 		return m.forwardToReasoningBlock(msg.GetBlockID(), msg)
 

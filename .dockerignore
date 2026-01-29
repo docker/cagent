@@ -8,3 +8,4 @@
 !./**/*.go
 !./**/*.txt
 !/pkg/config/default-agent.yaml
+!/pkg/tui/styles/themes/*.yaml

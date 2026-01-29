@@ -5,6 +5,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/docker/cagent/pkg/tui/core/layout"
+	"github.com/docker/cagent/pkg/tui/messages"
 )
 
 // OpenDialogMsg is sent to open a new dialog
@@ -57,6 +58,16 @@ func (d *manager) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		d.width = msg.Width
 		d.height = msg.Height
 		// Propagate resize to all dialogs in the stack
+		var cmds []tea.Cmd
+		for i := range d.dialogStack {
+			u, cmd := d.dialogStack[i].Update(msg)
+			d.dialogStack[i] = u.(Dialog)
+			cmds = append(cmds, cmd)
+		}
+		return d, tea.Batch(cmds...)
+
+	case messages.ThemeChangedMsg:
+		// Propagate theme change to all dialogs in the stack so they can invalidate caches
 		var cmds []tea.Cmd
 		for i := range d.dialogStack {
 			u, cmd := d.dialogStack[i].Update(msg)

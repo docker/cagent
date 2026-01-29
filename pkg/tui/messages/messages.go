@@ -57,4 +57,22 @@ type (
 		Content     string            // Full content sent to the agent (with file contents expanded)
 		Attachments map[string]string // Map of filename to content for attachments
 	}
+
+	OpenThemePickerMsg struct{} // Open the theme picker dialog
+	ChangeThemeMsg     struct {
+		ThemeRef string // Theme reference to apply
+	}
+	ThemePreviewMsg struct {
+		ThemeRef    string // Theme reference to preview
+		OriginalRef string // Original theme to restore on cancel
+	}
+	ThemeCancelPreviewMsg struct {
+		OriginalRef string // Theme reference to restore
+	}
+	ThemeChangedMsg struct{} // Notifies components that the theme has changed (for cache invalidation)
+	// ThemeFileChangedMsg notifies TUI that the theme file was modified on disk (hot reload).
+	// The TUI should load and apply the theme on the main goroutine to avoid race conditions.
+	ThemeFileChangedMsg struct {
+		ThemeRef string // The theme ref that was modified
+	}
 )

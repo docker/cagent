@@ -550,6 +550,9 @@ func (e *editor) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		e.keyboardEnhancementsSupported = msg.Flags != 0
 		e.configureNewlineKeybinding()
 		return e, nil
+	case messages.ThemeChangedMsg:
+		e.textarea.SetStyles(styles.InputStyle)
+		return e, nil
 	case tea.WindowSizeMsg:
 		e.textarea.SetWidth(msg.Width - 2)
 		return e, nil
