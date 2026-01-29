@@ -275,7 +275,7 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.chatPage = updated.(chat.Page)
 		return a, cmd
 
-	case tea.MouseWheelMsg:
+	case tea.MouseClickMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg, tea.MouseWheelMsg:
 		// If dialogs are active, they get priority for mouse events
 		if a.dialog.Open() {
 			u, dialogCmd := a.dialog.Update(msg)
