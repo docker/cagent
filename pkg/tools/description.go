@@ -13,16 +13,16 @@ const (
 // DescriptionToolSet wraps a ToolSet and adds a "description" parameter to all tools.
 // This allows the LLM to provide context about what it's doing with each tool call.
 type DescriptionToolSet struct {
-	inner ToolSet
+	ToolSetWrapper
 }
 
 // NewDescriptionToolSet creates a new DescriptionToolSet wrapping the given ToolSet.
 func NewDescriptionToolSet(inner ToolSet) *DescriptionToolSet {
-	return &DescriptionToolSet{inner: inner}
+	return &DescriptionToolSet{ToolSetWrapper: ToolSetWrapper{ToolSet: inner}}
 }
 
 func (f *DescriptionToolSet) Tools(ctx context.Context) ([]Tool, error) {
-	tools, err := f.inner.Tools(ctx)
+	tools, err := f.ToolSet.Tools(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -32,30 +32,6 @@ func (f *DescriptionToolSet) Tools(ctx context.Context) ([]Tool, error) {
 		result[i] = f.addDescriptionParam(tool)
 	}
 	return result, nil
-}
-
-func (f *DescriptionToolSet) Instructions() string {
-	return f.inner.Instructions()
-}
-
-func (f *DescriptionToolSet) Start(ctx context.Context) error {
-	return f.inner.Start(ctx)
-}
-
-func (f *DescriptionToolSet) Stop(ctx context.Context) error {
-	return f.inner.Stop(ctx)
-}
-
-func (f *DescriptionToolSet) SetElicitationHandler(handler ElicitationHandler) {
-	f.inner.SetElicitationHandler(handler)
-}
-
-func (f *DescriptionToolSet) SetOAuthSuccessHandler(handler func()) {
-	f.inner.SetOAuthSuccessHandler(handler)
-}
-
-func (f *DescriptionToolSet) SetManagedOAuth(managed bool) {
-	f.inner.SetManagedOAuth(managed)
 }
 
 func (f *DescriptionToolSet) addDescriptionParam(tool Tool) Tool {

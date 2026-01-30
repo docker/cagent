@@ -70,6 +70,7 @@ func NewDefaultToolsetRegistry() *ToolsetRegistry {
 	r.Register("a2a", createA2ATool)
 	r.Register("lsp", createLSPTool)
 	r.Register("user_prompt", createUserPromptTool)
+	r.Register("switch_model", createSwitchModelTool)
 	return r
 }
 
@@ -283,4 +284,8 @@ func createLSPTool(ctx context.Context, toolset latest.Toolset, _ string, runCon
 
 func createUserPromptTool(_ context.Context, _ latest.Toolset, _ string, _ *config.RuntimeConfig) (tools.ToolSet, error) {
 	return builtin.NewUserPromptTool(), nil
+}
+
+func createSwitchModelTool(_ context.Context, toolset latest.Toolset, _ string, _ *config.RuntimeConfig) (tools.ToolSet, error) {
+	return builtin.NewSwitchModelToolset(toolset.Models)
 }

@@ -106,6 +106,25 @@ type ToolSet interface {
 	SetManagedOAuth(managed bool)
 }
 
+// Unwrapper is an optional interface that wrapper toolsets can implement
+// to provide access to their inner toolset. This is useful for unwrapping
+// nested toolset wrappers to find specific toolset types (e.g., SwitchModelToolset).
+type Unwrapper interface {
+	Inner() ToolSet
+}
+
+// ToolSetWrapper is a base type for toolset decorators that wrap another toolset.
+// It implements both ToolSet (by delegation) and Unwrapper interfaces.
+// Embed this in wrapper types and override only the methods you need to customize.
+type ToolSetWrapper struct {
+	ToolSet
+}
+
+// Inner returns the wrapped toolset (implements Unwrapper).
+func (w *ToolSetWrapper) Inner() ToolSet {
+	return w.ToolSet
+}
+
 // NewHandler creates a type-safe tool handler from a function that accepts typed parameters.
 // It handles JSON unmarshaling of the tool call arguments into the specified type T.
 func NewHandler[T any](fn func(context.Context, T) (*ToolCallResult, error)) ToolHandler {

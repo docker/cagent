@@ -22,7 +22,7 @@ func WithToolSets(toolSet ...tools.ToolSet) Opt {
 	var startableToolSet []*StartableToolSet
 	for _, ts := range toolSet {
 		startableToolSet = append(startableToolSet, &StartableToolSet{
-			ToolSet: ts,
+			ToolSetWrapper: tools.ToolSetWrapper{ToolSet: ts},
 		})
 	}
 
@@ -141,7 +141,7 @@ func WithThinkingConfigured(configured bool) Opt {
 }
 
 type StartableToolSet struct {
-	tools.ToolSet
+	tools.ToolSetWrapper
 
 	mu      sync.Mutex
 	started bool

@@ -12,13 +12,13 @@ func WithInstructions(inner tools.ToolSet, instruction string) tools.ToolSet {
 	}
 
 	return &replaceInstruction{
-		ToolSet:     inner,
-		instruction: instruction,
+		ToolSetWrapper: tools.ToolSetWrapper{ToolSet: inner},
+		instruction:    instruction,
 	}
 }
 
 type replaceInstruction struct {
-	tools.ToolSet
+	tools.ToolSetWrapper
 	instruction string
 }
 
