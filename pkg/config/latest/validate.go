@@ -2,6 +2,7 @@ package latest
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -56,6 +57,9 @@ func (t *Toolset) validate() error {
 	if t.Shared && t.Type != "todo" {
 		return errors.New("shared can only be used with type 'todo'")
 	}
+	if len(t.Models) > 0 && t.Type != "switch_model" {
+		return errors.New("models can only be used with type 'switch_model'")
+	}
 	if t.Command != "" && t.Type != "mcp" && t.Type != "lsp" {
 		return errors.New("command can only be used with type 'mcp' or 'lsp'")
 	}
@@ -85,6 +89,15 @@ func (t *Toolset) validate() error {
 	case "shell":
 		if t.Sandbox != nil && len(t.Sandbox.Paths) == 0 {
 			return errors.New("sandbox requires at least one path to be set")
+		}
+	case "switch_model":
+		if len(t.Models) == 0 {
+			return errors.New("switch_model toolset requires at least one model")
+		}
+		for i, m := range t.Models {
+			if strings.TrimSpace(m) == "" {
+				return fmt.Errorf("switch_model toolset: model at index %d is empty", i)
+			}
 		}
 	case "memory":
 		if t.Path == "" {

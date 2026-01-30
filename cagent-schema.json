@@ -593,7 +593,8 @@
             "api",
             "a2a",
             "lsp",
-            "user_prompt"
+            "user_prompt",
+            "switch_model"
           ]
         },
         "instruction": {
@@ -700,6 +701,17 @@
           "description": "Timeout in seconds for the fetch tool",
           "minimum": 1
         },
+        "models": {
+          "type": "array",
+          "description": "List of allowed model references for the switch_model tool. If not specified, all models defined in the config are available.",
+          "items": {
+            "type": "string"
+          },
+          "examples": [
+            ["fast_model", "powerful_model"],
+            ["openai/gpt-4o-mini", "anthropic/claude-sonnet-4-0"]
+          ]
+        },
         "url": {
           "type": "string",
           "description": "URL for the a2a tool",
@@ -757,7 +769,8 @@
                 "memory",
                 "script",
                 "fetch",
-                "user_prompt"
+                "user_prompt",
+                "switch_model"
               ]
             }
           }

@@ -83,172 +83,101 @@ func (r *LocalRuntime) SetAgentModel(ctx context.Context, agentName, modelRef st
 		return nil
 	}
 
-	// Check if modelRef is a named model from config
-	if modelConfig, exists := r.modelSwitcherCfg.Models[modelRef]; exists {
-		// Check if this is an alloy model (no provider, comma-separated models)
-		if isAlloyModelConfig(modelConfig) {
-			providers, err := r.createProvidersFromAlloyConfig(ctx, modelConfig)
-			if err != nil {
-				return fmt.Errorf("failed to create alloy model from config: %w", err)
-			}
-			a.SetModelOverride(providers...)
-			slog.Info("Set agent model override (alloy)", "agent", agentName, "config_name", modelRef, "model_count", len(providers))
-			return nil
-		}
+	// Parse model references (handles both single and comma-separated refs)
+	refs := splitModelRefs(modelRef)
 
-		prov, err := r.createProviderFromConfig(ctx, &modelConfig)
+	// Single reference - could be a config name or inline "provider/model"
+	if len(refs) == 1 {
+		prov, err := r.resolveModelRef(ctx, refs[0])
 		if err != nil {
-			return fmt.Errorf("failed to create model from config: %w", err)
+			return err
 		}
 		a.SetModelOverride(prov)
-		slog.Info("Set agent model override", "agent", agentName, "model", prov.ID(), "config_name", modelRef)
+		slog.Info("Set agent model override", "agent", agentName, "model", prov.ID())
 		return nil
 	}
 
-	// Check if this is an inline alloy spec (comma-separated provider/model specs)
-	// e.g., "openai/gpt-4o,anthropic/claude-sonnet-4-0"
-	if isInlineAlloySpec(modelRef) {
-		providers, err := r.createProvidersFromInlineAlloy(ctx, modelRef)
-		if err != nil {
-			return fmt.Errorf("failed to create inline alloy model: %w", err)
-		}
-		a.SetModelOverride(providers...)
-		slog.Info("Set agent model override (inline alloy)", "agent", agentName, "model_count", len(providers))
-		return nil
-	}
-
-	// Try parsing as inline spec (provider/model)
-	providerName, modelName, ok := strings.Cut(modelRef, "/")
-	if !ok {
-		return fmt.Errorf("invalid model reference %q: expected a model name from config or 'provider/model' format", modelRef)
-	}
-
-	inlineCfg := &latest.ModelConfig{
-		Provider: providerName,
-		Model:    modelName,
-	}
-	prov, err := r.createProviderFromConfig(ctx, inlineCfg)
+	// Multiple references - create an alloy (multiple providers)
+	providers, err := r.resolveModelRefs(ctx, refs)
 	if err != nil {
-		return fmt.Errorf("failed to create inline model: %w", err)
+		return fmt.Errorf("failed to create alloy model: %w", err)
 	}
-	a.SetModelOverride(prov)
-	slog.Info("Set agent model override (inline)", "agent", agentName, "model", prov.ID())
+	a.SetModelOverride(providers...)
+	slog.Info("Set agent model override (alloy)", "agent", agentName, "model_count", len(providers))
 	return nil
 }
 
-// isAlloyModelConfig checks if a model config is an alloy model (multiple models).
-func isAlloyModelConfig(cfg latest.ModelConfig) bool {
-	return cfg.Provider == "" && strings.Contains(cfg.Model, ",")
+// splitModelRefs splits a comma-separated model reference string into individual refs.
+func splitModelRefs(refs string) []string {
+	var result []string
+	for ref := range strings.SplitSeq(refs, ",") {
+		if ref = strings.TrimSpace(ref); ref != "" {
+			result = append(result, ref)
+		}
+	}
+	return result
 }
 
 // isInlineAlloySpec checks if a model reference is an inline alloy specification.
 // An inline alloy is comma-separated provider/model specs like "openai/gpt-4o,anthropic/claude-sonnet-4-0".
+// All parts must contain a "/" (i.e., be inline specs) for it to be considered an inline alloy.
 func isInlineAlloySpec(modelRef string) bool {
-	if !strings.Contains(modelRef, ",") {
+	refs := splitModelRefs(modelRef)
+	if len(refs) < 2 {
 		return false
 	}
-	// Check that each part looks like a provider/model spec
-	// and count valid parts (need at least 2 for an alloy)
-	validParts := 0
-	for part := range strings.SplitSeq(modelRef, ",") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		if !strings.Contains(part, "/") {
+	for _, ref := range refs {
+		if !strings.Contains(ref, "/") {
 			return false
 		}
-		validParts++
 	}
-	return validParts >= 2
+	return true
 }
 
-// createProvidersFromInlineAlloy creates providers from an inline alloy spec.
-// An inline alloy is comma-separated provider/model specs like "openai/gpt-4o,anthropic/claude-sonnet-4-0".
-func (r *LocalRuntime) createProvidersFromInlineAlloy(ctx context.Context, modelRef string) ([]provider.Provider, error) {
-	var providers []provider.Provider
-
-	for part := range strings.SplitSeq(modelRef, ",") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-
-		// Check if this part exists as a named model in config
-		if modelCfg, exists := r.modelSwitcherCfg.Models[part]; exists {
-			prov, err := r.createProviderFromConfig(ctx, &modelCfg)
+// resolveModelRef resolves a single model reference to a provider.
+// The ref can be either a named model from config or an inline "provider/model" spec.
+func (r *LocalRuntime) resolveModelRef(ctx context.Context, ref string) (provider.Provider, error) {
+	// Check if it's a named model from config
+	if modelCfg, exists := r.modelSwitcherCfg.Models[ref]; exists {
+		// If the config itself contains comma-separated models, expand it
+		if modelCfg.Provider == "" && strings.Contains(modelCfg.Model, ",") {
+			// This is an alloy config - but we're resolving a single ref, so this is an error
+			// unless the caller handles alloys explicitly
+			providers, err := r.resolveModelRefs(ctx, splitModelRefs(modelCfg.Model))
 			if err != nil {
-				return nil, fmt.Errorf("failed to create provider for %q: %w", part, err)
+				return nil, err
 			}
-			providers = append(providers, prov)
-			continue
+			if len(providers) == 1 {
+				return providers[0], nil
+			}
+			return nil, fmt.Errorf("model %q resolves to multiple providers; use resolveModelRefs instead", ref)
 		}
+		return r.createProviderFromConfig(ctx, &modelCfg)
+	}
 
-		// Parse as provider/model
-		providerName, modelName, ok := strings.Cut(part, "/")
-		if !ok {
-			return nil, fmt.Errorf("invalid model reference %q in inline alloy: expected 'provider/model' format", part)
-		}
+	// Try to parse as inline "provider/model" spec
+	providerName, modelName, ok := strings.Cut(ref, "/")
+	if !ok {
+		return nil, fmt.Errorf("invalid model reference %q: expected a model name from config or 'provider/model' format", ref)
+	}
 
-		inlineCfg := &latest.ModelConfig{
-			Provider: providerName,
-			Model:    modelName,
-		}
-		prov, err := r.createProviderFromConfig(ctx, inlineCfg)
+	cfg := &latest.ModelConfig{
+		Provider: providerName,
+		Model:    modelName,
+	}
+	return r.createProviderFromConfig(ctx, cfg)
+}
+
+// resolveModelRefs resolves multiple model references to providers.
+func (r *LocalRuntime) resolveModelRefs(ctx context.Context, refs []string) ([]provider.Provider, error) {
+	providers := make([]provider.Provider, 0, len(refs))
+	for _, ref := range refs {
+		prov, err := r.resolveModelRef(ctx, ref)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create provider for %q: %w", part, err)
+			return nil, fmt.Errorf("model %q: %w", ref, err)
 		}
 		providers = append(providers, prov)
 	}
-
-	if len(providers) == 0 {
-		return nil, fmt.Errorf("inline alloy spec has no valid models")
-	}
-
-	return providers, nil
-}
-
-// createProvidersFromAlloyConfig creates providers for each model in an alloy configuration.
-func (r *LocalRuntime) createProvidersFromAlloyConfig(ctx context.Context, alloyCfg latest.ModelConfig) ([]provider.Provider, error) {
-	var providers []provider.Provider
-
-	for modelRef := range strings.SplitSeq(alloyCfg.Model, ",") {
-		modelRef = strings.TrimSpace(modelRef)
-		if modelRef == "" {
-			continue
-		}
-
-		// Check if this model reference exists in the config
-		if modelCfg, exists := r.modelSwitcherCfg.Models[modelRef]; exists {
-			prov, err := r.createProviderFromConfig(ctx, &modelCfg)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create provider for %q: %w", modelRef, err)
-			}
-			providers = append(providers, prov)
-			continue
-		}
-
-		// Try parsing as inline spec (provider/model)
-		providerName, modelName, ok := strings.Cut(modelRef, "/")
-		if !ok {
-			return nil, fmt.Errorf("invalid model reference %q in alloy config: expected 'provider/model' format", modelRef)
-		}
-
-		inlineCfg := &latest.ModelConfig{
-			Provider: providerName,
-			Model:    modelName,
-		}
-		prov, err := r.createProviderFromConfig(ctx, inlineCfg)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create provider for %q: %w", modelRef, err)
-		}
-		providers = append(providers, prov)
-	}
-
-	if len(providers) == 0 {
-		return nil, fmt.Errorf("alloy model config has no valid models")
-	}
-
 	return providers, nil
 }
 

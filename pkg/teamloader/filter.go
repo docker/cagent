@@ -43,7 +43,15 @@ type filterTools struct {
 }
 
 // Verify interface compliance
-var _ tools.Instructable = (*filterTools)(nil)
+var (
+	_ tools.Instructable = (*filterTools)(nil)
+	_ tools.Unwrapper    = (*filterTools)(nil)
+)
+
+// Unwrap returns the underlying ToolSet.
+func (f *filterTools) Unwrap() tools.ToolSet {
+	return f.ToolSet
+}
 
 // Instructions implements tools.Instructable by delegating to the inner toolset.
 func (f *filterTools) Instructions() string {

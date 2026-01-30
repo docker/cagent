@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/team"
 	"github.com/docker/cagent/pkg/tools"
+	tools_builtin "github.com/docker/cagent/pkg/tools/builtin"
 )
 
 type stubToolSet struct {
@@ -1316,4 +1318,343 @@ func TestToolRejectionWithoutReason(t *testing.T) {
 	require.True(t, toolResponse.Result.IsError, "expected tool result to be an error")
 	require.Equal(t, "The user rejected the tool call.", toolResponse.Response)
 	require.NotContains(t, toolResponse.Response, "Reason:")
+}
+
+func TestSwitchModelTool_IntegrationWithRuntime(t *testing.T) {
+	// This test verifies that the switch_model tool correctly updates the
+	// agent's model override when used through the runtime.
+
+	// Create a switch_model toolset
+	switchModelToolset, err := tools_builtin.NewSwitchModelToolset([]string{"fast", "powerful"})
+	require.NoError(t, err)
+
+	// Initial model
+	defaultModel := &mockProvider{id: "default-model", stream: &mockStream{}}
+
+	// Create an agent with the switch_model toolset
+	root := agent.New("root", "You are a test agent",
+		agent.WithModel(defaultModel),
+		agent.WithToolSets(switchModelToolset),
+	)
+	tm := team.New(team.WithAgents(root))
+
+	// Create runtime with model switcher config
+	modelSwitcherCfg := &ModelSwitcherConfig{
+		Models: map[string]latest.ModelConfig{
+			"fast": {
+				Provider: "openai",
+				Model:    "gpt-4o-mini",
+			},
+			"powerful": {
+				Provider: "openai",
+				Model:    "gpt-4o",
+			},
+		},
+		Providers:          nil,
+		EnvProvider:        &mockEnvProvider{vars: map[string]string{"ANTHROPIC_API_KEY": "test-key"}},
+		AgentDefaultModels: map[string]string{"root": "fast"},
+	}
+
+	rt, err := NewLocalRuntime(tm,
+		WithSessionCompaction(false),
+		WithModelStore(mockModelStore{}),
+		WithModelSwitcherConfig(modelSwitcherCfg),
+	)
+	require.NoError(t, err)
+
+	// Verify initial model
+	require.Equal(t, "default-model", root.Model().ID())
+	require.False(t, root.HasModelOverride())
+
+	// Manually configure the toolset handlers (simulating what RunStream does)
+	events := make(chan Event, 10)
+	rt.configureToolsetHandlers(root, events)
+
+	// Get the switch_model tool from the agent
+	agentTools, err := root.Tools(t.Context())
+	require.NoError(t, err)
+
+	var switchModelTool tools.Tool
+	for _, tool := range agentTools {
+		if tool.Name == "switch_model" {
+			switchModelTool = tool
+			break
+		}
+	}
+	require.NotEmpty(t, switchModelTool.Name, "switch_model tool should be available")
+
+	// Call the switch_model tool to switch to "powerful"
+	toolCall := tools.ToolCall{
+		ID: "test-call-1",
+		Function: tools.FunctionCall{
+			Name:      "switch_model",
+			Arguments: `{"model": "powerful"}`,
+		},
+	}
+
+	result, err := switchModelTool.Handler(t.Context(), toolCall)
+	require.NoError(t, err)
+	require.False(t, result.IsError, "switch_model should succeed: %s", result.Output)
+	require.Contains(t, result.Output, `Switched model from "fast" to "powerful"`)
+
+	// Verify the model override was set
+	require.True(t, root.HasModelOverride(), "agent should have model override after switch")
+	require.Equal(t, "openai/gpt-4o", root.Model().ID(), "model should be switched to powerful")
+
+	// Verify that AgentInfoEvent and TeamInfoEvent were emitted with the new model
+	var agentInfoEvent *AgentInfoEvent
+	var teamInfoEvent *TeamInfoEvent
+	for {
+		select {
+		case evt := <-events:
+			switch e := evt.(type) {
+			case *AgentInfoEvent:
+				agentInfoEvent = e
+			case *TeamInfoEvent:
+				teamInfoEvent = e
+			}
+		default:
+			// No more events in the channel
+			goto done
+		}
+	}
+done:
+	require.NotNil(t, agentInfoEvent, "AgentInfoEvent should be emitted after model switch")
+	assert.Equal(t, "root", agentInfoEvent.AgentName)
+	assert.Equal(t, "openai/gpt-4o", agentInfoEvent.Model, "AgentInfoEvent should contain the new model ID")
+
+	require.NotNil(t, teamInfoEvent, "TeamInfoEvent should be emitted after model switch")
+	require.Len(t, teamInfoEvent.AvailableAgents, 1)
+	assert.Equal(t, "gpt-4o", teamInfoEvent.AvailableAgents[0].Model, "TeamInfoEvent should contain the new model name")
+}
+
+func TestSwitchModelTool_WithInstructionWrapper(t *testing.T) {
+	// This test verifies that the switch_model tool works correctly even when
+	// wrapped with a custom wrapper that implements the Unwrapper interface.
+	// This simulates what happens when the toolset has an 'instruction' field
+	// in the config (like in gopher.yaml), which causes teamloader to wrap
+	// the toolset with replaceInstruction.
+
+	// Create a switch_model toolset
+	switchModelToolset, err := tools_builtin.NewSwitchModelToolset([]string{"haiku", "opus"})
+	require.NoError(t, err)
+
+	// Create a wrapper that implements the Unwrapper interface (simulating
+	// what teamloader's WithInstructions does when instruction is set).
+	wrappedToolset := &testInstructionWrapper{ToolSet: switchModelToolset}
+
+	// Verify it implements Unwrapper
+	_, ok := tools.ToolSet(wrappedToolset).(tools.Unwrapper)
+	require.True(t, ok, "testInstructionWrapper should implement Unwrapper")
+
+	// Initial model
+	defaultModel := &mockProvider{id: "anthropic/claude-haiku-4-5", stream: &mockStream{}}
+
+	// Create an agent with the wrapped toolset
+	root := agent.New("root", "You are a test agent",
+		agent.WithModel(defaultModel),
+		agent.WithToolSets(wrappedToolset),
+	)
+	tm := team.New(team.WithAgents(root))
+
+	// Create runtime with model switcher config
+	modelSwitcherCfg := &ModelSwitcherConfig{
+		Models: map[string]latest.ModelConfig{
+			"haiku": {
+				Provider: "anthropic",
+				Model:    "claude-haiku-4-5",
+			},
+			"opus": {
+				Provider: "anthropic",
+				Model:    "claude-opus-4-5",
+			},
+		},
+		EnvProvider:        &mockEnvProvider{vars: map[string]string{"ANTHROPIC_API_KEY": "test-key"}},
+		AgentDefaultModels: map[string]string{"root": "haiku"},
+	}
+
+	rt, err := NewLocalRuntime(tm,
+		WithSessionCompaction(false),
+		WithModelStore(mockModelStore{}),
+		WithModelSwitcherConfig(modelSwitcherCfg),
+	)
+	require.NoError(t, err)
+
+	// Verify initial model
+	require.Equal(t, "anthropic/claude-haiku-4-5", root.Model().ID())
+	require.False(t, root.HasModelOverride())
+
+	// Configure toolset handlers - this should find the SwitchModelToolset
+	// by unwrapping the instructionWrapper using the Unwrapper interface.
+	events := make(chan Event, 10)
+	rt.configureToolsetHandlers(root, events)
+
+	// Get the switch_model tool from the agent
+	agentTools, err := root.Tools(t.Context())
+	require.NoError(t, err)
+
+	var switchModelTool tools.Tool
+	for _, tool := range agentTools {
+		if tool.Name == "switch_model" {
+			switchModelTool = tool
+			break
+		}
+	}
+	require.NotEmpty(t, switchModelTool.Name, "switch_model tool should be available")
+
+	// Call the switch_model tool to switch to "opus"
+	toolCall := tools.ToolCall{
+		ID: "test-call-1",
+		Function: tools.FunctionCall{
+			Name:      "switch_model",
+			Arguments: `{"model": "opus"}`,
+		},
+	}
+
+	result, err := switchModelTool.Handler(t.Context(), toolCall)
+	require.NoError(t, err)
+	require.False(t, result.IsError, "switch_model should succeed: %s", result.Output)
+	require.Contains(t, result.Output, `Switched model from "haiku" to "opus"`)
+
+	// Verify the model override was set - this is the key assertion!
+	// This works because the unwrapSwitchModelToolset function now uses the
+	// Unwrapper interface to recursively unwrap any wrapper that implements it.
+	require.True(t, root.HasModelOverride(), "agent should have model override after switch")
+	require.Equal(t, "anthropic/claude-opus-4-5", root.Model().ID(), "model should be switched to opus")
+}
+
+// testInstructionWrapper is a test helper that simulates teamloader's replaceInstruction wrapper.
+// It implements the tools.Unwrapper interface to allow unwrapping.
+type testInstructionWrapper struct {
+	tools.ToolSet
+}
+
+func (w *testInstructionWrapper) Unwrap() tools.ToolSet { return w.ToolSet }
+
+func TestSwitchModelTool_MultiAgentScenario(t *testing.T) {
+	// This test simulates the multi-agent scenario from gopher.yaml
+	// where root has switch_model but librarian does not
+
+	// Create mock providers
+	haikuModel := &mockProvider{id: "anthropic/claude-haiku-4-5"}
+
+	// Create switch_model toolset for root
+	switchModelToolset, err := tools_builtin.NewSwitchModelToolset([]string{"haiku", "opus"})
+	require.NoError(t, err)
+
+	// Create agents: root with switch_model, librarian without
+	root := agent.New("root", "You are the root agent",
+		agent.WithModel(haikuModel),
+		agent.WithToolSets(switchModelToolset),
+	)
+
+	librarian := agent.New("librarian", "You are the librarian",
+		agent.WithModel(haikuModel),
+	)
+
+	tm := team.New(team.WithAgents(root, librarian))
+
+	// Create runtime with model switcher config
+	modelSwitcherCfg := &ModelSwitcherConfig{
+		Models: map[string]latest.ModelConfig{
+			"haiku": {
+				Provider: "anthropic",
+				Model:    "claude-haiku-4-5",
+			},
+			"opus": {
+				Provider: "anthropic",
+				Model:    "claude-opus-4-5",
+			},
+		},
+		EnvProvider:        &mockEnvProvider{vars: map[string]string{"ANTHROPIC_API_KEY": "test-key"}},
+		AgentDefaultModels: map[string]string{"root": "haiku", "librarian": "haiku"},
+	}
+
+	rt, err := NewLocalRuntime(tm,
+		WithSessionCompaction(false),
+		WithModelStore(mockModelStore{}),
+		WithModelSwitcherConfig(modelSwitcherCfg),
+	)
+	require.NoError(t, err)
+
+	// Verify initial state
+	require.Equal(t, "anthropic/claude-haiku-4-5", root.Model().ID())
+	require.False(t, root.HasModelOverride())
+
+	// Create events channel and configure handlers for root agent
+	events := make(chan Event, 20)
+	rt.configureToolsetHandlers(root, events)
+
+	// Get tools for root agent (this creates the handler)
+	agentTools, err := root.Tools(t.Context())
+	require.NoError(t, err)
+
+	var switchModelTool tools.Tool
+	for _, tool := range agentTools {
+		if tool.Name == "switch_model" {
+			switchModelTool = tool
+			break
+		}
+	}
+	require.NotEmpty(t, switchModelTool.Name, "switch_model tool should be available")
+
+	// Call the switch_model tool to switch to opus
+	toolCall := tools.ToolCall{
+		ID: "test-multi-agent",
+		Function: tools.FunctionCall{
+			Name:      "switch_model",
+			Arguments: `{"model": "opus"}`,
+		},
+	}
+
+	t.Log("Calling switch_model tool in multi-agent scenario...")
+	result, err := switchModelTool.Handler(t.Context(), toolCall)
+	require.NoError(t, err)
+	require.False(t, result.IsError, "switch_model should succeed: %s", result.Output)
+	t.Logf("Result: %s", result.Output)
+
+	// Verify model was switched
+	require.True(t, root.HasModelOverride(), "root should have model override")
+	require.Equal(t, "anthropic/claude-opus-4-5", root.Model().ID(), "root model should be switched to opus")
+
+	// Verify events were emitted
+	var agentInfoEvent *AgentInfoEvent
+	var teamInfoEvent *TeamInfoEvent
+	for {
+		select {
+		case evt := <-events:
+			t.Logf("Event: %T", evt)
+			switch e := evt.(type) {
+			case *AgentInfoEvent:
+				agentInfoEvent = e
+			case *TeamInfoEvent:
+				teamInfoEvent = e
+			}
+		default:
+			goto done
+		}
+	}
+done:
+
+	require.NotNil(t, agentInfoEvent, "AgentInfoEvent should be emitted")
+	assert.Equal(t, "root", agentInfoEvent.AgentName)
+	assert.Equal(t, "anthropic/claude-opus-4-5", agentInfoEvent.Model)
+
+	require.NotNil(t, teamInfoEvent, "TeamInfoEvent should be emitted")
+	// Team info should include both agents
+	require.Len(t, teamInfoEvent.AvailableAgents, 2)
+
+	// Find root agent in team info and verify its model was updated
+	var rootAgentInfo *AgentDetails
+	for i := range teamInfoEvent.AvailableAgents {
+		if teamInfoEvent.AvailableAgents[i].Name == "root" {
+			rootAgentInfo = &teamInfoEvent.AvailableAgents[i]
+			break
+		}
+	}
+	require.NotNil(t, rootAgentInfo, "root agent should be in team info")
+	assert.Equal(t, "anthropic", rootAgentInfo.Provider)
+	assert.Equal(t, "claude-opus-4-5", rootAgentInfo.Model)
+
+	t.Log("Multi-agent scenario test passed!")
 }

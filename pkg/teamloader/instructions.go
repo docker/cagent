@@ -23,7 +23,15 @@ type replaceInstruction struct {
 }
 
 // Verify interface compliance
-var _ tools.Instructable = (*replaceInstruction)(nil)
+var (
+	_ tools.Instructable = (*replaceInstruction)(nil)
+	_ tools.Unwrapper    = (*replaceInstruction)(nil)
+)
+
+// Unwrap returns the underlying ToolSet.
+func (a replaceInstruction) Unwrap() tools.ToolSet {
+	return a.ToolSet
+}
 
 func (a replaceInstruction) Instructions() string {
 	original := tools.GetInstructions(a.ToolSet)

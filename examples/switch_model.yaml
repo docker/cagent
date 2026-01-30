@@ -1,0 +1,40 @@
+#!/usr/bin/env cagent run
+
+# This example demonstrates how an agent can dynamically switch between different
+# AI models during a conversation. This is useful for:
+# - Cost optimization: Use cheaper models for simple tasks
+# - Performance: Use more powerful models for complex reasoning
+# - Specialization: Use domain-specific models when appropriate
+
+models:
+  fast:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+
+  powerful:
+    provider: anthropic
+    model: claude-sonnet-4-5-20250929
+
+agents:
+  root:
+    model: fast
+    description: An adaptive assistant that can switch models based on task complexity
+    instruction: |
+      You are a helpful assistant with the ability to switch between different AI models.
+      
+      Use switch_model strategically:
+      - For simple tasks (formatting, basic Q&A, summaries), use the faster/cheaper model
+      - For complex tasks (code generation, analysis, reasoning), use the more powerful model
+      - The switch_model tool description shows available models and which one is current
+      - After completing a specialized task, consider switching back to the default model
+      
+      Example workflow:
+      1. User asks a simple question -> switch to 'fast' for efficiency
+      2. User asks for complex code -> switch to 'powerful' for quality
+      3. Task complete -> switch back to 'fast'
+
+    toolsets:
+      - type: filesystem
+      - type: shell
+      - type: switch_model
+        models: [fast, powerful]

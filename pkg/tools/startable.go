@@ -77,3 +77,43 @@ func As[T any](ts ToolSet) (T, bool) {
 	result, ok := ts.(T)
 	return result, ok
 }
+
+// Unwrapper is implemented by toolsets that wrap another toolset.
+// This allows recursive unwrapping to find the underlying toolset.
+type Unwrapper interface {
+	Unwrap() ToolSet
+}
+
+// DeepAs performs a type assertion on a ToolSet, recursively unwrapping
+// any wrapper toolsets (StartableToolSet and those implementing Unwrapper)
+// until it finds a match or runs out of wrappers.
+//
+// Example:
+//
+//	if switchModel, ok := tools.DeepAs[*builtin.SwitchModelToolset](toolset); ok {
+//	    switchModel.SetCallback(...)
+//	}
+func DeepAs[T any](ts ToolSet) (T, bool) {
+	for {
+		// Try to match the current toolset
+		if result, ok := ts.(T); ok {
+			return result, true
+		}
+
+		// Try to unwrap StartableToolSet
+		if startable, ok := ts.(*StartableToolSet); ok {
+			ts = startable.ToolSet
+			continue
+		}
+
+		// Try to unwrap via Unwrapper interface
+		if unwrapper, ok := ts.(Unwrapper); ok {
+			ts = unwrapper.Unwrap()
+			continue
+		}
+
+		// No more unwrapping possible
+		var zero T
+		return zero, false
+	}
+}

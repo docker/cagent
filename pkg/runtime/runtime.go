@@ -162,7 +162,7 @@ type LocalRuntime struct {
 	modelsStore                 ModelStore
 	sessionCompaction           bool
 	managedOAuth                bool
-	startupInfoEmitted          bool                   // Track if startup info has been emitted to avoid unnecessary duplication
+	startupInfoEmitted          atomic.Bool            // Track if startup info has been emitted to avoid unnecessary duplication
 	elicitationRequestCh        chan ElicitationResult // Channel for receiving elicitation responses
 	elicitationEventsChannel    chan Event             // Current events channel for sending elicitation requests
 	elicitationEventsChannelMux sync.RWMutex           // Protects elicitationEventsChannel
@@ -554,16 +554,15 @@ func (r *LocalRuntime) PermissionsInfo() *PermissionsInfo {
 // This should be called when replacing a session to allow re-emission of
 // agent, team, and toolset info to the UI.
 func (r *LocalRuntime) ResetStartupInfo() {
-	r.startupInfoEmitted = false
+	r.startupInfoEmitted.Store(false)
 }
 
 // EmitStartupInfo emits initial agent, team, and toolset information for immediate sidebar display
 func (r *LocalRuntime) EmitStartupInfo(ctx context.Context, events chan Event) {
-	// Prevent duplicate emissions
-	if r.startupInfoEmitted {
+	// Prevent duplicate emissions using atomic compare-and-swap
+	if !r.startupInfoEmitted.CompareAndSwap(false, true) {
 		return
 	}
-	r.startupInfoEmitted = true
 
 	a := r.CurrentAgent()
 
@@ -993,7 +992,7 @@ func (r *LocalRuntime) getTools(ctx context.Context, a *agent.Agent, sessionSpan
 	return agentTools, nil
 }
 
-// configureToolsetHandlers sets up elicitation and OAuth handlers for all toolsets of an agent.
+// configureToolsetHandlers sets up elicitation, OAuth, and model switch handlers for all toolsets of an agent.
 func (r *LocalRuntime) configureToolsetHandlers(a *agent.Agent, events chan Event) {
 	for _, toolset := range a.ToolSets() {
 		tools.ConfigureHandlers(toolset,
@@ -1001,7 +1000,42 @@ func (r *LocalRuntime) configureToolsetHandlers(a *agent.Agent, events chan Even
 			func() { events <- Authorization(tools.ElicitationActionAccept, r.currentAgent) },
 			r.managedOAuth,
 		)
+
+		// Configure switch_model callback if this is a SwitchModelToolset
+		if switchModelToolset := unwrapSwitchModelToolset(toolset); switchModelToolset != nil {
+			r.configureSwitchModelCallback(a, switchModelToolset, events)
+		}
 	}
+}
+
+// unwrapSwitchModelToolset extracts a SwitchModelToolset from a potentially wrapped toolset.
+// It uses tools.DeepAs to recursively unwrap any wrapper toolsets (StartableToolSet,
+// filterTools, replaceInstruction, etc.) until it finds the SwitchModelToolset.
+// Returns the SwitchModelToolset if found, or nil if the toolset is not a SwitchModelToolset.
+func unwrapSwitchModelToolset(toolset tools.ToolSet) *builtin.SwitchModelToolset {
+	switchModelTS, _ := tools.DeepAs[*builtin.SwitchModelToolset](toolset)
+	return switchModelTS
+}
+
+// configureSwitchModelCallback sets up the callback for the switch_model toolset
+// so that when the model is switched, the agent's model override is updated
+// and the TUI is notified via events.
+func (r *LocalRuntime) configureSwitchModelCallback(a *agent.Agent, switchModelToolset *builtin.SwitchModelToolset, events chan Event) {
+	switchModelToolset.SetOnSwitchCallback(func(newModel string) error {
+		ctx := context.Background()
+		if err := r.SetAgentModel(ctx, a.Name(), newModel); err != nil {
+			slog.Error("Failed to switch model via switch_model tool", "agent", a.Name(), "model", newModel, "error", err)
+			return err
+		}
+		slog.Debug("Model switched via switch_model tool", "agent", a.Name(), "model", newModel)
+
+		// Emit events to update the TUI sidebar with the new model
+		if events != nil {
+			events <- AgentInfo(a.Name(), getAgentModelID(a), a.Description(), a.WelcomeMessage())
+			events <- TeamInfo(r.agentDetailsFromTeam(), r.currentAgent)
+		}
+		return nil
+	})
 }
 
 // emitAgentWarningsWithSend emits agent warnings using the provided send function for context-aware sending.

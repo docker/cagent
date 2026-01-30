@@ -1,0 +1,23 @@
+version: 4
+
+models:
+  fast:
+    provider: openai
+    model: gpt-4o-mini
+  smart:
+    provider: anthropic
+    model: claude-sonnet-4-0
+
+agents:
+  root:
+    model: fast
+    description: Agent with model switching capability
+    instruction: |
+      You are a helpful assistant that can switch between models.
+      When asked to switch to a better/smarter model, use the switch_model tool to switch to "smart".
+      When asked to switch to the default/fast model, use the switch_model tool to switch to "fast".
+      After switching, respond briefly confirming the switch and then answer any question.
+      Keep responses very short (one sentence max).
+    toolsets:
+      - type: switch_model
+        models: [fast, smart]

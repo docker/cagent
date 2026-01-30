@@ -1,0 +1,126 @@
+---
+version: 2
+interactions:
+    - id: 0
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: api.openai.com
+        body: '{"messages":[{"content":"You are a helpful assistant that can switch between models.\nWhen asked to switch to a better/smarter model, use the switch_model tool to switch to \"smart\".\nWhen asked to switch to the default/fast model, use the switch_model tool to switch to \"fast\".\nAfter switching, respond briefly confirming the switch and then answer any question.\nKeep responses very short (one sentence max).\n","role":"system"},{"content":"## Model Switching Guidelines\n\nYou have access to multiple AI models and can switch between them strategically.\n\n### When to Consider Switching Models\n\n**Switch to a faster/cheaper model when:**\n- Performing simple, routine tasks (formatting, basic Q&A, short summaries)\n- The current task doesn''t require advanced reasoning\n- Processing straightforward requests that any model can handle well\n- Optimizing for response speed or cost efficiency\n\n**Switch to a more powerful model when:**\n- Facing complex reasoning or multi-step problems\n- Writing or reviewing code that requires careful analysis\n- Handling nuanced or ambiguous requests\n- Generating detailed technical content\n- The current model is struggling with the task quality\n\n**Switch back to the default model when:**\n- A specialized task is complete\n- Returning to general conversation\n- The extra capability is no longer needed\n\n### Best Practices\n\n1. Check the tool description to see available models and which one is currently active\n2. Don''t switch unnecessarily - there''s overhead in changing models\n3. Consider switching proactively before a complex task rather than after struggling\n4. When in doubt about task complexity, prefer the more capable model","role":"system"},{"content":"Use the switch_model tool to switch to smart model, then just say ''done''","role":"user"}],"model":"gpt-4o-mini","max_tokens":16384,"parallel_tool_calls":true,"stream_options":{"include_usage":true},"tools":[{"function":{"name":"switch_model","description":"Switch the AI model used for subsequent responses.\n\n**Available models:**\n- fast (default) (current)\n- smart\n\nOnly the models listed above can be selected. Any other model will be rejected.","parameters":{"additionalProperties":false,"properties":{"model":{"description":"The model to switch to. Must be one of the allowed models listed in the tool description.","type":"string"}},"required":["model"],"type":"object"}},"type":"function"}],"stream":true}'
+        url: https://api.openai.com/v1/chat/completions
+        method: POST
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        body: |+
+            data: {"id":"chatcmpl-D3onWKk4DaJZDBtyG0jSyKTvAjWCN","object":"chat.completion.chunk","created":1769802622,"model":"gpt-4o-mini-2024-07-18","service_tier":"default","system_fingerprint":"fp_1590f93f9d","choices":[{"index":0,"delta":{"role":"assistant","content":null,"tool_calls":[{"index":0,"id":"call_f4epGCysqn5sr2YvsxOSbSgd","type":"function","function":{"name":"switch_model","arguments":""}}],"refusal":null},"logprobs":null,"finish_reason":null}],"usage":null,"obfuscation":"PSx"}
+
+            data: {"id":"chatcmpl-D3onWKk4DaJZDBtyG0jSyKTvAjWCN","object":"chat.completion.chunk","created":1769802622,"model":"gpt-4o-mini-2024-07-18","service_tier":"default","system_fingerprint":"fp_1590f93f9d","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\""}}]},"logprobs":null,"finish_reason":null}],"usage":null,"obfuscation":"fzow185TGFrgOP"}
+
+            data: {"id":"chatcmpl-D3onWKk4DaJZDBtyG0jSyKTvAjWCN","object":"chat.completion.chunk","created":1769802622,"model":"gpt-4o-mini-2024-07-18","service_tier":"default","system_fingerprint":"fp_1590f93f9d","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"model"}}]},"logprobs":null,"finish_reason":null}],"usage":null,"obfuscation":"DdF9c1FUwkdS"}
+
+            data: {"id":"chatcmpl-D3onWKk4DaJZDBtyG0jSyKTvAjWCN","object":"chat.completion.chunk","created":1769802622,"model":"gpt-4o-mini-2024-07-18","service_tier":"default","system_fingerprint":"fp_1590f93f9d","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\":\""}}]},"logprobs":null,"finish_reason":null}],"usage":null,"obfuscation":"9sVOZKCWUxmi"}
+
+            data: {"id":"chatcmpl-D3onWKk4DaJZDBtyG0jSyKTvAjWCN","object":"chat.completion.chunk","created":1769802622,"model":"gpt-4o-mini-2024-07-18","service_tier":"default","system_fingerprint":"fp_1590f93f9d","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"smart"}}]},"logprobs":null,"finish_reason":null}],"usage":null,"obfuscation":"HqItFmdno1nY"}
+
+            data: {"id":"chatcmpl-D3onWKk4DaJZDBtyG0jSyKTvAjWCN","object":"chat.completion.chunk","created":1769802622,"model":"gpt-4o-mini-2024-07-18","service_tier":"default","system_fingerprint":"fp_1590f93f9d","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"}"}}]},"logprobs":null,"finish_reason":null}],"usage":null,"obfuscation":"ccabCw5RGwhlbI"}
+
+            data: {"id":"chatcmpl-D3onWKk4DaJZDBtyG0jSyKTvAjWCN","object":"chat.completion.chunk","created":1769802622,"model":"gpt-4o-mini-2024-07-18","service_tier":"default","system_fingerprint":"fp_1590f93f9d","choices":[{"index":0,"delta":{},"logprobs":null,"finish_reason":"tool_calls"}],"usage":null,"obfuscation":"5XcPTFKUh1OVXGN"}
+
+            data: {"id":"chatcmpl-D3onWKk4DaJZDBtyG0jSyKTvAjWCN","object":"chat.completion.chunk","created":1769802622,"model":"gpt-4o-mini-2024-07-18","service_tier":"default","system_fingerprint":"fp_1590f93f9d","choices":[],"usage":{"prompt_tokens":432,"completion_tokens":14,"total_tokens":446,"prompt_tokens_details":{"cached_tokens":0,"audio_tokens":0},"completion_tokens_details":{"reasoning_tokens":0,"audio_tokens":0,"accepted_prediction_tokens":0,"rejected_prediction_tokens":0}},"obfuscation":"Xr45WNpE"}
+
+            data: [DONE]
+
+        headers: {}
+        status: 200 OK
+        code: 200
+        duration: 977.696458ms
+    - id: 1
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: api.anthropic.com
+        body: '{"max_tokens":64000,"messages":[{"content":[{"text":"Use the switch_model tool to switch to smart model, then just say ''done''","type":"text"}],"role":"user"},{"content":[{"id":"call_f4epGCysqn5sr2YvsxOSbSgd","input":{"model":"smart"},"name":"switch_model","cache_control":{"type":"ephemeral"},"type":"tool_use"}],"role":"assistant"},{"content":[{"tool_use_id":"call_f4epGCysqn5sr2YvsxOSbSgd","is_error":false,"cache_control":{"type":"ephemeral"},"content":[{"text":"Switched model from \"fast\" to \"smart\".","type":"text"}],"type":"tool_result"}],"role":"user"}],"model":"claude-sonnet-4-20250514","system":[{"text":"You are a helpful assistant that can switch between models.\nWhen asked to switch to a better/smarter model, use the switch_model tool to switch to \"smart\".\nWhen asked to switch to the default/fast model, use the switch_model tool to switch to \"fast\".\nAfter switching, respond briefly confirming the switch and then answer any question.\nKeep responses very short (one sentence max).","type":"text"},{"text":"## Model Switching Guidelines\n\nYou have access to multiple AI models and can switch between them strategically.\n\n### When to Consider Switching Models\n\n**Switch to a faster/cheaper model when:**\n- Performing simple, routine tasks (formatting, basic Q\u0026A, short summaries)\n- The current task doesn''t require advanced reasoning\n- Processing straightforward requests that any model can handle well\n- Optimizing for response speed or cost efficiency\n\n**Switch to a more powerful model when:**\n- Facing complex reasoning or multi-step problems\n- Writing or reviewing code that requires careful analysis\n- Handling nuanced or ambiguous requests\n- Generating detailed technical content\n- The current model is struggling with the task quality\n\n**Switch back to the default model when:**\n- A specialized task is complete\n- Returning to general conversation\n- The extra capability is no longer needed\n\n### Best Practices\n\n1. Check the tool description to see available models and which one is currently active\n2. Don''t switch unnecessarily - there''s overhead in changing models\n3. Consider switching proactively before a complex task rather than after struggling\n4. When in doubt about task complexity, prefer the more capable model","cache_control":{"type":"ephemeral"},"type":"text"}],"tools":[{"input_schema":{"properties":{"model":{"description":"The model to switch to. Must be one of the allowed models listed in the tool description.","type":"string"}},"required":["model"],"type":"object"},"name":"switch_model","description":"Switch the AI model used for subsequent responses.\n\n**Available models:**\n- fast (default)\n- smart (current)\n\nOnly the models listed above can be selected. Any other model will be rejected."}],"stream":true}'
+        url: https://api.anthropic.com/v1/messages
+        method: POST
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        body: |+
+            event: message_start
+            data: {"type":"message_start","message":{"model":"claude-sonnet-4-20250514","id":"msg_01Vg6kQujtxt1Trp3nhDeLoU","type":"message","role":"assistant","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":874,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"output_tokens":1,"service_tier":"standard"}}             }
+
+            event: content_block_start
+            data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
+
+            event: ping
+            data: {"type": "ping"}
+
+            event: content_block_delta
+            data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Done"}     }
+
+            event: content_block_delta
+            data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"."}       }
+
+            event: content_block_stop
+            data: {"type":"content_block_stop","index":0           }
+
+            event: message_delta
+            data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":874,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":5}             }
+
+            event: message_stop
+            data: {"type":"message_stop"   }
+
+        headers: {}
+        status: 200 OK
+        code: 200
+        duration: 1.468132875s
+    - id: 2
+      request:
+        proto: HTTP/1.1
+        proto_major: 1
+        proto_minor: 1
+        content_length: 0
+        host: api.anthropic.com
+        body: '{"max_tokens":64000,"messages":[{"content":[{"text":"Use the switch_model tool to switch to smart model, then just say ''done''","type":"text"}],"role":"user"},{"content":[{"id":"call_f4epGCysqn5sr2YvsxOSbSgd","input":{"model":"smart"},"name":"switch_model","type":"tool_use"}],"role":"assistant"},{"content":[{"tool_use_id":"call_f4epGCysqn5sr2YvsxOSbSgd","is_error":false,"content":[{"text":"Switched model from \"fast\" to \"smart\".","type":"text"}],"type":"tool_result"}],"role":"user"},{"content":[{"text":"Done.","cache_control":{"type":"ephemeral"},"type":"text"}],"role":"assistant"},{"content":[{"text":"What is 2+2? Answer with just the number.","cache_control":{"type":"ephemeral"},"type":"text"}],"role":"user"}],"model":"claude-sonnet-4-20250514","system":[{"text":"You are a helpful assistant that can switch between models.\nWhen asked to switch to a better/smarter model, use the switch_model tool to switch to \"smart\".\nWhen asked to switch to the default/fast model, use the switch_model tool to switch to \"fast\".\nAfter switching, respond briefly confirming the switch and then answer any question.\nKeep responses very short (one sentence max).","type":"text"},{"text":"## Model Switching Guidelines\n\nYou have access to multiple AI models and can switch between them strategically.\n\n### When to Consider Switching Models\n\n**Switch to a faster/cheaper model when:**\n- Performing simple, routine tasks (formatting, basic Q\u0026A, short summaries)\n- The current task doesn''t require advanced reasoning\n- Processing straightforward requests that any model can handle well\n- Optimizing for response speed or cost efficiency\n\n**Switch to a more powerful model when:**\n- Facing complex reasoning or multi-step problems\n- Writing or reviewing code that requires careful analysis\n- Handling nuanced or ambiguous requests\n- Generating detailed technical content\n- The current model is struggling with the task quality\n\n**Switch back to the default model when:**\n- A specialized task is complete\n- Returning to general conversation\n- The extra capability is no longer needed\n\n### Best Practices\n\n1. Check the tool description to see available models and which one is currently active\n2. Don''t switch unnecessarily - there''s overhead in changing models\n3. Consider switching proactively before a complex task rather than after struggling\n4. When in doubt about task complexity, prefer the more capable model","cache_control":{"type":"ephemeral"},"type":"text"}],"tools":[{"input_schema":{"properties":{"model":{"description":"The model to switch to. Must be one of the allowed models listed in the tool description.","type":"string"}},"required":["model"],"type":"object"},"name":"switch_model","description":"Switch the AI model used for subsequent responses.\n\n**Available models:**\n- fast (default)\n- smart (current)\n\nOnly the models listed above can be selected. Any other model will be rejected."}],"stream":true}'
+        url: https://api.anthropic.com/v1/messages
+        method: POST
+      response:
+        proto: HTTP/2.0
+        proto_major: 2
+        proto_minor: 0
+        content_length: -1
+        body: |+
+            event: message_start
+            data: {"type":"message_start","message":{"model":"claude-sonnet-4-20250514","id":"msg_017Ko3yzvcdekdx9jBjSoPqY","type":"message","role":"assistant","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":895,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"output_tokens":1,"service_tier":"standard"}}             }
+
+            event: content_block_start
+            data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}  }
+
+            event: ping
+            data: {"type": "ping"}
+
+            event: content_block_delta
+            data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"4"}     }
+
+            event: content_block_stop
+            data: {"type":"content_block_stop","index":0            }
+
+            event: message_delta
+            data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":895,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":5}          }
+
+            event: message_stop
+            data: {"type":"message_stop"               }
+
+        headers: {}
+        status: 200 OK
+        code: 200
+        duration: 1.430636s
