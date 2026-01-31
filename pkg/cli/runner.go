@@ -39,6 +39,8 @@ type Config struct {
 	AutoApprove    bool
 	HideToolCalls  bool
 	OutputJSON     bool
+	ExecutionMode  string
+	MaxIterations  int
 }
 
 // Run executes an agent in non-TUI mode, handling user input and runtime events
@@ -51,6 +53,26 @@ func Run(ctx context.Context, out *Printer, cfg Config, rt runtime.Runtime, sess
 	telemetry.EnsureGlobalTelemetryInitialized()
 	if telemetryClient := telemetry.GetGlobalTelemetryClient(); telemetryClient != nil {
 		ctx = telemetry.WithClient(ctx, telemetryClient)
+	}
+
+	var orch runtime.Orchestrator
+
+	switch cfg.ExecutionMode {
+	case "loop":
+		orch = runtime.NewLoopAgentOrchestrator(
+			runtime.NewSingleAgentOrchestrator(rt),
+			cfg.MaxIterations,
+			func(ctx context.Context, iter int, events []runtime.Event) bool {
+				// você pode customizar a condição de saída, por agora false (loop até MaxIterations)
+				return false
+			},
+		)
+	case "sequential":
+		orch = runtime.NewSequentialAgentOrchestrator(rt)
+	case "parallel":
+		orch = runtime.NewParallelAgentOrchestrator(rt)
+	default:
+		orch = runtime.NewSingleAgentOrchestrator(rt)
 	}
 
 	sess.Title = "Running agent"
@@ -67,7 +89,7 @@ func Run(ctx context.Context, out *Printer, cfg Config, rt runtime.Runtime, sess
 		sess.AddMessage(PrepareUserMessage(ctx, rt, userInput, cfg.AttachmentPath))
 
 		if cfg.OutputJSON {
-			for event := range rt.RunStream(ctx, sess) {
+			for event := range orch.Run(ctx, sess) {
 				switch e := event.(type) {
 				case *runtime.ToolCallConfirmationEvent:
 					if !cfg.AutoApprove {
@@ -90,7 +112,7 @@ func Run(ctx context.Context, out *Printer, cfg Config, rt runtime.Runtime, sess
 		firstLoop := true
 		lastAgent := rt.CurrentAgentName()
 		var lastConfirmedToolCallID string
-		for event := range rt.RunStream(ctx, sess) {
+		for event := range orch.Run(ctx, sess) {
 			agentName := event.GetAgentName()
 			if agentName != "" && (firstLoop || lastAgent != agentName) {
 				if !firstLoop {
