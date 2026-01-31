@@ -11,10 +11,10 @@ import (
 // New creates a new unified todo component.
 // This component handles create, create_multiple, list, and update operations.
 // The TODOs are displayed in the sidebar.
-func New(msg *types.Message, sessionState *service.SessionState) layout.Model {
+func New(msg *types.Message, sessionState service.SessionStateReader) layout.Model {
 	return toolcommon.NewBase(msg, sessionState, render)
 }
 
-func render(msg *types.Message, s spinner.Spinner, sessionState *service.SessionState, width, _ int) string {
+func render(msg *types.Message, s spinner.Spinner, sessionState service.SessionStateReader, width, _ int) string {
 	return toolcommon.RenderTool(msg, s, "", "", width, sessionState.HideToolResults())
 }

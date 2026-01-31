@@ -642,135 +642,47 @@ func (m *model) starIndicator() string {
 	return styles.StarIndicator(m.sessionStarred)
 }
 
-// collapsedLayout holds the computed layout decisions for collapsed mode.
-// Computing this once avoids duplicating the layout logic between CollapsedHeight and collapsedView.
-type collapsedLayout struct {
-	titleWithStar    string
-	workingIndicator string
-	workingDir       string
-	usageSummary     string
-
-	// Layout decisions
-	titleAndIndicatorOnOneLine bool
-	wdAndUsageOnOneLine        bool
-	contentWidth               int
-}
-
-func (m *model) computeCollapsedLayout(contentWidth int) collapsedLayout {
+// computeCollapsedViewModel builds the view model for collapsed mode.
+// This extracts data from the model and computes layout decisions,
+// keeping the model's state separate from rendering concerns.
+func (m *model) computeCollapsedViewModel(contentWidth int) CollapsedViewModel {
 	star := m.starIndicator()
-	starWidth := lipgloss.Width(star)
 
 	var titleWithStar string
 	var editing bool
 	switch {
 	case m.editingTitle:
 		editing = true
-		// Show the text input when editing
-		// Account for star indicator width and leave room for cursor
-		inputWidth := contentWidth - starWidth - 1
-		if inputWidth < 10 {
-			inputWidth = 10 // Minimum usable width
-		}
-		m.titleInput.SetWidth(inputWidth)
+		// Width was pre-calculated in SetSize, just render
 		titleWithStar = star + m.titleInput.View()
 	case m.titleRegenerating:
 		titleWithStar = star + m.spinner.View() + styles.MutedStyle.Render(" Generating title…")
 	default:
 		titleWithStar = star + m.sessionTitle
 	}
-	h := collapsedLayout{
-		titleWithStar:    titleWithStar,
-		workingIndicator: m.workingIndicatorCollapsed(),
-		workingDir:       m.workingDirectory,
-		usageSummary:     m.tokenUsageSummary(),
-		contentWidth:     contentWidth,
+	vm := CollapsedViewModel{
+		TitleWithStar:    titleWithStar,
+		WorkingIndicator: m.workingIndicatorCollapsed(),
+		WorkingDir:       m.workingDirectory,
+		UsageSummary:     m.tokenUsageSummary(),
+		ContentWidth:     contentWidth,
 	}
 
-	titleWidth := lipgloss.Width(h.titleWithStar)
-	wiWidth := lipgloss.Width(h.workingIndicator)
-	wdWidth := lipgloss.Width(h.workingDir)
-	usageWidth := lipgloss.Width(h.usageSummary)
+	titleWidth := lipgloss.Width(vm.TitleWithStar)
+	wiWidth := lipgloss.Width(vm.WorkingIndicator)
+	wdWidth := lipgloss.Width(vm.WorkingDir)
+	usageWidth := lipgloss.Width(vm.UsageSummary)
 
 	// Title and indicator fit on one line if:
 	// - editing mode (input is constrained to fit), OR
 	// - no working indicator AND title fits, OR
 	// - both fit together with gap
-	h.titleAndIndicatorOnOneLine = editing ||
-		(h.workingIndicator == "" && titleWidth <= contentWidth) ||
-		(h.workingIndicator != "" && titleWidth+minGap+wiWidth <= contentWidth)
-	h.wdAndUsageOnOneLine = wdWidth+minGap+usageWidth <= contentWidth
+	vm.TitleAndIndicatorOnOneLine = editing ||
+		(vm.WorkingIndicator == "" && titleWidth <= contentWidth) ||
+		(vm.WorkingIndicator != "" && titleWidth+minGap+wiWidth <= contentWidth)
+	vm.WdAndUsageOnOneLine = wdWidth+minGap+usageWidth <= contentWidth
 
-	return h
-}
-
-func (h collapsedLayout) lineCount() int {
-	lines := 1 // divider
-
-	switch {
-	case h.titleAndIndicatorOnOneLine:
-		lines++
-	case h.workingIndicator == "":
-		// No working indicator but title wraps
-		lines += linesNeeded(lipgloss.Width(h.titleWithStar), h.contentWidth)
-	default:
-		// Title and working indicator on separate lines, each may wrap
-		lines += linesNeeded(lipgloss.Width(h.titleWithStar), h.contentWidth)
-		lines += linesNeeded(lipgloss.Width(h.workingIndicator), h.contentWidth)
-	}
-
-	if h.wdAndUsageOnOneLine {
-		lines++
-	} else {
-		lines += linesNeeded(lipgloss.Width(h.workingDir), h.contentWidth)
-		if h.usageSummary != "" {
-			lines += linesNeeded(lipgloss.Width(h.usageSummary), h.contentWidth)
-		}
-	}
-
-	return lines
-}
-
-func (h collapsedLayout) render() string {
-	var lines []string
-
-	// Title line(s)
-	switch {
-	case h.titleAndIndicatorOnOneLine:
-		if h.workingIndicator == "" {
-			lines = append(lines, h.titleWithStar)
-		} else {
-			gap := h.contentWidth - lipgloss.Width(h.titleWithStar) - lipgloss.Width(h.workingIndicator)
-			lines = append(lines, fmt.Sprintf("%s%*s%s", h.titleWithStar, gap, "", h.workingIndicator))
-		}
-	case h.workingIndicator == "":
-		// No working indicator but title wraps - just output title (lipgloss will wrap)
-		lines = append(lines, h.titleWithStar)
-	default:
-		// Title and working indicator on separate lines
-		lines = append(lines, h.titleWithStar, h.workingIndicator)
-	}
-
-	// Working directory + usage line(s)
-	if h.wdAndUsageOnOneLine {
-		gap := h.contentWidth - lipgloss.Width(h.workingDir) - lipgloss.Width(h.usageSummary)
-		lines = append(lines, fmt.Sprintf("%s%*s%s", styles.MutedStyle.Render(h.workingDir), gap, "", h.usageSummary))
-	} else {
-		lines = append(lines, styles.MutedStyle.Render(h.workingDir))
-		if h.usageSummary != "" {
-			lines = append(lines, h.usageSummary)
-		}
-	}
-
-	return lipgloss.JoinVertical(lipgloss.Top, lines...)
-}
-
-// linesNeeded calculates how many lines are needed to display text of given width
-// within a container of contentWidth. Returns at least 1 line.
-func linesNeeded(textWidth, contentWidth int) int {
-	if contentWidth <= 0 || textWidth <= 0 {
-		return 1
-	}
-	return max(1, (textWidth+contentWidth-1)/contentWidth)
+	return vm
 }
 
 // CollapsedHeight returns the number of lines needed for collapsed mode.
@@ -779,11 +691,11 @@ func (m *model) CollapsedHeight(outerWidth int) int {
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
-	return m.computeCollapsedLayout(contentWidth).lineCount()
+	return m.computeCollapsedViewModel(contentWidth).LineCount()
 }
 
 func (m *model) collapsedView() string {
-	return m.computeCollapsedLayout(m.contentWidth(false)).render()
+	return RenderCollapsedView(m.computeCollapsedViewModel(m.contentWidth(false)))
 }
 
 func (m *model) verticalView() string {
@@ -991,18 +903,11 @@ func (m *model) tokenUsageSummary() string {
 
 func (m *model) sessionInfo(contentWidth int) string {
 	star := m.starIndicator()
-	starWidth := lipgloss.Width(star)
 
 	var titleLine string
 	switch {
 	case m.editingTitle:
-		// Render the textinput for editing
-		// Account for star indicator width and leave room for cursor
-		inputWidth := contentWidth - starWidth - 1
-		if inputWidth < 10 {
-			inputWidth = 10 // Minimum usable width
-		}
-		m.titleInput.SetWidth(inputWidth)
+		// Width was pre-calculated in SetSize, just render
 		titleLine = star + m.titleInput.View()
 	case m.titleRegenerating:
 		// Show spinner while regenerating title
@@ -1183,7 +1088,26 @@ func (m *model) SetSize(width, height int) tea.Cmd {
 	m.width = width
 	m.height = height
 	m.updateScrollbarPosition()
+	m.updateTitleInputWidth()
 	return nil
+}
+
+// updateTitleInputWidth pre-calculates the title input width based on current dimensions.
+// This avoids setting width during View(), keeping View() pure.
+func (m *model) updateTitleInputWidth() {
+	star := m.starIndicator()
+	starWidth := lipgloss.Width(star)
+
+	// Calculate content width (without scrollbar for simplicity - editing usually doesn't need scrollbar)
+	contentWidth := m.contentWidth(false)
+
+	// Account for star indicator width and leave room for cursor
+	inputWidth := contentWidth - starWidth - 1
+	if inputWidth < 10 {
+		inputWidth = 10 // Minimum usable width
+	}
+
+	m.titleInput.SetWidth(inputWidth)
 }
 
 // SetPosition sets the absolute position of the component on screen

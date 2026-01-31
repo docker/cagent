@@ -20,6 +20,7 @@ const (
 )
 
 type Spinner struct {
+	animSub             animation.Subscription // manages animation tick subscription
 	dotsStyle           lipgloss.Style
 	styledSpinnerFrames []string // pre-rendered spinner frames
 	mode                Mode
@@ -119,13 +120,13 @@ func (s Spinner) SetSize(_, _ int) tea.Cmd { return nil }
 // Init registers the spinner with the animation coordinator.
 // If this is the first active animation, it starts the global tick.
 func (s Spinner) Init() tea.Cmd {
-	return animation.StartTickIfFirst()
+	return s.animSub.Start()
 }
 
 // Stop unregisters the spinner from the animation coordinator.
 // Call this when the spinner is no longer active/visible.
 func (s Spinner) Stop() {
-	animation.Unregister()
+	s.animSub.Stop()
 }
 
 var spinnerChars = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}

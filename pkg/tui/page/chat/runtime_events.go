@@ -16,29 +16,56 @@ import (
 	"github.com/docker/cagent/pkg/tui/types"
 )
 
+// Runtime Event Handling
+//
+// This file maps runtime events to UI updates, following the Elm Architecture
+// pattern of explicit event-to-update mappings. Events are organized by category:
+//
+// Stream Lifecycle:
+//   - StreamStartedEvent  → Start spinners, set pending response
+//   - StreamStoppedEvent  → Stop spinners, process queue, maybe exit
+//
+// Content Events:
+//   - AgentChoiceEvent         → Append text to message
+//   - AgentChoiceReasoningEvent → Append reasoning block
+//   - UserMessageEvent         → Replace loading with user message
+//
+// Tool Events:
+//   - PartialToolCallEvent      → Show tool call in progress
+//   - ToolCallEvent             → Tool execution started
+//   - ToolCallConfirmationEvent → Show confirmation dialog
+//   - ToolCallResponseEvent     → Show tool result
+//
+// Sidebar Updates (forwarded):
+//   - TokenUsageEvent, AgentInfoEvent, TeamInfoEvent, etc.
+//
+// Dialogs:
+//   - MaxIterationsReachedEvent → Show max iterations dialog
+//   - ElicitationRequestEvent   → Show elicitation/OAuth dialog
+
 // handleRuntimeEvent processes runtime events and returns the appropriate command.
 // Returns (handled, cmd) where handled indicates if the event was processed.
+//
+// The switch is organized by event category for clarity.
 func (p *chatPage) handleRuntimeEvent(msg tea.Msg) (bool, tea.Cmd) {
 	switch msg := msg.(type) {
+	// ===== Error and Warning Events =====
 	case *runtime.ErrorEvent:
 		return true, p.messages.AddErrorMessage(msg.Error)
-
-	case *runtime.ShellOutputEvent:
-		return true, p.messages.AddShellOutputMessage(msg.Output)
 
 	case *runtime.WarningEvent:
 		return true, notification.WarningCmd(msg.Message)
 
-	case *runtime.RAGIndexingStartedEvent,
-		*runtime.RAGIndexingProgressEvent,
-		*runtime.RAGIndexingCompletedEvent:
-		return true, p.forwardToSidebar(msg)
-
-	case *runtime.UserMessageEvent:
-		return true, p.messages.ReplaceLoadingWithUser(msg.Message)
-
+	// ===== Stream Lifecycle Events =====
 	case *runtime.StreamStartedEvent:
 		return true, p.handleStreamStarted(msg)
+
+	case *runtime.StreamStoppedEvent:
+		return true, p.handleStreamStopped(msg)
+
+	// ===== Content Events =====
+	case *runtime.UserMessageEvent:
+		return true, p.messages.ReplaceLoadingWithUser(msg.Message)
 
 	case *runtime.AgentChoiceEvent:
 		return true, p.handleAgentChoice(msg)
@@ -46,32 +73,25 @@ func (p *chatPage) handleRuntimeEvent(msg tea.Msg) (bool, tea.Cmd) {
 	case *runtime.AgentChoiceReasoningEvent:
 		return true, p.handleAgentChoiceReasoning(msg)
 
+	case *runtime.ShellOutputEvent:
+		return true, p.messages.AddShellOutputMessage(msg.Output)
+
+	// ===== Tool Events =====
+	case *runtime.PartialToolCallEvent:
+		return true, p.handlePartialToolCall(msg)
+
+	case *runtime.ToolCallEvent:
+		return true, p.handleToolCall(msg)
+
+	case *runtime.ToolCallConfirmationEvent:
+		return true, p.handleToolCallConfirmation(msg)
+
+	case *runtime.ToolCallResponseEvent:
+		return true, p.handleToolCallResponse(msg)
+
+	// ===== Sidebar Info Events (forwarded) =====
 	case *runtime.TokenUsageEvent:
-		p.sidebar.SetTokenUsage(msg)
-		if msg.Usage != nil {
-			if sess := p.app.Session(); sess != nil {
-				// Update session-level totals
-				sess.InputTokens = msg.Usage.InputTokens
-				sess.OutputTokens = msg.Usage.OutputTokens
-				sess.Cost = msg.Usage.Cost
-
-				// Track per-message usage for /cost dialog
-				if msg.Usage.LastMessage != nil {
-					sess.AddMessageUsageRecord(
-						msg.AgentName,
-						msg.Usage.LastMessage.Model,
-						msg.Usage.LastMessage.Cost,
-						&msg.Usage.LastMessage.Usage,
-					)
-				}
-			}
-		}
-		return true, nil
-
-	case *runtime.SessionCompactionEvent:
-		if msg.Status == "completed" {
-			return true, notification.SuccessCmd("Session compacted successfully.")
-		}
+		p.handleTokenUsage(msg)
 		return true, nil
 
 	case *runtime.AgentInfoEvent:
@@ -91,24 +111,22 @@ func (p *chatPage) handleRuntimeEvent(msg tea.Msg) (bool, tea.Cmd) {
 		p.sidebar.SetToolsetInfo(msg.AvailableTools, msg.Loading)
 		return true, nil
 
-	case *runtime.StreamStoppedEvent:
-		return true, p.handleStreamStopped(msg)
-
 	case *runtime.SessionTitleEvent:
 		return true, p.forwardToSidebar(msg)
 
-	case *runtime.PartialToolCallEvent:
-		return true, p.handlePartialToolCall(msg)
+	case *runtime.SessionCompactionEvent:
+		if msg.Status == "completed" {
+			return true, notification.SuccessCmd("Session compacted successfully.")
+		}
+		return true, nil
 
-	case *runtime.ToolCallConfirmationEvent:
-		return true, p.handleToolCallConfirmation(msg)
+	// ===== RAG Indexing Events (forwarded to sidebar) =====
+	case *runtime.RAGIndexingStartedEvent,
+		*runtime.RAGIndexingProgressEvent,
+		*runtime.RAGIndexingCompletedEvent:
+		return true, p.forwardToSidebar(msg)
 
-	case *runtime.ToolCallEvent:
-		return true, p.handleToolCall(msg)
-
-	case *runtime.ToolCallResponseEvent:
-		return true, p.handleToolCallResponse(msg)
-
+	// ===== Dialog Events =====
 	case *runtime.MaxIterationsReachedEvent:
 		return true, p.handleMaxIterationsReached(msg)
 
@@ -125,6 +143,30 @@ func (p *chatPage) forwardToSidebar(msg tea.Msg) tea.Cmd {
 	model, cmd := p.sidebar.Update(msg)
 	p.sidebar = model.(sidebar.Model)
 	return cmd
+}
+
+// handleTokenUsage updates sidebar and session with token usage data.
+// This handler performs side effects only and returns no command.
+func (p *chatPage) handleTokenUsage(msg *runtime.TokenUsageEvent) {
+	p.sidebar.SetTokenUsage(msg)
+	if msg.Usage != nil {
+		if sess := p.app.Session(); sess != nil {
+			// Update session-level totals
+			sess.InputTokens = msg.Usage.InputTokens
+			sess.OutputTokens = msg.Usage.OutputTokens
+			sess.Cost = msg.Usage.Cost
+
+			// Track per-message usage for /cost dialog
+			if msg.Usage.LastMessage != nil {
+				sess.AddMessageUsageRecord(
+					msg.AgentName,
+					msg.Usage.LastMessage.Model,
+					msg.Usage.LastMessage.Cost,
+					&msg.Usage.LastMessage.Usage,
+				)
+			}
+		}
+	}
 }
 
 func (p *chatPage) handleStreamStarted(msg *runtime.StreamStartedEvent) tea.Cmd {

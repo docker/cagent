@@ -99,46 +99,59 @@ func (p *chatPage) persistSessionTitle(newTitle string) tea.Cmd {
 
 // handleMouseClick handles mouse click events.
 func (p *chatPage) handleMouseClick(msg tea.MouseClickMsg) (layout.Model, tea.Cmd) {
-	if p.isOnResizeHandle(msg.X, msg.Y) {
+	hit := NewHitTest(p)
+	target := hit.At(msg.X, msg.Y)
+
+	switch target {
+	case TargetEditorResizeHandle:
 		p.isDragging = true
 		return p, nil
-	}
 
-	// Handle sidebar toggle glyph click
-	if msg.Button == tea.MouseLeft && p.isOnSidebarToggleGlyph(msg.X, msg.Y) {
-		p.sidebar.ToggleCollapsed()
-		cmd := p.SetSize(p.width, p.height)
-		return p, cmd
-	}
+	case TargetSidebarToggle:
+		if msg.Button == tea.MouseLeft {
+			p.sidebar.ToggleCollapsed()
+			cmd := p.SetSize(p.width, p.height)
+			return p, cmd
+		}
 
-	// Handle sidebar resize handle click (starts potential drag)
-	if msg.Button == tea.MouseLeft && p.isOnSidebarHandle(msg.X, msg.Y) {
-		p.isDraggingSidebar = true
-		p.sidebarDragStartX = msg.X
-		p.sidebarDragStartWidth = p.sidebar.GetPreferredWidth()
-		p.sidebarDragMoved = false
-		return p, nil
-	}
+	case TargetSidebarResizeHandle:
+		if msg.Button == tea.MouseLeft {
+			p.isDraggingSidebar = true
+			p.sidebarDragStartX = msg.X
+			p.sidebarDragStartWidth = p.sidebar.GetPreferredWidth()
+			p.sidebarDragMoved = false
+			return p, nil
+		}
 
-	// Check if click is on the star or title in sidebar
-	if msg.Button == tea.MouseLeft {
-		clickResult := p.handleSidebarClickType(msg.X, msg.Y)
-		switch clickResult {
-		case sidebar.ClickStar:
+	case TargetSidebarStar:
+		if msg.Button == tea.MouseLeft {
 			sess := p.app.Session()
 			if sess != nil {
 				return p, core.CmdHandler(msgtypes.ToggleSessionStarMsg{SessionID: sess.ID})
 			}
 			return p, nil
-		case sidebar.ClickTitle:
-			// Double-click on title to edit
+		}
+
+	case TargetSidebarTitle:
+		// Double-click on title to edit
+		if msg.Button == tea.MouseLeft {
 			if p.sidebar.HandleTitleClick() {
 				p.sidebar.BeginTitleEdit()
 			}
 			return p, nil
 		}
+
+	case TargetEditorBanner:
+		if msg.Button == tea.MouseLeft {
+			localX := max(0, msg.X-styles.AppPaddingLeft)
+			if preview, ok := p.editor.AttachmentAt(localX); ok {
+				cmd := p.openAttachmentPreview(preview)
+				return p, cmd
+			}
+		}
 	}
 
+	// Default: route to appropriate component
 	cmd := p.routeMouseEvent(msg, msg.Y)
 	return p, cmd
 }
@@ -160,7 +173,10 @@ func (p *chatPage) handleMouseMotion(msg tea.MouseMotionMsg) (layout.Model, tea.
 		}
 		return p, nil
 	}
-	p.isHoveringHandle = p.isOnResizeLine(msg.Y)
+
+	hit := NewHitTest(p)
+	p.isHoveringHandle = hit.IsOnResizeLine(msg.Y)
+
 	cmd := p.routeMouseEvent(msg, msg.Y)
 	return p, cmd
 }

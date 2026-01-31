@@ -1067,56 +1067,6 @@ func (p *chatPage) routeMouseEvent(msg tea.Msg, y int) tea.Cmd {
 	return cmd
 }
 
-// isOnResizeLine checks if y is on the resize handle line.
-func (p *chatPage) isOnResizeLine(y int) bool {
-	// Use current editor height (includes dynamic banner) rather than cached value
-	_, editorHeight := p.editor.GetSize()
-	return y == p.height-editorHeight-2
-}
-
-// isOnSidebarHandle checks if (x, y) is on the sidebar resize handle column.
-func (p *chatPage) isOnSidebarHandle(x, y int) bool {
-	sl := p.computeSidebarLayout()
-	if sl.mode != sidebarVertical {
-		return false
-	}
-	if y < 0 || y >= sl.chatHeight {
-		return false
-	}
-	adjustedX := x - styles.AppPaddingLeft
-	return sl.isOnHandle(adjustedX)
-}
-
-// isOnSidebarToggleGlyph checks if (x, y) is on the sidebar toggle glyph.
-func (p *chatPage) isOnSidebarToggleGlyph(x, y int) bool {
-	sl := p.computeSidebarLayout()
-	if !sl.showToggle() {
-		return false
-	}
-
-	if sl.mode == sidebarVertical {
-		// Toggle is at y=0 on the handle column
-		return y == 0 && p.isOnSidebarHandle(x, y)
-	}
-
-	// Collapsed horizontal: toggle is at right edge of first line
-	if y != 0 {
-		return false
-	}
-	adjustedX := x - styles.AppPaddingLeft
-	return adjustedX == sl.innerWidth-toggleColumnWidth
-}
-
-// isOnResizeHandle checks if (x, y) is on the draggable center of the resize handle.
-func (p *chatPage) isOnResizeHandle(x, y int) bool {
-	if !p.isOnResizeLine(y) {
-		return false
-	}
-	// Only the center portion is draggable
-	center := p.width / 2
-	return x >= center-resizeHandleWidth/2 && x < center+resizeHandleWidth/2
-}
-
 // handleResize adjusts editor height based on drag position.
 func (p *chatPage) handleResize(y int) tea.Cmd {
 	// Subtract EditorStyle padding to get internal content lines

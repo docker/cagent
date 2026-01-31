@@ -15,11 +15,11 @@ import (
 	"github.com/docker/cagent/pkg/tui/types"
 )
 
-func New(msg *types.Message, sessionState *service.SessionState) layout.Model {
+func New(msg *types.Message, sessionState service.SessionStateReader) layout.Model {
 	return toolcommon.NewBase(msg, sessionState, render)
 }
 
-func render(msg *types.Message, _ spinner.Spinner, _ *service.SessionState, width, _ int) string {
+func render(msg *types.Message, _ spinner.Spinner, _ service.SessionStateReader, width, _ int) string {
 	var params builtin.TransferTaskArgs
 	if err := json.Unmarshal([]byte(msg.ToolCall.Function.Arguments), &params); err != nil {
 		return ""

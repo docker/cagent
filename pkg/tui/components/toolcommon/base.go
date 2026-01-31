@@ -11,11 +11,12 @@ import (
 )
 
 // Renderer is a function that renders a tool call view.
-// It receives the message, spinner, session state, and available width/height.
-type Renderer func(msg *types.Message, s spinner.Spinner, sessionState *service.SessionState, width, height int) string
+// It receives the message, spinner, session state reader, and available width/height.
+// Note: Uses SessionStateReader interface for read-only access to session state.
+type Renderer func(msg *types.Message, s spinner.Spinner, sessionState service.SessionStateReader, width, height int) string
 
 // CollapsedRenderer is a function that renders a simplified view for collapsed reasoning blocks.
-type CollapsedRenderer func(msg *types.Message, s spinner.Spinner, sessionState *service.SessionState, width, height int) string
+type CollapsedRenderer func(msg *types.Message, s spinner.Spinner, sessionState service.SessionStateReader, width, height int) string
 
 // Base provides common boilerplate for tool components.
 // It handles spinner management, sizing, and delegates rendering to a custom function.
@@ -24,14 +25,15 @@ type Base struct {
 	spinner           spinner.Spinner
 	width             int
 	height            int
-	sessionState      *service.SessionState
+	sessionState      service.SessionStateReader // read-only access to session state
 	render            Renderer
 	collapsedRenderer CollapsedRenderer
 	spinnerRegistered bool // tracks whether spinner is registered with coordinator
 }
 
 // NewBase creates a new base tool component with the given renderer.
-func NewBase(msg *types.Message, sessionState *service.SessionState, render Renderer) *Base {
+// Accepts SessionStateReader for read-only access (also accepts *SessionState which implements it).
+func NewBase(msg *types.Message, sessionState service.SessionStateReader, render Renderer) *Base {
 	return &Base{
 		message:      msg,
 		spinner:      spinner.New(spinner.ModeSpinnerOnly, styles.SpinnerDotsAccentStyle),
@@ -43,7 +45,8 @@ func NewBase(msg *types.Message, sessionState *service.SessionState, render Rend
 }
 
 // NewBaseWithCollapsed creates a new base tool component with both regular and collapsed renderers.
-func NewBaseWithCollapsed(msg *types.Message, sessionState *service.SessionState, render Renderer, collapsedRender CollapsedRenderer) *Base {
+// Accepts SessionStateReader for read-only access (also accepts *SessionState which implements it).
+func NewBaseWithCollapsed(msg *types.Message, sessionState service.SessionStateReader, render Renderer, collapsedRender CollapsedRenderer) *Base {
 	return &Base{
 		message:           msg,
 		spinner:           spinner.New(spinner.ModeSpinnerOnly, styles.SpinnerDotsAccentStyle),
@@ -60,8 +63,8 @@ func (b *Base) Message() *types.Message {
 	return b.message
 }
 
-// SessionState returns the session state.
-func (b *Base) SessionState() *service.SessionState {
+// SessionState returns the session state reader.
+func (b *Base) SessionState() service.SessionStateReader {
 	return b.sessionState
 }
 
@@ -142,7 +145,7 @@ func (b *Base) isSpinnerActive() bool {
 // and renders it with RenderTool. This covers the most common case where
 // tools just display one argument (like path, command, etc.).
 func SimpleRenderer(extractArg func(args string) string) Renderer {
-	return func(msg *types.Message, s spinner.Spinner, sessionState *service.SessionState, width, _ int) string {
+	return func(msg *types.Message, s spinner.Spinner, sessionState service.SessionStateReader, width, _ int) string {
 		arg := ""
 		if msg.ToolCall.Function.Arguments != "" {
 			arg = extractArg(msg.ToolCall.Function.Arguments)
@@ -157,7 +160,7 @@ func SimpleRendererWithResult(
 	extractArg func(args string) string,
 	extractResult func(msg *types.Message) string,
 ) Renderer {
-	return func(msg *types.Message, s spinner.Spinner, sessionState *service.SessionState, width, _ int) string {
+	return func(msg *types.Message, s spinner.Spinner, sessionState service.SessionStateReader, width, _ int) string {
 		arg := ""
 		if msg.ToolCall.Function.Arguments != "" {
 			arg = extractArg(msg.ToolCall.Function.Arguments)
