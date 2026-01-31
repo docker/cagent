@@ -75,6 +75,20 @@ As an alternative, it's also on [homebrew](https://brew.sh/):
 $ brew install cagent
 ```
 
+### Linux Quick Install
+
+For Linux users, the easiest way to install is with our installation script:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/docker/cagent/main/scripts/install-linux.sh | bash
+```
+
+This script will:
+- Automatically detect your architecture (amd64/arm64)
+- Download the latest release
+- Install to `/usr/local/bin` (or `~/.local/bin` if sudo is not available)
+- Verify the installation
+
 ### Using binary releases
 
 Finally, [Prebuilt binaries](https://github.com/docker/cagent/releases) for Windows,
