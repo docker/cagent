@@ -188,7 +188,7 @@ func (a *App) ExecuteMCPPrompt(ctx context.Context, promptName string, arguments
 	}
 
 	for _, toolset := range currentAgent.ToolSets() {
-		if mcpToolset := runtime.UnwrapMCPToolset(toolset); mcpToolset != nil {
+		if mcpToolset, ok := tools.As[*mcptools.Toolset](toolset); ok {
 			result, err := mcpToolset.GetPrompt(ctx, promptName, arguments)
 			if err == nil {
 				// Convert the MCP result to a string format suitable for the editor

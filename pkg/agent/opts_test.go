@@ -28,7 +28,7 @@ func (f *flakyStartToolset) Tools(context.Context) ([]tools.Tool, error) { retur
 func TestStartableToolSet_RetriesAfterFailure(t *testing.T) {
 	ctx := t.Context()
 	inner := &flakyStartToolset{}
-	ts := &StartableToolSet{ToolSet: inner}
+	ts := tools.NewStartable(inner)
 
 	err := ts.Start(ctx)
 	require.Error(t, err)

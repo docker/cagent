@@ -1,11 +1,5 @@
 package tools
 
-import (
-	"context"
-
-	"github.com/modelcontextprotocol/go-sdk/mcp"
-)
-
 // Instructable is implemented by toolsets that provide custom instructions.
 type Instructable interface {
 	Instructions() string
@@ -20,12 +14,6 @@ type Elicitable interface {
 type OAuthCapable interface {
 	SetOAuthSuccessHandler(handler func())
 	SetManagedOAuth(managed bool)
-}
-
-// PromptProvider is implemented by toolsets that expose MCP prompts.
-type PromptProvider interface {
-	ListPrompts(ctx context.Context) ([]mcp.Prompt, error)
-	GetPrompt(ctx context.Context, name string, arguments map[string]string) (*mcp.GetPromptResult, error)
 }
 
 // GetInstructions returns instructions if the toolset implements Instructable.

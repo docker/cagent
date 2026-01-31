@@ -38,23 +38,6 @@ import (
 	mcptools "github.com/docker/cagent/pkg/tools/mcp"
 )
 
-// UnwrapMCPToolset extracts an MCP toolset from a potentially wrapped StartableToolSet.
-// Returns the MCP toolset if found, or nil if the toolset is not an MCP toolset.
-func UnwrapMCPToolset(toolset tools.ToolSet) *mcptools.Toolset {
-	var innerToolset tools.ToolSet
-	if startableTS, ok := toolset.(*agent.StartableToolSet); ok {
-		innerToolset = startableTS.ToolSet
-	} else {
-		innerToolset = toolset
-	}
-
-	if mcpToolset, ok := innerToolset.(*mcptools.Toolset); ok {
-		return mcpToolset
-	}
-
-	return nil
-}
-
 type ResumeType string
 
 // ElicitationResult represents the result of an elicitation request
@@ -459,7 +442,7 @@ func (r *LocalRuntime) CurrentMCPPrompts(ctx context.Context) map[string]mcptool
 
 	// Iterate through all toolsets of the current agent
 	for _, toolset := range currentAgent.ToolSets() {
-		if mcpToolset := UnwrapMCPToolset(toolset); mcpToolset != nil {
+		if mcpToolset, ok := tools.As[*mcptools.Toolset](toolset); ok {
 			slog.Debug("Found MCP toolset", "toolset", mcpToolset)
 			// Discover prompts from this MCP toolset
 			mcpPrompts := r.discoverMCPPrompts(ctx, mcpToolset)
@@ -639,7 +622,7 @@ func (r *LocalRuntime) emitToolsProgressively(ctx context.Context, a *agent.Agen
 		isLast := i == totalToolsets-1
 
 		// Start the toolset if needed
-		if startable, ok := toolset.(*agent.StartableToolSet); ok {
+		if startable, ok := toolset.(*tools.StartableToolSet); ok {
 			if !startable.IsStarted() {
 				if err := startable.Start(ctx); err != nil {
 					slog.Warn("Toolset start failed; skipping", "agent", a.Name(), "toolset", fmt.Sprintf("%T", startable.ToolSet), "error", err)
@@ -1013,11 +996,11 @@ func (r *LocalRuntime) getTools(ctx context.Context, a *agent.Agent, sessionSpan
 // configureToolsetHandlers sets up elicitation and OAuth handlers for all toolsets of an agent.
 func (r *LocalRuntime) configureToolsetHandlers(a *agent.Agent, events chan Event) {
 	for _, toolset := range a.ToolSets() {
-		toolset.SetElicitationHandler(r.elicitationHandler)
-		toolset.SetOAuthSuccessHandler(func() {
-			events <- Authorization(tools.ElicitationActionAccept, r.currentAgent)
-		})
-		toolset.SetManagedOAuth(r.managedOAuth)
+		tools.ConfigureHandlers(toolset,
+			r.elicitationHandler,
+			func() { events <- Authorization(tools.ElicitationActionAccept, r.currentAgent) },
+			r.managedOAuth,
+		)
 	}
 }
 

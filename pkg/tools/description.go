@@ -47,15 +47,21 @@ func (f *DescriptionToolSet) Stop(ctx context.Context) error {
 }
 
 func (f *DescriptionToolSet) SetElicitationHandler(handler ElicitationHandler) {
-	f.inner.SetElicitationHandler(handler)
+	if e, ok := As[Elicitable](f.inner); ok {
+		e.SetElicitationHandler(handler)
+	}
 }
 
 func (f *DescriptionToolSet) SetOAuthSuccessHandler(handler func()) {
-	f.inner.SetOAuthSuccessHandler(handler)
+	if o, ok := As[OAuthCapable](f.inner); ok {
+		o.SetOAuthSuccessHandler(handler)
+	}
 }
 
 func (f *DescriptionToolSet) SetManagedOAuth(managed bool) {
-	f.inner.SetManagedOAuth(managed)
+	if o, ok := As[OAuthCapable](f.inner); ok {
+		o.SetManagedOAuth(managed)
+	}
 }
 
 func (f *DescriptionToolSet) addDescriptionParam(tool Tool) Tool {

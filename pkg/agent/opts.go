@@ -1,9 +1,6 @@
 package agent
 
 import (
-	"context"
-	"sync"
-
 	"github.com/docker/cagent/pkg/config/latest"
 	"github.com/docker/cagent/pkg/config/types"
 	"github.com/docker/cagent/pkg/model/provider"
@@ -19,11 +16,9 @@ func WithInstruction(instruction string) Opt {
 }
 
 func WithToolSets(toolSet ...tools.ToolSet) Opt {
-	var startableToolSet []*StartableToolSet
+	var startableToolSet []*tools.StartableToolSet
 	for _, ts := range toolSet {
-		startableToolSet = append(startableToolSet, &StartableToolSet{
-			ToolSet: ts,
-		})
+		startableToolSet = append(startableToolSet, tools.NewStartable(ts))
 	}
 
 	return func(a *Agent) {
@@ -138,37 +133,4 @@ func WithThinkingConfigured(configured bool) Opt {
 	return func(a *Agent) {
 		a.thinkingConfigured = configured
 	}
-}
-
-type StartableToolSet struct {
-	tools.ToolSet
-
-	mu      sync.Mutex
-	started bool
-}
-
-// IsStarted returns whether the toolset has been successfully started.
-func (s *StartableToolSet) IsStarted() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.started
-}
-
-// Start starts the toolset.
-//
-// It provides single-flight semantics: concurrent callers block until this start
-// attempt completes. If this attempt fails, a future call will retry.
-func (s *StartableToolSet) Start(ctx context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.started {
-		return nil
-	}
-
-	err := s.ToolSet.Start(ctx)
-	if err == nil {
-		s.started = true
-	}
-	return err
 }

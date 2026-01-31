@@ -42,6 +42,13 @@ type Toolset struct {
 
 var _ tools.ToolSet = (*Toolset)(nil)
 
+// Verify that Toolset implements optional capability interfaces
+var (
+	_ tools.Instructable = (*Toolset)(nil)
+	_ tools.Elicitable   = (*Toolset)(nil)
+	_ tools.OAuthCapable = (*Toolset)(nil)
+)
+
 // NewToolsetCommand creates a new MCP toolset from a command.
 func NewToolsetCommand(name, command string, args, env []string, cwd string) *Toolset {
 	slog.Debug("Creating Stdio MCP toolset", "command", command, "args", args)

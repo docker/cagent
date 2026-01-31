@@ -19,7 +19,7 @@ type Agent struct {
 	description        string
 	welcomeMessage     string
 	instruction        string
-	toolsets           []*StartableToolSet
+	toolsets           []*tools.StartableToolSet
 	models             []provider.Provider
 	modelOverrides     atomic.Pointer[[]provider.Provider] // Optional model override(s) set at runtime (supports alloy)
 	subAgents          []*Agent

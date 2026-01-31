@@ -87,23 +87,11 @@ func (BaseToolSet) Stop(context.Context) error { return nil }
 // Instructions returns an empty string by default.
 func (BaseToolSet) Instructions() string { return "" }
 
-// SetElicitationHandler is a no-op for tools that don't use elicitation.
-func (BaseToolSet) SetElicitationHandler(ElicitationHandler) {}
-
-// SetOAuthSuccessHandler is a no-op for tools that don't use OAuth.
-func (BaseToolSet) SetOAuthSuccessHandler(func()) {}
-
-// SetManagedOAuth is a no-op for tools that don't use OAuth.
-func (BaseToolSet) SetManagedOAuth(bool) {}
-
 type ToolSet interface {
 	Tools(ctx context.Context) ([]Tool, error)
 	Instructions() string
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
-	SetElicitationHandler(handler ElicitationHandler)
-	SetOAuthSuccessHandler(handler func())
-	SetManagedOAuth(managed bool)
 }
 
 // NewHandler creates a type-safe tool handler from a function that accepts typed parameters.
