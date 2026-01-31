@@ -20,6 +20,7 @@ func NewStartable(ts ToolSet) *StartableToolSet {
 }
 
 // IsStarted returns whether the toolset has been successfully started.
+// For toolsets that don't implement Startable, this always returns true.
 func (s *StartableToolSet) IsStarted() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -29,6 +30,7 @@ func (s *StartableToolSet) IsStarted() bool {
 // Start starts the toolset with single-flight semantics.
 // Concurrent callers block until the start attempt completes.
 // If start fails, a future call will retry.
+// If the underlying toolset doesn't implement Startable, this is a no-op.
 func (s *StartableToolSet) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -37,10 +39,20 @@ func (s *StartableToolSet) Start(ctx context.Context) error {
 		return nil
 	}
 
-	if err := s.ToolSet.Start(ctx); err != nil {
-		return err
+	if startable, ok := s.ToolSet.(Startable); ok {
+		if err := startable.Start(ctx); err != nil {
+			return err
+		}
 	}
 	s.started = true
+	return nil
+}
+
+// Stop stops the toolset if it implements Startable.
+func (s *StartableToolSet) Stop(ctx context.Context) error {
+	if startable, ok := s.ToolSet.(Startable); ok {
+		return startable.Stop(ctx)
+	}
 	return nil
 }
 

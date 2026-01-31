@@ -11,7 +11,6 @@ import (
 )
 
 type mockToolSet struct {
-	tools.BaseToolSet
 	toolList []tools.Tool
 }
 

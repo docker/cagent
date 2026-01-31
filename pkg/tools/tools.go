@@ -74,24 +74,9 @@ type ElicitationResult struct {
 // This allows the runtime to handle elicitation requests and propagate them to its own client
 type ElicitationHandler func(ctx context.Context, req *mcp.ElicitParams) (ElicitationResult, error)
 
-// BaseToolSet provides default no-op implementations for common ToolSet methods.
-// Embed this in tool implementations to reduce boilerplate.
-type BaseToolSet struct{}
-
-// Start is a no-op implementation.
-func (BaseToolSet) Start(context.Context) error { return nil }
-
-// Stop is a no-op implementation.
-func (BaseToolSet) Stop(context.Context) error { return nil }
-
-// Instructions returns an empty string by default.
-func (BaseToolSet) Instructions() string { return "" }
-
+// ToolSet defines the interface for a set of tools.
 type ToolSet interface {
 	Tools(ctx context.Context) ([]Tool, error)
-	Instructions() string
-	Start(ctx context.Context) error
-	Stop(ctx context.Context) error
 }
 
 // NewHandler creates a type-safe tool handler from a function that accepts typed parameters.

@@ -1,5 +1,14 @@
 package tools
 
+import "context"
+
+// Startable is implemented by toolsets that require initialization before use.
+// Toolsets that don't implement this interface are assumed to be ready immediately.
+type Startable interface {
+	Start(ctx context.Context) error
+	Stop(ctx context.Context) error
+}
+
 // Instructable is implemented by toolsets that provide custom instructions.
 type Instructable interface {
 	Instructions() string

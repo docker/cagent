@@ -14,11 +14,16 @@ import (
 )
 
 type stubToolSet struct {
-	tools.BaseToolSet
 	startErr error
 	tools    []tools.Tool
 	listErr  error
 }
+
+// Verify interface compliance
+var (
+	_ tools.ToolSet   = (*stubToolSet)(nil)
+	_ tools.Startable = (*stubToolSet)(nil)
+)
 
 func newStubToolSet(startErr error, toolsList []tools.Tool, listErr error) tools.ToolSet {
 	return &stubToolSet{
@@ -29,6 +34,7 @@ func newStubToolSet(startErr error, toolsList []tools.Tool, listErr error) tools
 }
 
 func (s *stubToolSet) Start(context.Context) error { return s.startErr }
+func (s *stubToolSet) Stop(context.Context) error  { return nil }
 func (s *stubToolSet) Tools(context.Context) ([]tools.Tool, error) {
 	if s.listErr != nil {
 		return nil, s.listErr

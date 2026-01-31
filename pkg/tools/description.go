@@ -16,6 +16,15 @@ type DescriptionToolSet struct {
 	inner ToolSet
 }
 
+// Verify interface compliance
+var (
+	_ ToolSet      = (*DescriptionToolSet)(nil)
+	_ Startable    = (*DescriptionToolSet)(nil)
+	_ Instructable = (*DescriptionToolSet)(nil)
+	_ Elicitable   = (*DescriptionToolSet)(nil)
+	_ OAuthCapable = (*DescriptionToolSet)(nil)
+)
+
 // NewDescriptionToolSet creates a new DescriptionToolSet wrapping the given ToolSet.
 func NewDescriptionToolSet(inner ToolSet) *DescriptionToolSet {
 	return &DescriptionToolSet{inner: inner}
@@ -35,15 +44,21 @@ func (f *DescriptionToolSet) Tools(ctx context.Context) ([]Tool, error) {
 }
 
 func (f *DescriptionToolSet) Instructions() string {
-	return f.inner.Instructions()
+	return GetInstructions(f.inner)
 }
 
 func (f *DescriptionToolSet) Start(ctx context.Context) error {
-	return f.inner.Start(ctx)
+	if s, ok := As[Startable](f.inner); ok {
+		return s.Start(ctx)
+	}
+	return nil
 }
 
 func (f *DescriptionToolSet) Stop(ctx context.Context) error {
-	return f.inner.Stop(ctx)
+	if s, ok := As[Startable](f.inner); ok {
+		return s.Stop(ctx)
+	}
+	return nil
 }
 
 func (f *DescriptionToolSet) SetElicitationHandler(handler ElicitationHandler) {

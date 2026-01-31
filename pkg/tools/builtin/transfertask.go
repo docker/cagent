@@ -8,11 +8,8 @@ import (
 
 const ToolNameTransferTask = "transfer_task"
 
-type TransferTaskTool struct {
-	tools.BaseToolSet
-}
+type TransferTaskTool struct{}
 
-// Make sure Transfer Tool implements the ToolSet Interface
 var _ tools.ToolSet = (*TransferTaskTool)(nil)
 
 type TransferTaskArgs struct {

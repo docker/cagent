@@ -8,9 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type mockToolSet struct {
-	BaseToolSet
-}
+type mockToolSet struct{}
 
 func (m *mockToolSet) Tools(_ context.Context) ([]Tool, error) {
 	return []Tool{

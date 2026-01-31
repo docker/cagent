@@ -23,12 +23,14 @@ type DB interface {
 }
 
 type MemoryTool struct {
-	tools.BaseToolSet
 	db DB
 }
 
-// Make sure Memory Tool implements the ToolSet Interface
-var _ tools.ToolSet = (*MemoryTool)(nil)
+// Verify interface compliance
+var (
+	_ tools.ToolSet      = (*MemoryTool)(nil)
+	_ tools.Instructable = (*MemoryTool)(nil)
+)
 
 func NewMemoryTool(manager DB) *MemoryTool {
 	return &MemoryTool{

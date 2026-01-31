@@ -12,9 +12,14 @@ import (
 )
 
 type flakyStartToolset struct {
-	tools.BaseToolSet
 	calls atomic.Int64
 }
+
+// Verify interface compliance
+var (
+	_ tools.ToolSet   = (*flakyStartToolset)(nil)
+	_ tools.Startable = (*flakyStartToolset)(nil)
+)
 
 func (f *flakyStartToolset) Start(context.Context) error {
 	if f.calls.Add(1) == 1 {
@@ -22,6 +27,8 @@ func (f *flakyStartToolset) Start(context.Context) error {
 	}
 	return nil
 }
+
+func (f *flakyStartToolset) Stop(context.Context) error { return nil }
 
 func (f *flakyStartToolset) Tools(context.Context) ([]tools.Tool, error) { return nil, nil }
 
