@@ -38,7 +38,7 @@ func (c *Client) createBetaStream(
 		return nil, err
 	}
 
-	converted := convertBetaMessages(messages)
+	converted := convertBetaMessagesWithClient(ctx, &client, messages)
 	if err := validateAnthropicSequencingBeta(converted); err != nil {
 		slog.Warn("Invalid message sequencing for Anthropic Beta API detected, attempting self-repair", "error", err)
 		converted = repairAnthropicSequencingBeta(converted)

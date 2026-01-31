@@ -3,7 +3,6 @@ package gemini
 import (
 	"cmp"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -164,6 +163,12 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 
 // convertMessagesToGemini converts chat.Messages into Gemini Contents
 func convertMessagesToGemini(messages []chat.Message) []*genai.Content {
+	return convertMessagesToGeminiWithClient(context.Background(), nil, messages)
+}
+
+// convertMessagesToGeminiWithClient converts chat.Messages into Gemini Contents
+// using the provided client for Files API uploads
+func convertMessagesToGeminiWithClient(ctx context.Context, client *genai.Client, messages []chat.Message) []*genai.Content {
 	contents := make([]*genai.Content, 0, len(messages))
 	for i := range messages {
 		msg := &messages[i]
@@ -212,7 +217,7 @@ func convertMessagesToGemini(messages []chat.Message) []*genai.Content {
 
 		// Handle regular messages
 		if len(msg.MultiContent) > 0 {
-			parts := convertMultiContent(msg.MultiContent, msg.ThoughtSignature)
+			parts := convertMultiContentWithClient(ctx, client, msg.MultiContent, msg.ThoughtSignature)
 			if len(parts) > 0 {
 				contents = append(contents, genai.NewContentFromParts(parts, role))
 			}
@@ -241,42 +246,22 @@ func newTextPartWithSignature(text string, signature []byte) *genai.Part {
 	return part
 }
 
-// convertMultiContent converts multi-part content to Gemini parts
-func convertMultiContent(multiContent []chat.MessagePart, thoughtSignature []byte) []*genai.Part {
+// convertMultiContentWithClient converts multi-part content to Gemini parts
+// using the provided client for Files API uploads
+func convertMultiContentWithClient(ctx context.Context, client *genai.Client, multiContent []chat.MessagePart, thoughtSignature []byte) []*genai.Part {
 	parts := make([]*genai.Part, 0, len(multiContent))
 	for _, part := range multiContent {
 		switch part.Type {
 		case chat.MessagePartTypeText:
 			parts = append(parts, newTextPartWithSignature(part.Text, thoughtSignature))
 		case chat.MessagePartTypeImageURL:
-			if imgPart := convertImageURLToPart(part.ImageURL); imgPart != nil {
+			// Use the image converter which handles file refs, data URLs, and HTTP URLs
+			if imgPart := convertImageURLToPartWithClient(ctx, client, part.ImageURL); imgPart != nil {
 				parts = append(parts, imgPart)
 			}
 		}
 	}
 	return parts
-}
-
-// convertImageURLToPart converts an image URL to a Gemini Part
-// Supports data URLs with base64-encoded image data
-func convertImageURLToPart(imageURL *chat.MessageImageURL) *genai.Part {
-	if imageURL == nil || !strings.HasPrefix(imageURL.URL, "data:") {
-		return nil
-	}
-
-	// Parse data URL format: data:[<mediatype>][;base64],<data>
-	urlParts := strings.SplitN(imageURL.URL, ",", 2)
-	if len(urlParts) != 2 {
-		return nil
-	}
-
-	imageData, err := base64.StdEncoding.DecodeString(urlParts[1])
-	if err != nil {
-		return nil
-	}
-
-	mimeType := extractMimeType(urlParts[0])
-	return genai.NewPartFromBytes(imageData, mimeType)
 }
 
 // extractMimeType extracts the MIME type from a data URL prefix
