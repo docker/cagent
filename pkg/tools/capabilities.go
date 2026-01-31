@@ -36,3 +36,16 @@ func GetInstructions(ts ToolSet) string {
 	}
 	return ""
 }
+
+// ConfigureHandlers sets all applicable handlers on a toolset.
+// It checks for Elicitable and OAuthCapable interfaces and configures them.
+// This is a convenience function that handles the capability checking internally.
+func ConfigureHandlers(ts ToolSet, elicitHandler ElicitationHandler, oauthHandler func(), managedOAuth bool) {
+	if e, ok := As[Elicitable](ts); ok {
+		e.SetElicitationHandler(elicitHandler)
+	}
+	if o, ok := As[OAuthCapable](ts); ok {
+		o.SetOAuthSuccessHandler(oauthHandler)
+		o.SetManagedOAuth(managedOAuth)
+	}
+}
