@@ -2,6 +2,8 @@ package teamloader
 
 import (
 	"context"
+	"errors"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,6 +12,7 @@ import (
 	"github.com/docker/cagent/pkg/config"
 	"github.com/docker/cagent/pkg/config/latest"
 	"github.com/docker/cagent/pkg/environment"
+	"github.com/docker/cagent/pkg/tools"
 )
 
 type mockEnvProvider struct {
@@ -139,4 +142,47 @@ func TestCreateShellToolWithSandboxExpansion(t *testing.T) {
 	tool, err := registry.CreateTool(t.Context(), toolset, ".", runConfig)
 	require.NoError(t, err)
 	require.NotNil(t, tool)
+}
+
+type stopTrackingToolSet struct {
+	tools.BaseToolSet
+	stopped bool
+	stopErr error
+}
+
+func (s *stopTrackingToolSet) Tools(context.Context) ([]tools.Tool, error) { return nil, nil }
+func (s *stopTrackingToolSet) Stop(context.Context) error {
+	s.stopped = true
+	return s.stopErr
+}
+
+type closeTrackingCloser struct {
+	closed bool
+	err    error
+}
+
+func (c *closeTrackingCloser) Close() error {
+	c.closed = true
+	return c.err
+}
+
+func TestToolSetWithCloser_Stop_AlwaysCloses(t *testing.T) {
+	t.Parallel()
+
+	base := &stopTrackingToolSet{stopErr: errors.New("stop failed")}
+	closer := &closeTrackingCloser{}
+
+	ts := toolSetWithCloser{ToolSet: base, closer: closer}
+
+	err := ts.Stop(t.Context())
+	require.Error(t, err)
+
+	assert.True(t, base.stopped)
+	assert.True(t, closer.closed)
+
+	// Ensure we return the stop error (and not swallow it)
+	assert.ErrorContains(t, err, "stop failed")
+
+	// Closer should be an io.Closer, as required
+	var _ io.Closer = closer
 }
