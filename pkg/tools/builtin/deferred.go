@@ -22,21 +22,24 @@ type deferredToolEntry struct {
 }
 
 type DeferredToolset struct {
-	tools.BaseToolSet
-
 	mu             sync.RWMutex
 	deferredTools  map[string]deferredToolEntry
 	activatedTools map[string]tools.Tool
 	sources        []deferredSource
 }
 
+// Verify interface compliance
+var (
+	_ tools.ToolSet      = (*DeferredToolset)(nil)
+	_ tools.Startable    = (*DeferredToolset)(nil)
+	_ tools.Instructable = (*DeferredToolset)(nil)
+)
+
 type deferredSource struct {
 	toolset  tools.ToolSet
 	deferAll bool
 	tools    []string
 }
-
-var _ tools.ToolSet = (*DeferredToolset)(nil)
 
 func NewDeferredToolset() *DeferredToolset {
 	return &DeferredToolset{
@@ -200,5 +203,9 @@ func (d *DeferredToolset) Start(ctx context.Context) error {
 		}
 	}
 
+	return nil
+}
+
+func (d *DeferredToolset) Stop(context.Context) error {
 	return nil
 }

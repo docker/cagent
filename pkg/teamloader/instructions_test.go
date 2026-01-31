@@ -32,7 +32,7 @@ func TestWithInstructions_replace(t *testing.T) {
 
 	wrapped := WithInstructions(inner, "New instructions")
 
-	assert.Equal(t, "New instructions", wrapped.Instructions())
+	assert.Equal(t, "New instructions", tools.GetInstructions(wrapped))
 }
 
 func TestWithInstructions_add(t *testing.T) {
@@ -42,5 +42,5 @@ func TestWithInstructions_add(t *testing.T) {
 
 	wrapped := WithInstructions(inner, "{ORIGINAL_INSTRUCTIONS}\nMore instructions")
 
-	assert.Equal(t, "Existing instructions\nMore instructions", wrapped.Instructions())
+	assert.Equal(t, "Existing instructions\nMore instructions", tools.GetInstructions(wrapped))
 }

@@ -95,7 +95,7 @@ func TestCodeModeTool_Tools(t *testing.T) {
 func TestCodeModeTool_Instructions(t *testing.T) {
 	tool := &codeModeTool{}
 
-	instructions := tool.Instructions()
+	instructions := tools.GetInstructions(tool)
 
 	assert.Empty(t, instructions)
 }
@@ -108,12 +108,13 @@ func TestCodeModeTool_StartStop(t *testing.T) {
 	assert.Equal(t, 0, inner.start)
 	assert.Equal(t, 0, inner.stop)
 
-	err := tool.Start(t.Context())
+	startable := tool.(tools.Startable)
+	err := startable.Start(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, 1, inner.start)
 	assert.Equal(t, 0, inner.stop)
 
-	err = tool.Stop(t.Context())
+	err = startable.Stop(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, 1, inner.start)
 	assert.Equal(t, 1, inner.stop)
@@ -187,12 +188,16 @@ func TestCodeModeTool_CallEcho(t *testing.T) {
 }
 
 type testToolSet struct {
-	tools.BaseToolSet
-
 	tools []tools.Tool
 	start int
 	stop  int
 }
+
+// Verify interface compliance
+var (
+	_ tools.ToolSet   = (*testToolSet)(nil)
+	_ tools.Startable = (*testToolSet)(nil)
+)
 
 func (t *testToolSet) Tools(context.Context) ([]tools.Tool, error) {
 	return t.tools, nil

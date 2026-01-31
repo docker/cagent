@@ -11,6 +11,7 @@ import (
 	"github.com/docker/cagent/pkg/agent"
 	"github.com/docker/cagent/pkg/chat"
 	"github.com/docker/cagent/pkg/skills"
+	"github.com/docker/cagent/pkg/tools"
 )
 
 const (
@@ -482,10 +483,10 @@ func buildInvariantSystemMessages(a *agent.Agent) []chat.Message {
 	}
 
 	for _, toolSet := range a.ToolSets() {
-		if toolSet.Instructions() != "" {
+		if instructions := tools.GetInstructions(toolSet); instructions != "" {
 			messages = append(messages, chat.Message{
 				Role:    chat.MessageRoleSystem,
-				Content: toolSet.Instructions(),
+				Content: instructions,
 			})
 		}
 	}

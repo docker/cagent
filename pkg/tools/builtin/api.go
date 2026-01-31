@@ -18,11 +18,14 @@ import (
 )
 
 type APITool struct {
-	tools.BaseToolSet
 	config latest.APIToolConfig
 }
 
-var _ tools.ToolSet = (*APITool)(nil)
+// Verify interface compliance
+var (
+	_ tools.ToolSet      = (*APITool)(nil)
+	_ tools.Instructable = (*APITool)(nil)
+)
 
 func (t *APITool) callTool(ctx context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
 	client := &http.Client{

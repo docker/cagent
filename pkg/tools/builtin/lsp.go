@@ -45,11 +45,15 @@ const (
 // It provides stateless code intelligence tools that automatically manage
 // the LSP server lifecycle and document state.
 type LSPTool struct {
-	tools.BaseToolSet
 	handler *lspHandler
 }
 
-var _ tools.ToolSet = (*LSPTool)(nil)
+// Verify interface compliance
+var (
+	_ tools.ToolSet      = (*LSPTool)(nil)
+	_ tools.Startable    = (*LSPTool)(nil)
+	_ tools.Instructable = (*LSPTool)(nil)
+)
 
 type lspHandler struct {
 	mu          sync.Mutex

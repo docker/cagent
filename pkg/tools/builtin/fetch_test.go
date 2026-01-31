@@ -75,19 +75,19 @@ func TestFetchTool_Tools(t *testing.T) {
 func TestFetchTool_Instructions(t *testing.T) {
 	tool := NewFetchTool()
 
-	instructions := tool.Instructions()
+	instructions := tools.GetInstructions(tool)
 
 	assert.Contains(t, instructions, `"fetch" tool instructions`)
 }
 
 func TestFetchTool_StartStop(t *testing.T) {
+	// FetchTool doesn't need to implement Startable -
+	// it has no initialization or cleanup requirements
 	tool := NewFetchTool()
 
-	err := tool.Start(t.Context())
-	require.NoError(t, err)
-
-	err = tool.Stop(t.Context())
-	require.NoError(t, err)
+	// Verify it implements ToolSet but not necessarily Startable
+	_, ok := any(tool).(tools.Startable)
+	assert.False(t, ok, "FetchTool should not implement Startable")
 }
 
 func TestFetch_Call_Success(t *testing.T) {

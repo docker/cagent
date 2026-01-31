@@ -14,12 +14,15 @@ import (
 
 // RAGTool provides document querying capabilities for a single RAG source
 type RAGTool struct {
-	tools.BaseToolSet
 	manager  *rag.Manager
 	toolName string
 }
 
-var _ tools.ToolSet = (*RAGTool)(nil)
+// Verify interface compliance
+var (
+	_ tools.ToolSet      = (*RAGTool)(nil)
+	_ tools.Instructable = (*RAGTool)(nil)
+)
 
 // NewRAGTool creates a new RAG tool for a single RAG manager
 // toolName is the name to use for the tool (typically from config or manager name)
