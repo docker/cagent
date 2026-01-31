@@ -24,15 +24,34 @@ import (
 	"github.com/docker/cagent/pkg/version"
 )
 
-// Agent implements the ACP Agent interface for cagent
+// Agent implements the ACP Agent interface for cagent.
+//
+// The Agent is responsible for:
+// - loading teams and toolsets during initialization
+// - managing ACP sessions
+// - coordinating communication with the ACP client
+//
+// IMPORTANT:
+// MCP servers are NOT stored at the agent level.
+// They are session-scoped and handled during NewSession.
 type Agent struct {
+	// Source used to load agent definitions (teams, tools, prompts, etc.)
 	agentSource config.Source
-	runConfig   *config.RuntimeConfig
-	sessions    map[string]*Session
 
+	// Runtime configuration shared across all sessions
+	runConfig *config.RuntimeConfig
+
+	// Active ACP sessions indexed by session ID
+	sessions map[string]*Session
+
+	// Connection to the ACP client (used to send updates and requests)
 	conn *acp.AgentSideConnection
+
+	// Loaded team configuration (agents + toolsets)
 	team *team.Team
-	mu   sync.Mutex
+
+	// Mutex protecting mutable agent state (sessions, team, connection)
+	mu sync.Mutex
 }
 
 var _ acp.Agent = (*Agent)(nil)
@@ -72,19 +91,49 @@ func (a *Agent) SetAgentConnection(conn *acp.AgentSideConnection) {
 }
 
 // Initialize implements [acp.Agent]
-func (a *Agent) Initialize(ctx context.Context, params acp.InitializeRequest) (acp.InitializeResponse, error) {
-	slog.Debug("ACP Initialize called", "client_version", params.ProtocolVersion)
+// This is a handshake call used to:
+// - load agent teams and toolsets
+// - advertise agent capabilities to the ACP client
+//
+// IMPORTANT:
+// MCP servers are NOT provided during Initialize.
+// They are session-scoped and arrive via NewSessionRequest.
+func (a *Agent) Initialize(
+	ctx context.Context,
+	params acp.InitializeRequest,
+) (acp.InitializeResponse, error) {
+	slog.Debug(
+		"ACP Initialize called",
+		"client_version", params.ProtocolVersion,
+	)
 
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	t, err := teamloader.Load(ctx, a.agentSource, a.runConfig, teamloader.WithToolsetRegistry(createToolsetRegistry(a)))
+
+	// Load teams and register toolsets
+	t, err := teamloader.Load(
+		ctx,
+		a.agentSource,
+		a.runConfig,
+		teamloader.WithToolsetRegistry(createToolsetRegistry(a)),
+	)
 	if err != nil {
-		return acp.InitializeResponse{}, fmt.Errorf("failed to load teams: %w", err)
+		return acp.InitializeResponse{}, fmt.Errorf(
+			"failed to load teams: %w",
+			err,
+		)
 	}
+
 	a.team = t
-	slog.Debug("Teams loaded successfully", "source", a.agentSource.Name(), "agent_count", t.Size())
+
+	slog.Debug(
+		"Teams loaded successfully",
+		"source", a.agentSource.Name(),
+		"agent_count", t.Size(),
+	)
 
 	agentTitle := "cagent"
+
 	return acp.InitializeResponse{
 		ProtocolVersion: acp.ProtocolVersionNumber,
 		AgentInfo: &acp.Implementation{
@@ -100,28 +149,81 @@ func (a *Agent) Initialize(ctx context.Context, params acp.InitializeRequest) (a
 				Audio:           false, // Not yet supported
 			},
 			McpCapabilities: acp.McpCapabilities{
-				Http: false, // MCP servers from client not yet supported
-				Sse:  false, // MCP servers from client not yet supported
+				// Agent supports MCP servers provided by the ACP client
+				Http: true,
+				// SSE-based MCP servers are not supported yet
+				Sse: false,
 			},
 		},
 	}, nil
 }
 
-// NewSession implements [acp.Agent]
-func (a *Agent) NewSession(_ context.Context, params acp.NewSessionRequest) (acp.NewSessionResponse, error) {
+// NewSession implements [acp.Agent].
+//
+// A new session represents a single conversational context between
+// the ACP client and the agent.
+//
+// Responsibilities:
+// - create a new runtime instance
+// - initialize session state
+// - store session metadata (cwd, session ID)
+//
+// ACP + MCP notes:
+//
+// ACP clients may negotiate MCP servers during the handshake.
+// These MCP servers are session-scoped by design and MUST NOT mutate
+// agent or YAML configuration.
+//
+// The runtime already supports session-scoped toolsets via
+// runtime.WithToolSets(...).
+//
+// However, the current acp-go-sdk does not yet expose negotiated MCP
+// servers on NewSessionRequest. Once available, this method is the
+// correct place to:
+//  1. convert MCP servers into MCP toolsets
+//  2. inject them into the runtime using runtime.WithToolSets
+func (a *Agent) NewSession(
+	_ context.Context,
+	params acp.NewSessionRequest,
+) (acp.NewSessionResponse, error) {
+	// Generate a new session ID
 	sid := uuid.New().String()
-	slog.Debug("ACP NewSession called", "session_id", sid, "cwd", params.Cwd)
 
-	// Log warning if MCP servers are provided (not yet supported)
-	if len(params.McpServers) > 0 {
-		slog.Warn("MCP servers provided by client are not yet supported", "count", len(params.McpServers))
-	}
+	slog.Debug(
+		"ACP NewSession called",
+		"session_id", sid,
+		"cwd", params.Cwd,
+	)
 
-	rt, err := runtime.New(a.team, runtime.WithCurrentAgent("root"))
+	// Future ACP wiring:
+	//
+	// When the SDK exposes params.McpServers, MCP toolsets should be
+	// constructed here and injected into the runtime via
+	// runtime.WithToolSets(...).
+	//
+	// Example (future):
+	//   mcpToolsets := buildMCPToolsets(params.McpServers)
+	//   runtime.New(a.team,
+	//       runtime.WithCurrentAgent("root"),
+	//       runtime.WithToolSets(mcpToolsets...),
+	//   )
+
+	// Create a new runtime instance for this session.
+	//
+	// At this stage, the runtime only receives agent-defined toolsets
+	// plus any future session-scoped injections.
+	rt, err := runtime.New(
+		a.team,
+		runtime.WithCurrentAgent("root"),
+	)
 	if err != nil {
-		return acp.NewSessionResponse{}, fmt.Errorf("failed to create runtime: %w", err)
+		return acp.NewSessionResponse{}, fmt.Errorf(
+			"failed to create runtime: %w",
+			err,
+		)
 	}
 
+	// Register the session
 	a.mu.Lock()
 	a.sessions[sid] = &Session{
 		id:         sid,
@@ -131,7 +233,9 @@ func (a *Agent) NewSession(_ context.Context, params acp.NewSessionRequest) (acp
 	}
 	a.mu.Unlock()
 
-	return acp.NewSessionResponse{SessionId: acp.SessionId(sid)}, nil
+	return acp.NewSessionResponse{
+		SessionId: acp.SessionId(sid),
+	}, nil
 }
 
 // Authenticate implements [acp.Agent]
