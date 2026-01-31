@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"context"
 	"encoding/json"
 )
 
@@ -10,76 +9,18 @@ const (
 	DescriptionParam = "description"
 )
 
-// DescriptionToolSet wraps a ToolSet and adds a "description" parameter to all tools.
-// This allows the LLM to provide context about what it's doing with each tool call.
-type DescriptionToolSet struct {
-	inner ToolSet
-}
-
-// Verify interface compliance
-var (
-	_ ToolSet      = (*DescriptionToolSet)(nil)
-	_ Startable    = (*DescriptionToolSet)(nil)
-	_ Instructable = (*DescriptionToolSet)(nil)
-	_ Elicitable   = (*DescriptionToolSet)(nil)
-	_ OAuthCapable = (*DescriptionToolSet)(nil)
-)
-
-// NewDescriptionToolSet creates a new DescriptionToolSet wrapping the given ToolSet.
-func NewDescriptionToolSet(inner ToolSet) *DescriptionToolSet {
-	return &DescriptionToolSet{inner: inner}
-}
-
-func (f *DescriptionToolSet) Tools(ctx context.Context) ([]Tool, error) {
-	tools, err := f.inner.Tools(ctx)
-	if err != nil {
-		return nil, err
+// AddDescriptionParameter adds a "description" parameter to tools that have
+// AddDescriptionParameter set to true. This allows the LLM to provide context
+// about what it's doing with each tool call.
+func AddDescriptionParameter(toolList []Tool) []Tool {
+	result := make([]Tool, len(toolList))
+	for i, tool := range toolList {
+		result[i] = addDescriptionParam(tool)
 	}
-
-	result := make([]Tool, len(tools))
-	for i, tool := range tools {
-		result[i] = f.addDescriptionParam(tool)
-	}
-	return result, nil
+	return result
 }
 
-func (f *DescriptionToolSet) Instructions() string {
-	return GetInstructions(f.inner)
-}
-
-func (f *DescriptionToolSet) Start(ctx context.Context) error {
-	if s, ok := As[Startable](f.inner); ok {
-		return s.Start(ctx)
-	}
-	return nil
-}
-
-func (f *DescriptionToolSet) Stop(ctx context.Context) error {
-	if s, ok := As[Startable](f.inner); ok {
-		return s.Stop(ctx)
-	}
-	return nil
-}
-
-func (f *DescriptionToolSet) SetElicitationHandler(handler ElicitationHandler) {
-	if e, ok := As[Elicitable](f.inner); ok {
-		e.SetElicitationHandler(handler)
-	}
-}
-
-func (f *DescriptionToolSet) SetOAuthSuccessHandler(handler func()) {
-	if o, ok := As[OAuthCapable](f.inner); ok {
-		o.SetOAuthSuccessHandler(handler)
-	}
-}
-
-func (f *DescriptionToolSet) SetManagedOAuth(managed bool) {
-	if o, ok := As[OAuthCapable](f.inner); ok {
-		o.SetManagedOAuth(managed)
-	}
-}
-
-func (f *DescriptionToolSet) addDescriptionParam(tool Tool) Tool {
+func addDescriptionParam(tool Tool) Tool {
 	if !tool.AddDescriptionParameter {
 		return tool
 	}

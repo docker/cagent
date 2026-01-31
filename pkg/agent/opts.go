@@ -83,6 +83,12 @@ func WithAddEnvironmentInfo(addEnvironmentInfo bool) Opt {
 	}
 }
 
+func WithAddDescriptionParameter(addDescriptionParameter bool) Opt {
+	return func(a *Agent) {
+		a.addDescriptionParameter = addDescriptionParameter
+	}
+}
+
 func WithAddPromptFiles(addPromptFiles []string) Opt {
 	return func(a *Agent) {
 		a.addPromptFiles = addPromptFiles
