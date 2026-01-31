@@ -395,7 +395,12 @@ type streamReadResult struct {
 // It properly handles context cancellation during blocking reads.
 func StreamCopy(c echo.Context, resp *http.Response) error {
 	ctx := c.Request().Context()
-	writer := c.Response().Writer.(io.ReaderFrom)
+	writer, ok := c.Response().Writer.(io.ReaderFrom)
+	if !ok {
+		// Fallback to io.Copy if writer doesn't implement ReaderFrom
+		_, err := io.Copy(c.Response().Writer, resp.Body)
+		return err
+	}
 
 	// Use a channel to receive read results from a goroutine.
 	// This allows us to properly select on context cancellation
@@ -403,8 +408,20 @@ func StreamCopy(c echo.Context, resp *http.Response) error {
 	resultCh := make(chan streamReadResult, 1)
 
 	for {
+		// Check context before starting new goroutine
+		if ctx.Err() != nil {
+			return nil
+		}
+
 		// Start a goroutine to perform the blocking read
 		go func() {
+			defer func() {
+				// Recover from panic if writer becomes invalid
+				if r := recover(); r != nil {
+					slog.Warn("StreamCopy recovered from panic", "panic", r)
+					resultCh <- streamReadResult{n: 0, err: io.EOF}
+				}
+			}()
 			n, err := writer.ReadFrom(io.LimitReader(resp.Body, 256))
 			resultCh <- streamReadResult{n: n, err: err}
 		}()
