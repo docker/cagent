@@ -12,7 +12,7 @@ import (
 )
 
 type toonTools struct {
-	tools.ToolSet
+	tools.ToolSetWrapper
 	toolRegexps []*regexp.Regexp
 }
 
@@ -67,7 +67,7 @@ func WithToon(inner tools.ToolSet, toon string) tools.ToolSet {
 		toolRegexps = append(toolRegexps, regexp.MustCompile(strings.TrimSpace(toolName)))
 	}
 	return &toonTools{
-		ToolSet:     inner,
-		toolRegexps: toolRegexps,
+		ToolSetWrapper: tools.ToolSetWrapper{ToolSet: inner},
+		toolRegexps:    toolRegexps,
 	}
 }

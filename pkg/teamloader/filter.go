@@ -16,9 +16,9 @@ func WithToolsFilter(inner tools.ToolSet, toolNames ...string) tools.ToolSet {
 	}
 
 	return &filterTools{
-		ToolSet:   inner,
-		toolNames: toolNames,
-		exclude:   false,
+		ToolSetWrapper: tools.ToolSetWrapper{ToolSet: inner},
+		toolNames:      toolNames,
+		exclude:        false,
 	}
 }
 
@@ -30,14 +30,14 @@ func WithToolsExcludeFilter(inner tools.ToolSet, toolNames ...string) tools.Tool
 	}
 
 	return &filterTools{
-		ToolSet:   inner,
-		toolNames: toolNames,
-		exclude:   true,
+		ToolSetWrapper: tools.ToolSetWrapper{ToolSet: inner},
+		toolNames:      toolNames,
+		exclude:        true,
 	}
 }
 
 type filterTools struct {
-	tools.ToolSet
+	tools.ToolSetWrapper
 	toolNames []string
 	exclude   bool
 }

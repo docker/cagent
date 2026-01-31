@@ -269,6 +269,9 @@ type Toolset struct {
 
 	// For the `fetch` tool
 	Timeout int `json:"timeout,omitempty"`
+
+	// For the `switch_model` tool - list of allowed models
+	Models []string `json:"models,omitempty"`
 }
 
 func (t *Toolset) UnmarshalYAML(unmarshal func(any) error) error {

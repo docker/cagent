@@ -1,7 +1,7 @@
 #!/usr/bin/env cagent run
 
 models:
-  claude:
+  opus:
     provider: anthropic
     model: claude-opus-4-5
   haiku:
@@ -10,7 +10,7 @@ models:
 
 agents:
   root:
-    model: claude
+    model: haiku
     description: Expert Golang Developer specialized in implementing features and improving code quality.
     instruction: |
       **Goal:**
@@ -49,8 +49,14 @@ agents:
        - Be proactive in identifying potential issues
        - Only ask for clarification if necessary, try your best to use all the tools to get the info you need
 
-       **Tools:**
-        - When needed and possible, call multiple tools concurrently. It's faster and cheaper.
+      **Tools:**
+       - When needed and possible, call multiple tools concurrently. It's faster and cheaper.
+
+      **Model Switching Strategy:**
+      MUST HAVE: before each task, decide which model to use based on the task complexity:
+        - For simple tasks (formatting, basic Q&A, summaries), switch to a faster/cheaper model (haiku)
+        - For complex tasks (code generation, analysis, reasoning), use a more powerful model (opus)
+        - After completing a specialized task, consider switching back to the default model (opus)
 
     add_date: true
     add_environment_info: true
@@ -59,6 +65,14 @@ agents:
     sub_agents:
       - librarian
     toolsets:
+      - type: switch_model
+        models: [haiku, opus]
+        instruction: |
+          {ORIGINAL_INSTRUCTIONS}
+
+          Choose the model based on task complexity:
+          - Use 'haiku' for simple tasks (formatting, basic Q&A, summaries)
+          - Use 'opus' for complex tasks (code generation, analysis, reasoning)
       - type: filesystem
       - type: shell
       - type: todo
@@ -134,7 +148,7 @@ agents:
            - **Tips**: General security best practices relevant to the changes
 
   planner:
-    model: claude
+    model: opus
     instruction: |
       You are a planning agent responsible for gathering user requirements and creating a development plan.
       Always ask clarifying questions to ensure you fully understand the user's needs before creating the plan.
@@ -185,6 +199,7 @@ permissions:
     - go_symbol_references
     - go_vulncheck
     - go_workspace
+    - switch_model
     - shell:cmd=gh --version
     - shell:cmd=gh pr view *
     - shell:cmd=gh pr diff *

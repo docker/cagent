@@ -224,23 +224,27 @@ func (m *model) SetTodos(result *tools.ToolCallResult) error {
 	return m.todoComp.SetTodos(result)
 }
 
-// SetAgentInfo sets the current agent information and updates the model in availableAgents
+// SetAgentInfo sets the current agent information
 func (m *model) SetAgentInfo(agentName, modelID, description string) {
 	m.currentAgent = agentName
 	m.agentModel = modelID
 	m.agentDescription = description
 	m.reasoningSupported = modelsdev.ModelSupportsReasoning(context.Background(), modelID)
 
-	// Update the model in availableAgents for the current agent
-	// This is important when model routing selects a different model than configured
-	// Extract just the model name from "provider/model" format to match TeamInfoEvent format
+	// Update the model in availableAgents to ensure the sidebar displays the correct model
+	// when the model is switched via the switch_model tool.
+	if modelID == "" {
+		return
+	}
 	for i := range m.availableAgents {
-		if m.availableAgents[i].Name == agentName && modelID != "" {
-			modelName := modelID
-			if idx := strings.LastIndex(modelName, "/"); idx != -1 {
-				modelName = modelName[idx+1:]
+		if m.availableAgents[i].Name == agentName {
+			// Parse the modelID to extract provider and model name
+			if prov, modelName, found := strings.Cut(modelID, "/"); found {
+				m.availableAgents[i].Provider = prov
+				m.availableAgents[i].Model = modelName
+			} else {
+				m.availableAgents[i].Model = modelID
 			}
-			m.availableAgents[i].Model = modelName
 			break
 		}
 	}
