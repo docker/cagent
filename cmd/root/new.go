@@ -27,9 +27,17 @@ func newNewCmd() *cobra.Command {
 	var flags newFlags
 
 	cmd := &cobra.Command{
-		Use:     "new",
-		Short:   "Create a new agent configuration",
-		Long:    `Create a new agent configuration by asking questions and generating a YAML file`,
+		Use:   "new [description]",
+		Short: "Create a new agent configuration",
+		Long: `Create a new agent configuration interactively.
+
+The agent builder will ask questions about what you want the agent to do,
+then generate a YAML configuration file you can use with 'cagent run'.
+
+Optionally provide a description as an argument to skip the initial prompt.`,
+		Example: `  cagent new
+  cagent new "a web scraper that extracts product prices"
+  cagent new --model openai/gpt-4o "a code reviewer agent"`,
 		GroupID: "core",
 		RunE:    flags.runNewCommand,
 	}
@@ -50,6 +58,11 @@ func (f *newFlags) runNewCommand(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	defer func() {
+		// Use a fresh context for cleanup since the original may be canceled
+		cleanupCtx := context.WithoutCancel(ctx)
+		_ = t.StopToolSets(cleanupCtx)
+	}()
 
 	rt, err := runtime.New(t)
 	if err != nil {
