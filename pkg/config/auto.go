@@ -2,10 +2,53 @@ package config
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/docker/cagent/pkg/config/latest"
 	"github.com/docker/cagent/pkg/environment"
 )
+
+// providerConfig defines a cloud provider and how to detect/describe its API keys.
+type providerConfig struct {
+	name    string   // provider name (e.g., "anthropic")
+	envVars []string // env vars to check - provider is available if ANY is set
+	hint    string   // description for error messages
+}
+
+// cloudProviders defines the available cloud providers in priority order.
+// The first provider with a configured API key will be selected by AutoModelConfig.
+// DMR is always appended as the final fallback (not listed here).
+var cloudProviders = []providerConfig{
+	{"anthropic", []string{"ANTHROPIC_API_KEY"}, "ANTHROPIC_API_KEY"},
+	{"openai", []string{"OPENAI_API_KEY"}, "OPENAI_API_KEY"},
+	{"google", []string{"GOOGLE_API_KEY"}, "GOOGLE_API_KEY"},
+	{"mistral", []string{"MISTRAL_API_KEY"}, "MISTRAL_API_KEY"},
+	{"amazon-bedrock", []string{
+		"AWS_BEARER_TOKEN_BEDROCK",
+		"AWS_ACCESS_KEY_ID",
+		"AWS_PROFILE",
+		"AWS_ROLE_ARN",
+	}, "AWS_ACCESS_KEY_ID (or AWS_PROFILE, AWS_ROLE_ARN, AWS_BEARER_TOKEN_BEDROCK)"},
+}
+
+// ErrAutoModelFallback is returned when auto model selection fails because
+// no providers are available (no API keys configured and DMR not installed).
+type ErrAutoModelFallback struct{}
+
+func (e *ErrAutoModelFallback) Error() string {
+	var hints []string
+	for _, p := range cloudProviders {
+		hints = append(hints, fmt.Sprintf("    - %s: %s", p.name, p.hint))
+	}
+
+	return fmt.Sprintf(`No model providers available.
+
+To fix this, you can:
+  - Install Docker Model Runner: https://docs.docker.com/ai/model-runner/get-started/
+  - Configure an API key for a cloud provider:
+%s`, strings.Join(hints, "\n"))
+}
 
 var DefaultModels = map[string]string{
 	"openai":         "gpt-5-mini",
@@ -24,29 +67,16 @@ func AvailableProviders(ctx context.Context, modelsGateway string, env environme
 
 	var providers []string
 
-	if key, _ := env.Get(ctx, "ANTHROPIC_API_KEY"); key != "" {
-		providers = append(providers, "anthropic")
-	}
-	if key, _ := env.Get(ctx, "OPENAI_API_KEY"); key != "" {
-		providers = append(providers, "openai")
-	}
-	if key, _ := env.Get(ctx, "GOOGLE_API_KEY"); key != "" {
-		providers = append(providers, "google")
-	}
-	if key, _ := env.Get(ctx, "MISTRAL_API_KEY"); key != "" {
-		providers = append(providers, "mistral")
-	}
-	// AWS Bedrock supports multiple authentication methods (API key, IAM credentials, profile, role)
-	if key, _ := env.Get(ctx, "AWS_BEARER_TOKEN_BEDROCK"); key != "" {
-		providers = append(providers, "amazon-bedrock")
-	} else if key, _ := env.Get(ctx, "AWS_ACCESS_KEY_ID"); key != "" {
-		providers = append(providers, "amazon-bedrock")
-	} else if key, _ := env.Get(ctx, "AWS_PROFILE"); key != "" {
-		providers = append(providers, "amazon-bedrock")
-	} else if key, _ := env.Get(ctx, "AWS_ROLE_ARN"); key != "" {
-		providers = append(providers, "amazon-bedrock")
+	for _, p := range cloudProviders {
+		for _, envVar := range p.envVars {
+			if key, _ := env.Get(ctx, envVar); key != "" {
+				providers = append(providers, p.name)
+				break // found one, no need to check other env vars for this provider
+			}
+		}
 	}
 
+	// DMR is always the final fallback
 	providers = append(providers, "dmr")
 
 	return providers

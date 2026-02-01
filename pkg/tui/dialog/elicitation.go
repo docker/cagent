@@ -45,6 +45,7 @@ type ElicitationDialog struct {
 	enumIndexes  map[int]int // selected index for enum fields
 	currentField int
 	keyMap       elicitationKeyMap
+	fieldErrors  map[int]string // validation error messages per field
 }
 
 type elicitationKeyMap struct {
@@ -60,6 +61,7 @@ func NewElicitationDialog(message string, schema any, _ map[string]any) Dialog {
 		inputs:      make([]textinput.Model, len(fields)),
 		boolValues:  make(map[int]bool),
 		enumIndexes: make(map[int]int),
+		fieldErrors: make(map[int]string),
 		keyMap: elicitationKeyMap{
 			Up:     key.NewBinding(key.WithKeys("up", "shift+tab")),
 			Down:   key.NewBinding(key.WithKeys("down", "tab")),
@@ -104,7 +106,8 @@ func (d *ElicitationDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 
 func (d *ElicitationDialog) handleKeyPress(msg tea.KeyPressMsg) (layout.Model, tea.Cmd) {
 	switch {
-	case key.Matches(msg, d.keyMap.Space):
+	case key.Matches(msg, d.keyMap.Space) && !d.isTextInputField():
+		// Only handle space for boolean/enum fields; let it pass through to text input otherwise
 		d.toggleCurrentSelection()
 		return d, nil
 	case key.Matches(msg, d.keyMap.Escape):
@@ -125,6 +128,9 @@ func (d *ElicitationDialog) handleKeyPress(msg tea.KeyPressMsg) (layout.Model, t
 
 // toggleCurrentSelection toggles boolean or cycles enum for the current field.
 func (d *ElicitationDialog) toggleCurrentSelection() {
+	// Clear error when user interacts with the field
+	delete(d.fieldErrors, d.currentField)
+
 	switch d.currentFieldType() {
 	case "boolean":
 		d.boolValues[d.currentField] = !d.boolValues[d.currentField]
@@ -146,16 +152,26 @@ func (d *ElicitationDialog) submit() (layout.Model, tea.Cmd) {
 		cmd := d.close(tools.ElicitationActionAccept, nil)
 		return d, cmd
 	}
-	if content, ok := d.collectValues(); ok {
-		cmd := d.close(tools.ElicitationActionAccept, content)
-		return d, cmd
+
+	// Clear previous errors and validate
+	d.fieldErrors = make(map[int]string)
+	content, firstErrorIdx := d.collectAndValidate()
+
+	if firstErrorIdx >= 0 {
+		// Focus the first field with an error
+		d.focusField(firstErrorIdx)
+		return d, nil
 	}
-	return d, nil
+
+	cmd := d.close(tools.ElicitationActionAccept, content)
+	return d, cmd
 }
 
 func (d *ElicitationDialog) updateCurrentInput(msg tea.KeyPressMsg) (layout.Model, tea.Cmd) {
 	// Only text-based fields (not boolean/enum) use the text input
 	if d.isTextInputField() {
+		// Clear error for current field when user types
+		delete(d.fieldErrors, d.currentField)
 		var cmd tea.Cmd
 		d.inputs[d.currentField], cmd = d.inputs[d.currentField].Update(msg)
 		return d, cmd
@@ -167,11 +183,19 @@ func (d *ElicitationDialog) moveFocus(delta int) {
 	if len(d.fields) == 0 {
 		return
 	}
-	if len(d.inputs) > 0 {
+	newField := (d.currentField + delta + len(d.fields)) % len(d.fields)
+	d.focusField(newField)
+}
+
+// focusField moves focus to the specified field index.
+func (d *ElicitationDialog) focusField(idx int) {
+	if idx < 0 || idx >= len(d.fields) {
+		return
+	}
+	if len(d.inputs) > 0 && d.currentField < len(d.inputs) {
 		d.inputs[d.currentField].Blur()
 	}
-	// Wrap around when cycling through fields
-	d.currentField = (d.currentField + delta + len(d.fields)) % len(d.fields)
+	d.currentField = idx
 	// Only focus text input for fields that use it
 	if d.isTextInputField() {
 		d.inputs[d.currentField].Focus()
@@ -191,8 +215,11 @@ func (d *ElicitationDialog) close(action tools.ElicitationAction, content map[st
 	return CloseWithElicitationResponse(action, content)
 }
 
-func (d *ElicitationDialog) collectValues() (map[string]any, bool) {
+// collectAndValidate validates all fields and returns the collected values.
+// Returns the content map and the index of the first field with an error (-1 if valid).
+func (d *ElicitationDialog) collectAndValidate() (map[string]any, int) {
 	content := make(map[string]any)
+	firstErrorIdx := -1
 
 	for i, field := range d.fields {
 		switch field.Type {
@@ -202,7 +229,10 @@ func (d *ElicitationDialog) collectValues() (map[string]any, bool) {
 			idx := d.enumIndexes[i]
 			if idx < 0 || idx >= len(field.EnumValues) {
 				if field.Required {
-					return nil, false
+					d.fieldErrors[i] = "Selection required"
+					if firstErrorIdx < 0 {
+						firstErrorIdx = i
+					}
 				}
 				continue
 			}
@@ -211,40 +241,65 @@ func (d *ElicitationDialog) collectValues() (map[string]any, bool) {
 			val := strings.TrimSpace(d.inputs[i].Value())
 			if val == "" {
 				if field.Required {
-					return nil, false
+					d.fieldErrors[i] = "This field is required"
+					if firstErrorIdx < 0 {
+						firstErrorIdx = i
+					}
 				}
 				continue
 			}
-			parsed, ok := d.parseFieldValue(val, field)
-			if !ok {
-				return nil, false
+			parsed, errMsg := d.parseAndValidateField(val, field)
+			if errMsg != "" {
+				d.fieldErrors[i] = errMsg
+				if firstErrorIdx < 0 {
+					firstErrorIdx = i
+				}
+				continue
 			}
 			content[field.Name] = parsed
 		}
 	}
-	return content, true
+	return content, firstErrorIdx
 }
 
-// parseFieldValue parses and validates a field value based on its type.
-func (d *ElicitationDialog) parseFieldValue(val string, field ElicitationField) (any, bool) {
+// parseAndValidateField parses and validates a field value, returning the parsed value and an error message.
+func (d *ElicitationDialog) parseAndValidateField(val string, field ElicitationField) (any, string) {
 	if val == "" {
-		return nil, false
+		return nil, ""
 	}
 
 	switch field.Type {
 	case "number":
 		f, err := strconv.ParseFloat(val, 64)
-		return f, err == nil && validateNumberField(f, field)
+		if err != nil {
+			return nil, "Must be a valid number"
+		}
+		if errMsg := validateNumberFieldWithMessage(f, field); errMsg != "" {
+			return nil, errMsg
+		}
+		return f, ""
 
 	case "integer":
 		n, err := strconv.ParseInt(val, 10, 64)
-		return n, err == nil && validateNumberField(float64(n), field)
+		if err != nil {
+			return nil, "Must be a whole number"
+		}
+		if errMsg := validateNumberFieldWithMessage(float64(n), field); errMsg != "" {
+			return nil, errMsg
+		}
+		return n, ""
 
 	case "enum":
-		return val, slices.Contains(field.EnumValues, val)
+		if !slices.Contains(field.EnumValues, val) {
+			return nil, "Invalid selection"
+		}
+		return val, ""
 
 	default: // string
-		return val, validateStringField(val, field)
+		if errMsg := validateStringFieldWithMessage(val, field); errMsg != "" {
+			return nil, errMsg
+		}
+		return val, ""
 	}
 }
 
@@ -300,7 +355,14 @@ func (d *ElicitationDialog) renderField(content *Content, i int, field Elicitati
 	if field.Required {
 		label += "*"
 	}
-	content.AddContent(styles.DialogContentStyle.Bold(true).Render(label))
+
+	// Check if this field has an error
+	hasError := d.fieldErrors[i] != ""
+	labelStyle := styles.DialogContentStyle.Bold(true)
+	if hasError {
+		labelStyle = labelStyle.Foreground(styles.Error)
+	}
+	content.AddContent(labelStyle.Render(label))
 
 	// Render field input based on type
 	isFocused := i == d.currentField
@@ -312,6 +374,12 @@ func (d *ElicitationDialog) renderField(content *Content, i int, field Elicitati
 	default:
 		d.inputs[i].SetWidth(contentWidth)
 		content.AddContent(d.inputs[i].View())
+	}
+
+	// Show error message if present
+	if hasError {
+		errorStyle := styles.DialogContentStyle.Foreground(styles.Error).Italic(true)
+		content.AddContent(errorStyle.Render("  ⚠ " + d.fieldErrors[i]))
 	}
 }
 

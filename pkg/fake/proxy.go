@@ -415,6 +415,7 @@ func StreamCopy(c echo.Context, resp *http.Response) error {
 			slog.WarnContext(ctx, "client disconnected, stop streaming")
 			// Close the response body to unblock the read goroutine
 			resp.Body.Close()
+			<-resultCh
 			return nil
 		case result := <-resultCh:
 			if result.n > 0 {

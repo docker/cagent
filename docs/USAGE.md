@@ -172,6 +172,7 @@ During TUI sessions, you can use special slash commands. Type `/` to see all ava
 | `/star`     | Toggle star on current session                                      |
 | `/theme`    | Change the color theme (see [Theming](#theming))                    |
 | `/think`    | Toggle thinking/reasoning mode                                      |
+| `/title`    | Set or regenerate session title (usage: /title [new title])         |
 | `/yolo`     | Toggle automatic approval of tool calls                             |
 
 #### Runtime Model Switching
@@ -278,6 +279,30 @@ The following themes are included:
 Themes can customize colors in three sections: `colors`, `chroma` (syntax highlighting), and `markdown` (markdown rendering).
 
 See the [built-in themes on GitHub](https://github.com/docker/cagent/tree/main/pkg/tui/styles/themes) for complete examples.
+
+#### Session Title Editing
+
+You can customize session titles to make them more meaningful and easier to find later. By default, cagent automatically generates titles based on your first message, but you can override or regenerate them at any time.
+
+**Using the `/title` command:**
+
+```
+/title                     # Regenerate title using AI (based on at most the last 2 user messages)
+/title My Custom Title     # Set a specific title
+```
+
+**Using the sidebar:**
+
+In the TUI, you can click on the pencil icon (✎) next to the session title in the sidebar to edit it inline:
+
+1. Click the pencil icon next to the title
+2. Type your new title
+3. Press Enter to save, or Escape to cancel
+
+**Notes:**
+- Manually set titles are preserved and won't be overwritten by auto-generation
+- Title changes are persisted immediately to the session
+- Works with both local and remote runtimes
 
 ## 🔧 Configuration Reference
 

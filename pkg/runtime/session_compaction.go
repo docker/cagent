@@ -2,39 +2,33 @@ package runtime
 
 import (
 	"context"
-	"fmt"
+	_ "embed"
 	"log/slog"
-	"strings"
+	"time"
 
 	"github.com/docker/cagent/pkg/agent"
+	"github.com/docker/cagent/pkg/chat"
 	"github.com/docker/cagent/pkg/model/provider"
 	"github.com/docker/cagent/pkg/model/provider/options"
 	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/team"
 )
 
-const (
-	compactionSystemPrompt = "You are a helpful AI assistant that creates comprehensive summaries of conversations. You will be given a conversation history and asked to create a concise yet thorough summary that captures the key points, decisions made, and outcomes."
-	compactionUserPrompt   = `Based on the following conversation between a user and an AI assistant, create a comprehensive summary that captures:
-- The main topics discussed
-- Key information exchanged
-- Decisions made or conclusions reached
-- Important outcomes or results
+//go:embed prompts/compaction-system.txt
+var compactionSystemPrompt string
 
-Provide a well-structured summary (2-4 paragraphs) that someone could read to understand what happened in this conversation. Return ONLY the summary text, nothing else.
-
-Conversation history:%s
-
-Generate a summary for this conversation:`
-)
+//go:embed prompts/compaction-user.txt
+var compactionUserPrompt string
 
 type sessionCompactor struct {
-	model provider.Provider
+	model        provider.Provider
+	sessionStore session.Store
 }
 
-func newSessionCompactor(model provider.Provider) *sessionCompactor {
+func newSessionCompactor(model provider.Provider, sessionStore session.Store) *sessionCompactor {
 	return &sessionCompactor{
-		model: model,
+		model:        model,
+		sessionStore: sessionStore,
 	}
 }
 
@@ -46,72 +40,65 @@ func (c *sessionCompactor) Compact(ctx context.Context, sess *session.Session, a
 		events <- SessionCompaction(sess.ID, "completed", agentName)
 	}()
 
-	messages := sess.GetAllMessages()
-	if len(messages) == 0 {
+	summaryModel := provider.CloneWithOptions(ctx, c.model, options.WithStructuredOutput(nil))
+	root := agent.New("root", compactionSystemPrompt, agent.WithModel(summaryModel))
+	newTeam := team.New(team.WithAgents(root))
+
+	messages := sess.GetMessages(root)
+	if !hasConversationMessages(messages) {
 		events <- Warning("Session is empty. Start a conversation before compacting.", agentName)
 		return
 	}
 
-	conversationHistory := c.buildConversationHistory(messages)
-	userPrompt := c.buildUserPrompt(conversationHistory, additionalPrompt)
-
-	summary := c.generateSummary(ctx, userPrompt)
-	if summary == "" {
-		return
-	}
-
-	sess.Messages = append(sess.Messages, session.Item{Summary: summary})
-
-	slog.Debug("Generated session summary", "session_id", sess.ID, "summary_length", len(summary))
-	events <- SessionSummary(sess.ID, summary, agentName)
-}
-
-func (c *sessionCompactor) buildConversationHistory(messages []session.Message) string {
-	var builder strings.Builder
-	for i := range messages {
-		role := "Unknown"
-		switch messages[i].Message.Role {
-		case "user":
-			role = "User"
-		case "assistant":
-			role = "Assistant"
-		case "system":
-			continue
-		}
-		fmt.Fprintf(&builder, "\n%s: %s", role, messages[i].Message.Content)
-	}
-	return builder.String()
-}
-
-func (c *sessionCompactor) buildUserPrompt(conversationHistory, additionalPrompt string) string {
-	prompt := fmt.Sprintf(compactionUserPrompt, conversationHistory)
-	if additionalPrompt != "" {
-		prompt += fmt.Sprintf("\n\nAdditional instructions from user: %s", additionalPrompt)
-	}
-	return prompt
-}
-
-func (c *sessionCompactor) generateSummary(ctx context.Context, userPrompt string) string {
-	summaryModel := provider.CloneWithOptions(ctx, c.model, options.WithStructuredOutput(nil))
-	newTeam := team.New(
-		team.WithAgents(agent.New("root", compactionSystemPrompt, agent.WithModel(summaryModel))),
-	)
-
-	summarySession := session.New(session.WithSystemMessage(compactionSystemPrompt))
-	summarySession.AddMessage(session.UserMessage(userPrompt))
+	summarySession := session.New()
 	summarySession.Title = "Generating summary..."
+	for _, msg := range messages {
+		summarySession.AddMessage(&session.Message{Message: msg})
+	}
+
+	prompt := compactionUserPrompt
+	if additionalPrompt != "" {
+		prompt += "\n\nAdditional instructions from user: " + additionalPrompt
+	}
+	summarySession.AddMessage(&session.Message{
+		Message: chat.Message{
+			Role:      chat.MessageRoleUser,
+			Content:   prompt,
+			CreatedAt: time.Now().Format(time.RFC3339),
+		},
+	})
 
 	summaryRuntime, err := New(newTeam, WithSessionCompaction(false))
 	if err != nil {
 		slog.Error("Failed to create summary generator runtime", "error", err)
-		return ""
+		events <- Error(err.Error())
+		return
 	}
 
 	_, err = summaryRuntime.Run(ctx, summarySession)
 	if err != nil {
 		slog.Error("Failed to generate session summary", "error", err)
-		return ""
+		events <- Error(err.Error())
+		return
 	}
 
-	return summarySession.GetLastAssistantMessageContent()
+	summary := summarySession.GetLastAssistantMessageContent()
+	if summary == "" {
+		return
+	}
+
+	sess.Messages = append(sess.Messages, session.Item{Summary: summary})
+	_ = c.sessionStore.UpdateSession(ctx, sess)
+
+	slog.Debug("Generated session summary", "session_id", sess.ID, "summary_length", len(summary))
+	events <- SessionSummary(sess.ID, summary, agentName)
+}
+
+func hasConversationMessages(messages []chat.Message) bool {
+	for _, msg := range messages {
+		if msg.Role != chat.MessageRoleSystem {
+			return true
+		}
+	}
+	return false
 }

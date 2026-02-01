@@ -1,6 +1,7 @@
 package dialog
 
 import (
+	"fmt"
 	"net/mail"
 	"net/url"
 	"regexp"
@@ -28,47 +29,74 @@ func getCompiledPattern(pattern string) (*regexp.Regexp, error) {
 
 // validateStringField validates a string value against field constraints.
 func validateStringField(val string, field ElicitationField) bool {
+	return validateStringFieldWithMessage(val, field) == ""
+}
+
+// validateStringFieldWithMessage validates a string value and returns a descriptive error message.
+func validateStringFieldWithMessage(val string, field ElicitationField) string {
 	if field.MinLength > 0 && len(val) < field.MinLength {
-		return false
+		return fmt.Sprintf("Must be at least %d characters", field.MinLength)
 	}
 	if field.Pattern != "" {
 		compiled, err := getCompiledPattern(field.Pattern)
-		if err != nil || !compiled.MatchString(val) {
-			return false
+		if err != nil {
+			return "Invalid pattern in schema"
+		}
+		if !compiled.MatchString(val) {
+			return "Invalid format"
 		}
 	}
-	return validateFormat(val, field.Format)
+	return validateFormatWithMessage(val, field.Format)
 }
 
 // validateNumberField validates a numeric value against field constraints.
 func validateNumberField(val float64, field ElicitationField) bool {
+	return validateNumberFieldWithMessage(val, field) == ""
+}
+
+// validateNumberFieldWithMessage validates a numeric value and returns a descriptive error message.
+func validateNumberFieldWithMessage(val float64, field ElicitationField) string {
 	if field.HasMinimum && val < field.Minimum {
-		return false
+		return fmt.Sprintf("Must be at least %v", field.Minimum)
 	}
 	if field.HasMaximum && val > field.Maximum {
-		return false
+		return fmt.Sprintf("Must be at most %v", field.Maximum)
 	}
-	return true
+	return ""
 }
 
 // validateFormat validates a string value against a JSON Schema format.
 func validateFormat(val, format string) bool {
+	return validateFormatWithMessage(val, format) == ""
+}
+
+// validateFormatWithMessage validates a string against a JSON Schema format and returns an error message.
+func validateFormatWithMessage(val, format string) string {
 	switch format {
 	case "":
-		return true
+		return ""
 	case "email":
-		_, err := mail.ParseAddress(val)
-		return err == nil
+		if _, err := mail.ParseAddress(val); err != nil {
+			return "Must be a valid email address"
+		}
+		return ""
 	case "uri":
 		u, err := url.Parse(val)
-		return err == nil && u.Scheme != "" && u.Host != ""
+		if err != nil || u.Scheme == "" || u.Host == "" {
+			return "Must be a valid URL (http:// or https://)"
+		}
+		return ""
 	case "date":
-		_, err := time.Parse("2006-01-02", val)
-		return err == nil
+		if _, err := time.Parse("2006-01-02", val); err != nil {
+			return "Must be a valid date (YYYY-MM-DD)"
+		}
+		return ""
 	case "date-time":
-		_, err := time.Parse(time.RFC3339, val)
-		return err == nil
+		if _, err := time.Parse(time.RFC3339, val); err != nil {
+			return "Must be a valid date-time (RFC3339 format)"
+		}
+		return ""
 	default:
-		return true // Unknown format - be permissive
+		return "" // Unknown format - be permissive
 	}
 }

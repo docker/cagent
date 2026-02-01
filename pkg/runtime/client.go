@@ -378,3 +378,9 @@ func (c *Client) ResumeElicitation(ctx context.Context, sessionID string, action
 	req := api.ResumeElicitationRequest{Action: string(action), Content: content}
 	return c.doRequest(ctx, http.MethodPost, "/api/sessions/"+sessionID+"/elicitation", req, nil)
 }
+
+// UpdateSessionTitle updates the title of a session
+func (c *Client) UpdateSessionTitle(ctx context.Context, sessionID, title string) error {
+	req := api.UpdateSessionTitleRequest{Title: title}
+	return c.doRequest(ctx, http.MethodPatch, "/api/sessions/"+sessionID+"/title", req, nil)
+}

@@ -16,7 +16,7 @@ import (
 type ToggleDiffViewMsg struct{}
 
 // New creates the edit_file tool UI model.
-func New(msg *types.Message, sessionState *service.SessionState) layout.Model {
+func New(msg *types.Message, sessionState service.SessionStateReader) layout.Model {
 	return toolcommon.NewBaseWithCollapsed(msg, sessionState, render, renderCollapsed)
 }
 
@@ -27,7 +27,7 @@ func New(msg *types.Message, sessionState *service.SessionState) layout.Model {
 func render(
 	msg *types.Message,
 	s spinner.Spinner,
-	sessionState *service.SessionState,
+	sessionState service.SessionStateReader,
 	width,
 	_ int,
 ) string {
@@ -107,7 +107,7 @@ func render(
 func renderCollapsed(
 	msg *types.Message,
 	s spinner.Spinner,
-	_ *service.SessionState,
+	_ service.SessionStateReader,
 	width,
 	_ int,
 ) string {

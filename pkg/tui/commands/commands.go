@@ -77,6 +77,22 @@ func builtInSessionCommands() []Item {
 			},
 		},
 		{
+			ID:           "session.title",
+			Label:        "Title",
+			SlashCommand: "/title",
+			Description:  "Set or regenerate session title (usage: /title [new title])",
+			Category:     "Session",
+			Execute: func(arg string) tea.Cmd {
+				arg = strings.TrimSpace(arg)
+				if arg == "" {
+					// No argument: regenerate title
+					return core.CmdHandler(messages.RegenerateTitleMsg{})
+				}
+				// With argument: set title
+				return core.CmdHandler(messages.SetSessionTitleMsg{Title: arg})
+			},
+		},
+		{
 			ID:           "session.model",
 			Label:        "Model",
 			SlashCommand: "/model",
@@ -177,6 +193,16 @@ func builtInSessionCommands() []Item {
 			},
 		},
 		{
+			ID:           "session.permissions",
+			Label:        "Permissions",
+			SlashCommand: "/permissions",
+			Description:  "Show tool permission rules for this session",
+			Category:     "Session",
+			Execute: func(string) tea.Cmd {
+				return core.CmdHandler(messages.ShowPermissionsDialogMsg{})
+			},
+		},
+		{
 			ID:           "session.attach",
 			Label:        "Attach",
 			SlashCommand: "/attach",
@@ -240,6 +266,17 @@ func BuildCommandCategories(ctx context.Context, application *app.App) []Categor
 		filtered := make([]Item, 0, len(sessionCommands))
 		for _, cmd := range sessionCommands {
 			if cmd.ID != "session.think" {
+				filtered = append(filtered, cmd)
+			}
+		}
+		sessionCommands = filtered
+	}
+
+	// Hide /permissions if no permissions are configured
+	if !application.HasPermissions() {
+		filtered := make([]Item, 0, len(sessionCommands))
+		for _, cmd := range sessionCommands {
+			if cmd.ID != "session.permissions" {
 				filtered = append(filtered, cmd)
 			}
 		}

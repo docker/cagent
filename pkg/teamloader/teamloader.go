@@ -3,6 +3,7 @@ package teamloader
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -16,6 +17,7 @@ import (
 	"github.com/docker/cagent/pkg/memory"
 	_ "github.com/docker/cagent/pkg/memory/sqlite" // Register sqlite driver
 	"github.com/docker/cagent/pkg/model/provider"
+	"github.com/docker/cagent/pkg/model/provider/dmr"
 	"github.com/docker/cagent/pkg/model/provider/options"
 	"github.com/docker/cagent/pkg/modelsdev"
 	"github.com/docker/cagent/pkg/permissions"
@@ -182,6 +184,12 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 
 		models, thinkingConfigured, err := getModelsForAgent(ctx, cfg, &agentConfig, autoModel, runConfig)
 		if err != nil {
+			// Return auto model fallback errors and DMR not installed errors directly
+			// without wrapping to provide cleaner messages
+			var autoErr *config.ErrAutoModelFallback
+			if errors.As(err, &autoErr) || errors.Is(err, dmr.ErrNotInstalled) {
+				return nil, err
+			}
 			return nil, fmt.Errorf("failed to get models: %w", err)
 		}
 		for _, model := range models {
@@ -270,9 +278,11 @@ func getModelsForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentC
 
 	for name := range strings.SplitSeq(a.Model, ",") {
 		modelCfg, exists := cfg.Models[name]
+		isAutoModel := false
 		if !exists {
 			if name == "auto" {
 				modelCfg = autoModelFn()
+				isAutoModel = true
 			} else {
 				return nil, false, fmt.Errorf("model '%s' not found in configuration", name)
 			}
@@ -318,6 +328,10 @@ func getModelsForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentC
 			opts...,
 		)
 		if err != nil {
+			// Return a cleaner error message for auto model selection failures
+			if isAutoModel {
+				return nil, false, &config.ErrAutoModelFallback{}
+			}
 			return nil, false, err
 		}
 		models = append(models, model)

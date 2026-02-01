@@ -172,6 +172,15 @@ func (c *ConnectRPCClient) ToggleToolApproval(ctx context.Context, sessionID str
 	return err
 }
 
+// UpdateSessionTitle updates the title of a session
+func (c *ConnectRPCClient) UpdateSessionTitle(ctx context.Context, sessionID, title string) error {
+	_, err := c.client.UpdateSessionTitle(ctx, connect.NewRequest(&cagentv1.UpdateSessionTitleRequest{
+		SessionId: sessionID,
+		Title:     title,
+	}))
+	return err
+}
+
 // ResumeElicitation sends an elicitation response
 func (c *ConnectRPCClient) ResumeElicitation(ctx context.Context, sessionID string, action tools.ElicitationAction, content map[string]any) error {
 	contentJSON, err := json.Marshal(content)

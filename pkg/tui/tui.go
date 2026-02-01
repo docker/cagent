@@ -28,6 +28,7 @@ import (
 	"github.com/docker/cagent/pkg/tui/page/chat"
 	"github.com/docker/cagent/pkg/tui/service"
 	"github.com/docker/cagent/pkg/tui/styles"
+	"github.com/docker/cagent/pkg/tui/subscription"
 )
 
 // appModel represents the main application model
@@ -48,9 +49,14 @@ type appModel struct {
 
 	transcriber *transcribe.Transcriber
 
-	themeWatcher         *styles.ThemeWatcher
-	themeWatcherEventCh  chan string // Channel for theme file change events (carries themeRef)
-	themeListenerStarted bool        // Guard to prevent multiple listeners
+	// External event subscriptions (Elm Architecture pattern)
+	themeWatcher      *styles.ThemeWatcher
+	themeSubscription *subscription.ChannelSubscription[string] // Listens for theme file changes
+	themeSubStarted   bool                                      // Guard against multiple subscriptions
+
+	// keyboardEnhancements stores the last keyboard enhancements message from the terminal.
+	// This is reapplied to new chat/editor instances when sessions are switched.
+	keyboardEnhancements *tea.KeyboardEnhancementsMsg
 
 	ready bool
 	err   error
@@ -101,8 +107,8 @@ func DefaultKeyMap() KeyMap {
 			key.WithHelp("Ctrl+m", "models"),
 		),
 		Speak: key.NewBinding(
-			key.WithKeys("ctrl+k"),
-			key.WithHelp("Ctrl+k", "speak"),
+			key.WithKeys("ctrl+l"),
+			key.WithHelp("Ctrl+l", "speak"),
 		),
 		ClearQueue: key.NewBinding(
 			key.WithKeys("ctrl+x"),
@@ -115,21 +121,24 @@ func DefaultKeyMap() KeyMap {
 func New(ctx context.Context, a *app.App) tea.Model {
 	sessionState := service.NewSessionState(a.Session())
 
-	// Create a channel for theme file change events (carries themeRef)
+	// Create a channel for theme file change events
 	themeEventCh := make(chan string, 1)
 
 	t := &appModel{
-		keyMap:              DefaultKeyMap(),
-		dialog:              dialog.New(),
-		notification:        notification.New(),
-		completions:         completion.New(),
-		application:         a,
-		sessionState:        sessionState,
-		transcriber:         transcribe.New(os.Getenv("OPENAI_API_KEY")), // TODO(dga): should use envProvider
-		themeWatcherEventCh: themeEventCh,
+		keyMap:       DefaultKeyMap(),
+		dialog:       dialog.New(),
+		notification: notification.New(),
+		completions:  completion.New(),
+		application:  a,
+		sessionState: sessionState,
+		transcriber:  transcribe.New(os.Getenv("OPENAI_API_KEY")), // TODO(dga): should use envProvider
+		// Set up theme subscription using the subscription package
+		themeSubscription: subscription.NewChannelSubscription(themeEventCh, func(themeRef string) tea.Msg {
+			return messages.ThemeFileChangedMsg{ThemeRef: themeRef}
+		}),
 	}
 
-	// Create theme watcher with callback that sends themeRef to channel
+	// Create theme watcher with callback that sends to the subscription channel
 	t.themeWatcher = styles.NewThemeWatcher(func(themeRef string) {
 		// Non-blocking send to the event channel
 		select {
@@ -166,25 +175,13 @@ func (a *appModel) Init() tea.Cmd {
 		a.application.SendFirstMessage(),
 	}
 
-	// Start theme file listener only once (guard against Init being called multiple times)
-	if !a.themeListenerStarted {
-		a.themeListenerStarted = true
-		cmds = append(cmds, a.listenForThemeFileChanges())
+	// Start theme subscription only once (guard against Init being called multiple times)
+	if !a.themeSubStarted {
+		a.themeSubStarted = true
+		cmds = append(cmds, a.themeSubscription.Listen())
 	}
 
 	return tea.Sequence(cmds...)
-}
-
-// listenForThemeFileChanges returns a command that listens for theme file change events
-// and sends them as messages to the TUI.
-func (a *appModel) listenForThemeFileChanges() tea.Cmd {
-	return func() tea.Msg {
-		themeRef, ok := <-a.themeWatcherEventCh
-		if !ok {
-			return nil // Channel closed
-		}
-		return messages.ThemeFileChangedMsg{ThemeRef: themeRef}
-	}
 }
 
 // Help returns help information
@@ -255,6 +252,8 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, cmd
 
 	case tea.KeyboardEnhancementsMsg:
+		// Store the keyboard enhancements message so we can reapply it to new chat pages
+		a.keyboardEnhancements = &msg
 		updated, cmd := a.chatPage.Update(msg)
 		a.chatPage = updated.(chat.Page)
 		return a, cmd
@@ -318,6 +317,12 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a.handleToggleSessionStar(sessionID)
 
+	case messages.SetSessionTitleMsg:
+		return a.handleSetSessionTitle(msg.Title)
+
+	case messages.RegenerateTitleMsg:
+		return a.handleRegenerateTitle()
+
 	case messages.StartShellMsg:
 		return a.startShell()
 
@@ -352,6 +357,9 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messages.ShowCostDialogMsg:
 		return a.handleShowCostDialog()
+
+	case messages.ShowPermissionsDialogMsg:
+		return a.handleShowPermissionsDialog()
 
 	case messages.AgentCommandMsg:
 		return a.handleAgentCommand(msg.Command)
@@ -407,14 +415,14 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err != nil {
 			// Failed to load - show error but keep current theme
 			return a, tea.Batch(
-				a.listenForThemeFileChanges(),
+				a.themeSubscription.Listen(), // Re-subscribe to continue listening
 				notification.ErrorCmd(fmt.Sprintf("Failed to hot-reload theme: %v", err)),
 			)
 		}
 		styles.ApplyTheme(theme)
 		// Continue listening for more changes and emit ThemeChangedMsg for cache invalidation
 		return a, tea.Batch(
-			a.listenForThemeFileChanges(),
+			a.themeSubscription.Listen(), // Re-subscribe to continue listening
 			notification.SuccessCmd("Theme hot-reloaded"),
 			core.CmdHandler(messages.ThemeChangedMsg{}),
 		)

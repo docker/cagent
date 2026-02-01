@@ -300,9 +300,6 @@ func getAllMigrations() []Migration {
 			Description: "Migrate existing messages JSON data to session_items table",
 			UpFunc:      migrateMessagesToSessionItems,
 		},
-		// Note: We intentionally keep the messages column for backward compatibility.
-		// Old versions of cagent can still read sessions via the messages column,
-		// while new versions read from session_items but also write to messages.
 	}
 }
 

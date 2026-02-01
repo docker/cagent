@@ -58,7 +58,7 @@ interactions:
         proto_minor: 1
         content_length: 0
         host: api.mistral.ai
-        body: '{"messages":[{"content":"You are a helpful AI assistant that generates concise, descriptive titles for conversations. You will be given a conversation history and asked to create a single-line title that captures the main topic. Never use newlines or line breaks in your response.","role":"system"},{"content":"Based on the following message a user sent to an AI assistant, generate a short, descriptive title (maximum 50 characters) that captures the main topic or purpose of the conversation. Return ONLY the title text on a single line, nothing else. Do not include any newlines, explanations, or formatting.\n\nUser message: What''s 2+2?\n\n","role":"user"}],"model":"mistral-small","stream_options":{"include_usage":true},"stream":true}'
+        body: '{"messages":[{"content":"You are a helpful AI assistant that generates concise, descriptive titles for conversations. You will be given up to 2 recent user messages and asked to create a single-line title that captures the main topic. Never use newlines or line breaks in your response.","role":"system"},{"content":"Based on the following recent user messages from a conversation with an AI assistant, generate a short, descriptive title (maximum 50 characters) that captures the main topic or purpose of the conversation. Return ONLY the title text on a single line, nothing else. Do not include any newlines, explanations, or formatting.\n\nRecent user messages:\n1. What''s 2+2?\n\n\n","role":"user"}],"model":"mistral-small","stream_options":{"include_usage":true},"stream":true}'
         url: https://api.mistral.ai/v1/chat/completions
         method: POST
       response:

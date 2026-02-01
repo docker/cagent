@@ -111,6 +111,8 @@ type Page interface {
 	GetInputHeight() int
 	// SetSessionStarred updates the sidebar star indicator
 	SetSessionStarred(starred bool)
+	// SetTitleRegenerating sets the title regenerating state on the sidebar
+	SetTitleRegenerating(regenerating bool) tea.Cmd
 	// InsertText inserts text at the current cursor position in the editor
 	InsertText(text string)
 	// SetRecording sets the recording mode on the editor
@@ -996,22 +998,26 @@ func (p *chatPage) SetSessionStarred(starred bool) {
 	p.sidebar.SetSessionStarred(starred)
 }
 
-// handleSidebarClick checks if a click in the sidebar area should toggle the star.
-// Returns true if the click was handled.
-func (p *chatPage) handleSidebarClick(x, y int) bool {
+func (p *chatPage) SetTitleRegenerating(regenerating bool) tea.Cmd {
+	return p.sidebar.SetTitleRegenerating(regenerating)
+}
+
+// handleSidebarClickType checks what was clicked in the sidebar area.
+// Returns the type of click (star, title, or none).
+func (p *chatPage) handleSidebarClickType(x, y int) sidebar.ClickResult {
 	adjustedX := x - styles.AppPaddingLeft
 	sl := p.computeSidebarLayout()
 
 	switch sl.mode {
 	case sidebarCollapsedNarrow, sidebarCollapsed:
-		return p.sidebar.HandleClick(adjustedX, y)
+		return p.sidebar.HandleClickType(adjustedX, y)
 	case sidebarVertical:
 		if sl.isInSidebar(adjustedX) {
-			return p.sidebar.HandleClick(adjustedX-sl.sidebarStartX, y)
+			return p.sidebar.HandleClickType(adjustedX-sl.sidebarStartX, y)
 		}
 	}
 
-	return false
+	return sidebar.ClickNone
 }
 
 // routeMouseEvent routes mouse events to the appropriate component based on coordinates.
@@ -1059,56 +1065,6 @@ func (p *chatPage) routeMouseEvent(msg tea.Msg, y int) tea.Cmd {
 	model, cmd := p.editor.Update(msg)
 	p.editor = model.(editor.Editor)
 	return cmd
-}
-
-// isOnResizeLine checks if y is on the resize handle line.
-func (p *chatPage) isOnResizeLine(y int) bool {
-	// Use current editor height (includes dynamic banner) rather than cached value
-	_, editorHeight := p.editor.GetSize()
-	return y == p.height-editorHeight-2
-}
-
-// isOnSidebarHandle checks if (x, y) is on the sidebar resize handle column.
-func (p *chatPage) isOnSidebarHandle(x, y int) bool {
-	sl := p.computeSidebarLayout()
-	if sl.mode != sidebarVertical {
-		return false
-	}
-	if y < 0 || y >= sl.chatHeight {
-		return false
-	}
-	adjustedX := x - styles.AppPaddingLeft
-	return sl.isOnHandle(adjustedX)
-}
-
-// isOnSidebarToggleGlyph checks if (x, y) is on the sidebar toggle glyph.
-func (p *chatPage) isOnSidebarToggleGlyph(x, y int) bool {
-	sl := p.computeSidebarLayout()
-	if !sl.showToggle() {
-		return false
-	}
-
-	if sl.mode == sidebarVertical {
-		// Toggle is at y=0 on the handle column
-		return y == 0 && p.isOnSidebarHandle(x, y)
-	}
-
-	// Collapsed horizontal: toggle is at right edge of first line
-	if y != 0 {
-		return false
-	}
-	adjustedX := x - styles.AppPaddingLeft
-	return adjustedX == sl.innerWidth-toggleColumnWidth
-}
-
-// isOnResizeHandle checks if (x, y) is on the draggable center of the resize handle.
-func (p *chatPage) isOnResizeHandle(x, y int) bool {
-	if !p.isOnResizeLine(y) {
-		return false
-	}
-	// Only the center portion is draggable
-	center := p.width / 2
-	return x >= center-resizeHandleWidth/2 && x < center+resizeHandleWidth/2
 }
 
 // handleResize adjusts editor height based on drag position.

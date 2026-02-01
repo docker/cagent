@@ -251,6 +251,24 @@ func (s *Session) GetLastUserMessageContent() string {
 	return s.getLastMessageContentByRole(chat.MessageRoleUser)
 }
 
+// GetLastUserMessages returns up to n most recent user messages, ordered from oldest to newest.
+func (s *Session) GetLastUserMessages(n int) []string {
+	messages := s.GetAllMessages()
+	var userMessages []string
+	for i := range messages {
+		if messages[i].Message.Role == chat.MessageRoleUser {
+			content := strings.TrimSpace(messages[i].Message.Content)
+			if content != "" {
+				userMessages = append(userMessages, content)
+			}
+		}
+	}
+	if len(userMessages) <= n {
+		return userMessages
+	}
+	return userMessages[len(userMessages)-n:]
+}
+
 func (s *Session) getLastMessageContentByRole(role chat.MessageRole) string {
 	messages := s.GetAllMessages()
 	for i := len(messages) - 1; i >= 0; i-- {

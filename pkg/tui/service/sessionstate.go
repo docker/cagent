@@ -6,6 +6,24 @@ import (
 	"github.com/docker/cagent/pkg/tui/types"
 )
 
+// SessionStateReader provides read-only access to session state.
+// Components that only need to read state should depend on this interface
+// rather than the full SessionState, following the principle of least privilege.
+type SessionStateReader interface {
+	SplitDiffView() bool
+	YoloMode() bool
+	Thinking() bool
+	HideToolResults() bool
+	CurrentAgentName() string
+	PreviousMessage() *types.Message
+	SessionTitle() string
+	AvailableAgents() []runtime.AgentDetails
+	GetCurrentAgent() runtime.AgentDetails
+}
+
+// Verify SessionState implements SessionStateReader
+var _ SessionStateReader = (*SessionState)(nil)
+
 // SessionState holds shared state across the TUI application.
 // This provides a centralized location for state that needs to be
 // accessible by multiple components.

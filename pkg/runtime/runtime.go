@@ -141,6 +141,16 @@ type Runtime interface {
 
 	// Summarize generates a summary for the session
 	Summarize(ctx context.Context, sess *session.Session, additionalPrompt string, events chan Event)
+
+	// PermissionsInfo returns the team-level permission patterns (allow/deny).
+	// Returns nil if no permissions are configured.
+	PermissionsInfo() *PermissionsInfo
+}
+
+// PermissionsInfo contains the allow and deny patterns for tool permissions.
+type PermissionsInfo struct {
+	Allow []string
+	Deny  []string
 }
 
 type CurrentAgentInfo struct {
@@ -174,7 +184,6 @@ type LocalRuntime struct {
 	elicitationEventsChannel    chan Event             // Current events channel for sending elicitation requests
 	elicitationEventsChannelMux sync.RWMutex           // Protects elicitationEventsChannel
 	ragInitialized              atomic.Bool
-	titleGen                    *titleGenerator
 	sessionCompactor            *sessionCompactor
 	sessionStore                session.Store
 	workingDir                  string   // Working directory for hooks execution
@@ -288,8 +297,7 @@ func NewLocalRuntime(agents *team.Team, opts ...Opt) (*LocalRuntime, error) {
 		return nil, fmt.Errorf("agent %s has no valid model", defaultAgent.Name())
 	}
 
-	r.titleGen = newTitleGenerator(model)
-	r.sessionCompactor = newSessionCompactor(model)
+	r.sessionCompactor = newSessionCompactor(model, r.sessionStore)
 
 	slog.Debug("Creating new runtime", "agent", r.currentAgent, "available_agents", agents.Size())
 
@@ -546,6 +554,19 @@ func (r *LocalRuntime) SessionStore() session.Store {
 	return r.sessionStore
 }
 
+// PermissionsInfo returns the team-level permission patterns.
+// Returns nil if no permissions are configured.
+func (r *LocalRuntime) PermissionsInfo() *PermissionsInfo {
+	permChecker := r.team.Permissions()
+	if permChecker == nil || permChecker.IsEmpty() {
+		return nil
+	}
+	return &PermissionsInfo{
+		Allow: permChecker.AllowPatterns(),
+		Deny:  permChecker.DenyPatterns(),
+	}
+}
+
 // ResetStartupInfo resets the startup info emission flag.
 // This should be called when replacing a session to allow re-emission of
 // agent, team, and toolset info to the UI.
@@ -678,8 +699,6 @@ func (r *LocalRuntime) finalizeEventChannel(ctx context.Context, sess *session.S
 	events <- StreamStopped(sess.ID, r.currentAgent)
 
 	telemetry.RecordSessionEnd(ctx)
-
-	r.titleGen.Wait()
 }
 
 // RunStream starts the agent's interaction loop and returns a channel of events
@@ -733,11 +752,6 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 		defer r.finalizeEventChannel(ctx, sess, events)
 
 		r.registerDefaultTools()
-
-		if sess.Title == "" {
-			userMessage := sess.GetLastUserMessageContent()
-			r.titleGen.Generate(ctx, sess, userMessage, events)
-		}
 
 		iteration := 0
 		// Use a runtime copy of maxIterations so we don't modify the session's persistent config
