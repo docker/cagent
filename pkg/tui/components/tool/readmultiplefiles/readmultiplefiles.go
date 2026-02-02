@@ -16,11 +16,11 @@ import (
 	"github.com/docker/cagent/pkg/tui/types"
 )
 
-func New(msg *types.Message, sessionState *service.SessionState) layout.Model {
+func New(msg *types.Message, sessionState service.SessionStateReader) layout.Model {
 	return toolcommon.NewBase(msg, sessionState, render)
 }
 
-func render(msg *types.Message, s spinner.Spinner, sessionState *service.SessionState, width, _ int) string {
+func render(msg *types.Message, s spinner.Spinner, sessionState service.SessionStateReader, width, _ int) string {
 	// Parse arguments
 	var args builtin.ReadMultipleFilesArgs
 	if err := json.Unmarshal([]byte(msg.ToolCall.Function.Arguments), &args); err != nil {

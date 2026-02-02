@@ -13,11 +13,15 @@ import (
 const ToolNameUserPrompt = "user_prompt"
 
 type UserPromptTool struct {
-	tools.BaseToolSet
 	elicitationHandler tools.ElicitationHandler
 }
 
-var _ tools.ToolSet = (*UserPromptTool)(nil)
+// Verify interface compliance
+var (
+	_ tools.ToolSet      = (*UserPromptTool)(nil)
+	_ tools.Elicitable   = (*UserPromptTool)(nil)
+	_ tools.Instructable = (*UserPromptTool)(nil)
+)
 
 type UserPromptArgs struct {
 	Message string         `json:"message" jsonschema:"The message/question to display to the user"`

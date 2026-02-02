@@ -3,6 +3,7 @@ package reasoningblock
 import (
 	"fmt"
 	"image/color"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -12,9 +13,11 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/docker/cagent/pkg/tools"
+	"github.com/docker/cagent/pkg/tui/animation"
 	"github.com/docker/cagent/pkg/tui/components/markdown"
 	"github.com/docker/cagent/pkg/tui/components/tool"
 	"github.com/docker/cagent/pkg/tui/core/layout"
+	"github.com/docker/cagent/pkg/tui/messages"
 	"github.com/docker/cagent/pkg/tui/service"
 	"github.com/docker/cagent/pkg/tui/styles"
 	"github.com/docker/cagent/pkg/tui/types"
@@ -25,25 +28,20 @@ const (
 	previewLines = 3
 	// completedToolVisibleDuration is how long a completed tool remains fully visible before fading.
 	completedToolVisibleDuration = 1500 * time.Millisecond
-	// completedToolFadeSteps is the number of fade animation steps.
-	completedToolFadeSteps = 16
 	// completedToolFadeDuration is how long the fade-out effect lasts before hiding.
 	completedToolFadeDuration = 1000 * time.Millisecond
-	// completedToolFadeInterval is the time between each fade step.
-	completedToolFadeInterval = completedToolFadeDuration / completedToolFadeSteps
 )
 
-// fadeColor returns an interpolated color for the given fade level (1-8).
-// Level 1 is slightly faded, level 8 is very faded (close to background).
-func fadeColor(level int) color.Color {
+// fadeColor returns an interpolated color for the given fade progress (0.0 to 1.0).
+// Progress 0.0 is normal color, 1.0 is very faded (close to background).
+func fadeColor(progress float64) color.Color {
 	// Interpolate from #808080 (normal muted) to #303038 (very faded)
 	// RGB: (128,128,128) -> (48,48,56)
 	startR, startG, startB := 128, 128, 128
 	endR, endG, endB := 48, 48, 56
-	t := float64(level) / float64(completedToolFadeSteps)
-	r := int(float64(startR) + t*float64(endR-startR))
-	g := int(float64(startG) + t*float64(endG-startG))
-	b := int(float64(startB) + t*float64(endB-startB))
+	r := int(float64(startR) + progress*float64(endR-startR))
+	g := int(float64(startG) + progress*float64(endG-startG))
+	b := int(float64(startB) + progress*float64(endB-startB))
 	return lipgloss.Color(fmt.Sprintf("#%02X%02X%02X", r, g, b))
 }
 
@@ -66,21 +64,12 @@ func (m blockMsgBase) GetBlockID() string { return m.BlockID }
 // ToggleMsg is sent when the block should toggle expanded/collapsed state.
 type ToggleMsg struct{ blockMsgBase }
 
-// FadeTickMsg is sent to advance a tool's fade animation by one step.
-type FadeTickMsg struct {
-	blockMsgBase
-	ToolCallID string
-}
-
-// GraceExpiredMsg is sent when a tool's grace period has expired and it should be hidden.
-type GraceExpiredMsg struct{ blockMsgBase }
-
 // toolEntry holds a tool call message and its view.
 type toolEntry struct {
 	msg                   *types.Message
 	view                  layout.Model
 	collapsedVisibleUntil time.Time // Zero means no grace period (hide immediately when completed)
-	fadeLevel             int       // 0 = not fading, 1-8 = fading (higher = more faded)
+	fadeProgress          float64   // 0.0 = not fading, 0.0-1.0 = fading (higher = more faded)
 }
 
 // contentItemKind identifies the type of content item.
@@ -109,16 +98,17 @@ type renderCache struct {
 
 // Model represents a collapsible reasoning + tool calls block.
 type Model struct {
-	id               string
-	agentName        string
-	contentItems     []contentItem // Ordered sequence of reasoning and tool calls
-	toolEntries      []toolEntry   // All tool entries (referenced by contentItems)
-	expanded         bool
-	width            int
-	height           int
-	sessionState     *service.SessionState
-	reasoningVersion int          // increments when reasoning content changes
-	cache            *renderCache // cached rendering results
+	id                  string
+	agentName           string
+	contentItems        []contentItem // Ordered sequence of reasoning and tool calls
+	toolEntries         []toolEntry   // All tool entries (referenced by contentItems)
+	expanded            bool
+	width               int
+	height              int
+	sessionState        *service.SessionState
+	reasoningVersion    int          // increments when reasoning content changes
+	cache               *renderCache // cached rendering results
+	animationRegistered bool         // whether we're registered with animation coordinator
 }
 
 // New creates a new reasoning block.
@@ -239,17 +229,17 @@ func (m *Model) UpdateToolResult(toolCallID, content string, status types.ToolSt
 
 		// Set grace period if transitioning from in-progress to completed
 		// Total visible time = completedToolVisibleDuration + completedToolFadeDuration
-		var fadeCmd tea.Cmd
+		// Fade animation is driven by global animation tick
+		var animCmd tea.Cmd
 		if wasInProgress && isCompleted {
 			totalDuration := completedToolVisibleDuration + completedToolFadeDuration
 			entry.collapsedVisibleUntil = nowFunc().Add(totalDuration)
-			entry.fadeLevel = 0
-			blockID := m.id
-			tcID := toolCallID
-			// Schedule first fade tick after the visible duration
-			fadeCmd = tea.Tick(completedToolVisibleDuration, func(time.Time) tea.Msg {
-				return FadeTickMsg{blockMsgBase{blockID}, tcID}
-			})
+			entry.fadeProgress = 0
+			// Register with animation coordinator if not already
+			if !m.animationRegistered {
+				animCmd = animation.StartTickIfFirst()
+				m.animationRegistered = true
+			}
 		}
 
 		// Recreate view to pick up new state
@@ -259,8 +249,8 @@ func (m *Model) UpdateToolResult(toolCallID, content string, status types.ToolSt
 		m.toolEntries[i].view = view
 
 		initCmd := view.Init()
-		if fadeCmd != nil {
-			return tea.Batch(initCmd, fadeCmd)
+		if animCmd != nil {
+			return tea.Batch(initCmd, animCmd)
 		}
 		return initCmd
 	}
@@ -277,36 +267,71 @@ func (m *Model) HasToolCall(toolCallID string) bool {
 	return false
 }
 
-// AdvanceFade increments a tool's fade level and returns a command for the next step.
-// Returns nil if the tool is not found or already fully faded.
-func (m *Model) AdvanceFade(toolCallID string) tea.Cmd {
+// computeFadeProgressAt computes the fade progress for all tools based on elapsed time.
+// This makes fade progress time-based (tick-rate independent) - the tick only affects smoothness.
+// A tool should fade if it's past its fade start time (collapsedVisibleUntil - completedToolFadeDuration).
+func (m *Model) computeFadeProgressAt(now time.Time) {
 	for i, entry := range m.toolEntries {
-		if entry.msg.ToolCall.ID != toolCallID {
+		if entry.collapsedVisibleUntil.IsZero() {
+			continue // No grace period set
+		}
+		// Compute when fade should start
+		fadeStartTime := entry.collapsedVisibleUntil.Add(-completedToolFadeDuration)
+		if now.Before(fadeStartTime) {
+			m.toolEntries[i].fadeProgress = 0 // Not time to fade yet
 			continue
 		}
-		m.toolEntries[i].fadeLevel++
-		level := m.toolEntries[i].fadeLevel
-
-		blockID := m.id
-		if level >= completedToolFadeSteps {
-			// Final step - schedule hide
-			return tea.Tick(completedToolFadeInterval, func(time.Time) tea.Msg {
-				return GraceExpiredMsg{blockMsgBase{blockID}}
-			})
-		}
-		// Schedule next fade step
-		return tea.Tick(completedToolFadeInterval, func(time.Time) tea.Msg {
-			return FadeTickMsg{blockMsgBase{blockID}, toolCallID}
-		})
+		// Compute fade progress as a fraction of the fade duration (0.0 to 1.0)
+		elapsed := now.Sub(fadeStartTime)
+		progress := float64(elapsed) / float64(completedToolFadeDuration)
+		m.toolEntries[i].fadeProgress = math.Min(progress, 1.0)
 	}
-	return nil
 }
 
-// GetToolFadeLevel returns the fade level for a tool (0 = not fading, 1-8 = fading).
-func (m *Model) GetToolFadeLevel(toolCallID string) int {
+// hasFadingTools returns true if any tools are still within their visibility/fade window.
+// This must match the condition in getVisibleToolsCollapsed to avoid unregistering
+// the animation while tools are still visible.
+// Uses fadeProgress (computed just before this is called) for consistency.
+func (m *Model) hasFadingTools() bool {
+	for _, entry := range m.toolEntries {
+		if entry.collapsedVisibleUntil.IsZero() {
+			continue
+		}
+		// Tool needs ticks while fade hasn't completed
+		if entry.fadeProgress < 1.0 {
+			return true
+		}
+	}
+	return false
+}
+
+// NeedsTick returns true if this reasoning block requires animation tick updates.
+// This is true when:
+//   - Any tool is pending/running (needs spinner animation)
+//   - Any tool is still fading (fadeProgress < 1.0)
+//
+// The messages list uses this to decide whether to invalidate its render cache on ticks.
+// Use fadeProgress (updated on ticks) to stay consistent with renderCollapsed/hasFadingTools.
+func (m *Model) NeedsTick() bool {
+	for _, entry := range m.toolEntries {
+		// Check for in-progress tools (need spinner)
+		if entry.msg.ToolStatus == types.ToolStatusPending ||
+			entry.msg.ToolStatus == types.ToolStatusRunning {
+			return true
+		}
+		// Check for tools within visibility/fade window
+		if !entry.collapsedVisibleUntil.IsZero() && entry.fadeProgress < 1.0 {
+			return true
+		}
+	}
+	return false
+}
+
+// GetToolFadeProgress returns the fade progress for a tool (0.0 = not fading, 0.0-1.0 = fading).
+func (m *Model) GetToolFadeProgress(toolCallID string) float64 {
 	for _, entry := range m.toolEntries {
 		if entry.msg.ToolCall.ID == toolCallID {
-			return entry.fadeLevel
+			return entry.fadeProgress
 		}
 	}
 	return 0
@@ -345,18 +370,19 @@ func (m *Model) Init() tea.Cmd {
 
 // Update handles messages.
 func (m *Model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case FadeTickMsg:
-		if msg.BlockID != m.id {
-			return m, nil
+	switch msg.(type) {
+	case messages.ThemeChangedMsg:
+		// Theme changed - invalidate cached rendering
+		m.cache = nil
+	case animation.TickMsg:
+		// Compute fade levels based on elapsed time (tick-rate independent)
+		m.computeFadeProgressAt(nowFunc())
+		// Unregister if no more fading tools (uses fadeProgress computed above)
+		if m.animationRegistered && !m.hasFadingTools() {
+			m.animationRegistered = false
+			animation.Unregister()
 		}
-		cmd := m.AdvanceFade(msg.ToolCallID)
-		return m, cmd
-	case GraceExpiredMsg:
-		if msg.BlockID != m.id {
-			return m, nil
-		}
-		return m, nil
+		// Continue to forward tick to tool views for their spinners
 	}
 
 	// Forward updates to all tool views (for spinners, etc.)
@@ -498,12 +524,18 @@ func (m *Model) renderCollapsed() string {
 	if len(visibleTools) > 0 {
 		parts = append(parts, "") // blank line before tools
 		for _, entry := range visibleTools {
-			toolView := entry.view.View()
-			if entry.fadeLevel > 0 {
-				// Strip existing ANSI codes and apply faded color based on level
+			// Prefer CollapsedView() for simplified rendering in collapsed state
+			var toolView string
+			if cv, ok := entry.view.(layout.CollapsedViewer); ok {
+				toolView = cv.CollapsedView()
+			} else {
+				toolView = entry.view.View()
+			}
+			if entry.fadeProgress > 0 {
+				// Strip existing ANSI codes and apply faded color based on progress
 				// (wrapping styled content doesn't override inner colors)
 				stripped := ansi.Strip(toolView)
-				fadeStyle := lipgloss.NewStyle().Foreground(fadeColor(entry.fadeLevel))
+				fadeStyle := lipgloss.NewStyle().Foreground(fadeColor(entry.fadeProgress))
 				toolView = fadeStyle.Render(stripped)
 			}
 			parts = append(parts, toolView)
@@ -514,9 +546,9 @@ func (m *Model) renderCollapsed() string {
 }
 
 // getVisibleToolsCollapsed returns tool entries that should be visible in collapsed view.
-// This includes in-progress tools (pending/running) and recently completed tools within their grace period.
+// This includes in-progress tools (pending/running) and recently completed tools that haven't fully faded.
+// Must use the same logic as hasFadingTools to avoid unregistering animation while tools are still visible.
 func (m *Model) getVisibleToolsCollapsed() []toolEntry {
-	now := nowFunc()
 	var visible []toolEntry
 	for _, entry := range m.toolEntries {
 		// Show in-progress tools
@@ -525,8 +557,9 @@ func (m *Model) getVisibleToolsCollapsed() []toolEntry {
 			visible = append(visible, entry)
 			continue
 		}
-		// Show completed/error tools within grace period
-		if !entry.collapsedVisibleUntil.IsZero() && now.Before(entry.collapsedVisibleUntil) {
+		// For completed tools: visible if fade hasn't completed
+		// This matches hasFadingTools() to ensure consistency
+		if !entry.collapsedVisibleUntil.IsZero() && entry.fadeProgress < 1.0 {
 			visible = append(visible, entry)
 		}
 	}

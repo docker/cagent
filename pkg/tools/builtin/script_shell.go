@@ -15,12 +15,15 @@ import (
 )
 
 type ScriptShellTool struct {
-	tools.BaseToolSet
 	shellTools map[string]latest.ScriptShellToolConfig
 	env        []string
 }
 
-var _ tools.ToolSet = (*ScriptShellTool)(nil)
+// Verify interface compliance
+var (
+	_ tools.ToolSet      = (*ScriptShellTool)(nil)
+	_ tools.Instructable = (*ScriptShellTool)(nil)
+)
 
 func NewScriptShellTool(shellTools map[string]latest.ScriptShellToolConfig, env []string) (*ScriptShellTool, error) {
 	for toolName, tool := range shellTools {

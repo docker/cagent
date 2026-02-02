@@ -18,12 +18,14 @@ const (
 )
 
 type TodoTool struct {
-	tools.BaseToolSet
 	handler *todoHandler
 }
 
-// Make sure Todo Tool implements the ToolSet Interface
-var _ tools.ToolSet = (*TodoTool)(nil)
+// Verify interface compliance
+var (
+	_ tools.ToolSet      = (*TodoTool)(nil)
+	_ tools.Instructable = (*TodoTool)(nil)
+)
 
 type Todo struct {
 	ID          string `json:"id" jsonschema:"ID of the todo item"`

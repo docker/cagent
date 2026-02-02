@@ -20,8 +20,6 @@ import (
 
 // Toolset implements tools.ToolSet for A2A remote agents.
 type Toolset struct {
-	tools.BaseToolSet
-
 	name    string
 	url     string
 	headers map[string]string
@@ -30,7 +28,12 @@ type Toolset struct {
 	mu      sync.RWMutex
 }
 
-var _ tools.ToolSet = (*Toolset)(nil)
+// Verify interface compliance
+var (
+	_ tools.ToolSet      = (*Toolset)(nil)
+	_ tools.Startable    = (*Toolset)(nil)
+	_ tools.Instructable = (*Toolset)(nil)
+)
 
 // NewToolset creates a new A2A toolset for the given URL.
 func NewToolset(name, url string, headers map[string]string) *Toolset {

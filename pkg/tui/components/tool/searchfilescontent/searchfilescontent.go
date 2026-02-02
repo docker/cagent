@@ -10,7 +10,7 @@ import (
 	"github.com/docker/cagent/pkg/tui/types"
 )
 
-func New(msg *types.Message, sessionState *service.SessionState) layout.Model {
+func New(msg *types.Message, sessionState service.SessionStateReader) layout.Model {
 	return toolcommon.NewBase(msg, sessionState, toolcommon.SimpleRendererWithResult(
 		extractArgs,
 		extractResult,

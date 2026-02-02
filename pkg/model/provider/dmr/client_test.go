@@ -5,6 +5,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -25,6 +28,31 @@ func TestNewClientWithExplicitBaseURL(t *testing.T) {
 	client, err := NewClient(t.Context(), cfg)
 	require.NoError(t, err)
 	assert.Equal(t, "https://custom.example.com:8080/api/v1", client.baseURL)
+}
+
+func TestNewClientReturnsErrNotInstalledWhenDockerModelUnsupported(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping docker CLI shim test on Windows")
+	}
+
+	tempDir := t.TempDir()
+	dockerPath := filepath.Join(tempDir, "docker")
+	script := "#!/bin/sh\n" +
+		"printf 'unknown flag: --json\\n\\nUsage:  docker [OPTIONS] COMMAND [ARG...]\\n\\nRun '\\''docker --help'\\'' for more information\\n' >&2\n" +
+		"exit 1\n"
+	require.NoError(t, os.WriteFile(dockerPath, []byte(script), 0o755))
+
+	t.Setenv("PATH", tempDir)
+	t.Setenv("MODEL_RUNNER_HOST", "")
+
+	cfg := &latest.ModelConfig{
+		Provider: "dmr",
+		Model:    "ai/qwen3",
+	}
+
+	_, err := NewClient(t.Context(), cfg)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrNotInstalled)
 }
 
 func TestGetDMRFallbackURLs(t *testing.T) {

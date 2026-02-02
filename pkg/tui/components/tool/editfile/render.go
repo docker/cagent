@@ -27,10 +27,37 @@ const (
 	minWidth     = 80
 )
 
+type toolRenderCache struct {
+	// Line counts - computed once, never change
+	added       int
+	removed     int
+	lineCounted bool
+
+	// Rendered output - invalidated when width/splitView/status changes
+	rendered       string
+	renderCached   bool
+	renderedWidth  int
+	renderedSplit  bool
+	renderedStatus types.ToolStatus
+}
+
 var (
+	cache   = make(map[string]*toolRenderCache) // keyed by toolCallID
+	cacheMu sync.RWMutex
+
 	lexerCache   = make(map[string]chroma.Lexer)
 	lexerCacheMu sync.RWMutex
 )
+
+// InvalidateCaches clears all render caches.
+// Call this when the theme changes to pick up new colors.
+func InvalidateCaches() {
+	cacheMu.Lock()
+	for _, c := range cache {
+		c.renderCached = false
+	}
+	cacheMu.Unlock()
+}
 
 type chromaToken struct {
 	Text  string
@@ -44,7 +71,53 @@ type linePair struct {
 	newLineNum int
 }
 
+func getOrCreateCache(toolCallID string) *toolRenderCache {
+	cacheMu.RLock()
+	if c, ok := cache[toolCallID]; ok {
+		cacheMu.RUnlock()
+		return c
+	}
+	cacheMu.RUnlock()
+
+	cacheMu.Lock()
+	defer cacheMu.Unlock()
+	// Double-check after acquiring write lock
+	if c, ok := cache[toolCallID]; ok {
+		return c
+	}
+	c := &toolRenderCache{}
+	cache[toolCallID] = c
+	return c
+}
+
 func renderEditFile(toolCall tools.ToolCall, width int, splitView bool, toolStatus types.ToolStatus) string {
+	c := getOrCreateCache(toolCall.ID)
+
+	cacheMu.RLock()
+	if c.renderCached &&
+		c.renderedWidth == width &&
+		c.renderedSplit == splitView &&
+		c.renderedStatus == toolStatus {
+		result := c.rendered
+		cacheMu.RUnlock()
+		return result
+	}
+	cacheMu.RUnlock()
+
+	result := renderEditFileUncached(toolCall, width, splitView, toolStatus)
+
+	cacheMu.Lock()
+	c.rendered = result
+	c.renderCached = true
+	c.renderedWidth = width
+	c.renderedSplit = splitView
+	c.renderedStatus = toolStatus
+	cacheMu.Unlock()
+
+	return result
+}
+
+func renderEditFileUncached(toolCall tools.ToolCall, width int, splitView bool, toolStatus types.ToolStatus) string {
 	var args builtin.EditFileArgs
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
 		return ""
@@ -71,6 +144,56 @@ func renderEditFile(toolCall tools.ToolCall, width int, splitView bool, toolStat
 	return output.String()
 }
 
+// countDiffLines returns the number of added and removed lines for the edit.
+// Results are cached per tool call since arguments are immutable.
+func countDiffLines(toolCall tools.ToolCall, _ types.ToolStatus) (added, removed int) {
+	c := getOrCreateCache(toolCall.ID)
+
+	cacheMu.RLock()
+	if c.lineCounted {
+		added, removed = c.added, c.removed
+		cacheMu.RUnlock()
+		return added, removed
+	}
+	cacheMu.RUnlock()
+
+	added, removed = countDiffLinesUncached(toolCall)
+
+	cacheMu.Lock()
+	c.added = added
+	c.removed = removed
+	c.lineCounted = true
+	cacheMu.Unlock()
+
+	return added, removed
+}
+
+func countDiffLinesUncached(toolCall tools.ToolCall) (added, removed int) {
+	var args builtin.EditFileArgs
+	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
+		return 0, 0
+	}
+
+	for _, edit := range args.Edits {
+		edits := udiff.Strings(edit.OldText, edit.NewText)
+		diff, err := udiff.ToUnifiedDiff("old", "new", edit.OldText, edits, 0)
+		if err != nil {
+			continue
+		}
+		for _, hunk := range diff.Hunks {
+			for _, line := range hunk.Lines {
+				switch line.Kind {
+				case udiff.Insert:
+					added++
+				case udiff.Delete:
+					removed++
+				}
+			}
+		}
+	}
+	return added, removed
+}
+
 func computeDiff(path, oldText, newText string, toolStatus types.ToolStatus) []*udiff.Hunk {
 	currentContent, err := os.ReadFile(path)
 	if err != nil {
@@ -91,7 +214,6 @@ func computeDiff(path, oldText, newText string, toolStatus types.ToolStatus) []*
 		oldContent = strings.Replace(newContent, newText, oldText, 1)
 	}
 
-	// Now compute diff between old and new
 	edits := udiff.Strings(oldContent, newContent)
 
 	diff, err := udiff.ToUnifiedDiff("old", "new", oldContent, edits, 3)

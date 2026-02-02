@@ -2,8 +2,11 @@ package teamloader
 
 import (
 	"context"
+	"errors"
 	"io/fs"
+	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/goccy/go-yaml"
@@ -12,6 +15,9 @@ import (
 
 	"github.com/docker/cagent/pkg/config"
 	"github.com/docker/cagent/pkg/config/latest"
+	"github.com/docker/cagent/pkg/environment"
+	"github.com/docker/cagent/pkg/model/provider/dmr"
+	"github.com/docker/cagent/pkg/tools"
 )
 
 // skipExamples contains example files that require cloud-specific configurations
@@ -101,10 +107,10 @@ func TestLoadExamples(t *testing.T) {
 	}
 
 	// Load all the examples.
+	// Note: don't use t.Parallel() to avoid SQLite lock contention when
+	// multiple RAG examples share the same relative database paths (e.g., ./bm25.db).
 	for _, agentFilename := range examples {
 		t.Run(agentFilename, func(t *testing.T) {
-			t.Parallel()
-
 			agentSource, err := config.Resolve(agentFilename)
 			require.NoError(t, err)
 
@@ -119,6 +125,11 @@ func TestLoadExamples(t *testing.T) {
 
 			// Then make sure the config loads successfully
 			teams, err := Load(t.Context(), agentSource, runConfig)
+			if err != nil {
+				if errors.Is(err, dmr.ErrNotInstalled) && filepath.Base(agentFilename) == "dmr.yaml" {
+					t.Skip("Skipping DMR example: Docker Model Runner not installed")
+				}
+			}
 			require.NoError(t, err)
 			assert.NotEmpty(t, teams)
 		})
@@ -131,7 +142,13 @@ func TestLoadDefaultAgent(t *testing.T) {
 	agentSource, err := config.Resolve("../../pkg/config/default-agent.yaml")
 	require.NoError(t, err)
 
-	teams, err := Load(t.Context(), agentSource, &config.RuntimeConfig{})
+	runConfig := &config.RuntimeConfig{
+		EnvProviderForTests: environment.NewEnvListProvider([]string{
+			"OPENAI_API_KEY=dummy",
+		}),
+	}
+
+	teams, err := Load(t.Context(), agentSource, runConfig)
 	require.NoError(t, err)
 	require.NotEmpty(t, teams)
 }
@@ -194,9 +211,40 @@ func TestToolsetInstructions(t *testing.T) {
 	toolsets := agent.ToolSets()
 	require.Len(t, toolsets, 1)
 
-	instructions := toolsets[0].Instructions()
+	instructions := tools.GetInstructions(toolsets[0])
 	expected := "Dummy fetch tool instruction"
 	require.Equal(t, expected, instructions)
+}
+
+func TestAutoModelFallbackError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping docker CLI shim test on Windows")
+	}
+
+	tempDir := t.TempDir()
+	dockerPath := filepath.Join(tempDir, "docker")
+	script := "#!/bin/sh\n" +
+		"printf 'unknown flag: --json\\n\\nUsage:  docker [OPTIONS] COMMAND [ARG...]\\n\\nRun '\\''docker --help'\\'' for more information\\n' >&2\n" +
+		"exit 1\n"
+	require.NoError(t, os.WriteFile(dockerPath, []byte(script), 0o755))
+
+	t.Setenv("PATH", tempDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("MODEL_RUNNER_HOST", "")
+
+	agentSource, err := config.Resolve("testdata/auto-model.yaml")
+	require.NoError(t, err)
+
+	// Use noEnvProvider to ensure no API keys are available,
+	// so DMR is the only fallback option.
+	runConfig := &config.RuntimeConfig{
+		EnvProviderForTests: &noEnvProvider{},
+	}
+
+	_, err = Load(t.Context(), agentSource, runConfig)
+	require.Error(t, err)
+
+	var autoErr *config.ErrAutoModelFallback
+	require.ErrorAs(t, err, &autoErr, "expected ErrAutoModelFallback when auto model selection fails")
 }
 
 func TestIsThinkingBudgetDisabled(t *testing.T) {

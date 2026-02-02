@@ -95,6 +95,16 @@ func (c *Checker) IsEmpty() bool {
 	return len(c.allowPatterns) == 0 && len(c.denyPatterns) == 0
 }
 
+// AllowPatterns returns the list of allow patterns.
+func (c *Checker) AllowPatterns() []string {
+	return c.allowPatterns
+}
+
+// DenyPatterns returns the list of deny patterns.
+func (c *Checker) DenyPatterns() []string {
+	return c.denyPatterns
+}
+
 // parsePattern parses a permission pattern into tool name pattern and argument conditions.
 // Pattern format: "toolname" or "toolname:arg1=val1:arg2=val2"
 // Returns the tool pattern and a map of argument patterns.

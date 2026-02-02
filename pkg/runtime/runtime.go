@@ -38,23 +38,6 @@ import (
 	mcptools "github.com/docker/cagent/pkg/tools/mcp"
 )
 
-// UnwrapMCPToolset extracts an MCP toolset from a potentially wrapped StartableToolSet.
-// Returns the MCP toolset if found, or nil if the toolset is not an MCP toolset.
-func UnwrapMCPToolset(toolset tools.ToolSet) *mcptools.Toolset {
-	var innerToolset tools.ToolSet
-	if startableTS, ok := toolset.(*agent.StartableToolSet); ok {
-		innerToolset = startableTS.ToolSet
-	} else {
-		innerToolset = toolset
-	}
-
-	if mcpToolset, ok := innerToolset.(*mcptools.Toolset); ok {
-		return mcpToolset
-	}
-
-	return nil
-}
-
 type ResumeType string
 
 // ElicitationResult represents the result of an elicitation request
@@ -141,6 +124,16 @@ type Runtime interface {
 
 	// Summarize generates a summary for the session
 	Summarize(ctx context.Context, sess *session.Session, additionalPrompt string, events chan Event)
+
+	// PermissionsInfo returns the team-level permission patterns (allow/deny).
+	// Returns nil if no permissions are configured.
+	PermissionsInfo() *PermissionsInfo
+}
+
+// PermissionsInfo contains the allow and deny patterns for tool permissions.
+type PermissionsInfo struct {
+	Allow []string
+	Deny  []string
 }
 
 type CurrentAgentInfo struct {
@@ -174,7 +167,6 @@ type LocalRuntime struct {
 	elicitationEventsChannel    chan Event             // Current events channel for sending elicitation requests
 	elicitationEventsChannelMux sync.RWMutex           // Protects elicitationEventsChannel
 	ragInitialized              atomic.Bool
-	titleGen                    *titleGenerator
 	sessionCompactor            *sessionCompactor
 	sessionStore                session.Store
 	workingDir                  string   // Working directory for hooks execution
@@ -191,6 +183,7 @@ type streamResult struct {
 	Stopped           bool
 	ActualModel       string      // The actual model used (may differ from configured model with routing)
 	Usage             *chat.Usage // Token usage for this stream
+	RateLimit         *chat.RateLimit
 }
 
 type Opt func(*LocalRuntime)
@@ -246,8 +239,9 @@ func WithEnv(env []string) Opt {
 	}
 }
 
-// New creates a new runtime for an agent and its team
-func New(agents *team.Team, opts ...Opt) (*LocalRuntime, error) {
+// NewLocalRuntime creates a new LocalRuntime without the persistence wrapper.
+// This is useful for testing or when persistence is handled externally.
+func NewLocalRuntime(agents *team.Team, opts ...Opt) (*LocalRuntime, error) {
 	modelsStore, err := modelsdev.NewStore()
 	if err != nil {
 		return nil, err
@@ -286,7 +280,6 @@ func New(agents *team.Team, opts ...Opt) (*LocalRuntime, error) {
 		return nil, fmt.Errorf("agent %s has no valid model", defaultAgent.Name())
 	}
 
-	r.titleGen = newTitleGenerator(model)
 	r.sessionCompactor = newSessionCompactor(model, r.sessionStore)
 
 	slog.Debug("Creating new runtime", "agent", r.currentAgent, "available_agents", agents.Size())
@@ -449,7 +442,7 @@ func (r *LocalRuntime) CurrentMCPPrompts(ctx context.Context) map[string]mcptool
 
 	// Iterate through all toolsets of the current agent
 	for _, toolset := range currentAgent.ToolSets() {
-		if mcpToolset := UnwrapMCPToolset(toolset); mcpToolset != nil {
+		if mcpToolset, ok := tools.As[*mcptools.Toolset](toolset); ok {
 			slog.Debug("Found MCP toolset", "toolset", mcpToolset)
 			// Discover prompts from this MCP toolset
 			mcpPrompts := r.discoverMCPPrompts(ctx, mcpToolset)
@@ -544,6 +537,19 @@ func (r *LocalRuntime) SessionStore() session.Store {
 	return r.sessionStore
 }
 
+// PermissionsInfo returns the team-level permission patterns.
+// Returns nil if no permissions are configured.
+func (r *LocalRuntime) PermissionsInfo() *PermissionsInfo {
+	permChecker := r.team.Permissions()
+	if permChecker == nil || permChecker.IsEmpty() {
+		return nil
+	}
+	return &PermissionsInfo{
+		Allow: permChecker.AllowPatterns(),
+		Deny:  permChecker.DenyPatterns(),
+	}
+}
+
 // ResetStartupInfo resets the startup info emission flag.
 // This should be called when replacing a session to allow re-emission of
 // agent, team, and toolset info to the UI.
@@ -616,7 +622,7 @@ func (r *LocalRuntime) emitToolsProgressively(ctx context.Context, a *agent.Agen
 		isLast := i == totalToolsets-1
 
 		// Start the toolset if needed
-		if startable, ok := toolset.(*agent.StartableToolSet); ok {
+		if startable, ok := toolset.(*tools.StartableToolSet); ok {
 			if !startable.IsStarted() {
 				if err := startable.Start(ctx); err != nil {
 					slog.Warn("Toolset start failed; skipping", "agent", a.Name(), "toolset", fmt.Sprintf("%T", startable.ToolSet), "error", err)
@@ -676,8 +682,6 @@ func (r *LocalRuntime) finalizeEventChannel(ctx context.Context, sess *session.S
 	events <- StreamStopped(sess.ID, r.currentAgent)
 
 	telemetry.RecordSessionEnd(ctx)
-
-	r.titleGen.Wait()
 }
 
 // RunStream starts the agent's interaction loop and returns a channel of events
@@ -723,7 +727,7 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 
 		messages := sess.GetMessages(a)
 		if sess.SendUserMessage {
-			events <- UserMessage(messages[len(messages)-1].Content)
+			events <- UserMessage(messages[len(messages)-1].Content, sess.ID)
 		}
 
 		events <- StreamStarted(sess.ID, a.Name())
@@ -731,11 +735,6 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 		defer r.finalizeEventChannel(ctx, sess, events)
 
 		r.registerDefaultTools()
-
-		if sess.Title == "" {
-			userMessage := sess.GetLastUserMessageContent()
-			r.titleGen.Generate(ctx, sess, userMessage, events)
-		}
 
 		iteration := 0
 		// Use a runtime copy of maxIterations so we don't modify the session's persistent config
@@ -783,8 +782,7 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 							CreatedAt: time.Now().Format(time.RFC3339),
 						}
 
-						sess.AddMessage(session.NewAgentMessage(a, &assistantMessage))
-						r.saveSession(ctx, sess)
+						addAgentMessage(sess, a, &assistantMessage, events)
 						return
 					}
 
@@ -946,9 +944,11 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 						Model: messageModel,
 					}
 				}
+				if res.RateLimit != nil {
+					msgUsage.RateLimit = *res.RateLimit
+				}
 
-				sess.AddMessage(session.NewAgentMessage(a, &assistantMessage))
-				r.saveSession(ctx, sess)
+				addAgentMessage(sess, a, &assistantMessage, events)
 				slog.Debug("Added assistant message to session", "agent", a.Name(), "total_messages", len(sess.GetAllMessages()))
 			} else {
 				slog.Debug("Skipping empty assistant message (no content and no tool calls)", "agent", a.Name())
@@ -996,11 +996,11 @@ func (r *LocalRuntime) getTools(ctx context.Context, a *agent.Agent, sessionSpan
 // configureToolsetHandlers sets up elicitation and OAuth handlers for all toolsets of an agent.
 func (r *LocalRuntime) configureToolsetHandlers(a *agent.Agent, events chan Event) {
 	for _, toolset := range a.ToolSets() {
-		toolset.SetElicitationHandler(r.elicitationHandler)
-		toolset.SetOAuthSuccessHandler(func() {
-			events <- Authorization(tools.ElicitationActionAccept, r.currentAgent)
-		})
-		toolset.SetManagedOAuth(r.managedOAuth)
+		tools.ConfigureHandlers(toolset,
+			r.elicitationHandler,
+			func() { events <- Authorization(tools.ElicitationActionAccept, r.currentAgent) },
+			r.managedOAuth,
+		)
 	}
 }
 
@@ -1119,8 +1119,9 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 	var actualModel string
 	var actualModelEventEmitted bool
 	var messageUsage *chat.Usage
-	modelID := getAgentModelID(a)
+	var messageRateLimit *chat.RateLimit
 
+	modelID := getAgentModelID(a)
 	toolCallIndex := make(map[string]int)   // toolCallID -> index in toolCalls slice
 	emittedPartial := make(map[string]bool) // toolCallID -> whether we've emitted a partial event
 	toolDefMap := make(map[string]tools.Tool, len(agentTools))
@@ -1138,7 +1139,6 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 		}
 
 		if response.Usage != nil {
-			// Capture the usage for this specific message
 			messageUsage = response.Usage
 
 			if m != nil && m.Cost != nil {
@@ -1157,6 +1157,10 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 				modelName = m.Name
 			}
 			telemetry.RecordTokenUsage(ctx, modelName, sess.InputTokens, sess.OutputTokens, sess.Cost)
+		}
+
+		if response.RateLimit != nil {
+			messageRateLimit = response.RateLimit
 		}
 
 		if len(response.Choices) == 0 {
@@ -1195,6 +1199,7 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 				Stopped:           true,
 				ActualModel:       actualModel,
 				Usage:             messageUsage,
+				RateLimit:         messageRateLimit,
 			}, nil
 		}
 
@@ -1267,6 +1272,7 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 		Stopped:           stoppedDueToNoOutput,
 		ActualModel:       actualModel,
 		Usage:             messageUsage,
+		RateLimit:         messageRateLimit,
 	}, nil
 }
 
@@ -1335,38 +1341,17 @@ func (r *LocalRuntime) processToolCalls(ctx context.Context, sess *session.Sessi
 //
 // The approval flow considers (in order):
 //
-//  1. Session-level permissions (if configured) - checked first
-//     a. Per-tool settings (Tools map) - most specific, checked first
-//     b. Pattern-based Allow/Deny - broader rules, checked as fallback
+//  1. Session-level permissions (if configured) - pattern-based Allow/Deny rules
 //  2. Team-level permissions config - checked second
 //  3. sess.ToolsApproved (--yolo flag) - auto-approve all
 //  4. tool.Annotations.ReadOnlyHint - auto-approve read-only tools
 //  5. Default: ask for user confirmation
 //
-// Example session permissions configurations:
+// Example session permissions configuration:
 //
-//	// Per-tool settings - granular control per tool
-//	sess.Permissions = &session.PermissionsConfig{
-//	    Tools: map[string]session.ToolPermission{
-//	        "shell":      {Enabled: ptr(true), Mode: "ask"},          // require confirmation
-//	        "filesystem": {Enabled: ptr(true), Mode: "always_allow"}, // auto-approve
-//	        "dangerous":  {Enabled: ptr(false)},                      // disabled
-//	    },
-//	}
-//
-//	// Pattern-based rules - apply to multiple tools at once
 //	sess.Permissions = &session.PermissionsConfig{
 //	    Allow: []string{"read_*", "think"},  // auto-approve matching tools
 //	    Deny:  []string{"shell", "exec_*"},  // block matching tools
-//	}
-//
-//	// Mixed: per-tool settings take priority over patterns
-//	sess.Permissions = &session.PermissionsConfig{
-//	    Tools: map[string]session.ToolPermission{
-//	        "shell": {Enabled: ptr(true), Mode: "ask"}, // overrides Deny pattern
-//	    },
-//	    Allow: []string{"*"},     // applies to tools not in Tools map
-//	    Deny:  []string{"shell"}, // ignored for shell since it's in Tools map
 //	}
 func (r *LocalRuntime) executeWithApproval(
 	ctx context.Context,
@@ -1389,79 +1374,48 @@ func (r *LocalRuntime) executeWithApproval(
 		}
 	}
 
-	// requiresConfirmation tracks if per-tool settings require user confirmation
-	// (skipping pattern-based rules and other auto-approve checks)
-	requiresConfirmation := false
-
 	// 1. Check session-level permissions first (if configured)
 	if sess.Permissions != nil {
-		// 1a. Check Tools map first (new per-tool settings)
-		if perm := sess.Permissions.GetToolPermission(toolName); perm != nil {
-			// Check if tool is disabled
-			if !sess.Permissions.IsToolEnabled(toolName) {
-				slog.Debug("Tool disabled by session permissions", "tool", toolName, "session_id", sess.ID)
-				r.addToolErrorResponse(ctx, sess, toolCall, tool, events, a, fmt.Sprintf("Tool '%s' is disabled by session permissions.", toolName))
-				return false
-			}
-			// Check permission mode
-			mode := sess.Permissions.GetToolMode(toolName)
-			switch mode {
-			case session.PermissionModeAlwaysAllow:
-				slog.Debug("Tool auto-approved by session per-tool permissions", "tool", toolName, "mode", mode, "session_id", sess.ID)
-				runTool()
-				return false
-			case session.PermissionModeAsk:
-			default:
-				slog.Debug("Tool requires confirmation by session per-tool permissions ", "tool", toolName, "mode", mode, "session_id", sess.ID)
-				requiresConfirmation = true
-			}
-		}
-
-		// 1b. Fall back to pattern-based Allow/Deny rules (only if not already handled by Tools map)
-		if !requiresConfirmation {
-			sessionChecker := permissions.NewChecker(&latest.PermissionsConfig{
-				Allow: sess.Permissions.Allow,
-				Deny:  sess.Permissions.Deny,
-			})
-			decision := sessionChecker.CheckWithArgs(toolName, toolArgs)
-			switch decision {
-			case permissions.Deny:
-				slog.Debug("Tool denied by session permissions", "tool", toolName, "session_id", sess.ID)
-				r.addToolErrorResponse(ctx, sess, toolCall, tool, events, a, fmt.Sprintf("Tool '%s' is denied by session permissions.", toolName))
-				return false
-			case permissions.Allow:
-				slog.Debug("Tool auto-approved by session permissions", "tool", toolName, "session_id", sess.ID)
-				runTool()
-				return false
-			case permissions.Ask:
-				// Fall through to team permissions
-			}
+		sessionChecker := permissions.NewChecker(&latest.PermissionsConfig{
+			Allow: sess.Permissions.Allow,
+			Deny:  sess.Permissions.Deny,
+		})
+		decision := sessionChecker.CheckWithArgs(toolName, toolArgs)
+		switch decision {
+		case permissions.Deny:
+			slog.Debug("Tool denied by session permissions", "tool", toolName, "session_id", sess.ID)
+			r.addToolErrorResponse(ctx, sess, toolCall, tool, events, a, fmt.Sprintf("Tool '%s' is denied by session permissions.", toolName))
+			return false
+		case permissions.Allow:
+			slog.Debug("Tool auto-approved by session permissions", "tool", toolName, "session_id", sess.ID)
+			runTool()
+			return false
+		case permissions.Ask:
+			// Fall through to team permissions
 		}
 	}
 
-	// 2. Check team-level permissions config (skip if per-tool ask mode is set)
-	if !requiresConfirmation {
-		if permChecker := r.team.Permissions(); permChecker != nil {
-			decision := permChecker.CheckWithArgs(toolName, toolArgs)
-			switch decision {
-			case permissions.Deny:
-				slog.Debug("Tool denied by team permissions config", "tool", toolName, "session_id", sess.ID)
-				r.addToolErrorResponse(ctx, sess, toolCall, tool, events, a, fmt.Sprintf("Tool '%s' is denied by permissions configuration.", toolName))
-				return false
-			case permissions.Allow:
-				slog.Debug("Tool auto-approved by team permissions config", "tool", toolName, "session_id", sess.ID)
-				runTool()
-				return false
-			case permissions.Ask:
-				// Fall through to normal approval flow
-			}
-		}
-
-		// Check --yolo flag or read-only hint (skip if per-tool ask mode is set)
-		if sess.ToolsApproved || tool.Annotations.ReadOnlyHint {
+	// 2. Check team-level permissions config
+	if permChecker := r.team.Permissions(); permChecker != nil {
+		decision := permChecker.CheckWithArgs(toolName, toolArgs)
+		switch decision {
+		case permissions.Deny:
+			slog.Debug("Tool denied by team permissions config", "tool", toolName, "session_id", sess.ID)
+			r.addToolErrorResponse(ctx, sess, toolCall, tool, events, a, fmt.Sprintf("Tool '%s' is denied by permissions configuration.", toolName))
+			return false
+		case permissions.Allow:
+			slog.Debug("Tool auto-approved by team permissions config", "tool", toolName, "session_id", sess.ID)
 			runTool()
 			return false
+		case permissions.Ask:
+			// Fall through to normal approval flow
 		}
+	}
+
+	// 3. Check --yolo flag or read-only hint
+	if sess.ToolsApproved || tool.Annotations.ReadOnlyHint {
+		runTool()
+		return false
 	}
 
 	// Ask user for confirmation
@@ -1553,8 +1507,7 @@ func (r *LocalRuntime) executeToolWithHandler(
 		ToolCallID: toolCall.ID,
 		CreatedAt:  time.Now().Format(time.RFC3339),
 	}
-	sess.AddMessage(session.NewAgentMessage(a, &toolResponseMsg))
-	r.saveSession(ctx, sess)
+	addAgentMessage(sess, a, &toolResponseMsg, events)
 }
 
 // runTool executes agent tools from toolsets (MCP, filesystem, etc.).
@@ -1633,9 +1586,15 @@ func (r *LocalRuntime) runAgentTool(ctx context.Context, handler ToolHandlerFunc
 		})
 }
 
+func addAgentMessage(sess *session.Session, a *agent.Agent, msg *chat.Message, events chan Event) {
+	agentMsg := session.NewAgentMessage(a, msg)
+	sess.AddMessage(agentMsg)
+	events <- MessageAdded(sess.ID, agentMsg, a.Name())
+}
+
 // addToolErrorResponse adds a tool error response to the session and emits the event.
 // This consolidates the common pattern used by validation, rejection, and cancellation responses.
-func (r *LocalRuntime) addToolErrorResponse(ctx context.Context, sess *session.Session, toolCall tools.ToolCall, tool tools.Tool, events chan Event, a *agent.Agent, errorMsg string) {
+func (r *LocalRuntime) addToolErrorResponse(_ context.Context, sess *session.Session, toolCall tools.ToolCall, tool tools.Tool, events chan Event, a *agent.Agent, errorMsg string) {
 	events <- ToolCallResponse(toolCall, tool, tools.ResultError(errorMsg), errorMsg, a.Name())
 
 	toolResponseMsg := chat.Message{
@@ -1644,18 +1603,7 @@ func (r *LocalRuntime) addToolErrorResponse(ctx context.Context, sess *session.S
 		ToolCallID: toolCall.ID,
 		CreatedAt:  time.Now().Format(time.RFC3339),
 	}
-	sess.AddMessage(session.NewAgentMessage(a, &toolResponseMsg))
-	r.saveSession(ctx, sess)
-}
-
-// saveSession persists the session to the store, but only for root sessions.
-// Sub-sessions (those with a ParentID) are not persisted as standalone entries;
-// they are embedded within the parent session's Messages array.
-func (r *LocalRuntime) saveSession(ctx context.Context, sess *session.Session) {
-	if sess.IsSubSession() {
-		return
-	}
-	_ = r.sessionStore.UpdateSession(ctx, sess)
+	addAgentMessage(sess, a, &toolResponseMsg, events)
 }
 
 // startSpan wraps tracer.Start, returning a no-op span if the tracer is nil.
@@ -1749,6 +1697,7 @@ func (r *LocalRuntime) handleTaskTransfer(ctx context.Context, sess *session.Ses
 	sess.Thinking = s.Thinking
 
 	sess.AddSubSession(s)
+	evts <- SubSessionCompleted(sess.ID, s, a.Name())
 
 	slog.Debug("Task transfer completed", "agent", params.Agent, "task", params.Task)
 

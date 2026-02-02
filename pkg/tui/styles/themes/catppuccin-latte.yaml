@@ -1,0 +1,93 @@
+version: 1
+name: "Catppuccin Latte (Light)"
+colors:
+  # Text colors
+  text_bright: "#4c4f69"
+  text_primary: "#4c4f69"
+  text_secondary: "#5c5f77"
+  text_muted: "#6c6f85"
+  text_faint: "#9ca0b0"
+  
+  # Accent colors
+  accent: "#1e66f5"
+  accent_muted: "#7287fd"
+  
+  # Background colors
+  background: "#eff1f5"
+  background_alt: "#dce0e8"
+  
+  # Border colors
+  border_secondary: "#9ca0b0"
+  
+  # Status colors
+  success: "#40a02b"
+  error: "#d20f39"
+  warning: "#df8e1d"
+  info: "#04a5e5"
+  highlight: "#ea76cb"
+  
+  # Brand colors
+  # NOTE: Used as selection background in dialogs - must be dark for white text
+  brand: "#1a4a99"
+  brand_bg: "#eff1f5"
+  
+  # Error colors
+  error_strong: "#d20f39"
+  error_dark: "#f5e0e5"
+  
+  # Spinner colors
+  spinner_dim: "#1e66f5"
+  spinner_bright: "#3575f5"
+  spinner_brightest: "#4c84f5"
+  
+  # Diff colors
+  diff_add_bg: "#d8f0d8"
+  diff_remove_bg: "#f5d8d8"
+  
+  # UI element colors
+  line_number: "#7c7f93"
+  separator: "#bcc0cc"
+  selected: "#ccd0da"
+  selected_fg: "#ffffff"
+  suggestion_ghost: "#7c7f93"
+  tab_bg: "#e6e9ef"
+  placeholder: "#6c6f85"
+  
+  # Badge colors
+  badge_accent: "#8839ef"
+  badge_info: "#04a5e5"
+  badge_success: "#40a02b"
+
+chroma:
+  # Syntax highlighting colors - Catppuccin Latte style
+  comment: "#8c8fa1"
+  comment_preproc: "#ea76cb"
+  keyword: "#8839ef"
+  keyword_reserved: "#d20f39"
+  keyword_namespace: "#04a5e5"
+  keyword_type: "#1e66f5"
+  operator: "#04a5e5"
+  punctuation: "#4c4f69"
+  name_builtin: "#fe640b"
+  name_tag: "#d20f39"
+  name_attribute: "#1e66f5"
+  name_decorator: "#df8e1d"
+  literal_number: "#fe640b"
+  literal_string: "#40a02b"
+  literal_string_escape: "#179299"
+  generic_deleted: "#d20f39"
+  generic_subheading: "#8c8fa1"
+  background: "#eff1f5"
+  error_fg: "#d20f39"
+  error_bg: "#f2d5d5"
+  success: "#40a02b"
+
+markdown:
+  heading: "#1e66f5"
+  link: "#209fb5"
+  strong: "#4c4f69"
+  code: "#fe640b"
+  code_bg: "#e6e9ef"
+  blockquote: "#6c6f85"
+  list: "#4c4f69"
+  hr: "#acb0be"

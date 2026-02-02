@@ -1,0 +1,93 @@
+version: 1
+name: "Solarized Dark"
+colors:
+  # Text colors
+  text_bright: "#eee8d5"
+  text_primary: "#93a1a1"
+  text_secondary: "#839496"
+  text_muted: "#839496"
+  text_faint: "#586e75"
+  
+  # Accent colors
+  accent: "#268bd2"
+  accent_muted: "#268bd2"
+  
+  # Background colors
+  background: "#002b36"
+  background_alt: "#073642"
+  
+  # Border colors
+  border_secondary: "#586e75"
+  
+  # Status colors
+  success: "#859900"
+  error: "#dc322f"
+  warning: "#b58900"
+  info: "#2aa198"
+  highlight: "#d33682"
+  
+  # Brand colors
+  # NOTE: Used as selection background in dialogs - must be dark for white text
+  brand: "#1a5a8a"
+  brand_bg: "#002b36"
+  
+  # Error colors
+  error_strong: "#dc322f"
+  error_dark: "#3d1b1e"
+  
+  # Spinner colors
+  spinner_dim: "#268bd2"
+  spinner_bright: "#3498d2"
+  spinner_brightest: "#42a5d2"
+  
+  # Diff colors
+  diff_add_bg: "#2d3d1b"
+  diff_remove_bg: "#3d1b1e"
+  
+  # UI element colors
+  line_number: "#657b83"
+  separator: "#073642"
+  selected: "#073642"
+  selected_fg: "#ffffff"
+  suggestion_ghost: "#657b83"
+  tab_bg: "#073642"
+  placeholder: "#839496"
+  
+  # Badge colors
+  badge_accent: "#d33682"
+  badge_info: "#2aa198"
+  badge_success: "#859900"
+
+chroma:
+  # Syntax highlighting colors - Solarized style
+  comment: "#586e75"
+  comment_preproc: "#cb4b16"
+  keyword: "#859900"
+  keyword_reserved: "#d33682"
+  keyword_namespace: "#2aa198"
+  keyword_type: "#268bd2"
+  operator: "#859900"
+  punctuation: "#839496"
+  name_builtin: "#b58900"
+  name_tag: "#268bd2"
+  name_attribute: "#2aa198"
+  name_decorator: "#cb4b16"
+  literal_number: "#d33682"
+  literal_string: "#2aa198"
+  literal_string_escape: "#dc322f"
+  generic_deleted: "#dc322f"
+  generic_subheading: "#586e75"
+  background: "#002b36"
+  error_fg: "#dc322f"
+  error_bg: "#3d1b1e"
+  success: "#859900"
+
+markdown:
+  heading: "#268bd2"
+  link: "#2aa198"
+  strong: "#eee8d5"
+  code: "#b58900"
+  code_bg: "#073642"
+  blockquote: "#657b83"
+  list: "#839496"
+  hr: "#073642"

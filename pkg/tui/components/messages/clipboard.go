@@ -92,7 +92,8 @@ func (m *model) extractSelectedText() string {
 		return ""
 	}
 
-	lines := strings.Split(m.rendered, "\n")
+	m.ensureAllItemsRendered()
+	lines := m.renderedLines
 	startLine, startCol, endLine, endCol := m.selection.normalized()
 
 	if startLine < 0 || startLine >= len(lines) {

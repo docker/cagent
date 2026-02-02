@@ -411,8 +411,21 @@ func (r *RemoteRuntime) SessionStore() session.Store {
 	return nil
 }
 
+// PermissionsInfo returns nil for remote runtime since permissions are handled server-side.
+func (r *RemoteRuntime) PermissionsInfo() *PermissionsInfo {
+	return nil
+}
+
 // ResetStartupInfo is a no-op for remote runtime.
 func (r *RemoteRuntime) ResetStartupInfo() {
+}
+
+// UpdateSessionTitle updates the title of the current session on the remote server.
+func (r *RemoteRuntime) UpdateSessionTitle(ctx context.Context, title string) error {
+	if r.sessionID == "" {
+		return fmt.Errorf("cannot update session title: no session ID available")
+	}
+	return r.client.UpdateSessionTitle(ctx, r.sessionID, title)
 }
 
 var _ Runtime = (*RemoteRuntime)(nil)

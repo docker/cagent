@@ -34,8 +34,6 @@ type PostEditConfig struct {
 }
 
 type FilesystemTool struct {
-	tools.BaseToolSet
-
 	workingDir       string
 	postEditCommands []PostEditConfig
 	ignoreVCS        bool
@@ -43,7 +41,11 @@ type FilesystemTool struct {
 	repoMatcherOnce  sync.Once
 }
 
-var _ tools.ToolSet = (*FilesystemTool)(nil)
+// Verify interface compliance
+var (
+	_ tools.ToolSet      = (*FilesystemTool)(nil)
+	_ tools.Instructable = (*FilesystemTool)(nil)
+)
 
 type FileSystemOpt func(*FilesystemTool)
 

@@ -42,6 +42,14 @@ type filterTools struct {
 	exclude   bool
 }
 
+// Verify interface compliance
+var _ tools.Instructable = (*filterTools)(nil)
+
+// Instructions implements tools.Instructable by delegating to the inner toolset.
+func (f *filterTools) Instructions() string {
+	return tools.GetInstructions(f.ToolSet)
+}
+
 func (f *filterTools) Tools(ctx context.Context) ([]tools.Tool, error) {
 	allTools, err := f.ToolSet.Tools(ctx)
 	if err != nil {

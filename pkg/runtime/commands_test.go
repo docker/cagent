@@ -48,6 +48,10 @@ func (m *mockRuntime) ResumeElicitation(context.Context, tools.ElicitationAction
 func (m *mockRuntime) SessionStore() session.Store { return nil }
 func (m *mockRuntime) Summarize(context.Context, *session.Session, string, chan Event) {
 }
+func (m *mockRuntime) PermissionsInfo() *PermissionsInfo { return nil }
+
+func (m *mockRuntime) RegenerateTitle(context.Context, *session.Session, chan Event) {
+}
 
 func TestResolveCommand_SimpleCommand(t *testing.T) {
 	t.Parallel()

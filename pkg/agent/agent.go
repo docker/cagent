@@ -15,27 +15,28 @@ import (
 
 // Agent represents an AI agent
 type Agent struct {
-	name               string
-	description        string
-	welcomeMessage     string
-	instruction        string
-	toolsets           []*StartableToolSet
-	models             []provider.Provider
-	modelOverrides     atomic.Pointer[[]provider.Provider] // Optional model override(s) set at runtime (supports alloy)
-	subAgents          []*Agent
-	handoffs           []*Agent
-	parents            []*Agent
-	addDate            bool
-	addEnvironmentInfo bool
-	maxIterations      int
-	numHistoryItems    int
-	addPromptFiles     []string
-	tools              []tools.Tool
-	commands           types.Commands
-	pendingWarnings    []string
-	skillsEnabled      bool
-	hooks              *latest.HooksConfig
-	thinkingConfigured bool // true if thinking_budget was explicitly set in config
+	name                    string
+	description             string
+	welcomeMessage          string
+	instruction             string
+	toolsets                []*tools.StartableToolSet
+	models                  []provider.Provider
+	modelOverrides          atomic.Pointer[[]provider.Provider] // Optional model override(s) set at runtime (supports alloy)
+	subAgents               []*Agent
+	handoffs                []*Agent
+	parents                 []*Agent
+	addDate                 bool
+	addEnvironmentInfo      bool
+	addDescriptionParameter bool
+	maxIterations           int
+	numHistoryItems         int
+	addPromptFiles          []string
+	tools                   []tools.Tool
+	commands                types.Commands
+	pendingWarnings         []string
+	skillsEnabled           bool
+	hooks                   *latest.HooksConfig
+	thinkingConfigured      bool // true if thinking_budget was explicitly set in config
 }
 
 // New creates a new agent
@@ -202,6 +203,10 @@ func (a *Agent) Tools(ctx context.Context) ([]tools.Tool, error) {
 	}
 
 	agentTools = append(agentTools, a.tools...)
+
+	if a.addDescriptionParameter {
+		agentTools = tools.AddDescriptionParameter(agentTools)
+	}
 
 	return agentTools, nil
 }

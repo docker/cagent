@@ -1,59 +1,14 @@
+// Package messages defines all TUI message types organized by domain.
+//
+// Messages are grouped into domain-specific files:
+//   - session.go: Session lifecycle (new, exit, save, load, etc.)
+//   - theme.go: Theme selection and preview
+//   - agent.go: Agent switching and model selection
+//   - toggle.go: UI state toggles (YOLO, thinking, sidebar)
+//   - input.go: Editor input, attachments, and speech
+//   - mcp.go: MCP prompt interactions
+//
+// This organization follows the Elm Architecture principle of grouping
+// messages by the domain they affect, making it easier to understand
+// which components handle which messages.
 package messages
-
-import (
-	"github.com/docker/cagent/pkg/session"
-	"github.com/docker/cagent/pkg/tools"
-)
-
-// Session command messages
-type (
-	NewSessionMsg                  struct{}
-	ExitSessionMsg                 struct{}
-	ExitAfterFirstResponseMsg      struct{} // Exit TUI after first assistant response completes
-	EvalSessionMsg                 struct{ Filename string }
-	CompactSessionMsg              struct{ AdditionalPrompt string }
-	CopySessionToClipboardMsg      struct{}
-	CopyLastResponseToClipboardMsg struct{}
-	ExportSessionMsg               struct{ Filename string }
-	ShowCostDialogMsg              struct{}
-	ToggleYoloMsg                  struct{}
-	ToggleThinkingMsg              struct{}
-	ToggleHideToolResultsMsg       struct{}
-	StartShellMsg                  struct{}
-	SwitchAgentMsg                 struct{ AgentName string }
-	OpenSessionBrowserMsg          struct{}
-	LoadSessionMsg                 struct{ SessionID string }
-	ToggleSessionStarMsg           struct{ SessionID string }         // Toggle star on a session; empty ID means current session
-	AttachFileMsg                  struct{ FilePath string }          // Attach a file directly or open file picker if empty/directory
-	InsertFileRefMsg               struct{ FilePath string }          // Insert @filepath reference into editor
-	OpenModelPickerMsg             struct{}                           // Open the model picker dialog
-	ChangeModelMsg                 struct{ ModelRef string }          // Change the model for the current agent
-	StartSpeakMsg                  struct{}                           // Start speech-to-text transcription
-	StopSpeakMsg                   struct{}                           // Stop speech-to-text transcription
-	SpeakTranscriptMsg             struct{ Delta string }             // Transcription delta from speech-to-text
-	ClearQueueMsg                  struct{}                           // Clear all queued messages
-	AgentCommandMsg                struct{ Command string }           // AgentCommandMsg command message
-	OpenURLMsg                     struct{ URL string }               // OpenURLMsg is a url for opening message
-	StreamCancelledMsg             struct{ ShowMessage bool }         // StreamCancelledMsg notifies components that the stream has been cancelled
-	SendAttachmentMsg              struct{ Content *session.Message } // Message for the first message with an attachment
-
-	MCPPromptMsg struct {
-		PromptName string
-		Arguments  map[string]string
-	}
-
-	ShowMCPPromptInputMsg struct {
-		PromptName string
-		PromptInfo any // mcptools.PromptInfo but avoiding import cycles
-	}
-
-	ElicitationResponseMsg struct {
-		Action  tools.ElicitationAction
-		Content map[string]any
-	}
-
-	SendMsg struct {
-		Content     string            // Full content sent to the agent (with file contents expanded)
-		Attachments map[string]string // Map of filename to content for attachments
-	}
-)

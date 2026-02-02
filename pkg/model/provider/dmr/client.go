@@ -44,6 +44,9 @@ const (
 	connectivityTimeout = 2 * time.Second
 )
 
+// ErrNotInstalled is returned when Docker Model Runner is not installed.
+var ErrNotInstalled = errors.New("docker model runner is not available\nplease install it and try again (https://docs.docker.com/ai/model-runner/get-started/)")
+
 const (
 	// dmrInferencePrefix mirrors github.com/docker/model-runner/pkg/inference.InferencePrefix.
 	dmrInferencePrefix = "/engines"
@@ -87,7 +90,11 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, opts ...options.Opt
 		var err error
 		endpoint, engine, err = getDockerModelEndpointAndEngine(ctx)
 		if err != nil {
-			slog.Debug("docker model status query failed", "error", err)
+			if err.Error() == "unknown flag: --json\n\nUsage:  docker [OPTIONS] COMMAND [ARG...]\n\nRun 'docker --help' for more information" {
+				slog.Debug("docker model status query failed", "error", err)
+				return nil, ErrNotInstalled
+			}
+			slog.Error("docker model status query failed", "error", err)
 		} else {
 			// Auto-pull the model if needed
 			if err := pullDockerModelIfNeeded(ctx, cfg.Model); err != nil {

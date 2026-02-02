@@ -239,6 +239,17 @@ func (s *Server) ToggleToolApproval(ctx context.Context, req *connect.Request[ca
 	return connect.NewResponse(&cagentv1.ToggleToolApprovalResponse{}), nil
 }
 
+// UpdateSessionTitle updates the title of a session.
+func (s *Server) UpdateSessionTitle(ctx context.Context, req *connect.Request[cagentv1.UpdateSessionTitleRequest]) (*connect.Response[cagentv1.UpdateSessionTitleResponse], error) {
+	if err := s.sm.UpdateSessionTitle(ctx, req.Msg.SessionId, req.Msg.Title); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to update session title: %w", err))
+	}
+	return connect.NewResponse(&cagentv1.UpdateSessionTitleResponse{
+		SessionId: req.Msg.SessionId,
+		Title:     req.Msg.Title,
+	}), nil
+}
+
 // ResumeElicitation resumes an elicitation request.
 func (s *Server) ResumeElicitation(ctx context.Context, req *connect.Request[cagentv1.ResumeElicitationRequest]) (*connect.Response[cagentv1.ResumeElicitationResponse], error) {
 	var content map[string]any

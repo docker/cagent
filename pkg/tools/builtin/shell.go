@@ -29,11 +29,15 @@ const (
 
 // ShellTool provides shell command execution capabilities.
 type ShellTool struct {
-	tools.BaseToolSet
 	handler *shellHandler
 }
 
-var _ tools.ToolSet = (*ShellTool)(nil)
+// Verify interface compliance
+var (
+	_ tools.ToolSet      = (*ShellTool)(nil)
+	_ tools.Startable    = (*ShellTool)(nil)
+	_ tools.Instructable = (*ShellTool)(nil)
+)
 
 type shellHandler struct {
 	shell           string
@@ -471,6 +475,10 @@ func (t *ShellTool) Tools(context.Context) ([]tools.Tool, error) {
 			AddDescriptionParameter: true,
 		},
 	}, nil
+}
+
+func (t *ShellTool) Start(context.Context) error {
+	return nil
 }
 
 func (t *ShellTool) Stop(context.Context) error {

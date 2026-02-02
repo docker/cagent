@@ -52,7 +52,7 @@ func New(msg, previous *types.Message) *messageModel {
 // Init initializes the message view
 func (mv *messageModel) Init() tea.Cmd {
 	if mv.message.Type == types.MessageTypeSpinner || mv.message.Type == types.MessageTypeLoading {
-		return mv.spinner.Tick()
+		return mv.spinner.Init()
 	}
 	return nil
 }

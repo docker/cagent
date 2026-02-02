@@ -169,6 +169,61 @@ func unmarshal(t *testing.T, buf []byte, v any) {
 	require.NoError(t, err)
 }
 
+func TestServer_UpdateSessionTitle(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	store := session.NewInMemorySessionStore()
+	lnPath := startServerWithStore(t, ctx, prepareAgentsDir(t), store)
+
+	// Create a session first
+	createResp := httpDo(t, ctx, http.MethodPost, lnPath, "/api/sessions", map[string]any{})
+	var createdSession session.Session
+	unmarshal(t, createResp, &createdSession)
+	require.NotEmpty(t, createdSession.ID)
+
+	// Update the session title
+	newTitle := "My Custom Title"
+	updateResp := httpDo(t, ctx, http.MethodPatch, lnPath, "/api/sessions/"+createdSession.ID+"/title", api.UpdateSessionTitleRequest{Title: newTitle})
+	var titleResp api.UpdateSessionTitleResponse
+	unmarshal(t, updateResp, &titleResp)
+
+	assert.Equal(t, createdSession.ID, titleResp.ID)
+	assert.Equal(t, newTitle, titleResp.Title)
+
+	// Verify the session was updated in the store
+	getResp := httpGET(t, ctx, lnPath, "/api/sessions/"+createdSession.ID)
+	var sessionResp api.SessionResponse
+	unmarshal(t, getResp, &sessionResp)
+
+	assert.Equal(t, newTitle, sessionResp.Title)
+}
+
+func startServerWithStore(t *testing.T, ctx context.Context, agentsDir string, store session.Store) string {
+	t.Helper()
+
+	runConfig := config.RuntimeConfig{}
+
+	sources, err := config.ResolveSources(agentsDir)
+	require.NoError(t, err)
+	srv, err := New(ctx, store, &runConfig, 0, sources)
+	require.NoError(t, err)
+
+	socketPath := "unix://" + filepath.Join(t.TempDir(), "sock")
+	ln, err := Listen(ctx, socketPath)
+	require.NoError(t, err)
+	go func() {
+		<-ctx.Done()
+		_ = ln.Close()
+	}()
+
+	go func() {
+		_ = srv.Serve(ctx, ln)
+	}()
+
+	return socketPath
+}
+
 type mockStore struct {
 	session.Store
 }

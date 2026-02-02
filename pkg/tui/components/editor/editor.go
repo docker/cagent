@@ -63,6 +63,7 @@ type Editor interface {
 	layout.Focusable
 	SetWorking(working bool) tea.Cmd
 	AcceptSuggestion() tea.Cmd
+	ScrollByWheel(delta int)
 	// Value returns the current editor content
 	Value() string
 	// SetValue updates the editor content
@@ -495,6 +496,25 @@ func (e *editor) AcceptSuggestion() tea.Cmd {
 	return e.updateCompletionQuery()
 }
 
+func (e *editor) ScrollByWheel(delta int) {
+	if delta == 0 {
+		return
+	}
+
+	steps := delta
+	if steps < 0 {
+		steps = -steps
+		for range steps {
+			e.textarea.CursorUp()
+		}
+		return
+	}
+
+	for range steps {
+		e.textarea.CursorDown()
+	}
+}
+
 // resetAndSend prepares a message for sending: processes pending file refs,
 // collects attachments, resets editor state, and returns the SendMsg command.
 func (e *editor) resetAndSend(content string) tea.Cmd {
@@ -549,6 +569,9 @@ func (e *editor) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		// Track keyboard enhancement support and configure newline keybinding accordingly
 		e.keyboardEnhancementsSupported = msg.Flags != 0
 		e.configureNewlineKeybinding()
+		return e, nil
+	case messages.ThemeChangedMsg:
+		e.textarea.SetStyles(styles.InputStyle)
 		return e, nil
 	case tea.WindowSizeMsg:
 		e.textarea.SetWidth(msg.Width - 2)

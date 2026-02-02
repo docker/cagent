@@ -103,7 +103,8 @@ func (c *Client) createBetaStream(
 		"message_count", len(params.Messages))
 
 	stream := client.Beta.Messages.NewStreaming(ctx, params)
-	ad := newBetaStreamAdapter(stream)
+	trackUsage := c.ModelConfig.TrackUsage == nil || *c.ModelConfig.TrackUsage
+	ad := c.newBetaStreamAdapter(stream, trackUsage)
 
 	// Set up single retry for context length errors
 	ad.retryFn = func() *betaStreamAdapter {
@@ -120,7 +121,7 @@ func (c *Client) createBetaStream(
 		slog.Warn("Retrying with clamped max_tokens after context length error", "original", maxTokens, "clamped", newMaxTokens, "used", used)
 		retryParams := params
 		retryParams.MaxTokens = newMaxTokens
-		return newBetaStreamAdapter(client.Beta.Messages.NewStreaming(ctx, retryParams))
+		return c.newBetaStreamAdapter(client.Beta.Messages.NewStreaming(ctx, retryParams), trackUsage)
 	}
 
 	slog.Debug("Anthropic Beta API chat completion stream created successfully", "model", c.ModelConfig.Model)

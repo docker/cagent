@@ -1,0 +1,93 @@
+version: 1
+name: "Nord"
+colors:
+  # Text colors
+  text_bright: "#eceff4"
+  text_primary: "#d8dee9"
+  text_secondary: "#8fbcbb"
+  text_muted: "#616e88"
+  text_faint: "#434c5e"
+  
+  # Accent colors
+  accent: "#81a1c1"
+  accent_muted: "#5e81ac"
+  
+  # Background colors
+  background: "#2e3440"
+  background_alt: "#3b4252"
+  
+  # Border colors
+  border_secondary: "#4c566a"
+  
+  # Status colors
+  success: "#a3be8c"
+  error: "#bf616a"
+  warning: "#ebcb8b"
+  info: "#88c0d0"
+  highlight: "#b48ead"
+  
+  # Brand colors
+  # NOTE: Used as selection background in dialogs - must be dark for white text
+  brand: "#3a5070"
+  brand_bg: "#2e3440"
+  
+  # Error colors
+  error_strong: "#bf616a"
+  error_dark: "#3d2a2a"
+  
+  # Spinner colors
+  spinner_dim: "#81a1c1"
+  spinner_bright: "#88c0d0"
+  spinner_brightest: "#8fbcbb"
+  
+  # Diff colors
+  diff_add_bg: "#2a3d2a"
+  diff_remove_bg: "#3d2a2a"
+  
+  # UI element colors
+  line_number: "#616e88"
+  separator: "#434c5e"
+  selected: "#434c5e"
+  selected_fg: "#ffffff"
+  suggestion_ghost: "#616e88"
+  tab_bg: "#3b4252"
+  placeholder: "#616e88"
+  
+  # Badge colors
+  badge_accent: "#b48ead"
+  badge_info: "#88c0d0"
+  badge_success: "#a3be8c"
+
+chroma:
+  # Syntax highlighting colors - Nord style
+  comment: "#616e88"
+  comment_preproc: "#5e81ac"
+  keyword: "#81a1c1"
+  keyword_reserved: "#5e81ac"
+  keyword_namespace: "#88c0d0"
+  keyword_type: "#81a1c1"
+  operator: "#81a1c1"
+  punctuation: "#eceff4"
+  name_builtin: "#d08770"
+  name_tag: "#bf616a"
+  name_attribute: "#d08770"
+  name_decorator: "#d08770"
+  literal_number: "#b48ead"
+  literal_string: "#a3be8c"
+  literal_string_escape: "#ebcb8b"
+  generic_deleted: "#bf616a"
+  generic_subheading: "#4c566a"
+  background: "#2e3440"
+  error_fg: "#bf616a"
+  error_bg: "#3d2a2a"
+  success: "#a3be8c"
+
+markdown:
+  heading: "#81a1c1"
+  link: "#88c0d0"
+  strong: "#eceff4"
+  code: "#88c0d0"
+  code_bg: "#3b4252"
+  blockquote: "#616e88"
+  list: "#d8dee9"
+  hr: "#434c5e"

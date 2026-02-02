@@ -8,11 +8,8 @@ import (
 
 const ToolNameHandoff = "handoff"
 
-type HandoffTool struct {
-	tools.BaseToolSet
-}
+type HandoffTool struct{}
 
-// Make sure Handoff Tool implements the ToolSet Interface
 var _ tools.ToolSet = (*HandoffTool)(nil)
 
 type HandoffArgs struct {

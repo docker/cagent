@@ -6,6 +6,7 @@ import (
 
 	"github.com/docker/cagent/pkg/chat"
 	"github.com/docker/cagent/pkg/config/types"
+	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/tools"
 )
 
@@ -23,16 +24,18 @@ func (a AgentContext) GetAgentName() string { return a.AgentName }
 
 // UserMessageEvent is sent when a user message is received
 type UserMessageEvent struct {
-	Type    string `json:"type"`
-	Message string `json:"message"`
+	Type      string `json:"type"`
+	Message   string `json:"message"`
+	SessionID string `json:"session_id"`
 }
 
 func (e *UserMessageEvent) GetAgentName() string { return "" }
 
-func UserMessage(message string) Event {
+func UserMessage(message, sessionID string) Event {
 	return &UserMessageEvent{
-		Type:    "user_message",
-		Message: message,
+		Type:      "user_message",
+		Message:   message,
+		SessionID: sessionID,
 	}
 }
 
@@ -214,6 +217,7 @@ type Usage struct {
 // It embeds chat.Usage and adds Cost and Model fields.
 type MessageUsage struct {
 	chat.Usage
+	chat.RateLimit
 	Cost  float64
 	Model string
 }
