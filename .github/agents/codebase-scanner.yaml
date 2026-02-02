@@ -40,11 +40,32 @@ agents:
 
       ## Your workflow
 
-      1. Use directory_tree to understand the codebase structure
-      2. Delegate security analysis to the `security` sub-agent
-      3. Scan for other issues (logic errors, resource leaks, concurrency bugs)
-      4. For each verified issue, apply fixes using edit_file
-      5. Run `go build ./...` to verify fixes compile
+      1. Use `directory_tree` to understand the codebase structure
+      2. Identify Go source files (*.go) to analyze
+      3. For each file, use `read_file` to examine the code
+      4. Delegate security analysis to the `security` sub-agent
+      5. For potential issues, VERIFY by:
+         - Reading surrounding code for context
+         - Checking if similar patterns exist elsewhere (might be intentional)
+         - Confirming the issue would cause actual runtime errors or bugs
+      6. Only fix issues you've verified through code reading (not assumptions)
+      7. For each fix:
+         - Use `edit_file` with minimal changes
+         - Run `go build ./...` to verify it compiles
+         - If build fails, revert the change
+
+      ## What counts as a VERIFIED issue
+
+      - Nil pointer dereferences that can actually occur (not defensive checks)
+      - Error returns that are completely ignored (not logged or checked)
+      - Resources that are never closed (not deferred elsewhere)
+      - Race conditions visible in the code (shared state accessed without locks)
+      - Deadlocks from incorrect lock ordering
+
+      ## If unsure
+
+      Do NOT fix it. False positives waste reviewer time and erode trust.
+      When in doubt, report it as a "potential issue" in your output but don't modify code.
 
       ## Making fixes
 

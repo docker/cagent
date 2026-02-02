@@ -60,12 +60,50 @@ jobs:
           echo "📝 Files modified by agent:"
           echo "$CHANGED_FILES"
 
+          # Check for unexpected new files (potential hallucination)
+          NEW_FILES=$(git diff --diff-filter=A --name-only)
+          if [ -n "$NEW_FILES" ]; then
+            echo "::warning::Agent created new files (unexpected for a scan):"
+            echo "$NEW_FILES"
+            echo "Reverting new files..."
+            echo "$NEW_FILES" | xargs -I {} git checkout HEAD -- "{}" 2>/dev/null || true
+          fi
+
+          # Check for deleted files (potential hallucination)
+          DELETED_FILES=$(git diff --diff-filter=D --name-only)
+          if [ -n "$DELETED_FILES" ]; then
+            echo "::warning::Agent deleted files:"
+            echo "$DELETED_FILES"
+            # Only allow deletion of test files
+            for f in $DELETED_FILES; do
+              if [[ ! "$f" =~ _test\.go$ ]]; then
+                echo "::error::Agent deleted non-test file: $f - reverting"
+                git checkout -- "$f"
+              fi
+            done
+          fi
+
           # Validate each changed file exists and has valid changes
           INVALID_COUNT=0
           VALID_COUNT=0
 
+          # Re-fetch changed files after reverting hallucinated ones
+          CHANGED_FILES=$(git diff --name-only)
+
           while IFS= read -r filepath; do
+            [ -z "$filepath" ] && continue
+
             if [ -f "$filepath" ]; then
+              # For Go files, do basic syntax check
+              if [[ "$filepath" =~ \.go$ ]]; then
+                if ! gofmt -e "$filepath" >/dev/null 2>&1; then
+                  echo "  ✗ INVALID (syntax error): $filepath"
+                  git checkout -- "$filepath"
+                  INVALID_COUNT=$((INVALID_COUNT + 1))
+                  continue
+                fi
+              fi
+
               echo "  ✓ Valid: $filepath"
               VALID_COUNT=$((VALID_COUNT + 1))
             else
@@ -88,15 +126,20 @@ jobs:
           fi
 
           if [ "$INVALID_COUNT" -gt 0 ]; then
-            echo "::warning::Agent made changes to $INVALID_COUNT non-existent files (hallucination). These have been reverted."
+            echo "::warning::Agent made changes to $INVALID_COUNT invalid files (hallucination). These have been reverted."
           fi
 
       - name: Verify build
         if: steps.validate.outputs.has_valid_changes == 'true'
         run: |
           echo "🔨 Verifying changes compile..."
-          if ! go build ./...; then
-            echo "::error::Changes do not compile. Reverting all changes."
+          # 5 minute timeout to prevent hangs from infinite loops
+          if ! timeout 300 go build ./...; then
+            if [ $? -eq 124 ]; then
+              echo "::error::Build timed out after 5 minutes. Reverting all changes."
+            else
+              echo "::error::Changes do not compile. Reverting all changes."
+            fi
             git checkout -- .
             echo "build_failed=true" >> $GITHUB_OUTPUT
             exit 1
