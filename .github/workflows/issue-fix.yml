@@ -1,0 +1,408 @@
+name: Fix Issue with AI Agent
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+# Prevent multiple fix attempts on the same issue
+concurrency:
+  group: issue-fix-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  fix-issue:
+    # Trigger when issue is labeled with 'agent-fix'
+    if: github.event.label.name == 'agent-fix'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Add reaction to issue
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            await github.rest.reactions.createForIssue({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              content: 'eyes'
+            });
+            console.log('👀 Added reaction to indicate agent is working on the issue');
+
+      - name: Comment that agent is working
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '🤖 **Agent is working on this issue...**\n\nI\'ll analyze the problem and create a PR with a fix. This may take a few minutes.\n\n[View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})'
+            });
+
+      - name: Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Get issue details
+        id: issue
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+
+            // Get issue comments for additional context
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number
+            });
+
+            // Filter out bot comments
+            const humanComments = comments
+              .filter(c => c.user.type !== 'Bot')
+              .map(c => `**@${c.user.login}:** ${c.body}`)
+              .join('\n\n');
+
+            const fs = require('fs');
+
+            // Sanitize content: redact common secret patterns to prevent exposure
+            function sanitize(text) {
+              if (!text) return text;
+              return text
+                .replace(/ghp_[a-zA-Z0-9]{36,}/g, '[REDACTED_GH_TOKEN]')
+                .replace(/github_pat_[a-zA-Z0-9_]{22,}/g, '[REDACTED_GH_PAT]')
+                .replace(/gho_[a-zA-Z0-9]{36,}/g, '[REDACTED_GH_OAUTH]')
+                .replace(/sk-[a-zA-Z0-9]{32,}/g, '[REDACTED_API_KEY]')
+                .replace(/sk-ant-[a-zA-Z0-9-]{80,}/g, '[REDACTED_ANTHROPIC_KEY]')
+                .replace(/AKIA[A-Z0-9]{16}/g, '[REDACTED_AWS_KEY]');
+            }
+
+            const sanitizedBody = sanitize(issue.body || 'No description provided.');
+            const sanitizedComments = sanitize(humanComments || 'No comments.');
+
+            // Write issue context to file for the agent
+            const issueContext = `# Issue #${issue.number}: ${issue.title}
+
+**Author:** @${issue.user.login}
+**Labels:** ${issue.labels.map(l => l.name).join(', ')}
+**Created:** ${issue.created_at}
+
+## Description
+
+${sanitizedBody}
+
+## Comments
+
+${sanitizedComments}
+`;
+
+            fs.writeFileSync('issue_context.md', issueContext);
+
+            core.setOutput('number', issue.number);
+            core.setOutput('title', issue.title);
+            core.setOutput('author', issue.user.login);
+
+            // Create a safe branch name with validation
+            const title = issue.title?.trim() || 'untitled-issue';
+            let safeBranch = `agent-fix/${issue.number}-${title
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/^-+|-+$/g, '')
+              .substring(0, 40)
+              .replace(/-+$/, '')
+              || 'fix'}`;
+
+            core.setOutput('branch', safeBranch);
+
+            console.log(`📋 Issue #${issue.number}: ${issue.title}`);
+
+      - name: Fix the issue
+        id: fix
+        uses: docker/cagent-action@latest
+        with:
+          agent: ${{ github.workspace }}/.github/agents/issue-fixer.yaml
+          prompt: |
+            Fix the following GitHub issue:
+
+            $(cat issue_context.md)
+
+            Read the issue carefully and implement a fix.
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          yolo: 'true'
+          timeout: 600
+
+      - name: Validate changes
+        id: validate
+        run: |
+          CHANGED_FILES=$(git diff --name-only)
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "⚠️ No changes made by agent"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "📝 Files modified:"
+          echo "$CHANGED_FILES"
+
+          # Verify build
+          echo "🔨 Verifying changes compile..."
+          if ! go build ./...; then
+            echo "::error::Changes do not compile"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "build_failed=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+
+      - name: Gather change details
+        if: steps.validate.outputs.has_changes == 'true'
+        id: gather
+        run: |
+          git diff --stat > files_stat.txt
+          git diff > changes.diff
+
+          FILES_CHANGED=$(git diff --name-only | wc -l | tr -d ' ')
+          ADDITIONS=$(git diff --numstat | awk '{sum += $1} END {print sum+0}')
+          DELETIONS=$(git diff --numstat | awk '{sum += $2} END {print sum+0}')
+
+          echo "files_changed=$FILES_CHANGED" >> $GITHUB_OUTPUT
+          echo "additions=$ADDITIONS" >> $GITHUB_OUTPUT
+          echo "deletions=$DELETIONS" >> $GITHUB_OUTPUT
+
+      - name: Generate PR description
+        if: steps.validate.outputs.has_changes == 'true'
+        id: describe
+        uses: docker/cagent-action@latest
+        with:
+          agent: agentcatalog/github-action-pr-description-generator
+          prompt: |
+            Generate a PR description that fixes issue #${{ steps.issue.outputs.number }}.
+
+            **Issue:** ${{ steps.issue.outputs.title }}
+            **Issue Author:** @${{ steps.issue.outputs.author }}
+
+            **Issue Context:**
+            $(cat issue_context.md)
+
+            **Stats:** ${{ steps.gather.outputs.files_changed }} files changed, +${{ steps.gather.outputs.additions }}/-${{ steps.gather.outputs.deletions }} lines
+
+            **Changed Files:**
+            $(cat files_stat.txt)
+
+            **Diff:**
+            $(cat changes.diff)
+
+            **Instructions:**
+            1. Start with "Fixes #${{ steps.issue.outputs.number }}" to auto-close the issue
+            2. Explain what the issue was and how this PR fixes it
+            3. Describe the changes made
+            4. Include a test plan if applicable
+            5. Format in GitHub Markdown
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          timeout: 180
+
+      - name: Read generated description
+        if: steps.validate.outputs.has_changes == 'true'
+        id: read-description
+        run: |
+          OUTPUT_FILE="${{ steps.describe.outputs.output-file }}"
+          if [ -f "$OUTPUT_FILE" ]; then
+            {
+              echo "body<<DESCRIPTION_EOF"
+              cat "$OUTPUT_FILE"
+              echo ""
+              echo "---"
+              echo "*Automated fix by [cagent-action](https://github.com/docker/cagent-action) • [Workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
+              echo "DESCRIPTION_EOF"
+            } >> $GITHUB_OUTPUT
+          else
+            {
+              echo "body<<DESCRIPTION_EOF"
+              echo "Fixes #${{ steps.issue.outputs.number }}"
+              echo ""
+              echo "## Summary"
+              echo ""
+              echo "This PR was automatically generated to fix the issue."
+              echo ""
+              echo "### Stats"
+              echo "- **Files changed:** ${{ steps.gather.outputs.files_changed }}"
+              echo "- **Lines:** +${{ steps.gather.outputs.additions }}/-${{ steps.gather.outputs.deletions }}"
+              echo ""
+              echo "---"
+              echo "*Automated fix by [cagent-action](https://github.com/docker/cagent-action) • [Workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
+              echo "DESCRIPTION_EOF"
+            } >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Pull Request
+        if: steps.validate.outputs.has_changes == 'true'
+        id: create-pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ steps.issue.outputs.branch }}
+          TITLE: "🤖 Fix: ${{ steps.issue.outputs.title }}"
+          BODY: ${{ steps.read-description.outputs.body }}
+          COMMIT_MSG: "fix: ${{ steps.issue.outputs.title }} (#${{ steps.issue.outputs.number }})"
+        run: |
+          # Check if branch already exists and make unique if needed
+          if git ls-remote --heads origin "$BRANCH" | grep -q "$BRANCH"; then
+            echo "::warning::Branch $BRANCH already exists. Appending run ID."
+            BRANCH="${BRANCH}-${{ github.run_id }}"
+          fi
+
+          # Create branch and commit
+          git checkout -b "$BRANCH"
+          git add -A
+          git commit -m "$COMMIT_MSG"
+          git push -u origin "$BRANCH"
+
+          # Create PR
+          PR_URL=$(gh pr create \
+            --title "$TITLE" \
+            --body "$BODY" \
+            --label "automated" \
+            --label "automated-scan")
+
+          # Extract PR number from URL
+          PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
+          echo "✅ Created PR #$PR_NUMBER: $PR_URL"
+
+      # NOTE: Update 'maintainers' below to your team's slug (e.g., 'my-org/my-team')
+      - name: Request team review
+        if: steps.create-pr.outputs.pr_number
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const prNumber = ${{ steps.create-pr.outputs.pr_number }};
+            let reviewRequested = false;
+
+            // Request review from the team
+            // TODO: Replace 'maintainers' with your team slug
+            try {
+              await github.rest.pulls.requestReviewers({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+                team_reviewers: ['maintainers']
+              });
+              console.log('✅ Requested review from maintainers team');
+              reviewRequested = true;
+            } catch (error) {
+              console.log(`⚠️ Could not request team review: ${error.message}`);
+
+              // Fallback: request review from issue author if they have access
+              try {
+                await github.rest.pulls.requestReviewers({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: prNumber,
+                  reviewers: ['${{ steps.issue.outputs.author }}']
+                });
+                console.log('✅ Requested review from issue author @${{ steps.issue.outputs.author }}');
+                reviewRequested = true;
+              } catch (e) {
+                console.log(`⚠️ Could not request individual review: ${e.message}`);
+              }
+            }
+
+            // If no reviews requested, comment on PR to notify manually
+            if (!reviewRequested) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: '⚠️ Could not automatically request reviewers. Please manually assign reviewers to this PR.'
+              });
+              console.log('ℹ️ Added comment asking for manual reviewer assignment');
+            }
+
+      - name: Comment on issue with PR link
+        if: steps.create-pr.outputs.pr_number
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const prNumber = ${{ steps.create-pr.outputs.pr_number }};
+            const prUrl = '${{ steps.create-pr.outputs.pr_url }}';
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.issue.outputs.number }},
+              body: `✅ **I've created a fix for this issue!**
+
+🔗 **Pull Request:** #${prNumber}
+
+The PR has been submitted for review. Once approved and merged, this issue will be automatically closed.
+
+[View Pull Request](${prUrl})`
+            });
+
+            // Add rocket reaction
+            await github.rest.reactions.createForIssue({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.issue.outputs.number }},
+              content: 'rocket'
+            });
+
+      - name: Comment on issue if fix failed
+        if: steps.validate.outputs.has_changes != 'true'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const buildFailed = '${{ steps.validate.outputs.build_failed }}' === 'true';
+
+            let message = '❌ **I was unable to fix this issue automatically.**\n\n';
+
+            if (buildFailed) {
+              message += 'The changes I made did not compile. This issue may require manual intervention.\n\n';
+            } else {
+              message += 'I analyzed the issue but couldn\'t determine the appropriate fix. This may require:\n';
+              message += '- More context about the expected behavior\n';
+              message += '- A human developer to investigate\n\n';
+            }
+
+            message += `[View workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.issue.outputs.number }},
+              body: message
+            });
+
+            // Remove the agent-fix label since we couldn't fix it
+            await github.rest.issues.removeLabel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.issue.outputs.number }},
+              name: 'agent-fix'
+            }).catch(() => {});
+
+            // Add needs-human label
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.issue.outputs.number }},
+              labels: ['needs-human']
+            }).catch(() => {});
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f issue_context.md files_stat.txt changes.diff || true

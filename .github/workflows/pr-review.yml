@@ -5,15 +5,227 @@ on:
     types: [created]
   pull_request_review_comment:
     types: [created]
+  # Auto-trigger when PR becomes ready for review (supports forks)
+  pull_request_target:
+    types: [ready_for_review, opened, labeled]
+  # Trigger when someone submits a review on a PR
+  pull_request_review:
+    types: [submitted]
 
 permissions:
-  contents: read
+  contents: write
   pull-requests: write
   issues: write
 
+# Prevent multiple reviews on the same PR
+# Use multiple fallbacks for different event types
+concurrency:
+  group: pr-review-${{ github.event.pull_request.number || github.event.issue.number || github.event.pull_request_review.pull_request.number || github.run_id }}
+  cancel-in-progress: false
+
 jobs:
   # ==========================================================================
-  # MAIN REVIEW PIPELINE
+  # AUTOMATIC REVIEW FOR ORG MEMBERS
+  # Triggers when a PR is marked ready for review or opened (non-draft)
+  # Only runs for org members (supports fork-based workflow)
+  # ==========================================================================
+  auto-review:
+    if: |
+      github.event_name == 'pull_request_target' &&
+      !github.event.pull_request.draft &&
+      github.event.action != 'labeled'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check if PR author is org member
+        id: membership
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          github-token: ${{ secrets.ORG_MEMBERSHIP_TOKEN }}
+          script: |
+            // Use the repository owner as the org (works for org repos)
+            const org = context.repo.owner;
+            const username = context.payload.pull_request.user.login;
+
+            try {
+              await github.rest.orgs.checkMembershipForUser({
+                org: org,
+                username: username
+              });
+              core.setOutput('is_member', 'true');
+              console.log(`✅ ${username} is a ${org} org member - proceeding with auto-review`);
+            } catch (error) {
+              if (error.status === 404 || error.status === 302) {
+                core.setOutput('is_member', 'false');
+                console.log(`⏭️ ${username} is not a ${org} org member - skipping auto-review`);
+              } else if (error.status === 401) {
+                core.setFailed(
+                  '❌ ORG_MEMBERSHIP_TOKEN secret is missing or invalid.\n\n' +
+                  `This secret is required to check ${org} org membership for auto-reviews.\n\n` +
+                  'To fix this:\n' +
+                  '1. Create a classic PAT with read:org scope at https://github.com/settings/tokens/new\n' +
+                  '2. Add it as a repository secret named ORG_MEMBERSHIP_TOKEN:\n' +
+                  `   gh secret set ORG_MEMBERSHIP_TOKEN --repo ${org}/${context.repo.repo}`
+                );
+              } else {
+                core.setFailed(`Failed to check org membership: ${error.message}`);
+              }
+            }
+
+      # SECURITY NOTE: Using pull_request_target to support fork-based workflows
+      # with access to secrets. This is safe because:
+      # 1. Org membership is verified BEFORE checkout (only org members trigger this)
+      # 2. The review-pr action only READS files (no code execution)
+      # 3. No shell scripts from the PR are executed
+      # For external contributors, reviews must be manually triggered via /review command
+      - name: Checkout PR head
+        if: steps.membership.outputs.is_member == 'true'
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Run PR Review Team
+        if: steps.membership.outputs.is_member == 'true'
+        uses: docker/cagent-action/review-pr@latest
+        with:
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          pr-number: ${{ github.event.pull_request.number }}
+
+  # ==========================================================================
+  # AUTO-REVIEW FOR AUTOMATED SCAN PRs
+  # Triggers when a PR is labeled with 'automated-scan'
+  # SECURITY: Verifies the PR was created by our automation (github-actions[bot])
+  #           to prevent bypassing org membership check via label manipulation
+  # ==========================================================================
+  auto-review-scan-pr:
+    if: |
+      github.event_name == 'pull_request_target' &&
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'automated-scan'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Verify PR author is automation
+        id: verify-author
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const author = context.payload.pull_request.user.login;
+            const allowedBots = ['github-actions[bot]', 'dependabot[bot]'];
+
+            if (allowedBots.includes(author)) {
+              core.setOutput('is_automation', 'true');
+              console.log(`✅ PR author ${author} is a trusted automation`);
+            } else {
+              core.setOutput('is_automation', 'false');
+              console.log(`⚠️ PR author ${author} is not a trusted automation - skipping`);
+              console.log(`   The 'automated-scan' label should only be used on PRs created by automation.`);
+              console.log(`   For manual PRs, the standard org membership check applies.`);
+            }
+
+      - name: Checkout repository
+        if: steps.verify-author.outputs.is_automation == 'true'
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Run PR Review Team
+        if: steps.verify-author.outputs.is_automation == 'true'
+        uses: docker/cagent-action/review-pr@latest
+        with:
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          pr-number: ${{ github.event.pull_request.number }}
+
+  # ==========================================================================
+  # RESPOND TO REVIEW FEEDBACK ON AUTOMATED PRs
+  # When a reviewer comments on an automated scan PR, the agent either:
+  # - Makes the requested changes and pushes a new commit
+  # - Responds explaining why the change won't be made
+  # SECURITY: Verifies the PR was created by trusted automation
+  # ==========================================================================
+  respond-to-review:
+    if: |
+      github.event_name == 'pull_request_review' &&
+      github.event.review.state == 'changes_requested' &&
+      contains(github.event.pull_request.labels.*.name, 'automated-scan')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Verify PR author is automation
+        id: verify-author
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const author = context.payload.pull_request.user.login;
+            const allowedBots = ['github-actions[bot]', 'dependabot[bot]'];
+
+            if (allowedBots.includes(author)) {
+              core.setOutput('is_automation', 'true');
+              console.log(`✅ PR author ${author} is a trusted automation`);
+            } else {
+              core.setOutput('is_automation', 'false');
+              core.warning(`PR has 'automated-scan' label but author ${author} is not a trusted automation. Skipping response.`);
+            }
+
+      - name: Checkout PR branch
+        if: steps.verify-author.outputs.is_automation == 'true'
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref }}
+          # Need write access to push changes
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        if: steps.verify-author.outputs.is_automation == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Respond to review feedback
+        if: steps.verify-author.outputs.is_automation == 'true'
+        id: respond
+        uses: docker/cagent-action@latest
+        with:
+          agent: ${{ github.workspace }}/.github/agents/review-responder.yaml
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          yolo: 'true'
+          timeout: 300
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REVIEW_BODY: ${{ github.event.review.body }}
+          REVIEW_ID: ${{ github.event.review.id }}
+          REVIEWER: ${{ github.event.review.user.login }}
+
+      - name: Check for changes
+        if: steps.verify-author.outputs.is_automation == 'true'
+        id: changes
+        run: |
+          if [[ -n $(git status --porcelain) ]]; then
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Verify and push changes
+        if: steps.verify-author.outputs.is_automation == 'true' && steps.changes.outputs.has_changes == 'true'
+        run: |
+          # Verify build still works
+          if ! go build ./...; then
+            echo "::error::Changes do not compile. Discarding."
+            git checkout -- .
+            exit 1
+          fi
+
+          git add -A
+          git commit -m "fix: address review feedback from @${{ github.event.review.user.login }}"
+          git push
+
+  # ==========================================================================
+  # MANUAL REVIEW PIPELINE
+  # Triggers when someone comments /review on a PR
   # ==========================================================================
   run-review:
     if: github.event.issue.pull_request && contains(github.event.comment.body, '/review')
@@ -31,12 +243,16 @@ jobs:
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 
   # ==========================================================================
-  # LEARN FROM FEEDBACK - Process replies to agent review comments
+  # LEARN FROM FEEDBACK
+  # Processes replies to agent review comments for continuous improvement
+  # The learn action checks for <!-- cagent-review --> marker to identify
+  # agent comments (more reliable than author-based detection)
+  # Memory is persisted via GitHub Actions cache and loaded by the review agent
   # ==========================================================================
   learn-from-feedback:
-    # Triggers when someone REPLIES to a review comment (for learning from feedback)
     if: github.event_name == 'pull_request_review_comment' && github.event.comment.in_reply_to_id
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
