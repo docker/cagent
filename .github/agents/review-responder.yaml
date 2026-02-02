@@ -3,9 +3,9 @@ version: "2"
 models:
   claude-sonnet:
     provider: anthropic
-    model: claude-sonnet-4-5
-    max_tokens: 8192
-    temperature: 0.2
+    model: claude-sonnet-4-5  # Balanced performance/cost for code changes
+    max_tokens: 8192          # Sufficient for responding to review feedback
+    temperature: 0.2          # Low temp for consistent, conservative changes
 
 agents:
   root:

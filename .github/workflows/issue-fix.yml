@@ -3,6 +3,16 @@ name: Fix Issue with AI Agent
 on:
   issues:
     types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue-number:
+        description: 'Issue number to fix'
+        required: true
+        type: number
+      dry-run:
+        description: 'Analyze only, do not create PR'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -11,36 +21,43 @@ permissions:
 
 # Prevent multiple fix attempts on the same issue
 concurrency:
-  group: issue-fix-${{ github.event.issue.number }}
+  group: issue-fix-${{ github.event.issue.number || inputs.issue-number }}
   cancel-in-progress: false
 
 jobs:
   fix-issue:
-    # Trigger when issue is labeled with 'agent-fix'
-    if: github.event.label.name == 'agent-fix'
+    # Trigger when issue is labeled with 'agent-fix' or via workflow_dispatch
+    if: github.event.label.name == 'agent-fix' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+
+    env:
+      ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue-number }}
+      DRY_RUN: ${{ inputs.dry-run || false }}
 
     steps:
       - name: Add reaction to issue
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
+            const issueNumber = ${{ env.ISSUE_NUMBER }};
             await github.rest.reactions.createForIssue({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.issue.number,
+              issue_number: issueNumber,
               content: 'eyes'
             });
             console.log('👀 Added reaction to indicate agent is working on the issue');
 
       - name: Comment that agent is working
+        if: env.DRY_RUN != 'true'
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
+            const issueNumber = ${{ env.ISSUE_NUMBER }};
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.issue.number,
+              issue_number: issueNumber,
               body: '🤖 **Agent is working on this issue...**\n\nI\'ll analyze the problem and create a PR with a fix. This may take a few minutes.\n\n[View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})'
             });
 
@@ -59,7 +76,14 @@ jobs:
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
-            const issue = context.payload.issue;
+            const issueNumber = ${{ env.ISSUE_NUMBER }};
+
+            // Fetch issue (handles both label trigger and workflow_dispatch)
+            const { data: issue } = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber
+            });
 
             // Get issue comments for additional context
             const { data: comments } = await github.rest.issues.listComments({
@@ -140,7 +164,7 @@ ${sanitizedComments}
             Read the issue carefully and implement a fix.
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           yolo: 'true'
-          timeout: 600
+          timeout: 600  # 10 minutes - based on typical fix time + buffer
 
       - name: Validate changes
         id: validate
@@ -272,7 +296,7 @@ ${sanitizedComments}
           fi
 
       - name: Create Pull Request
-        if: steps.validate.outputs.has_changes == 'true'
+        if: steps.validate.outputs.has_changes == 'true' && env.DRY_RUN != 'true'
         id: create-pr
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -306,6 +330,18 @@ ${sanitizedComments}
           echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
           echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
           echo "✅ Created PR #$PR_NUMBER: $PR_URL"
+
+      - name: Dry-run summary
+        if: steps.validate.outputs.has_changes == 'true' && env.DRY_RUN == 'true'
+        run: |
+          echo "🔍 DRY RUN - No PR created"
+          echo ""
+          echo "Would create PR with:"
+          echo "  Branch: ${{ steps.issue.outputs.branch }}"
+          echo "  Title: 🤖 Fix: ${{ steps.issue.outputs.title }}"
+          echo ""
+          echo "📝 Changes:"
+          git diff --stat
 
       # NOTE: Update 'maintainers' below to your team's slug (e.g., 'my-org/my-team')
       - name: Request team review
@@ -363,11 +399,12 @@ ${sanitizedComments}
           script: |
             const prNumber = ${{ steps.create-pr.outputs.pr_number }};
             const prUrl = '${{ steps.create-pr.outputs.pr_url }}';
+            const issueNumber = ${{ env.ISSUE_NUMBER }};
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: ${{ steps.issue.outputs.number }},
+              issue_number: issueNumber,
               body: `✅ **I've created a fix for this issue!**
 
 🔗 **Pull Request:** #${prNumber}
@@ -381,16 +418,17 @@ The PR has been submitted for review. Once approved and merged, this issue will 
             await github.rest.reactions.createForIssue({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: ${{ steps.issue.outputs.number }},
+              issue_number: issueNumber,
               content: 'rocket'
             });
 
       - name: Comment on issue if fix failed
-        if: steps.validate.outputs.has_changes != 'true'
+        if: steps.validate.outputs.has_changes != 'true' && env.DRY_RUN != 'true'
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             const buildFailed = '${{ steps.validate.outputs.build_failed }}' === 'true';
+            const issueNumber = ${{ env.ISSUE_NUMBER }};
 
             let message = '❌ **I was unable to fix this issue automatically.**\n\n';
 
@@ -407,7 +445,7 @@ The PR has been submitted for review. Once approved and merged, this issue will 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: ${{ steps.issue.outputs.number }},
+              issue_number: issueNumber,
               body: message
             });
 
@@ -415,7 +453,7 @@ The PR has been submitted for review. Once approved and merged, this issue will 
             await github.rest.issues.removeLabel({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: ${{ steps.issue.outputs.number }},
+              issue_number: issueNumber,
               name: 'agent-fix'
             }).catch(() => {});
 
@@ -423,7 +461,7 @@ The PR has been submitted for review. Once approved and merged, this issue will 
             await github.rest.issues.addLabels({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: ${{ steps.issue.outputs.number }},
+              issue_number: issueNumber,
               labels: ['needs-human']
             }).catch(() => {});
 

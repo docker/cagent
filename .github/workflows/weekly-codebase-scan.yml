@@ -42,7 +42,7 @@ jobs:
           agent: ${{ github.workspace }}/.github/agents/codebase-scanner.yaml
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           yolo: 'true'
-          timeout: 600
+          timeout: 600  # 10 minutes - based on typical scan time of 5-7min + buffer
 
       - name: Validate changes (anti-hallucination check)
         id: validate

@@ -3,9 +3,9 @@ version: "2"
 models:
   claude-sonnet:
     provider: anthropic
-    model: claude-sonnet-4-5
-    max_tokens: 8192
-    temperature: 0.2
+    model: claude-sonnet-4-5  # Balanced performance/cost for code analysis
+    max_tokens: 8192          # Sufficient for most PRs (typical: 2000-4000 tokens)
+    temperature: 0.2          # Low temp for consistent, conservative changes
 
 agents:
   root:
