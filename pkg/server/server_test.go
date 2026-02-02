@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -95,7 +96,7 @@ func startServer(t *testing.T, ctx context.Context, agentsDir string) string {
 
 	sources, err := config.ResolveSources(agentsDir)
 	require.NoError(t, err)
-	srv, err := New(ctx, store, &runConfig, 0, sources)
+	srv, err := New(ctx, store, &runConfig, time.Duration(0), sources, "")
 	require.NoError(t, err)
 
 	socketPath := "unix://" + filepath.Join(t.TempDir(), "sock")
@@ -206,7 +207,7 @@ func startServerWithStore(t *testing.T, ctx context.Context, agentsDir string, s
 
 	sources, err := config.ResolveSources(agentsDir)
 	require.NoError(t, err)
-	srv, err := New(ctx, store, &runConfig, 0, sources)
+	srv, err := New(ctx, store, &runConfig, time.Duration(0), sources, "")
 	require.NoError(t, err)
 
 	socketPath := "unix://" + filepath.Join(t.TempDir(), "sock")

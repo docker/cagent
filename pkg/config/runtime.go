@@ -20,6 +20,7 @@ type Config struct {
 	ModelsGateway  string
 	GlobalCodeMode bool
 	WorkingDir     string
+	APIToken       string
 }
 
 func (runConfig *RuntimeConfig) Clone() *RuntimeConfig {

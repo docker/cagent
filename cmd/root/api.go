@@ -49,6 +49,8 @@ func newAPICmd() *cobra.Command {
 	cmd.PersistentFlags().BoolVar(&flags.exitOnStdinEOF, "exit-on-stdin-eof", false, "Exit when stdin is closed (for integration with parent processes)")
 	_ = cmd.PersistentFlags().MarkHidden("exit-on-stdin-eof")
 	cmd.MarkFlagsMutuallyExclusive("fake", "record")
+	cmd.PersistentFlags().StringVar(&flags.runConfig.APIToken, "token", "", "Bearer token required to access SSE endpoints")
+
 	addRuntimeConfigFlags(cmd, &flags.runConfig)
 
 	return cmd
@@ -154,7 +156,7 @@ func (f *apiFlags) runAPICommand(cmd *cobra.Command, args []string) error {
 		return s.Serve(ctx, ln)
 	}
 
-	s, err := server.New(ctx, sessionStore, &f.runConfig, time.Duration(f.pullIntervalMins)*time.Minute, sources)
+	s, err := server.New(ctx, sessionStore, &f.runConfig, time.Duration(f.pullIntervalMins)*time.Minute, sources, f.runConfig.APIToken)
 	if err != nil {
 		return fmt.Errorf("creating server: %w", err)
 	}

@@ -20,18 +20,20 @@ import (
 )
 
 type Server struct {
-	e  *echo.Echo
-	sm *SessionManager
+	e     *echo.Echo
+	sm    *SessionManager
+	token string
 }
 
-func New(ctx context.Context, sessionStore session.Store, runConfig *config.RuntimeConfig, refreshInterval time.Duration, agentSources config.Sources) (*Server, error) {
+func New(ctx context.Context, sessionStore session.Store, runConfig *config.RuntimeConfig, refreshInterval time.Duration, agentSources config.Sources, token string) (*Server, error) {
 	e := echo.New()
 	e.Use(middleware.CORS())
 	e.Use(middleware.RequestLogger())
 
 	s := &Server{
-		e:  e,
-		sm: NewSessionManager(ctx, agentSources, sessionStore, refreshInterval, runConfig),
+		e:     e,
+		sm:    NewSessionManager(ctx, agentSources, sessionStore, refreshInterval, runConfig),
+		token: token,
 	}
 
 	group := e.Group("/api")
@@ -269,6 +271,13 @@ func (s *Server) deleteSession(c echo.Context) error {
 }
 
 func (s *Server) runAgent(c echo.Context) error {
+	if s.token != "" {
+		auth := c.Request().Header.Get("Authorization")
+		if auth != "Bearer "+s.token {
+			return c.NoContent(http.StatusUnauthorized)
+		}
+	}
+
 	sessionID := c.Param("id")
 	agentFilename := c.Param("agent")
 	currentAgent := cmp.Or(c.Param("agent_name"), "root")
@@ -302,14 +311,31 @@ func (s *Server) runAgent(c echo.Context) error {
 }
 
 func (s *Server) elicitation(c echo.Context) error {
+	// Authorization is required for remote elicitation actions,
+	// as they may resume or alter agent execution.
+	if s.token != "" {
+		auth := c.Request().Header.Get("Authorization")
+		if auth != "Bearer "+s.token {
+			return c.NoContent(http.StatusUnauthorized)
+		}
+	}
+
 	sessionID := c.Param("id")
 	var req api.ResumeElicitationRequest
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("invalid request body: %v", err))
 	}
 
-	if err := s.sm.ResumeElicitation(c.Request().Context(), sessionID, req.Action, req.Content); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("failed to resume elicitation: %v", err))
+	if err := s.sm.ResumeElicitation(
+		c.Request().Context(),
+		sessionID,
+		req.Action,
+		req.Content,
+	); err != nil {
+		return echo.NewHTTPError(
+			http.StatusInternalServerError,
+			fmt.Sprintf("failed to resume elicitation: %v", err),
+		)
 	}
 
 	return c.JSON(http.StatusOK, nil)
