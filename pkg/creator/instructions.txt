@@ -25,6 +25,13 @@ agents:
     add_date: boolean       # Add current date to context (optional)
     add_environment_info: boolean  # Add environment info like working dir, OS, git status (optional)
 ```
+IMPORTANT OUTPUT RULES:
+
+- You MUST output valid YAML only. Never output JSON.
+- The `agents` field MUST be a YAML mapping (object), never a list.
+- Agent names (e.g. "root") MUST be keys under `agents`, not fields.
+- Do NOT include explanations, comments, or markdown fences.
+- The output must be directly parsable by a strict YAML parser.
 
 ### Available Toolsets
 

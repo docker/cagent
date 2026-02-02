@@ -83,16 +83,17 @@ func buildInstructions(ctx context.Context, runConfig *config.RuntimeConfig) str
 	return b.String()
 }
 
-// buildCreatorConfigYAML generates the YAML configuration for the creator agent.
-// It uses yaml.MapSlice to ensure proper indentation of multi-line strings.
+// buildCreatorConfigYAML generates the YAML config for the creator agent.
+// IMPORTANT: `agents` MUST be a map (not a list) to match latest config parsing.
 func buildCreatorConfigYAML(instructions string) ([]byte, error) {
-	// Define available toolsets for the creator agent
+	// Toolsets must be a list of maps: - type: <tool>
 	toolsets := []map[string]any{
 		{"type": "shell"},
 		{"type": "filesystem"},
 	}
 
-	// Build the root agent configuration
+	// Agent config without a name field.
+	// The agent name is defined by the parent map key.
 	rootAgent := yaml.MapSlice{
 		{Key: "model", Value: creatorAgentModel},
 		{Key: "welcome_message", Value: creatorWelcomeMessage},
@@ -100,11 +101,12 @@ func buildCreatorConfigYAML(instructions string) ([]byte, error) {
 		{Key: "toolsets", Value: toolsets},
 	}
 
-	// Build the full config structure
+	// Agents MUST be a map: agents.<name>
 	agentsConfig := yaml.MapSlice{
 		{Key: creatorAgentName, Value: rootAgent},
 	}
 
+	// Use yaml.MapSlice to preserve order and multiline formatting.
 	fullConfig := yaml.MapSlice{
 		{Key: "agents", Value: agentsConfig},
 	}

@@ -16,6 +16,10 @@ func (t *Config) UnmarshalYAML(unmarshal func(any) error) error {
 }
 
 func (t *Config) validate() error {
+	if len(t.Agents) == 0 {
+		return errors.New("at least one agent must be defined")
+	}
+
 	for i := range t.Agents {
 		agent := t.Agents[i]
 		for j := range agent.Toolsets {

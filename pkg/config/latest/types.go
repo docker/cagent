@@ -31,6 +31,7 @@ func (c *Agents) UnmarshalYAML(unmarshal func(any) error) error {
 	}
 
 	agents := make([]AgentConfig, 0, len(items))
+
 	for _, item := range items {
 		name, ok := item.Key.(string)
 		if !ok {
