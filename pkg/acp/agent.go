@@ -108,16 +108,74 @@ func (a *Agent) Initialize(ctx context.Context, params acp.InitializeRequest) (a
 }
 
 // NewSession implements [acp.Agent]
-func (a *Agent) NewSession(_ context.Context, params acp.NewSessionRequest) (acp.NewSessionResponse, error) {
-	sid := uuid.New().String()
-	slog.Debug("ACP NewSession called", "session_id", sid, "cwd", params.Cwd)
+func (a *Agent) NewSession(ctx context.Context, params acp.NewSessionRequest) (acp.NewSessionResponse, error) {
+	key := params.Cwd
+	if key == "" {
+		key = uuid.New().String() // fallback: gera UUID se não houver cwd
+	}
+	slog.Debug("ACP NewSession called", "key", key)
 
-	// Log warning if MCP servers are provided (not yet supported)
 	if len(params.McpServers) > 0 {
 		slog.Warn("MCP servers provided by client are not yet supported", "count", len(params.McpServers))
 	}
 
-	rt, err := runtime.New(a.team, runtime.WithCurrentAgent("root"))
+	// Create persistent SQLite session store
+	store, err := session.NewSQLiteSessionStore("cagent_sessions.db")
+	if err != nil {
+		return acp.NewSessionResponse{}, fmt.Errorf("failed to create SQLite session store: %w", err)
+	}
+
+	// Try reusing a matching session by working directory (key)
+	var foundSess *session.Session
+	var foundID string
+
+	// List all sessions persisted
+	sessionsList, err := store.GetSessions(ctx)
+	if err != nil {
+		slog.Warn("Failed to list sessions from store", "error", err)
+	} else {
+		for _, s := range sessionsList {
+			if s.WorkingDir == key {
+				foundID = s.ID
+				// Load full session object
+				fullSess, loadErr := store.GetSession(ctx, s.ID)
+				if loadErr != nil {
+					slog.Warn("Failed to load session from store", "session_id", s.ID, "error", loadErr)
+				} else {
+					foundSess = fullSess
+				}
+				break
+			}
+		}
+	}
+
+	var sid string
+	var sessObj *session.Session
+
+	if foundSess != nil {
+		// Reuse existing session
+		sid = foundID
+		sessObj = foundSess
+		slog.Debug("Reusing existing session from store", "session_id", sid)
+	} else {
+		// Create a new session
+		sid = uuid.New().String()
+		sessObj = session.New(session.WithTitle("ACP Session " + sid))
+		sessObj.WorkingDir = key // ← CRUCIAL: salva WorkingDir antes de persistir
+		slog.Debug("Creating new session", "session_id", sid)
+
+		// Add the new session to the persistent store
+		if err := store.AddSession(ctx, sessObj); err != nil {
+			slog.Warn("Failed to add new session to store", "session_id", sid, "error", err)
+		}
+	}
+
+	// Create runtime with current agent and persistent store
+	rt, err := runtime.New(
+		a.team,
+		runtime.WithCurrentAgent("root"),
+		runtime.WithSessionStore(store),
+	)
 	if err != nil {
 		return acp.NewSessionResponse{}, fmt.Errorf("failed to create runtime: %w", err)
 	}
@@ -125,9 +183,9 @@ func (a *Agent) NewSession(_ context.Context, params acp.NewSessionRequest) (acp
 	a.mu.Lock()
 	a.sessions[sid] = &Session{
 		id:         sid,
-		sess:       session.New(session.WithTitle("ACP Session " + sid)),
+		sess:       sessObj,
 		rt:         rt,
-		workingDir: params.Cwd,
+		workingDir: key,
 	}
 	a.mu.Unlock()
 
