@@ -50,6 +50,9 @@ type (
 	// ClearQueueMsg clears all queued messages.
 	ClearQueueMsg struct{}
 
+	// ForkSessionMsg truncates the session to fork from a specific assistant message.
+	ForkSessionMsg struct{ AssistantMessageIndex int }
+
 	// SendMsg contains the content sent to the agent.
 	SendMsg struct {
 		Content     string            // Full content sent to the agent (with file contents expanded)

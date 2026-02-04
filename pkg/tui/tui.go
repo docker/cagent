@@ -387,6 +387,9 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.CompactSessionMsg:
 		return a.handleCompactSession(msg.AdditionalPrompt)
 
+	case messages.ForkSessionMsg:
+		return a.handleForkSession(msg.AssistantMessageIndex)
+
 	case messages.CopySessionToClipboardMsg:
 		return a.handleCopySessionToClipboard()
 

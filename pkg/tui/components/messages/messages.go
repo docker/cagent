@@ -368,6 +368,12 @@ func (m *model) handleKeyPress(msg tea.KeyPressMsg) (layout.Model, tea.Cmd) {
 			return m, cmd
 		}
 		return m, nil
+	case "f":
+		if m.focused && m.selectedMessageIndex >= 0 {
+			cmd := m.forkFromSelectedMessage()
+			return m, cmd
+		}
+		return m, nil
 	case "pgup":
 		m.scrollPageUp()
 		return m, nil
@@ -539,6 +545,7 @@ func (m *model) Bindings() []key.Binding {
 		key.NewBinding(key.WithKeys("up"), key.WithHelp("↑", "select prev")),
 		key.NewBinding(key.WithKeys("down"), key.WithHelp("↓", "select next")),
 		key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "copy message")),
+		key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "fork session")),
 	}
 }
 
@@ -689,6 +696,24 @@ func (m *model) selectNextMessage() {
 		m.invalidateAllItems()
 		m.scrollToSelectedMessage()
 	}
+}
+
+func (m *model) forkFromSelectedMessage() tea.Cmd {
+	if m.selectedMessageIndex < 0 || m.selectedMessageIndex >= len(m.messages) {
+		return nil
+	}
+
+	assistantIndex := 0
+	for i := 0; i <= m.selectedMessageIndex; i++ {
+		msgType := m.messages[i].Type
+		if msgType == types.MessageTypeAssistant || msgType == types.MessageTypeAssistantReasoningBlock {
+			if i == m.selectedMessageIndex {
+				return core.CmdHandler(messages.ForkSessionMsg{AssistantMessageIndex: assistantIndex})
+			}
+			assistantIndex++
+		}
+	}
+	return nil
 }
 
 func (m *model) scrollToSelectedMessage() {

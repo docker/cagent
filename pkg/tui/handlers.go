@@ -13,6 +13,7 @@ import (
 
 	"github.com/docker/cagent/pkg/app"
 	"github.com/docker/cagent/pkg/browser"
+	chatpkg "github.com/docker/cagent/pkg/chat"
 	"github.com/docker/cagent/pkg/evaluation"
 	"github.com/docker/cagent/pkg/modelsdev"
 	"github.com/docker/cagent/pkg/tools"
@@ -186,6 +187,42 @@ func (a *appModel) handleExportSession(filename string) (tea.Model, tea.Cmd) {
 
 func (a *appModel) handleCompactSession(additionalPrompt string) (tea.Model, tea.Cmd) {
 	return a, a.chatPage.CompactSession(additionalPrompt)
+}
+
+func (a *appModel) handleForkSession(assistantMessageIndex int) (tea.Model, tea.Cmd) {
+	sess := a.application.Session()
+	if sess == nil {
+		return a, notification.ErrorCmd("No active session")
+	}
+
+	assistantCount := 0
+	truncateIndex := -1
+	for i, item := range sess.Messages {
+		if item.IsMessage() && item.Message.Message.Role == chatpkg.MessageRoleAssistant {
+			if assistantCount == assistantMessageIndex {
+				truncateIndex = i
+				break
+			}
+			assistantCount++
+		}
+	}
+
+	if truncateIndex < 0 {
+		return a, notification.ErrorCmd("Could not find the message to fork from")
+	}
+
+	sess.Messages = sess.Messages[:truncateIndex+1]
+
+	a.sessionState = service.NewSessionState(sess)
+	a.chatPage = chat.New(a.application, a.sessionState)
+	a.dialog = dialog.New()
+	a.applyKeyboardEnhancements()
+
+	return a, tea.Batch(
+		a.Init(),
+		a.handleWindowResize(a.wWidth, a.wHeight),
+		notification.SuccessCmd("Session forked."),
+	)
 }
 
 func (a *appModel) handleCopySessionToClipboard() (tea.Model, tea.Cmd) {
