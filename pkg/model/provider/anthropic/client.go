@@ -344,20 +344,23 @@ func (c *Client) CreateChatCompletionStream(
 	return ad, nil
 }
 
+// convertMessages converts internal chat.Message format to Anthropic's MessageParam format.
+// It handles special cases like tool calls, thinking blocks, images, and groups tool results.
 func convertMessages(messages []chat.Message) []anthropic.MessageParam {
 	var anthropicMessages []anthropic.MessageParam
-	// Track whether the last appended assistant message included tool_use blocks
-	// so we can ensure the immediate next message is the grouped tool_result user message.
+	// Track if the last assistant message had tool_use blocks, to enforce grouped tool_result in next user message.
 	pendingAssistantToolUse := false
 
 	for i := 0; i < len(messages); i++ {
 		msg := &messages[i]
+
 		if msg.Role == chat.MessageRoleSystem {
-			// System messages are handled via the top-level params.System
+			// System messages go to top-level params.System
 			continue
 		}
+
 		if msg.Role == chat.MessageRoleUser {
-			// Handle MultiContent for user messages (including images)
+			// Handle MultiContent (text + images) for user messages
 			if len(msg.MultiContent) > 0 {
 				contentBlocks := make([]anthropic.ContentBlockParamUnion, 0, len(msg.MultiContent))
 				for _, part := range msg.MultiContent {
@@ -366,15 +369,12 @@ func convertMessages(messages []chat.Message) []anthropic.MessageParam {
 							contentBlocks = append(contentBlocks, anthropic.NewTextBlock(txt))
 						}
 					} else if part.Type == chat.MessagePartTypeImageURL && part.ImageURL != nil {
-						// Anthropic expects base64 image data
-						// Extract base64 data from data URL
+						// Anthropic prefers base64 for data URLs
 						if strings.HasPrefix(part.ImageURL.URL, "data:") {
 							parts := strings.SplitN(part.ImageURL.URL, ",", 2)
 							if len(parts) == 2 {
-								// Extract media type from data URL
 								mediaTypePart := parts[0]
 								base64Data := parts[1]
-
 								var mediaType string
 								switch {
 								case strings.Contains(mediaTypePart, "image/jpeg"):
@@ -386,19 +386,15 @@ func convertMessages(messages []chat.Message) []anthropic.MessageParam {
 								case strings.Contains(mediaTypePart, "image/webp"):
 									mediaType = "image/webp"
 								default:
-									// Default to jpeg if not recognized
 									mediaType = "image/jpeg"
 								}
-
-								// Use SDK helper with proper typed source for better performance
-								// (avoids JSON marshal/unmarshal round trip)
 								contentBlocks = append(contentBlocks, anthropic.NewImageBlock(anthropic.Base64ImageSourceParam{
 									Data:      base64Data,
 									MediaType: anthropic.Base64ImageSourceMediaType(mediaType),
 								}))
 							}
 						} else if strings.HasPrefix(part.ImageURL.URL, "http://") || strings.HasPrefix(part.ImageURL.URL, "https://") {
-							// Support URL-based images - Anthropic can fetch images directly from URLs
+							// Direct URL support
 							contentBlocks = append(contentBlocks, anthropic.NewImageBlock(anthropic.URLImageSourceParam{
 								URL: part.ImageURL.URL,
 							}))
@@ -409,30 +405,26 @@ func convertMessages(messages []chat.Message) []anthropic.MessageParam {
 					anthropicMessages = append(anthropicMessages, anthropic.NewUserMessage(contentBlocks...))
 				}
 			} else {
+				// Plain text user message
 				if txt := strings.TrimSpace(msg.Content); txt != "" {
 					anthropicMessages = append(anthropicMessages, anthropic.NewUserMessage(anthropic.NewTextBlock(txt)))
 				}
 			}
 			continue
 		}
+
 		if msg.Role == chat.MessageRoleAssistant {
 			contentBlocks := make([]anthropic.ContentBlockParamUnion, 0)
 
-			// Include thinking blocks when present to preserve extended thinking context
+			// Preserve extended thinking blocks if present
 			if msg.ReasoningContent != "" && msg.ThinkingSignature != "" {
-				contentBlocks = append(
-					contentBlocks,
-					anthropic.NewThinkingBlock(msg.ThinkingSignature, msg.ReasoningContent),
-				)
+				contentBlocks = append(contentBlocks, anthropic.NewThinkingBlock(msg.ThinkingSignature, msg.ReasoningContent))
 			} else if msg.ThinkingSignature != "" {
-				contentBlocks = append(
-					contentBlocks,
-					anthropic.NewRedactedThinkingBlock(msg.ThinkingSignature),
-				)
+				contentBlocks = append(contentBlocks, anthropic.NewRedactedThinkingBlock(msg.ThinkingSignature))
 			}
 
 			if len(msg.ToolCalls) > 0 {
-				// Log when we ignore content to comply with Anthropic/Bedrock protocol
+				// Enforce Anthropic/Bedrock rule: no text content when tool calls are present
 				trimmedContent := strings.TrimSpace(msg.Content)
 				if trimmedContent != "" {
 					preview := trimmedContent
@@ -444,19 +436,16 @@ func convertMessages(messages []chat.Message) []anthropic.MessageParam {
 						"tool_count", len(msg.ToolCalls))
 				}
 
-				toolUseBlocks := make(
-					[]anthropic.ContentBlockParamUnion,
-					0,
-					len(contentBlocks)+len(msg.ToolCalls),
-				)
+				toolUseBlocks := make([]anthropic.ContentBlockParamUnion, 0, len(contentBlocks)+len(msg.ToolCalls))
 
-				// Preserve thinking blocks if present (allowed alongside tool_use, unlike text content)
+				// Thinking blocks are allowed with tool_use
 				if len(contentBlocks) > 0 {
 					toolUseBlocks = append(toolUseBlocks, contentBlocks...)
 				}
 
 				for _, toolCall := range msg.ToolCalls {
 					if toolCall.ID == "" {
+						// Skip and log strongly - missing ID breaks protocol sequencing
 						slog.Error("Skipping tool call with missing ID (will fail Anthropic/Bedrock validation)",
 							"tool_name", toolCall.Function.Name,
 							"arguments", toolCall.Function.Arguments)
@@ -473,34 +462,24 @@ func convertMessages(messages []chat.Message) []anthropic.MessageParam {
 						inpts = map[string]any{}
 					}
 
-					toolUseBlocks = append(
-						toolUseBlocks,
-						anthropic.ContentBlockParamUnion{
-							OfToolUse: &anthropic.ToolUseBlockParam{
-								ID:    toolCall.ID,
-								Input: inpts,
-								Name:  toolCall.Function.Name,
-							},
+					toolUseBlocks = append(toolUseBlocks, anthropic.ContentBlockParamUnion{
+						OfToolUse: &anthropic.ToolUseBlockParam{
+							ID:    toolCall.ID,
+							Input: inpts,
+							Name:  toolCall.Function.Name,
 						},
-					)
+					})
 				}
 
-				anthropicMessages = append(
-					anthropicMessages,
-					anthropic.NewAssistantMessage(toolUseBlocks...),
-				)
-
+				anthropicMessages = append(anthropicMessages, anthropic.NewAssistantMessage(toolUseBlocks...))
 				pendingAssistantToolUse = true
 			} else {
-				// Normal case: text content (or thinking only)
+				// Normal assistant response: text or thinking only
 				if txt := strings.TrimSpace(msg.Content); txt != "" {
 					contentBlocks = append(contentBlocks, anthropic.NewTextBlock(txt))
 				}
 				if len(contentBlocks) > 0 {
-					anthropicMessages = append(
-						anthropicMessages,
-						anthropic.NewAssistantMessage(contentBlocks...),
-					)
+					anthropicMessages = append(anthropicMessages, anthropic.NewAssistantMessage(contentBlocks...))
 				}
 				pendingAssistantToolUse = false
 			}
@@ -508,10 +487,7 @@ func convertMessages(messages []chat.Message) []anthropic.MessageParam {
 		}
 
 		if msg.Role == chat.MessageRoleTool {
-			// Group consecutive tool results into a single user message.
-			//
-			// This is to satisfy Anthropic's requirement that tool_use blocks are immediately followed
-			// by a single user message containing all corresponding tool_result blocks.
+			// Group consecutive tool results into one user message (Anthropic requirement)
 			var blocks []anthropic.ContentBlockParamUnion
 			j := i
 			for j < len(messages) && messages[j].Role == chat.MessageRoleTool {
@@ -520,13 +496,10 @@ func convertMessages(messages []chat.Message) []anthropic.MessageParam {
 				j++
 			}
 			if len(blocks) > 0 {
-				// Only include tool_result blocks if they immediately follow an assistant
-				// message that contained tool_use. Otherwise, drop them to avoid invalid
-				// sequencing errors.
+				// Only append if it follows a tool_use assistant message
 				if pendingAssistantToolUse {
 					anthropicMessages = append(anthropicMessages, anthropic.NewUserMessage(blocks...))
 				}
-				// Whether we used them or not, we've now handled the expected tool_result slot.
 				pendingAssistantToolUse = false
 			}
 			i = j - 1
@@ -534,14 +507,14 @@ func convertMessages(messages []chat.Message) []anthropic.MessageParam {
 		}
 	}
 
-	// Add ephemeral cache to last 2 messages' last content block
+	// Apply prompt caching to the last 2 messages
 	applyMessageCacheControl(anthropicMessages)
 
 	return anthropicMessages
 }
 
 // applyMessageCacheControl adds ephemeral cache control to the last content block
-// of the last 2 messages for prompt caching.
+// of the last 2 messages to enable prompt caching in Anthropic API.
 func applyMessageCacheControl(messages []anthropic.MessageParam) {
 	for i := len(messages) - 1; i >= 0 && i >= len(messages)-2; i-- {
 		msg := &messages[i]
@@ -551,6 +524,7 @@ func applyMessageCacheControl(messages []anthropic.MessageParam) {
 		lastIdx := len(msg.Content) - 1
 		block := &msg.Content[lastIdx]
 		cacheCtrl := anthropic.NewCacheControlEphemeralParam()
+
 		switch {
 		case block.OfText != nil:
 			block.OfText.CacheControl = cacheCtrl
