@@ -420,55 +420,93 @@ func convertMessages(messages []chat.Message) []anthropic.MessageParam {
 
 			// Include thinking blocks when present to preserve extended thinking context
 			if msg.ReasoningContent != "" && msg.ThinkingSignature != "" {
-				contentBlocks = append(contentBlocks, anthropic.NewThinkingBlock(msg.ThinkingSignature, msg.ReasoningContent))
+				contentBlocks = append(
+					contentBlocks,
+					anthropic.NewThinkingBlock(msg.ThinkingSignature, msg.ReasoningContent),
+				)
 			} else if msg.ThinkingSignature != "" {
-				contentBlocks = append(contentBlocks, anthropic.NewRedactedThinkingBlock(msg.ThinkingSignature))
+				contentBlocks = append(
+					contentBlocks,
+					anthropic.NewRedactedThinkingBlock(msg.ThinkingSignature),
+				)
 			}
 
 			if len(msg.ToolCalls) > 0 {
-				blockLen := len(msg.ToolCalls)
-				msgContent := strings.TrimSpace(msg.Content)
-				offset := 0
-				if msgContent != "" {
-					blockLen++
+				// Log when we ignore content to comply with Anthropic/Bedrock protocol
+				trimmedContent := strings.TrimSpace(msg.Content)
+				if trimmedContent != "" {
+					preview := trimmedContent
+					if len(preview) > 200 {
+						preview = preview[:200] + "..."
+					}
+					slog.Warn("Ignoring assistant message content due to presence of tool calls (Anthropic/Bedrock protocol forbids mixing)",
+						"ignored_content_preview", preview,
+						"tool_count", len(msg.ToolCalls))
 				}
-				toolUseBlocks := make([]anthropic.ContentBlockParamUnion, blockLen)
-				// If there is prior thinking, append it first
+
+				toolUseBlocks := make(
+					[]anthropic.ContentBlockParamUnion,
+					0,
+					len(contentBlocks)+len(msg.ToolCalls),
+				)
+
+				// Preserve thinking blocks if present (allowed alongside tool_use, unlike text content)
 				if len(contentBlocks) > 0 {
-					toolUseBlocks = append(contentBlocks, toolUseBlocks...)
+					toolUseBlocks = append(toolUseBlocks, contentBlocks...)
 				}
-				if msgContent != "" {
-					toolUseBlocks[len(contentBlocks)+offset] = anthropic.NewTextBlock(msgContent)
-					offset = 1
-				}
-				for j, toolCall := range msg.ToolCalls {
+
+				for _, toolCall := range msg.ToolCalls {
+					if toolCall.ID == "" {
+						slog.Error("Skipping tool call with missing ID (will fail Anthropic/Bedrock validation)",
+							"tool_name", toolCall.Function.Name,
+							"arguments", toolCall.Function.Arguments)
+						continue
+					}
+
 					var inpts map[string]any
 					if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &inpts); err != nil {
+						slog.Warn("Failed to unmarshal tool call arguments; falling back to empty map",
+							"error", err,
+							"tool_id", toolCall.ID,
+							"tool_name", toolCall.Function.Name,
+							"raw_arguments", toolCall.Function.Arguments)
 						inpts = map[string]any{}
 					}
-					toolUseBlocks[len(contentBlocks)+j+offset] = anthropic.ContentBlockParamUnion{
-						OfToolUse: &anthropic.ToolUseBlockParam{
-							ID:    toolCall.ID,
-							Input: inpts,
-							Name:  toolCall.Function.Name,
+
+					toolUseBlocks = append(
+						toolUseBlocks,
+						anthropic.ContentBlockParamUnion{
+							OfToolUse: &anthropic.ToolUseBlockParam{
+								ID:    toolCall.ID,
+								Input: inpts,
+								Name:  toolCall.Function.Name,
+							},
 						},
-					}
+					)
 				}
-				anthropicMessages = append(anthropicMessages, anthropic.NewAssistantMessage(toolUseBlocks...))
-				// Mark that we expect the very next message to be the grouped tool_result blocks.
+
+				anthropicMessages = append(
+					anthropicMessages,
+					anthropic.NewAssistantMessage(toolUseBlocks...),
+				)
+
 				pendingAssistantToolUse = true
 			} else {
+				// Normal case: text content (or thinking only)
 				if txt := strings.TrimSpace(msg.Content); txt != "" {
 					contentBlocks = append(contentBlocks, anthropic.NewTextBlock(txt))
 				}
 				if len(contentBlocks) > 0 {
-					anthropicMessages = append(anthropicMessages, anthropic.NewAssistantMessage(contentBlocks...))
+					anthropicMessages = append(
+						anthropicMessages,
+						anthropic.NewAssistantMessage(contentBlocks...),
+					)
 				}
-				// No tool_use in this assistant message
 				pendingAssistantToolUse = false
 			}
 			continue
 		}
+
 		if msg.Role == chat.MessageRoleTool {
 			// Group consecutive tool results into a single user message.
 			//
