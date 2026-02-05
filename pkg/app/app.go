@@ -114,6 +114,17 @@ func New(ctx context.Context, rt runtime.Runtime, sess *session.Session, opts ..
 		})
 	}
 
+	// If the runtime supports background toolset loading, start it to load
+	// tools for all agents (not just the current one) and emit updated TeamInfo.
+	if toolsetLoader, ok := rt.(runtime.BackgroundToolsetLoader); ok {
+		toolsetLoader.StartBackgroundToolsetLoad(ctx, func(event runtime.Event) {
+			select {
+			case app.events <- event:
+			case <-ctx.Done():
+			}
+		})
+	}
+
 	return app
 }
 

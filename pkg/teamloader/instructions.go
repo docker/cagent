@@ -29,3 +29,8 @@ func (a replaceInstruction) Instructions() string {
 	original := tools.GetInstructions(a.ToolSet)
 	return strings.Replace(a.instruction, "{ORIGINAL_INSTRUCTIONS}", original, 1)
 }
+
+// Unwrap returns the inner toolset for unwrapping during display name computation.
+func (a replaceInstruction) Unwrap() tools.ToolSet {
+	return a.ToolSet
+}

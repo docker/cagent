@@ -49,7 +49,7 @@ type Model interface {
 	SetAgentInfo(agentName, model, description string)
 	SetTeamInfo(availableAgents []runtime.AgentDetails)
 	SetAgentSwitching(switching bool)
-	SetToolsetInfo(availableTools int, loading bool)
+	SetToolsetInfo(agentName string, availableTools int, toolsets []runtime.ToolsetSummary, loading bool)
 	SetSessionStarred(starred bool)
 	SetQueuedMessages(messages ...string)
 	GetSize() (width, height int)
@@ -58,6 +58,12 @@ type Model interface {
 	HandleClick(x, y int) bool
 	// HandleClickType returns the type of click (star, title, or none)
 	HandleClickType(x, y int) ClickResult
+	// GetMode returns the current sidebar mode
+	GetMode() Mode
+	// GetAvailableAgents returns the list of available agents
+	GetAvailableAgents() []runtime.AgentDetails
+	// GetCurrentAgentName returns the current agent name
+	GetCurrentAgentName() string
 	// IsCollapsed returns whether the sidebar is collapsed
 	IsCollapsed() bool
 	// ToggleCollapsed toggles the collapsed state
@@ -143,6 +149,13 @@ type model struct {
 	cachedWidth          int      // Width used for cached render
 	cachedNeedsScrollbar bool     // Whether scrollbar is needed for cached render
 	cacheDirty           bool     // True when cache needs rebuild
+
+	// Section components
+	agentsSec *AgentsSection
+
+	// lastSectionRenderer tracks rendered section positions for click handling.
+	// Updated each time verticalView renders content.
+	lastSectionRenderer *SectionRenderer
 }
 
 // Option is a functional option for configuring the sidebar.
@@ -176,6 +189,7 @@ func New(sessionState *service.SessionState, opts ...Option) Model {
 		preferredWidth:     DefaultWidth,
 		titleInput:         ti,
 		cacheDirty:         true, // Initial render needed
+		agentsSec:          NewAgentsSection(nil, "", false),
 	}
 	for _, opt := range opts {
 		opt(m)
@@ -261,25 +275,45 @@ func (m *model) SetAgentInfo(agentName, modelID, description string) {
 		}
 	}
 	m.invalidateCache()
+	m.syncCurrentAgent()
 }
 
 // SetTeamInfo sets the available agents in the team
 func (m *model) SetTeamInfo(availableAgents []runtime.AgentDetails) {
 	m.availableAgents = availableAgents
 	m.invalidateCache()
+	m.syncCurrentAgent()
 }
 
 // SetAgentSwitching sets whether an agent switch is in progress
 func (m *model) SetAgentSwitching(switching bool) {
 	m.agentSwitching = switching
 	m.invalidateCache()
+	m.syncCurrentAgent()
 }
 
-// SetToolsetInfo sets the number of available tools and loading state
-func (m *model) SetToolsetInfo(availableTools int, loading bool) {
+// syncCurrentAgent syncs the agents section with current state.
+func (m *model) syncCurrentAgent() {
+	m.agentsSec.Update(m.availableAgents, m.sessionState.CurrentAgentName(), m.agentSwitching)
+}
+
+// SetToolsetInfo sets the number of available tools, toolset details, and loading state.
+// Also updates the TotalTools and Toolsets in availableAgents for the specified agent.
+func (m *model) SetToolsetInfo(agentName string, availableTools int, toolsets []runtime.ToolsetSummary, loading bool) {
 	m.availableTools = availableTools
 	m.toolsLoading = loading
 	m.invalidateCache()
+
+	// Update the corresponding agent's TotalTools and Toolsets in availableAgents
+	for i := range m.availableAgents {
+		if m.availableAgents[i].Name == agentName {
+			m.availableAgents[i].TotalTools = availableTools
+			if toolsets != nil {
+				m.availableAgents[i].Toolsets = toolsets
+			}
+			break
+		}
+	}
 }
 
 // SetSessionStarred sets the starred status of the current session
@@ -314,27 +348,34 @@ func (m *model) ScrollByWheel(delta int) {
 }
 
 // ClickResult indicates what was clicked in the sidebar
-type ClickResult int
+type ClickResult struct {
+	Type      ClickType
+	AgentName string // Set when Type is ClickAgentSwitch
+}
+
+type ClickType int
 
 const (
-	ClickNone ClickResult = iota
+	ClickNone ClickType = iota
 	ClickStar
-	ClickTitle // Click on the title area (use double-click to edit)
+	ClickTitle         // Click on the title area (use double-click to edit)
+	ClickAgentDropdown // Only used in collapsed mode to open picker dialog
+	ClickAgentSwitch   // Click on an agent name to switch directly
 )
 
 // HandleClick checks if click is on the star or title and returns true if it was
 // x and y are coordinates relative to the sidebar's top-left corner
 // This does NOT toggle the state - caller should handle that
 func (m *model) HandleClick(x, y int) bool {
-	return m.HandleClickType(x, y) != ClickNone
+	return m.HandleClickType(x, y).Type != ClickNone
 }
 
-// HandleClickType returns what was clicked (star, title, or nothing)
+// HandleClickType returns what was clicked (star, title, agent, or nothing)
 func (m *model) HandleClickType(x, y int) ClickResult {
 	// Account for left padding
 	adjustedX := x - m.layoutCfg.PaddingLeft
 	if adjustedX < 0 {
-		return ClickNone
+		return ClickResult{Type: ClickNone}
 	}
 
 	if m.mode == ModeCollapsed {
@@ -345,14 +386,21 @@ func (m *model) HandleClickType(x, y int) ClickResult {
 		if y >= 0 && y < titleLines {
 			// Check if click is on the star (first line only, first few chars)
 			if y == 0 && m.sessionHasContent && adjustedX <= starClickWidth {
-				return ClickStar
+				return ClickResult{Type: ClickStar}
 			}
 			// Click is on title area (for double-click to edit)
 			if m.titleGenerated && !m.editingTitle {
-				return ClickTitle
+				return ClickResult{Type: ClickTitle}
 			}
 		}
-		return ClickNone
+		// Check for click on agent summary line (collapsed mode opens dialog)
+		if len(m.availableAgents) > 1 {
+			baseLines := m.computeCollapsedViewModel(m.contentWidth(false)).LineCount()
+			if y == baseLines {
+				return ClickResult{Type: ClickAgentDropdown}
+			}
+		}
+		return ClickResult{Type: ClickNone}
 	}
 
 	// In vertical mode, the title starts at verticalStarY
@@ -364,14 +412,23 @@ func (m *model) HandleClickType(x, y int) ClickResult {
 	if contentY >= verticalStarY && contentY < verticalStarY+titleLines {
 		// Check if click is on the star (first line only, first few chars)
 		if contentY == verticalStarY && m.sessionHasContent && adjustedX <= starClickWidth {
-			return ClickStar
+			return ClickResult{Type: ClickStar}
 		}
 		// Click is on title area (for double-click to edit)
 		if m.titleGenerated && !m.editingTitle {
-			return ClickTitle
+			return ClickResult{Type: ClickTitle}
 		}
 	}
-	return ClickNone
+
+	// Check for click on sections (agents, etc.)
+	// Uses lastSectionRenderer which is populated during renderSections
+	if m.lastSectionRenderer != nil {
+		if result := m.lastSectionRenderer.HandleClick(contentY); result != nil {
+			return *result
+		}
+	}
+
+	return ClickResult{Type: ClickNone}
 }
 
 // titleLineCount returns the number of lines the title occupies when rendered.
@@ -468,7 +525,14 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		cmd := m.SetSize(msg.Width, msg.Height)
 		return m, cmd
-	case tea.MouseClickMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
+	case tea.MouseClickMsg:
+		if m.mode == ModeVertical {
+			sb, cmd := m.scrollbar.Update(msg)
+			m.scrollbar = sb
+			return m, cmd
+		}
+		return m, nil
+	case tea.MouseMotionMsg, tea.MouseReleaseMsg:
 		if m.mode == ModeVertical {
 			sb, cmd := m.scrollbar.Update(msg)
 			m.scrollbar = sb
@@ -596,7 +660,7 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		if m.streamCancelled && msg.Loading {
 			return m, nil
 		}
-		m.SetToolsetInfo(msg.AvailableTools, msg.Loading)
+		m.SetToolsetInfo(msg.AgentName, msg.AvailableTools, msg.Toolsets, msg.Loading)
 		if msg.Loading {
 			cmd := m.startSpinner()
 			return m, cmd
@@ -647,6 +711,11 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 
 		m.invalidateCache() // Theme affects all styling
 		return m, tea.Batch(cmds...)
+	case messages.AgentSwitchedMsg:
+		// Agent switch completed - sync the agents section highlight
+		m.invalidateCache()
+		m.syncCurrentAgent()
+		return m, nil
 	default:
 		var cmds []tea.Cmd
 		needsInvalidate := false
@@ -757,11 +826,55 @@ func (m *model) CollapsedHeight(outerWidth int) int {
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
-	return m.computeCollapsedViewModel(contentWidth).LineCount()
+	baseLines := m.computeCollapsedViewModel(contentWidth).LineCount()
+	// Add one line for agent summary
+	if len(m.availableAgents) > 0 {
+		baseLines++
+	}
+	return baseLines
 }
 
 func (m *model) collapsedView() string {
-	return RenderCollapsedView(m.computeCollapsedViewModel(m.contentWidth(false)))
+	contentWidth := m.contentWidth(false)
+	base := RenderCollapsedView(m.computeCollapsedViewModel(contentWidth))
+	lines := strings.Split(base, "\n")
+	// Add single-line agent summary for collapsed mode
+	if len(m.availableAgents) > 0 {
+		lines = append(lines, m.renderAgentSummaryCollapsed(contentWidth))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// renderAgentSummaryCollapsed renders a single-line agent summary for collapsed mode.
+func (m *model) renderAgentSummaryCollapsed(_ int) string {
+	currentName := m.sessionState.CurrentAgentName()
+	var currentAgent runtime.AgentDetails
+	for _, a := range m.availableAgents {
+		if a.Name == currentName {
+			currentAgent = a
+			break
+		}
+	}
+	if currentAgent.Name == "" && len(m.availableAgents) > 0 {
+		currentAgent = m.availableAgents[0]
+	}
+
+	// Format: "agentName ^S" (just name, with shortcut if multiple agents)
+	result := styles.AgentNameSelectedStyle.Render(currentAgent.Name)
+
+	// Show switching indicator only when switching
+	if m.agentSwitching {
+		icon := styles.RadioSelectedStyle.Render("↔")
+		result = icon + " " + result
+	}
+
+	// Add shortcut if multiple agents
+	if len(m.availableAgents) > 1 {
+		shortcut := styles.MutedStyle.Render(" ^s")
+		result += shortcut
+	}
+
+	return result
 }
 
 func (m *model) verticalView() string {
@@ -776,13 +889,11 @@ func (m *model) verticalView() string {
 	// Two-pass rendering: first check if scrollbar is needed
 	// Pass 1: render without scrollbar to count lines
 	lines := m.renderSections(contentWidthNoScroll)
-	totalLines := len(lines)
-	needsScrollbar := totalLines > visibleLines
+	needsScrollbar := len(lines) > visibleLines
 
 	// Pass 2: if scrollbar needed, re-render with narrower content width
 	if needsScrollbar {
-		contentWidthWithScroll := m.contentWidth(true)
-		lines = m.renderSections(contentWidthWithScroll)
+		lines = m.renderSections(m.contentWidth(true))
 	}
 
 	// Cache the rendered lines
@@ -816,6 +927,19 @@ func (m *model) renderFromCache(visibleLines int) string {
 		visibleContent = append(visibleContent, "")
 	}
 
+	// Normalize all lines to exactly contentWidth for proper scrollbar alignment.
+	// Without this, JoinHorizontal uses the max actual line width which varies
+	// depending on content, causing layout breaks at certain sidebar widths/heights.
+	// We must handle both:
+	// - Lines shorter than contentWidth (pad with spaces)
+	// - Lines longer than contentWidth (truncate)
+	// Using a style with Width+MaxWidth handles both cases correctly.
+	contentWidth := m.contentWidth(needsScrollbar)
+	normalizer := lipgloss.NewStyle().Width(contentWidth).MaxWidth(contentWidth)
+	for i, line := range visibleContent {
+		visibleContent[i] = normalizer.Render(line)
+	}
+
 	// Render with scrollbar gap if needed
 	if needsScrollbar {
 		scrollbarGap := strings.Repeat(" ", m.layoutCfg.ScrollbarGap)
@@ -831,25 +955,24 @@ func (m *model) renderFromCache(visibleLines int) string {
 }
 
 // renderSections renders all sidebar sections and returns them as lines.
+// It also updates m.lastSectionRenderer for click handling.
 func (m *model) renderSections(contentWidth int) []string {
-	var lines []string
+	renderer := NewSectionRenderer()
 
-	appendSection := func(section string) {
-		if section != "" {
-			lines = append(lines, strings.Split(section, "\n")...)
-		}
-	}
-
-	appendSection(m.sessionInfo(contentWidth))
-	appendSection(m.tokenUsage(contentWidth))
-	appendSection(m.queueSection(contentWidth))
-	appendSection(m.agentInfo(contentWidth))
-	appendSection(m.toolsetInfo(contentWidth))
+	// Add session section (legacy, not a Section interface yet)
+	renderer.AddContent(m.sessionInfo(contentWidth))
+	renderer.AddContent(m.tokenUsage(contentWidth))
+	renderer.AddSection(m.agentsSec, contentWidth)
+	renderer.AddContent(m.queueSection(contentWidth))
+	renderer.AddContent(m.toolsetInfo(contentWidth))
 
 	m.todoComp.SetSize(contentWidth)
-	appendSection(strings.TrimSuffix(m.todoComp.Render(), "\n"))
+	renderer.AddContent(strings.TrimSuffix(m.todoComp.Render(), "\n"))
 
-	return lines
+	// Store renderer for click handling
+	m.lastSectionRenderer = renderer
+
+	return renderer.GetLines()
 }
 
 // ragStrategyInfo holds a parsed RAG strategy entry
@@ -1044,77 +1167,6 @@ func (m *model) queueSection(contentWidth int) string {
 	return m.renderTab(title, strings.Join(lines, "\n"), contentWidth)
 }
 
-// agentInfo renders the current agent information
-func (m *model) agentInfo(contentWidth int) string {
-	// Read current agent from session state so sidebar updates when agent is switched
-	currentAgent := m.sessionState.CurrentAgentName()
-	if currentAgent == "" {
-		return ""
-	}
-
-	agentTitle := "Agent"
-	if len(m.availableAgents) > 1 {
-		agentTitle = "Agents"
-	}
-	if m.agentSwitching {
-		agentTitle += " ↔"
-	}
-
-	var content strings.Builder
-	for i, agent := range m.availableAgents {
-		if content.Len() > 0 {
-			content.WriteString("\n\n")
-		}
-		isCurrent := agent.Name == currentAgent
-		m.renderAgentEntry(&content, agent, isCurrent, i, contentWidth)
-	}
-
-	return m.renderTab(agentTitle, content.String(), contentWidth)
-}
-
-func (m *model) renderAgentEntry(content *strings.Builder, agent runtime.AgentDetails, isCurrent bool, index, contentWidth int) {
-	var prefix string
-	if isCurrent {
-		if m.workingAgent == agent.Name {
-			// Style the spinner with the same green as the agent name
-			prefix = styles.TabAccentStyle.Render(m.spinner.View()) + " "
-		} else {
-			prefix = styles.TabAccentStyle.Render("▶") + " "
-		}
-	}
-	// Agent name
-	agentNameText := prefix + styles.TabAccentStyle.Render(agent.Name)
-	// Shortcut hint (^1, ^2, etc.) - show for agents 1-9
-	var shortcutHint string
-	if index >= 0 && index < 9 {
-		shortcutHint = styles.MutedStyle.Render(fmt.Sprintf("^%d", index+1))
-	}
-	// Calculate space needed to right-align the shortcut
-	nameWidth := lipgloss.Width(agentNameText)
-	hintWidth := lipgloss.Width(shortcutHint)
-	spaceWidth := max(contentWidth-nameWidth-hintWidth, 1)
-	if shortcutHint != "" {
-		content.WriteString(agentNameText + strings.Repeat(" ", spaceWidth) + shortcutHint)
-	} else {
-		content.WriteString(agentNameText)
-	}
-
-	maxWidth := contentWidth - treePrefixWidth
-
-	if desc := agent.Description; desc != "" {
-		content.WriteString("\n")
-		content.WriteString(styles.MutedStyle.Render("├ "))
-		content.WriteString(toolcommon.TruncateText(desc, maxWidth))
-	}
-
-	content.WriteString("\n")
-	content.WriteString(styles.MutedStyle.Render("├ "))
-	content.WriteString(toolcommon.TruncateText("Provider: "+agent.Provider, maxWidth))
-	content.WriteString("\n")
-	content.WriteString(styles.MutedStyle.Render("└ "))
-	content.WriteString(toolcommon.TruncateText("Model: "+agent.Model, maxWidth))
-}
-
 // toolsetInfo renders the current toolset status information
 func (m *model) toolsetInfo(contentWidth int) string {
 	var lines []string
@@ -1243,6 +1295,21 @@ func (m *model) contentWidth(scrollbarVisible bool) int {
 // IsCollapsed returns whether the sidebar is collapsed
 func (m *model) IsCollapsed() bool {
 	return m.collapsed
+}
+
+// GetMode returns the current sidebar mode
+func (m *model) GetMode() Mode {
+	return m.mode
+}
+
+// GetAvailableAgents returns the list of available agents
+func (m *model) GetAvailableAgents() []runtime.AgentDetails {
+	return m.availableAgents
+}
+
+// GetCurrentAgentName returns the current agent name
+func (m *model) GetCurrentAgentName() string {
+	return m.sessionState.CurrentAgentName()
 }
 
 // ToggleCollapsed toggles the collapsed state of the sidebar.

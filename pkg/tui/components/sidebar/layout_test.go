@@ -172,7 +172,7 @@ func BenchmarkSidebarVerticalView_Scroll(b *testing.B) {
 	})
 
 	// Add some tools
-	m.SetToolsetInfo(25, false)
+	m.SetToolsetInfo("agent1", 25, nil, false)
 
 	// Initial render to populate cache
 	_ = m.verticalView()
@@ -214,7 +214,7 @@ func BenchmarkSidebarVerticalView_NoCache(b *testing.B) {
 	})
 
 	// Add some tools
-	m.SetToolsetInfo(25, false)
+	m.SetToolsetInfo("agent1", 25, nil, false)
 
 	b.ResetTimer()
 	b.ReportAllocs()

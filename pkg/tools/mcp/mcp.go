@@ -49,6 +49,11 @@ var (
 	_ tools.OAuthCapable = (*Toolset)(nil)
 )
 
+// Name returns the name of the MCP toolset (e.g., the ref or command).
+func (ts *Toolset) Name() string {
+	return ts.name
+}
+
 // NewToolsetCommand creates a new MCP toolset from a command.
 func NewToolsetCommand(name, command string, args, env []string, cwd string) *Toolset {
 	slog.Debug("Creating Stdio MCP toolset", "command", command, "args", args)

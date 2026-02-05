@@ -16,6 +16,11 @@ type toonTools struct {
 	toolRegexps []*regexp.Regexp
 }
 
+// Unwrap returns the inner toolset for unwrapping during display name computation.
+func (f *toonTools) Unwrap() tools.ToolSet {
+	return f.ToolSet
+}
+
 func (f *toonTools) Tools(ctx context.Context) ([]tools.Tool, error) {
 	allTools, err := f.ToolSet.Tools(ctx)
 	if err != nil {

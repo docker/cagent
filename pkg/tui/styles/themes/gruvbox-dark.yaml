@@ -58,6 +58,25 @@ colors:
   badge_info: "#8ec07c"
   badge_success: "#b8bb26"
 
+  # Agent picker colors
+  radio_selected: "#d3869b"
+  radio_unselected: "#7c6f64"
+  agent_name_selected: "#d3869b"
+  agent_name_unselected: "#ebdbb2"
+
+  # Agent picker line-specific colors (label + value for each line type)
+  # Labels slightly muted, values bright/primary for readability
+  agent_desc_label: "#928374"
+  agent_desc_value: "#ebdbb2"
+  agent_model_label: "#928374"
+  agent_model_value: "#ebdbb2"
+  agent_tools_label: "#928374"
+  agent_tools_value: "#ebdbb2"
+  agent_tools_expander: "#83a598"
+  agent_toolsets_label: "#928374"
+  agent_toolset_name: "#bdae93"
+  agent_tool_name: "#bdae93"
+
 chroma:
   # Syntax highlighting colors - Gruvbox style
   comment: "#928374"

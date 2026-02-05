@@ -276,8 +276,8 @@ func TestSimple(t *testing.T) {
 
 	expectedEvents := []Event{
 		AgentInfo("root", "test/mock-model", "", ""),
-		TeamInfo([]AgentDetails{{Name: "root", Provider: "test", Model: "mock-model"}}, "root"),
-		ToolsetInfo(0, false, "root"),
+		TeamInfo([]AgentDetails{{Name: "root", Provider: "test", Model: "mock-model", ToolsLoading: true}}, "root"),
+		ToolsetInfo(0, nil, false, "root"),
 		UserMessage("Hi", sess.ID),
 		StreamStarted(sess.ID, "root"),
 		AgentChoice("root", "Hello"),
@@ -314,8 +314,8 @@ func TestMultipleContentChunks(t *testing.T) {
 
 	expectedEvents := []Event{
 		AgentInfo("root", "test/mock-model", "", ""),
-		TeamInfo([]AgentDetails{{Name: "root", Provider: "test", Model: "mock-model"}}, "root"),
-		ToolsetInfo(0, false, "root"),
+		TeamInfo([]AgentDetails{{Name: "root", Provider: "test", Model: "mock-model", ToolsLoading: true}}, "root"),
+		ToolsetInfo(0, nil, false, "root"),
 		UserMessage("Please greet me", sess.ID),
 		StreamStarted(sess.ID, "root"),
 		AgentChoice("root", "Hello "),
@@ -354,8 +354,8 @@ func TestWithReasoning(t *testing.T) {
 
 	expectedEvents := []Event{
 		AgentInfo("root", "test/mock-model", "", ""),
-		TeamInfo([]AgentDetails{{Name: "root", Provider: "test", Model: "mock-model"}}, "root"),
-		ToolsetInfo(0, false, "root"),
+		TeamInfo([]AgentDetails{{Name: "root", Provider: "test", Model: "mock-model", ToolsLoading: true}}, "root"),
+		ToolsetInfo(0, nil, false, "root"),
 		UserMessage("Hi", sess.ID),
 		StreamStarted(sess.ID, "root"),
 		AgentChoiceReasoning("root", "Let me think about this..."),
@@ -393,8 +393,8 @@ func TestMixedContentAndReasoning(t *testing.T) {
 
 	expectedEvents := []Event{
 		AgentInfo("root", "test/mock-model", "", ""),
-		TeamInfo([]AgentDetails{{Name: "root", Provider: "test", Model: "mock-model"}}, "root"),
-		ToolsetInfo(0, false, "root"),
+		TeamInfo([]AgentDetails{{Name: "root", Provider: "test", Model: "mock-model", ToolsLoading: true}}, "root"),
+		ToolsetInfo(0, nil, false, "root"),
 		UserMessage("Hi there", sess.ID),
 		StreamStarted(sess.ID, "root"),
 		AgentChoiceReasoning("root", "The user wants a greeting"),
@@ -936,10 +936,10 @@ func TestEmitStartupInfo(t *testing.T) {
 	expectedEvents := []Event{
 		AgentInfo("startup-test-agent", "test/startup-model", "This is a startup test agent", "Welcome!"),
 		TeamInfo([]AgentDetails{
-			{Name: "startup-test-agent", Description: "This is a startup test agent", Provider: "test", Model: "startup-model"},
-			{Name: "other-agent", Description: "This is another agent", Provider: "test", Model: "startup-model"},
+			{Name: "startup-test-agent", Description: "This is a startup test agent", Provider: "test", Model: "startup-model", ToolsLoading: true},
+			{Name: "other-agent", Description: "This is another agent", Provider: "test", Model: "startup-model", ToolsLoading: true},
 		}, "startup-test-agent"),
-		ToolsetInfo(0, false, "startup-test-agent"), // No tools configured
+		ToolsetInfo(0, nil, false, "startup-test-agent"), // No tools configured
 	}
 
 	assertEventsEqual(t, expectedEvents, collectedEvents)
@@ -1363,4 +1363,90 @@ func TestToolRejectionWithoutReason(t *testing.T) {
 	require.True(t, toolResponse.Result.IsError, "expected tool result to be an error")
 	require.Equal(t, "The user rejected the tool call.", toolResponse.Response)
 	require.NotContains(t, toolResponse.Response, "Reason:")
+}
+
+func TestGetToolsetDisplayName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		toolset  tools.ToolSet
+		expected string
+	}{
+		{
+			name:     "stub toolset returns type name",
+			toolset:  newStubToolSet(nil, nil, nil),
+			expected: "stubtoolset",
+		},
+		{
+			name: "wrapped in StartableToolSet",
+			toolset: &tools.StartableToolSet{
+				ToolSet: newStubToolSet(nil, nil, nil),
+			},
+			expected: "stubtoolset",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			result := getToolsetDisplayName(tt.toolset)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestToolsetCaching(t *testing.T) {
+	t.Parallel()
+
+	// Create a test toolset that counts how many times Tools() is called
+	callCount := 0
+	toolset := &countingToolSet{
+		tools: []tools.Tool{{Name: "test_tool", Description: "Test"}},
+		onCall: func() {
+			callCount++
+		},
+	}
+
+	testAgent := agent.New(
+		"test_agent",
+		"test instruction",
+		agent.WithToolSets(toolset),
+		agent.WithModel(&mockProvider{id: "test/mock"}),
+	)
+
+	tm := team.New(team.WithAgents(testAgent))
+	rt, err := NewLocalRuntime(tm)
+	require.NoError(t, err)
+
+	// First call should compute the summary
+	cache, err := rt.computeToolsetSummary(t.Context(), "test_agent")
+	require.NoError(t, err)
+	require.Equal(t, 1, cache.TotalTools)
+	require.Len(t, cache.Toolsets, 1)
+	firstCallCount := callCount
+
+	// Store in cache
+	rt.cacheToolsetSummary("test_agent", cache)
+
+	// Retrieve from cache
+	cachedCache, ok := rt.getToolsetSummaryFromCache("test_agent")
+	require.True(t, ok)
+	require.Equal(t, cache.TotalTools, cachedCache.TotalTools)
+
+	// Verify toolset.Tools() was called during computeToolsetSummary
+	require.Positive(t, firstCallCount, "expected Tools() to be called at least once")
+}
+
+// countingToolSet is a test toolset that tracks Tools() calls
+type countingToolSet struct {
+	tools  []tools.Tool
+	onCall func()
+}
+
+func (c *countingToolSet) Tools(_ context.Context) ([]tools.Tool, error) {
+	if c.onCall != nil {
+		c.onCall()
+	}
+	return c.tools, nil
 }

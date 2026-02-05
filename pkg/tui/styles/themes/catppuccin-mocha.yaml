@@ -58,6 +58,25 @@ colors:
   badge_info: "#89dceb"
   badge_success: "#a6e3a1"
 
+  # Agent picker colors
+  radio_selected: "#f5c2e7"
+  radio_unselected: "#7f849c"
+  agent_name_selected: "#f5c2e7"
+  agent_name_unselected: "#cdd6f4"
+
+  # Agent picker line-specific colors (label + value for each line type)
+  # Labels slightly muted, values bright/primary for readability
+  agent_desc_label: "#9399b2"
+  agent_desc_value: "#cdd6f4"
+  agent_model_label: "#9399b2"
+  agent_model_value: "#cdd6f4"
+  agent_tools_label: "#9399b2"
+  agent_tools_value: "#cdd6f4"
+  agent_tools_expander: "#89b4fa"
+  agent_toolsets_label: "#9399b2"
+  agent_toolset_name: "#bac2de"
+  agent_tool_name: "#bac2de"
+
 chroma:
   # Syntax highlighting colors - Catppuccin style
   comment: "#7f849c"

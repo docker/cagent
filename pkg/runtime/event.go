@@ -402,13 +402,23 @@ func AgentInfo(agentName, model, description, welcomeMessage string) Event {
 	}
 }
 
+// ToolsetSummary contains summary information about a single toolset
+type ToolsetSummary struct {
+	Name      string   `json:"name"`       // User-friendly name (e.g., "filesystem", "mcp (docker:context7)")
+	ToolCount int      `json:"tool_count"` // Number of tools in this toolset
+	ToolNames []string `json:"tool_names"` // List of individual tool names for details dialog
+}
+
 // AgentDetails contains information about an agent for display in the sidebar
 type AgentDetails struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	Provider    string         `json:"provider"`
-	Model       string         `json:"model"`
-	Commands    types.Commands `json:"commands,omitempty"`
+	Name         string           `json:"name"`
+	Description  string           `json:"description"`
+	Provider     string           `json:"provider"`
+	Model        string           `json:"model"`
+	Commands     types.Commands   `json:"commands,omitempty"`
+	TotalTools   int              `json:"total_tools"`        // Total count of all tools for this agent
+	Toolsets     []ToolsetSummary `json:"toolsets,omitempty"` // Detailed summary of each toolset
+	ToolsLoading bool             `json:"tools_loading"`      // True if tools are still being loaded for this agent
 }
 
 // TeamInfoEvent is sent when team information is available
@@ -450,16 +460,18 @@ func AgentSwitching(switching bool, fromAgent, toAgent string) Event {
 // ToolsetInfoEvent is sent when toolset information is available
 // When Loading is true, more tools may still be loading (e.g., MCP servers starting)
 type ToolsetInfoEvent struct {
-	Type           string `json:"type"`
-	AvailableTools int    `json:"available_tools"`
-	Loading        bool   `json:"loading"`
+	Type           string           `json:"type"`
+	AvailableTools int              `json:"available_tools"`
+	Toolsets       []ToolsetSummary `json:"toolsets,omitempty"` // Detailed summary of each toolset
+	Loading        bool             `json:"loading"`
 	AgentContext
 }
 
-func ToolsetInfo(availableTools int, loading bool, agentName string) Event {
+func ToolsetInfo(availableTools int, toolsets []ToolsetSummary, loading bool, agentName string) Event {
 	return &ToolsetInfoEvent{
 		Type:           "toolset_info",
 		AvailableTools: availableTools,
+		Toolsets:       toolsets,
 		Loading:        loading,
 		AgentContext:   newAgentContext(agentName),
 	}

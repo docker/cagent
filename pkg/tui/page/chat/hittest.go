@@ -162,7 +162,7 @@ func ExtractCoords(msg tea.Msg) (x, y int, ok bool) {
 // sidebarClickTarget determines the specific target within the sidebar area.
 func (h *HitTest) sidebarClickTarget(x, y int) MouseTarget {
 	clickResult := h.page.handleSidebarClickType(x, y)
-	switch clickResult {
+	switch clickResult.Type {
 	case sidebar.ClickStar:
 		return TargetSidebarStar
 	case sidebar.ClickTitle:

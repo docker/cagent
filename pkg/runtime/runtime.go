@@ -159,6 +159,12 @@ type RAGInitializer interface {
 	StartBackgroundRAGInit(ctx context.Context, sendEvent func(Event))
 }
 
+// BackgroundToolsetLoader is implemented by runtimes that support background toolset loading.
+// Local runtimes use this to load all agents' tools after startup; remote runtimes typically do not.
+type BackgroundToolsetLoader interface {
+	StartBackgroundToolsetLoad(ctx context.Context, sendEvent func(Event))
+}
+
 // LocalRuntime manages the execution of agents
 type LocalRuntime struct {
 	toolMap                     map[string]ToolHandler
@@ -179,6 +185,17 @@ type LocalRuntime struct {
 	workingDir                  string   // Working directory for hooks execution
 	env                         []string // Environment variables for hooks execution
 	modelSwitcherCfg            *ModelSwitcherConfig
+
+	// Toolset summary cache - stores computed toolset summaries per agent
+	// to avoid re-enumerating tools on every TeamInfo emission
+	toolsetCacheMu sync.RWMutex
+	toolsetCache   map[string]agentToolsetCache // keyed by agent name
+}
+
+// agentToolsetCache stores cached toolset summary for an agent
+type agentToolsetCache struct {
+	TotalTools int
+	Toolsets   []ToolsetSummary
 }
 
 type streamResult struct {
@@ -263,6 +280,7 @@ func NewLocalRuntime(agents *team.Team, opts ...Opt) (*LocalRuntime, error) {
 		sessionCompaction:    true,
 		managedOAuth:         true,
 		sessionStore:         session.NewInMemorySessionStore(),
+		toolsetCache:         make(map[string]agentToolsetCache),
 	}
 
 	for _, opt := range opts {
@@ -525,10 +543,16 @@ func getAgentModelID(a *agent.Agent) string {
 	return ""
 }
 
-// agentDetailsFromTeam converts team agent info to AgentDetails for events
+// agentDetailsFromTeam converts team agent info to AgentDetails for events.
+// It merges cached toolset summaries if available, and sets ToolsLoading
+// for agents whose toolsets haven't been computed yet.
 func (r *LocalRuntime) agentDetailsFromTeam() []AgentDetails {
 	agentsInfo := r.team.AgentsInfo()
 	details := make([]AgentDetails, len(agentsInfo))
+
+	r.toolsetCacheMu.RLock()
+	defer r.toolsetCacheMu.RUnlock()
+
 	for i, info := range agentsInfo {
 		details[i] = AgentDetails{
 			Name:        info.Name,
@@ -537,8 +561,170 @@ func (r *LocalRuntime) agentDetailsFromTeam() []AgentDetails {
 			Model:       info.Model,
 			Commands:    info.Commands,
 		}
+		// Merge cached toolset data if available
+		if cache, ok := r.toolsetCache[info.Name]; ok {
+			details[i].TotalTools = cache.TotalTools
+			details[i].Toolsets = cache.Toolsets
+			details[i].ToolsLoading = false
+		} else {
+			// Tools haven't been loaded yet for this agent
+			details[i].ToolsLoading = true
+		}
 	}
 	return details
+}
+
+// computeToolsetSummary computes toolset summaries for a given agent by starting
+// each toolset and enumerating its tools. This can be slow for MCP toolsets.
+func (r *LocalRuntime) computeToolsetSummary(ctx context.Context, agentName string) (agentToolsetCache, error) {
+	a, err := r.team.Agent(agentName)
+	if err != nil {
+		return agentToolsetCache{}, err
+	}
+
+	var summaries []ToolsetSummary
+	var totalTools int
+	nameCounts := make(map[string]int) // track duplicate names for disambiguation
+
+	for _, toolset := range a.ToolSets() {
+		// Start the toolset if needed
+		if startable, ok := toolset.(*tools.StartableToolSet); ok {
+			if !startable.IsStarted() {
+				if err := startable.Start(ctx); err != nil {
+					slog.Warn("Toolset start failed during summary computation", "agent", agentName, "error", err)
+					continue
+				}
+			}
+		}
+
+		// Get tools from this toolset
+		ts, err := toolset.Tools(ctx)
+		if err != nil {
+			slog.Warn("Failed to get tools from toolset during summary computation", "agent", agentName, "error", err)
+			continue
+		}
+
+		// Compute display name for this toolset
+		displayName := getToolsetDisplayName(toolset)
+
+		// Handle duplicate names by adding suffix
+		nameCounts[displayName]++
+		if nameCounts[displayName] > 1 {
+			displayName = fmt.Sprintf("%s #%d", displayName, nameCounts[displayName])
+		}
+
+		// Collect tool names
+		toolNames := make([]string, len(ts))
+		for i, t := range ts {
+			toolNames[i] = t.Name
+		}
+
+		summaries = append(summaries, ToolsetSummary{
+			Name:      displayName,
+			ToolCount: len(ts),
+			ToolNames: toolNames,
+		})
+
+		totalTools += len(ts)
+	}
+
+	return agentToolsetCache{
+		TotalTools: totalTools,
+		Toolsets:   summaries,
+	}, nil
+}
+
+// getToolsetDisplayName extracts a user-friendly display name from a toolset.
+// It unwraps common wrappers (StartableToolSet, filterTools, replaceInstruction, toonTools)
+// and maps underlying types to friendly names.
+func getToolsetDisplayName(toolset tools.ToolSet) string {
+	// Unwrap StartableToolSet
+	if startable, ok := toolset.(*tools.StartableToolSet); ok {
+		toolset = startable.ToolSet
+	}
+
+	// Unwrap common teamloader wrappers by checking if they embed ToolSet
+	// We use a loop to handle multiple levels of wrapping
+	for range 5 { // max 5 levels of unwrapping to prevent infinite loops
+		if ts, ok := toolset.(interface{ Unwrap() tools.ToolSet }); ok {
+			if unwrapped := ts.Unwrap(); unwrapped != nil {
+				toolset = unwrapped
+				continue
+			}
+			break
+		}
+		break
+	}
+
+	// Map known types to friendly names
+	typeName := fmt.Sprintf("%T", toolset)
+
+	// Extract the base type name without package path
+	if idx := strings.LastIndex(typeName, "."); idx >= 0 {
+		typeName = typeName[idx+1:]
+	}
+
+	// Remove leading * for pointer types
+	typeName = strings.TrimPrefix(typeName, "*")
+
+	// Map type names to user-friendly display names
+	switch typeName {
+	case "Filesystem", "FilesystemTool", "filesystemTool":
+		return "filesystem"
+	case "Shell", "ShellTool", "shell":
+		return "shell"
+	case "Memory", "MemoryTool", "memoryTool":
+		return "memory"
+	case "ThinkTool", "thinkTool":
+		return "think"
+	case "TodoTool", "todoTool":
+		return "todo"
+	case "FetchTool", "fetchTool":
+		return "fetch"
+	case "ScriptShell", "ScriptShellTool", "scriptShell":
+		return "script"
+	case "TransferTaskTool", "transferTaskTool":
+		return "transfer_task"
+	case "HandoffTool", "handoffTool":
+		return "handoff"
+	case "RAGTool", "ragTool":
+		return "rag"
+	case "DeferredToolset", "deferredToolset":
+		return "deferred"
+	case "Toolset": // MCP toolset
+		if mcpTS, ok := tools.As[*mcptools.Toolset](toolset); ok {
+			if name := mcpTS.Name(); name != "" {
+				return "mcp (" + name + ")"
+			}
+		}
+		return "mcp"
+	case "codeModeTool":
+		return "code_mode"
+	case "LSP", "LSPTool", "lsp":
+		return "lsp"
+	case "Sandbox", "sandbox":
+		return "sandbox"
+	case "API", "APITool", "api":
+		return "api"
+	default:
+		// For unknown types, return a cleaned-up version of the type name
+		return strings.ToLower(typeName)
+	}
+}
+
+// cacheToolsetSummary stores a computed toolset summary in the cache
+func (r *LocalRuntime) cacheToolsetSummary(agentName string, cache agentToolsetCache) {
+	r.toolsetCacheMu.Lock()
+	defer r.toolsetCacheMu.Unlock()
+	r.toolsetCache[agentName] = cache
+}
+
+// getToolsetSummaryFromCache retrieves a cached toolset summary if available
+func (r *LocalRuntime) getToolsetSummaryFromCache(agentName string) (agentToolsetCache, bool) {
+	r.toolsetCacheMu.RLock()
+	defer r.toolsetCacheMu.RUnlock()
+	cache, ok := r.toolsetCache[agentName]
+	return cache, ok
 }
 
 // SessionStore returns the session store for browsing/loading past sessions.
@@ -602,26 +788,71 @@ func (r *LocalRuntime) EmitStartupInfo(ctx context.Context, events chan Event) {
 	r.emitToolsProgressively(ctx, a, send)
 }
 
+// StartBackgroundToolsetLoad computes and caches toolset summaries for all agents in background.
+// When complete, it emits an updated TeamInfo event through the sendEvent callback.
+// This implements the BackgroundToolsetLoader interface.
+func (r *LocalRuntime) StartBackgroundToolsetLoad(ctx context.Context, sendEvent func(Event)) {
+	go func() {
+		agentNames := r.team.AgentNames()
+		var anyNewCached bool
+
+		for _, agentName := range agentNames {
+			// Check context before potentially slow operations
+			if ctx.Err() != nil {
+				return
+			}
+
+			// Skip if already cached
+			if _, ok := r.getToolsetSummaryFromCache(agentName); ok {
+				continue
+			}
+
+			// Compute and cache
+			cache, err := r.computeToolsetSummary(ctx, agentName)
+			if err != nil {
+				slog.Warn("Failed to compute toolset summary", "agent", agentName, "error", err)
+				continue
+			}
+
+			r.cacheToolsetSummary(agentName, cache)
+			slog.Debug("Cached toolset summary", "agent", agentName, "total_tools", cache.TotalTools, "toolsets", len(cache.Toolsets))
+			anyNewCached = true
+		}
+
+		// Emit updated TeamInfo with the newly cached data
+		if anyNewCached && sendEvent != nil {
+			sendEvent(TeamInfo(r.agentDetailsFromTeam(), r.currentAgent))
+			slog.Debug("Emitted updated TeamInfo after background toolset computation")
+		}
+	}()
+}
+
 // emitToolsProgressively loads tools from each toolset and emits progress updates.
 // This allows the UI to show the tool count incrementally as each toolset loads,
 // with a spinner indicating that more tools may be coming.
+// It also builds and caches toolset summaries for the current agent.
 func (r *LocalRuntime) emitToolsProgressively(ctx context.Context, a *agent.Agent, send func(Event) bool) {
 	toolsets := a.ToolSets()
 	totalToolsets := len(toolsets)
 
-	// If no toolsets, emit final state immediately
+	// If no toolsets, emit final state immediately and cache empty summary
 	if totalToolsets == 0 {
-		send(ToolsetInfo(0, false, r.currentAgent))
+		send(ToolsetInfo(0, nil, false, r.currentAgent))
+		r.cacheToolsetSummary(a.Name(), agentToolsetCache{TotalTools: 0, Toolsets: nil})
 		return
 	}
 
 	// Emit initial loading state
-	if !send(ToolsetInfo(0, true, r.currentAgent)) {
+	if !send(ToolsetInfo(0, nil, true, r.currentAgent)) {
 		return
 	}
 
 	// Load tools from each toolset and emit progress
+	// Also build toolset summaries as we go
 	var totalTools int
+	var summaries []ToolsetSummary
+	nameCounts := make(map[string]int)
+
 	for i, toolset := range toolsets {
 		// Check context before potentially slow operations
 		if ctx.Err() != nil {
@@ -649,14 +880,36 @@ func (r *LocalRuntime) emitToolsProgressively(ctx context.Context, a *agent.Agen
 
 		totalTools += len(ts)
 
-		// Emit progress update - still loading unless this is the last toolset
-		if !send(ToolsetInfo(totalTools, !isLast, r.currentAgent)) {
+		// Build toolset summary
+		displayName := getToolsetDisplayName(toolset)
+		nameCounts[displayName]++
+		if nameCounts[displayName] > 1 {
+			displayName = fmt.Sprintf("%s #%d", displayName, nameCounts[displayName])
+		}
+		toolNames := make([]string, len(ts))
+		for j, t := range ts {
+			toolNames[j] = t.Name
+		}
+		summaries = append(summaries, ToolsetSummary{
+			Name:      displayName,
+			ToolCount: len(ts),
+			ToolNames: toolNames,
+		})
+
+		// Emit progress update with current summaries - still loading unless this is the last toolset
+		if !send(ToolsetInfo(totalTools, summaries, !isLast, r.currentAgent)) {
 			return
 		}
 	}
 
-	// Emit final state (not loading)
-	send(ToolsetInfo(totalTools, false, r.currentAgent))
+	// Cache the computed summary for the current agent
+	r.cacheToolsetSummary(a.Name(), agentToolsetCache{
+		TotalTools: totalTools,
+		Toolsets:   summaries,
+	})
+
+	// Emit final state with complete summaries (not loading)
+	send(ToolsetInfo(totalTools, summaries, false, r.currentAgent))
 }
 
 // registerDefaultTools registers the default tool handlers
@@ -732,7 +985,12 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 			return
 		}
 
-		events <- ToolsetInfo(len(agentTools), false, r.currentAgent)
+		// Get cached toolset summaries if available
+		var toolsets []ToolsetSummary
+		if cache, ok := r.getToolsetSummaryFromCache(a.Name()); ok {
+			toolsets = cache.Toolsets
+		}
+		events <- ToolsetInfo(len(agentTools), toolsets, false, r.currentAgent)
 
 		messages := sess.GetMessages(a)
 		if sess.SendUserMessage {

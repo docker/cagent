@@ -48,8 +48,12 @@ const (
 	toggleColumnWidth = 1
 	// appPaddingHorizontal is total horizontal padding from AppStyle (left + right)
 	appPaddingHorizontal = 2
-	// reservedVerticalLines accounts for resize handle (1) + status bar spacing (1)
-	reservedVerticalLines = 2
+	// resizeHandleLines is the number of lines reserved for the resize handle.
+	resizeHandleLines = 1
+	// statusBarSpacingLines is the line between editor and status bar.
+	statusBarSpacingLines = 1
+	// reservedVerticalLines accounts for resize handle + status bar spacing.
+	reservedVerticalLines = resizeHandleLines + statusBarSpacingLines
 )
 
 // sidebarLayoutMode represents how the sidebar is displayed
@@ -479,6 +483,10 @@ func (p *chatPage) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		// Forward to messages component to invalidate cache and trigger redraw
 		model, cmd := p.messages.Update(messages.ToggleHideToolResultsMsg{})
 		p.messages = model.(messages.Model)
+		return p, cmd
+
+	case msgtypes.ToggleAgentDropdownMsg:
+		cmd := p.toggleAgentDropdown()
 		return p, cmd
 
 	case msgtypes.ClearQueueMsg:
@@ -1012,6 +1020,17 @@ func (p *chatPage) SetTitleRegenerating(regenerating bool) tea.Cmd {
 	return p.sidebar.SetTitleRegenerating(regenerating)
 }
 
+func (p *chatPage) toggleAgentDropdown() tea.Cmd {
+	agents := p.sidebar.GetAvailableAgents()
+	if len(agents) <= 1 {
+		return nil
+	}
+	currentAgent := p.sidebar.GetCurrentAgentName()
+	return core.CmdHandler(dialog.OpenDialogMsg{
+		Model: dialog.NewAgentPickerDialog(agents, currentAgent),
+	})
+}
+
 // handleSidebarClickType checks what was clicked in the sidebar area.
 // Returns the type of click (star, title, or none).
 func (p *chatPage) handleSidebarClickType(x, y int) sidebar.ClickResult {
@@ -1027,12 +1046,12 @@ func (p *chatPage) handleSidebarClickType(x, y int) sidebar.ClickResult {
 		}
 	}
 
-	return sidebar.ClickNone
+	return sidebar.ClickResult{Type: sidebar.ClickNone}
 }
 
 // routeMouseEvent routes mouse events to the appropriate component based on coordinates.
 func (p *chatPage) routeMouseEvent(msg tea.Msg, y int) tea.Cmd {
-	editorTop := p.height - p.inputHeight
+	editorTop := p.height - p.inputHeight - statusBarSpacingLines
 	if y < editorTop {
 		sl := p.computeSidebarLayout()
 

@@ -233,27 +233,10 @@ func (a *appModel) handleSwitchAgent(agentName string) (tea.Model, tea.Cmd) {
 	}
 
 	a.sessionState.SetCurrentAgentName(agentName)
-	return a, notification.SuccessCmd(fmt.Sprintf("Switched to agent '%s'", agentName))
-}
-
-func (a *appModel) handleCycleAgent() (tea.Model, tea.Cmd) {
-	availableAgents := a.sessionState.AvailableAgents()
-	if len(availableAgents) <= 1 {
-		return a, notification.InfoCmd("No other agents available")
-	}
-
-	// Find the current agent index
-	currentIndex := -1
-	for i, agent := range availableAgents {
-		if agent.Name == a.sessionState.CurrentAgentName() {
-			currentIndex = i
-			break
-		}
-	}
-
-	// Cycle to the next agent (wrap around to 0 if at the end)
-	nextIndex := (currentIndex + 1) % len(availableAgents)
-	return a.handleSwitchToAgentByIndex(nextIndex)
+	return a, tea.Batch(
+		notification.SuccessCmd(fmt.Sprintf("Switched to agent '%s'", agentName)),
+		func() tea.Msg { return messages.AgentSwitchedMsg{AgentName: agentName} },
+	)
 }
 
 func (a *appModel) handleSwitchToAgentByIndex(index int) (tea.Model, tea.Cmd) {

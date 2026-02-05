@@ -81,6 +81,24 @@ var (
 	TabBg        color.Color
 	TabPrimaryFg color.Color
 	TabAccentFg  color.Color
+
+	// Agent picker colors
+	RadioSelectedColor       color.Color
+	RadioUnselectedColor     color.Color
+	AgentNameSelectedColor   color.Color
+	AgentNameUnselectedColor color.Color
+
+	// Agent picker line-specific colors (label + value for each line type)
+	AgentDescLabelColor     color.Color
+	AgentDescValueColor     color.Color
+	AgentModelLabelColor    color.Color
+	AgentModelValueColor    color.Color
+	AgentToolsLabelColor    color.Color
+	AgentToolsValueColor    color.Color
+	AgentToolsExpanderColor color.Color
+	AgentToolsetsLabelColor color.Color
+	AgentToolsetNameColor   color.Color
+	AgentToolNameColor      color.Color
 )
 
 // Base Styles
@@ -475,6 +493,33 @@ var (
 	SelectionStyle = BaseStyle.
 		Background(Selected).
 		Foreground(SelectedFg)
+)
+
+// Radio Button Styles - for agent picker and similar selectable lists
+var (
+	// RadioSelectedStyle is for the filled radio button (●) when an item is selected/focused
+	RadioSelectedStyle = BaseStyle.Foreground(RadioSelectedColor)
+	// RadioUnselectedStyle is for the empty radio button (○) when an item is not selected
+	RadioUnselectedStyle = BaseStyle.Foreground(RadioUnselectedColor)
+)
+
+// Agent Picker Styles - for the agent selection dialog and sidebar agent list
+var (
+	// AgentNameSelectedStyle is for the agent name when selected/focused
+	AgentNameSelectedStyle = BaseStyle.Foreground(AgentNameSelectedColor).Bold(true)
+	// AgentNameUnselectedStyle is for the agent name when not selected
+	AgentNameUnselectedStyle = BaseStyle.Foreground(AgentNameUnselectedColor)
+	// Agent picker line-specific styles (label + value for each line type)
+	AgentDescLabelStyle     = BaseStyle.Foreground(AgentDescLabelColor)
+	AgentDescValueStyle     = BaseStyle.Foreground(AgentDescValueColor)
+	AgentModelLabelStyle    = BaseStyle.Foreground(AgentModelLabelColor)
+	AgentModelValueStyle    = BaseStyle.Foreground(AgentModelValueColor)
+	AgentToolsLabelStyle    = BaseStyle.Foreground(AgentToolsLabelColor)
+	AgentToolsValueStyle    = BaseStyle.Foreground(AgentToolsValueColor)
+	AgentToolsExpanderStyle = BaseStyle.Foreground(AgentToolsExpanderColor)
+	AgentToolsetsLabelStyle = BaseStyle.Foreground(AgentToolsetsLabelColor)
+	AgentToolsetNameStyle   = BaseStyle.Foreground(AgentToolsetNameColor).Italic(true)
+	AgentToolNameStyle      = BaseStyle.Foreground(AgentToolNameColor)
 )
 
 // Spinner Styles - rebuilt by ApplyTheme() with actual spinner colors from theme

@@ -69,7 +69,7 @@ type KeyMap struct {
 	CommandPalette        key.Binding
 	ToggleYolo            key.Binding
 	ToggleHideToolResults key.Binding
-	CycleAgent            key.Binding
+	AgentDropdown         key.Binding
 	ModelPicker           key.Binding
 	Speak                 key.Binding
 	ClearQueue            key.Binding
@@ -98,9 +98,9 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("ctrl+o"),
 			key.WithHelp("Ctrl+o", "toggle tool output"),
 		),
-		CycleAgent: key.NewBinding(
+		AgentDropdown: key.NewBinding(
 			key.WithKeys("ctrl+s"),
-			key.WithHelp("Ctrl+s", "cycle agent"),
+			key.WithHelp("Ctrl+s", "agents"),
 		),
 		ModelPicker: key.NewBinding(
 			key.WithKeys("ctrl+m"),
@@ -257,10 +257,13 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case *runtime.TeamInfoEvent:
 		a.sessionState.SetAvailableAgents(msg.AvailableAgents)
 		a.sessionState.SetCurrentAgentName(msg.CurrentAgent)
+		// Forward to dialog manager (for agent picker updates)
+		dialogUpdated, dialogCmd := a.dialog.Update(msg)
+		a.dialog = dialogUpdated.(dialog.Manager)
 		// Forward to chat page
 		updated, cmd := a.chatPage.Update(msg)
 		a.chatPage = updated.(chat.Page)
-		return a, cmd
+		return a, tea.Batch(dialogCmd, cmd)
 
 	case *runtime.AgentInfoEvent:
 		a.sessionState.SetCurrentAgentName(msg.AgentName)
@@ -279,6 +282,12 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messages.SwitchAgentMsg:
 		return a.handleSwitchAgent(msg.AgentName)
+
+	case messages.AgentSwitchedMsg:
+		// Forward to chat page to update sidebar
+		updated, cmd := a.chatPage.Update(msg)
+		a.chatPage = updated.(chat.Page)
+		return a, cmd
 
 	case tea.WindowSizeMsg:
 		a.wWidth, a.wHeight = msg.Width, msg.Height
@@ -401,6 +410,11 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messages.ToggleHideToolResultsMsg:
 		return a.handleToggleHideToolResults()
+
+	case messages.ToggleAgentDropdownMsg:
+		updated, cmd := a.chatPage.Update(msg)
+		a.chatPage = updated.(chat.Page)
+		return a, cmd
 
 	case messages.ClearQueueMsg:
 		updated, cmd := a.chatPage.Update(msg)
@@ -667,8 +681,10 @@ func (a *appModel) handleKeyPressMsg(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, a.keyMap.ToggleHideToolResults):
 		return a, core.CmdHandler(messages.ToggleHideToolResultsMsg{})
 
-	case key.Matches(msg, a.keyMap.CycleAgent):
-		return a.handleCycleAgent()
+	case key.Matches(msg, a.keyMap.AgentDropdown):
+		updated, cmd := a.chatPage.Update(messages.ToggleAgentDropdownMsg{})
+		a.chatPage = updated.(chat.Page)
+		return a, cmd
 
 	case key.Matches(msg, a.keyMap.ModelPicker):
 		return a.handleOpenModelPicker()

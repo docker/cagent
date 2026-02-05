@@ -50,6 +50,11 @@ func (f *filterTools) Instructions() string {
 	return tools.GetInstructions(f.ToolSet)
 }
 
+// Unwrap returns the inner toolset for unwrapping during display name computation.
+func (f *filterTools) Unwrap() tools.ToolSet {
+	return f.ToolSet
+}
+
 func (f *filterTools) Tools(ctx context.Context) ([]tools.Tool, error) {
 	allTools, err := f.ToolSet.Tools(ctx)
 	if err != nil {

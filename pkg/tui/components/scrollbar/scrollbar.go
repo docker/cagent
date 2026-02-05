@@ -131,6 +131,7 @@ func (m *Model) calculateThumbPosition() (top, height int) {
 		return 0, 0
 	}
 
+	// Thumb height is proportional to visible/total content, minimum 1
 	thumbHeight := max(1, (m.viewHeight*m.height)/m.totalHeight)
 
 	maxScroll := m.maxScrollOffset()
@@ -138,8 +139,15 @@ func (m *Model) calculateThumbPosition() (top, height int) {
 		return 0, thumbHeight
 	}
 
+	// Scrollable track height is track minus thumb
 	scrollableTrackHeight := m.height - thumbHeight
-	thumbTop := (m.scrollOffset * scrollableTrackHeight) / maxScroll
+
+	// Use rounding (add half divisor) for smoother thumb movement
+	// This prevents the thumb staying at 0 for multiple scroll steps
+	thumbTop := (m.scrollOffset*scrollableTrackHeight + maxScroll/2) / maxScroll
+
+	// Clamp to valid range
+	thumbTop = min(thumbTop, scrollableTrackHeight)
 
 	return thumbTop, thumbHeight
 }

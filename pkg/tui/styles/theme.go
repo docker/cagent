@@ -130,6 +130,24 @@ type ThemeColors struct {
 	BadgeAccent  string `yaml:"badge_accent,omitempty"`  // Accent badge (e.g., purple highlights)
 	BadgeInfo    string `yaml:"badge_info,omitempty"`    // Info badge (e.g., cyan)
 	BadgeSuccess string `yaml:"badge_success,omitempty"` // Success badge (e.g., green)
+
+	// Agent picker colors
+	RadioSelected       string `yaml:"radio_selected,omitempty"`        // Radio button when selected
+	RadioUnselected     string `yaml:"radio_unselected,omitempty"`      // Radio button when not selected
+	AgentNameSelected   string `yaml:"agent_name_selected,omitempty"`   // Agent name when selected
+	AgentNameUnselected string `yaml:"agent_name_unselected,omitempty"` // Agent name when not selected
+
+	// Agent picker line-specific colors (label + value for each line type)
+	AgentDescLabel     string `yaml:"agent_desc_label,omitempty"`     // "Desc:" label
+	AgentDescValue     string `yaml:"agent_desc_value,omitempty"`     // Description value text
+	AgentModelLabel    string `yaml:"agent_model_label,omitempty"`    // "Model:" label
+	AgentModelValue    string `yaml:"agent_model_value,omitempty"`    // Model value text
+	AgentToolsLabel    string `yaml:"agent_tools_label,omitempty"`    // "Tools:" label
+	AgentToolsValue    string `yaml:"agent_tools_value,omitempty"`    // Tools count value
+	AgentToolsExpander string `yaml:"agent_tools_expander,omitempty"` // Tools expander indicator (▶/▼)
+	AgentToolsetsLabel string `yaml:"agent_toolsets_label,omitempty"` // "Toolsets:" label in expanded view
+	AgentToolsetName   string `yaml:"agent_toolset_name,omitempty"`   // Toolset name in expanded view
+	AgentToolName      string `yaml:"agent_tool_name,omitempty"`      // Individual tool name in expanded view
 }
 
 // ChromaColors contains syntax highlighting colors (for code blocks).
@@ -746,6 +764,49 @@ func mergeColors(base, override ThemeColors) ThemeColors {
 	if override.BadgeSuccess != "" {
 		result.BadgeSuccess = override.BadgeSuccess
 	}
+	// Agent picker colors
+	if override.RadioSelected != "" {
+		result.RadioSelected = override.RadioSelected
+	}
+	if override.RadioUnselected != "" {
+		result.RadioUnselected = override.RadioUnselected
+	}
+	if override.AgentNameSelected != "" {
+		result.AgentNameSelected = override.AgentNameSelected
+	}
+	if override.AgentNameUnselected != "" {
+		result.AgentNameUnselected = override.AgentNameUnselected
+	}
+	if override.AgentDescLabel != "" {
+		result.AgentDescLabel = override.AgentDescLabel
+	}
+	if override.AgentDescValue != "" {
+		result.AgentDescValue = override.AgentDescValue
+	}
+	if override.AgentModelLabel != "" {
+		result.AgentModelLabel = override.AgentModelLabel
+	}
+	if override.AgentModelValue != "" {
+		result.AgentModelValue = override.AgentModelValue
+	}
+	if override.AgentToolsLabel != "" {
+		result.AgentToolsLabel = override.AgentToolsLabel
+	}
+	if override.AgentToolsValue != "" {
+		result.AgentToolsValue = override.AgentToolsValue
+	}
+	if override.AgentToolsExpander != "" {
+		result.AgentToolsExpander = override.AgentToolsExpander
+	}
+	if override.AgentToolsetsLabel != "" {
+		result.AgentToolsetsLabel = override.AgentToolsetsLabel
+	}
+	if override.AgentToolsetName != "" {
+		result.AgentToolsetName = override.AgentToolsetName
+	}
+	if override.AgentToolName != "" {
+		result.AgentToolName = override.AgentToolName
+	}
 	return result
 }
 
@@ -925,6 +986,23 @@ func ApplyTheme(theme *Theme) {
 	TabBg = lipgloss.Color(c.TabBg)
 	TabPrimaryFg = lipgloss.Color(c.TextMuted)
 	TabAccentFg = lipgloss.Color(c.Highlight)
+
+	// Agent picker colors - use theme values with fallbacks
+	RadioSelectedColor = lipgloss.Color(fallback(c.RadioSelected, c.Highlight))
+	RadioUnselectedColor = lipgloss.Color(fallback(c.RadioUnselected, c.TextMuted))
+	AgentNameSelectedColor = lipgloss.Color(fallback(c.AgentNameSelected, c.Highlight))
+	AgentNameUnselectedColor = lipgloss.Color(fallback(c.AgentNameUnselected, c.TextPrimary))
+	// Agent picker line-specific colors (label + value for each line type)
+	AgentDescLabelColor = lipgloss.Color(fallback(c.AgentDescLabel, c.TextMuted))
+	AgentDescValueColor = lipgloss.Color(fallback(c.AgentDescValue, c.TextSecondary))
+	AgentModelLabelColor = lipgloss.Color(fallback(c.AgentModelLabel, c.TextMuted))
+	AgentModelValueColor = lipgloss.Color(fallback(c.AgentModelValue, c.Info))
+	AgentToolsLabelColor = lipgloss.Color(fallback(c.AgentToolsLabel, c.TextMuted))
+	AgentToolsValueColor = lipgloss.Color(fallback(c.AgentToolsValue, c.TextSecondary))
+	AgentToolsExpanderColor = lipgloss.Color(fallback(c.AgentToolsExpander, c.Accent))
+	AgentToolsetsLabelColor = lipgloss.Color(fallback(c.AgentToolsetsLabel, c.TextMuted))
+	AgentToolsetNameColor = lipgloss.Color(fallback(c.AgentToolsetName, c.Info))
+	AgentToolNameColor = lipgloss.Color(fallback(c.AgentToolName, c.TextMuted))
 
 	// Rebuild all derived styles
 	rebuildStyles()
@@ -1188,6 +1266,24 @@ func rebuildStyles() {
 	// Selection styles
 	SelectionStyle = BaseStyle.Background(Selected).Foreground(SelectedFg)
 
+	// Radio button and agent picker styles
+	RadioSelectedStyle = BaseStyle.Foreground(RadioSelectedColor)
+	RadioUnselectedStyle = BaseStyle.Foreground(RadioUnselectedColor)
+	AgentNameSelectedStyle = BaseStyle.Foreground(AgentNameSelectedColor).Bold(true)
+	AgentNameUnselectedStyle = BaseStyle.Foreground(AgentNameUnselectedColor)
+
+	// Agent picker line-specific styles (label + value for each line type)
+	AgentDescLabelStyle = BaseStyle.Foreground(AgentDescLabelColor)
+	AgentDescValueStyle = BaseStyle.Foreground(AgentDescValueColor)
+	AgentModelLabelStyle = BaseStyle.Foreground(AgentModelLabelColor)
+	AgentModelValueStyle = BaseStyle.Foreground(AgentModelValueColor)
+	AgentToolsLabelStyle = BaseStyle.Foreground(AgentToolsLabelColor)
+	AgentToolsValueStyle = BaseStyle.Foreground(AgentToolsValueColor)
+	AgentToolsExpanderStyle = BaseStyle.Foreground(AgentToolsExpanderColor)
+	AgentToolsetsLabelStyle = BaseStyle.Foreground(AgentToolsetsLabelColor)
+	AgentToolsetNameStyle = BaseStyle.Foreground(AgentToolsetNameColor).Italic(true)
+	AgentToolNameStyle = BaseStyle.Foreground(AgentToolNameColor)
+
 	// Spinner styles
 	SpinnerDotsAccentStyle = BaseStyle.Foreground(Accent)
 	SpinnerDotsHighlightStyle = BaseStyle.Foreground(TabAccentFg)
@@ -1195,6 +1291,16 @@ func rebuildStyles() {
 	SpinnerTextBrightStyle = BaseStyle.Foreground(lipgloss.Color(CurrentTheme().Colors.SpinnerBright))
 	SpinnerTextDimStyle = BaseStyle.Foreground(lipgloss.Color(CurrentTheme().Colors.SpinnerDim))
 	SpinnerTextDimmestStyle = BaseStyle.Foreground(Accent)
+}
+
+// fallback returns the first non-empty string, or empty if all are empty.
+func fallback(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func bestForegroundHex(bgHex string, candidates ...string) string {

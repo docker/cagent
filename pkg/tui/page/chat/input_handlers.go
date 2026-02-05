@@ -141,6 +141,24 @@ func (p *chatPage) handleMouseClick(msg tea.MouseClickMsg) (layout.Model, tea.Cm
 			return p, nil
 		}
 
+	case TargetSidebarContent:
+		// Handle agent-related clicks within sidebar content area
+		if msg.Button == tea.MouseLeft {
+			clickResult := p.handleSidebarClickType(msg.X, msg.Y)
+			switch clickResult.Type {
+			case sidebar.ClickAgentDropdown:
+				// Only in collapsed mode - open the picker dialog
+				cmd := p.toggleAgentDropdown()
+				return p, cmd
+			case sidebar.ClickAgentSwitch:
+				// Direct click on agent in expanded sidebar - switch directly
+				if clickResult.AgentName != "" && clickResult.AgentName != p.sidebar.GetCurrentAgentName() {
+					return p, core.CmdHandler(msgtypes.SwitchAgentMsg{AgentName: clickResult.AgentName})
+				}
+				return p, nil
+			}
+		}
+
 	case TargetEditorBanner:
 		if msg.Button == tea.MouseLeft {
 			localX := max(0, msg.X-styles.AppPaddingLeft)

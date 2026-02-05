@@ -5,6 +5,9 @@ type (
 	// SwitchAgentMsg switches to a different agent.
 	SwitchAgentMsg struct{ AgentName string }
 
+	// AgentSwitchedMsg notifies that an agent switch has completed.
+	AgentSwitchedMsg struct{ AgentName string }
+
 	// AgentCommandMsg sends a command to the agent.
 	AgentCommandMsg struct{ Command string }
 
@@ -13,4 +16,10 @@ type (
 
 	// ChangeModelMsg changes the model for the current agent.
 	ChangeModelMsg struct{ ModelRef string }
+
+	// ToggleAgentDropdownMsg toggles the agent dropdown in the sidebar.
+	ToggleAgentDropdownMsg struct{}
+
+	// OpenAgentPickerDialogMsg opens the agent picker dialog.
+	OpenAgentPickerDialogMsg struct{}
 )
