@@ -117,6 +117,8 @@ type editor struct {
 	recording bool
 	// recordingDotPhase tracks the animation phase for the recording dots cursor
 	recordingDotPhase int
+	// bindings defines the configurable keybindings for sending messages
+	bindings EditorKeyBindings
 }
 
 // New creates a new editor component
@@ -137,6 +139,7 @@ func New(a *app.App, hist *history.History) Editor {
 		completions:                   completions.Completions(a),
 		keyboardEnhancementsSupported: false,
 		banner:                        newAttachmentBanner(),
+		bindings:                      LoadEditorKeyBindings(),
 	}
 
 	e.configureNewlineKeybinding()
@@ -547,6 +550,7 @@ func (e *editor) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	defer e.updateAttachmentBanner()
 
 	var cmds []tea.Cmd
+
 	switch msg := msg.(type) {
 	case recordingDotsTickMsg:
 		if !e.recording {
@@ -561,51 +565,55 @@ func (e *editor) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		e.textarea.Placeholder = "🎤 Listening" + dots
 		cmd := e.tickRecordingDots()
 		return e, cmd
+
 	case tea.PasteMsg:
 		if e.handlePaste(msg.Content) {
 			return e, nil
 		}
+
 	case tea.KeyboardEnhancementsMsg:
-		// Track keyboard enhancement support and configure newline keybinding accordingly
+		// Track whether the terminal supports keyboard enhancements
+		// (e.g. Shift+Enter) and update newline handling accordingly.
 		e.keyboardEnhancementsSupported = msg.Flags != 0
 		e.configureNewlineKeybinding()
 		return e, nil
+
 	case messages.ThemeChangedMsg:
+		// Re-apply input styles when the theme changes.
 		e.textarea.SetStyles(styles.InputStyle)
 		return e, nil
+
 	case tea.WindowSizeMsg:
+		// Adjust textarea width to match the new window size.
 		e.textarea.SetWidth(msg.Width - 2)
 		return e, nil
 
-	// Handle mouse events
+	// Handle mouse input and forward it to the textarea when appropriate.
 	case tea.MouseWheelMsg:
-		// Forward mouse wheel as cursor movements to textarea for scrolling
-		// This bypasses history navigation and allows viewport scrolling
+		// Translate mouse wheel events into cursor movement for scrolling.
 		switch msg.Button.String() {
 		case "wheelup":
-			// Move cursor up (scrolls viewport if needed)
 			e.textarea.CursorUp()
 		case "wheeldown":
-			// Move cursor down (scrolls viewport if needed)
 			e.textarea.CursorDown()
 		}
 		return e, nil
 
 	case tea.MouseClickMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
+		// Forward mouse events to the textarea and keep focus on click.
 		var cmd tea.Cmd
 		e.textarea, cmd = e.textarea.Update(msg)
-		// Give focus to editor on click
+
 		if _, ok := msg.(tea.MouseClickMsg); ok {
 			return e, tea.Batch(cmd, e.Focus())
 		}
 		return e, cmd
 
 	case completion.SelectedMsg:
+		// Handle completion selection.
 		if e.currentCompletion.AutoSubmit() {
-			// For auto-submit completions (like commands), use the selected
-			// command value (e.g., "/exit") instead of what the user typed
-			// (e.g., "/e"). Append any extra text after the trigger word
-			// to preserve arguments (e.g., "/export /tmp/file").
+			// For auto-submit completions (e.g. commands),
+			// send the completed value immediately.
 			triggerWord := e.currentCompletion.Trigger() + e.completionWord
 			extraText := ""
 			if _, after, found := strings.Cut(e.textarea.Value(), triggerWord); found {
@@ -614,29 +622,38 @@ func (e *editor) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 			cmd := e.resetAndSend(msg.Value + extraText)
 			return e, cmd
 		}
-		// For non-auto-submit completions (like file paths), replace the completion word
+
+		// For non-auto-submit completions, replace only the completion word.
 		currentValue := e.textarea.Value()
 		if lastIdx := strings.LastIndex(currentValue, e.completionWord); lastIdx >= 0 {
-			newValue := currentValue[:lastIdx-1] + msg.Value + currentValue[lastIdx+len(e.completionWord):]
+			newValue := currentValue[:lastIdx-1] +
+				msg.Value +
+				currentValue[lastIdx+len(e.completionWord):]
 			e.textarea.SetValue(newValue)
 			e.textarea.MoveToEnd()
 		}
-		// Track file references when using @ completion (but not paste placeholders)
-		if e.currentCompletion != nil && e.currentCompletion.Trigger() == "@" && !strings.HasPrefix(msg.Value, "@paste-") {
+
+		// Track file attachments when using @ completions.
+		if e.currentCompletion != nil &&
+			e.currentCompletion.Trigger() == "@" &&
+			!strings.HasPrefix(msg.Value, "@paste-") {
 			e.addFileAttachment(msg.Value)
 		}
+
 		e.clearSuggestion()
 		return e, nil
+
 	case completion.ClosedMsg:
+		// Reset completion state when the completion menu closes.
 		e.completionWord = ""
 		e.currentCompletion = nil
 		e.clearSuggestion()
 		e.refreshSuggestion()
 		return e, e.textarea.Focus()
+
 	case completion.SelectionChangedMsg:
-		// Show the selected completion item as a suggestion in the editor
+		// Show the selected completion item as an inline suggestion.
 		if msg.Value != "" && e.currentCompletion != nil {
-			// Calculate the suggestion: what needs to be added after current text
 			currentText := e.textarea.Value()
 			if strings.HasPrefix(msg.Value, currentText) {
 				e.suggestion = msg.Value[len(currentText):]
@@ -648,78 +665,86 @@ func (e *editor) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 			e.clearSuggestion()
 		}
 		return e, nil
+
 	case tea.KeyPressMsg:
+		// Handle paste via the textarea keymap.
 		if key.Matches(msg, e.textarea.KeyMap.Paste) {
 			return e.handleClipboardPaste()
 		}
 
 		// Handle backspace with grapheme cluster awareness.
-		// The default textarea.Model only deletes a single rune, which breaks
-		// multi-codepoint characters like emoji (e.g., ⚠️ = U+26A0 + U+FE0F).
 		if key.Matches(msg, e.textarea.KeyMap.DeleteCharacterBackward) {
 			return e.handleGraphemeBackspace()
 		}
 
-		// Handle send/newline keys:
-		// - Enter: submit current input (if textarea inserted a newline, submit previous buffer).
-		// - Shift+Enter: insert newline when keyboard enhancements are supported.
-		// - Ctrl+J: fallback to insert '\n' when keyboard enhancements are not supported.
-		if msg.String() == "enter" || key.Matches(msg, e.textarea.KeyMap.InsertNewline) {
+		// Send message using the configured send key (default: Enter).
+		if e.bindings.IsSendKey(msg) {
 			if !e.textarea.Focused() {
 				return e, nil
 			}
 
-			// Let textarea process the key - it handles newlines via InsertNewline binding
-			prev := e.textarea.Value()
-			e.textarea, _ = e.textarea.Update(msg)
 			value := e.textarea.Value()
-
-			// If textarea inserted a newline, just refresh and return
-			if value != prev && msg.String() != "enter" {
-				e.refreshSuggestion()
+			if value == "" {
 				return e, nil
 			}
 
-			// If plain enter and textarea inserted a newline, submit the previous value
-			if value != prev && msg.String() == "enter" {
-				if prev != "" {
-					e.textarea.SetValue(prev)
-					e.textarea.MoveToEnd()
-					cmd := e.resetAndSend(prev)
-					return e, cmd
-				}
+			cmd := e.resetAndSend(value)
+			return e, cmd
+		}
+
+		// Insert a newline using the configured newline keys
+		// or Shift+Enter when keyboard enhancements are supported.
+		if e.bindings.IsNewlineKey(msg, e.keyboardEnhancementsSupported) {
+			if !e.textarea.Focused() {
 				return e, nil
 			}
 
-			// Normal enter submit: send current value
+			e.textarea.InsertRune('\n')
+			e.textarea.CursorEnd()
+			e.refreshSuggestion()
+			return e, nil
+		}
+
+		// Fallback behavior: plain Enter sends the message in case the send key
+		// was customized but Enter is still pressed.
+		if msg.String() == "enter" {
+			if !e.textarea.Focused() {
+				return e, nil
+			}
+
+			value := e.textarea.Value()
 			if value != "" {
 				cmd := e.resetAndSend(value)
 				return e, cmd
 			}
-
 			return e, nil
 		}
 
-		// Handle other special keys
+		// Let the textarea handle all other key inputs normally.
+		prevValue := e.textarea.Value()
+
+		var cmd tea.Cmd
+		e.textarea, cmd = e.textarea.Update(msg)
+
+		// Collect any command produced by the textarea (e.g. cursor movement, scrolling).
+		cmds = append(cmds, cmd)
+
+		// History e completions
 		switch msg.String() {
 		case "up":
-			// Only navigate history if the user hasn't manually typed content
 			if !e.userTyped {
 				e.textarea.SetValue(e.hist.Previous())
 				e.textarea.MoveToEnd()
 				e.refreshSuggestion()
 				return e, nil
 			}
-			// Otherwise, let the textarea handle cursor navigation
 		case "down":
-			// Only navigate history if the user hasn't manually typed content
 			if !e.userTyped {
 				e.textarea.SetValue(e.hist.Next())
 				e.textarea.MoveToEnd()
 				e.refreshSuggestion()
 				return e, nil
 			}
-			// Otherwise, let the textarea handle cursor navigation
 		default:
 			for _, completion := range e.completions {
 				if msg.String() == completion.Trigger() {
@@ -730,49 +755,48 @@ func (e *editor) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 				}
 			}
 		}
-	}
 
-	prevValue := e.textarea.Value()
-	var cmd tea.Cmd
-	e.textarea, cmd = e.textarea.Update(msg)
-	cmds = append(cmds, cmd)
-
-	// If the value changed due to user input (not history navigation), mark as user typed
-	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
-		// Check if content changed and it wasn't a history navigation key
-		if e.textarea.Value() != prevValue && keyMsg.String() != "up" && keyMsg.String() != "down" {
+		// Track whether the user has manually typed something.
+		// This is used to disable history navigation (up/down) once the user edits the input.
+		if e.textarea.Value() != prevValue && msg.String() != "up" && msg.String() != "down" {
 			e.userTyped = true
 		}
 
-		// Also check if textarea became empty - reset userTyped flag
+		// Reset userTyped when the input becomes empty again.
 		if e.textarea.Value() == "" {
 			e.userTyped = false
 		}
 
 		currentWord := e.textarea.Word()
 
-		// Track manual @filepath refs - only runs when we're in/leaving an @ word
+		// If there is a pending file reference and the user moved away from it,
+		// attempt to resolve and attach the file.
 		if e.pendingFileRef != "" && currentWord != e.pendingFileRef {
-			// Left the @ word - try to add it as file ref
 			e.tryAddFileRef(e.pendingFileRef)
 			e.pendingFileRef = ""
 		}
+
+		// Track the current @file reference being typed.
+		// This allows delayed resolution until the word is completed or changed.
 		if e.pendingFileRef == "" && strings.HasPrefix(currentWord, "@") && len(currentWord) > 1 {
-			// Entered an @ word - start tracking
 			e.pendingFileRef = currentWord
 		} else if e.pendingFileRef != "" && strings.HasPrefix(currentWord, "@") {
-			// Still in @ word but it changed (user typing more) - update tracking
 			e.pendingFileRef = currentWord
 		}
 
-		if keyMsg.String() == "space" {
+		// Clear active completions when the user types a space.
+		if msg.String() == "space" {
 			e.currentCompletion = nil
 		}
 
+		// Update the completion query based on the current editor state.
 		cmds = append(cmds, e.updateCompletionQuery())
-	}
 
-	e.refreshSuggestion()
+		// Refresh inline suggestions after any input change.
+		e.refreshSuggestion()
+		return e, tea.Batch(cmds...)
+
+	}
 
 	return e, tea.Batch(cmds...)
 }
@@ -1277,4 +1301,34 @@ func createPasteAttachment(content string, num int) (attachment, error) {
 		sizeBytes:   len(content),
 		isTemp:      true,
 	}, nil
+}
+
+// Matching helpers for the editor Update loop, related to send and newline keys.
+
+// IsSendKey returns true if the pressed key should SEND the current message.
+func (b EditorKeyBindings) IsSendKey(msg tea.KeyPressMsg) bool {
+	return msg.String() == string(b.SendKey)
+}
+
+// IsNewlineKey returns true if the pressed key should INSERT a newline
+// instead of sending the message.
+//
+// When keyboard enhancements are supported, Shift+Enter is treated as a
+// natural fallback for inserting a newline.
+func (b EditorKeyBindings) IsNewlineKey(msg tea.KeyPressMsg, enhancements bool) bool {
+	str := msg.String()
+
+	// Check user-configured newline keys
+	for _, nl := range b.NewlineKeys {
+		if str == string(nl) {
+			return true
+		}
+	}
+
+	// Natural fallback when the terminal supports keyboard enhancements
+	if enhancements && str == "shift+enter" {
+		return true
+	}
+
+	return false
 }

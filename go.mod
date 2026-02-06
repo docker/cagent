@@ -25,9 +25,9 @@ require (
 	github.com/blevesearch/bleve/v2 v2.5.7
 	github.com/bmatcuk/doublestar/v4 v4.9.2
 	github.com/charmbracelet/glamour/v2 v2.0.0-20251106195642-800eb8175930
-	github.com/charmbracelet/x/ansi v0.11.4
-	github.com/clipperhouse/displaywidth v0.7.0
-	github.com/clipperhouse/uax29/v2 v2.3.1
+	github.com/charmbracelet/x/ansi v0.11.5
+	github.com/clipperhouse/displaywidth v0.9.0
+	github.com/clipperhouse/uax29/v2 v2.5.0
 	github.com/coder/acp-go-sdk v0.6.3
 	github.com/docker/go-units v0.5.0
 	github.com/dop251/goja v0.0.0-20260106131823-651366fbe6e3
