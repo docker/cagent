@@ -113,6 +113,10 @@
             "claude"
           ]
         },
+        "fallback": {
+          "$ref": "#/definitions/FallbackConfig",
+          "description": "Fallback model configuration for automatic failover and retry behavior"
+        },
         "description": {
           "type": "string",
           "description": "Description of the agent"
@@ -295,6 +299,42 @@
         "instruction": {
           "type": "string",
           "description": "The prompt sent to the agent. Supports bang commands (!`command`) and positional arguments ($1, $2, etc.)"
+        }
+      },
+      "additionalProperties": false
+    },
+    "FallbackConfig": {
+      "type": "object",
+      "description": "Configuration for fallback model behavior when the primary model fails",
+      "properties": {
+        "models": {
+          "type": "array",
+          "description": "List of fallback models to try in order if the primary model fails. Each entry can be a model name from the models section or an inline provider/model format (e.g., 'openai/gpt-4o').",
+          "items": {
+            "type": "string"
+          },
+          "examples": [
+            ["anthropic/claude-sonnet-4-0", "openai/gpt-4o"],
+            ["backup_model", "openai/gpt-5-mini"]
+          ]
+        },
+        "retries": {
+          "type": "integer",
+          "description": "Number of retries per model with exponential backoff for retryable errors (5xx, timeouts). Use 0 or omit for default (2 retries = 3 total attempts per model). Use -1 to disable retries entirely (try each model only once).",
+          "minimum": -1,
+          "default": 2
+        },
+        "cooldown": {
+          "type": "string",
+          "description": "Duration to stick with a successful fallback model before retrying the primary. Only applies after a non-retryable error (e.g., 429 rate limit). Use Go duration format (e.g., '1m', '30s', '2m30s'). Default is '1m'.",
+          "pattern": "^([0-9]+(ns|us|µs|ms|s|m|h))+$",
+          "default": "1m",
+          "examples": [
+            "1m",
+            "30s",
+            "2m30s",
+            "5m"
+          ]
         }
       },
       "additionalProperties": false

@@ -3,6 +3,8 @@
 package markdown
 
 import (
+	"cmp"
+	"slices"
 	"strings"
 	"sync"
 	"unicode"
@@ -600,8 +602,198 @@ func (p *parser) renderBlockquoteCodeBlock(code, lang, indent string, availableW
 
 // tableCell holds pre-rendered cell data to avoid re-rendering
 type tableCell struct {
-	rendered string // rendered with inline styles
-	width    int    // visual width (excluding ANSI codes)
+	rendered    string // rendered with inline styles
+	width       int    // visual width (excluding ANSI codes)
+	longestWord int    // width of longest single word (for minimum column width)
+}
+
+// tableLayout holds the computed table layout parameters
+type tableLayout struct {
+	colWidths  []int  // width for each column
+	sepWidth   int    // visual width of column separator (1 or 3)
+	sep        string // separator string (" │ " or "│")
+	dividerSep string // divider join string ("─┼─" or "┼")
+	needsWrap  bool   // whether cells need wrapping
+}
+
+// computeTableLayout calculates viewport-fit column widths using proportional distribution.
+// It returns the column widths and separator configuration that fit within viewportWidth.
+func computeTableLayout(desired, headerWidths []int, viewportWidth int) tableLayout {
+	numCols := len(desired)
+	if numCols == 0 {
+		return tableLayout{}
+	}
+
+	// Standard separator: " │ " (width 3), divider: "─┼─" (width 3)
+	// Compact separator: "│" (width 1), divider: "┼" (width 1)
+	const (
+		wideSepWidth    = 3
+		compactSepWidth = 1
+	)
+
+	// Calculate total natural width with wide separators
+	totalDesired := 0
+	for _, w := range desired {
+		totalDesired += w
+	}
+	totalWithWideSep := totalDesired + (numCols-1)*wideSepWidth
+
+	// Fast path: table fits with natural widths
+	if totalWithWideSep <= viewportWidth {
+		colWidths := make([]int, numCols)
+		copy(colWidths, desired)
+		return tableLayout{
+			colWidths:  colWidths,
+			sepWidth:   wideSepWidth,
+			sep:        " │ ",
+			dividerSep: "─┼─",
+			needsWrap:  false,
+		}
+	}
+
+	// Try with wide separators first
+	sepWidth := wideSepWidth
+	sep := " │ "
+	dividerSep := "─┼─"
+	availableForCells := viewportWidth - (numCols-1)*sepWidth
+
+	// If wide separators don't leave enough room, try compact
+	minColWidth := 1
+	if availableForCells < numCols*minColWidth {
+		sepWidth = compactSepWidth
+		sep = "│"
+		dividerSep = "┼"
+		availableForCells = viewportWidth - (numCols-1)*sepWidth
+	}
+
+	// If even compact mode can't fit, use minimal widths
+	if availableForCells < numCols*minColWidth {
+		availableForCells = numCols * minColWidth
+	}
+
+	colWidths := distributeWidth(desired, headerWidths, availableForCells)
+
+	return tableLayout{
+		colWidths:  colWidths,
+		sepWidth:   sepWidth,
+		sep:        sep,
+		dividerSep: dividerSep,
+		needsWrap:  true,
+	}
+}
+
+// distributeWidth distributes available width proportionally to desired widths.
+// Columns that need less than their proportional share keep their desired width,
+// and the excess is redistributed to columns that need more.
+// minWidths specifies the minimum width for each column (e.g., longest word).
+func distributeWidth(desired, minWidths []int, available int) []int {
+	numCols := len(desired)
+	if numCols == 0 {
+		return nil
+	}
+
+	colWidths := make([]int, numCols)
+
+	// Calculate total desired width
+	totalDesired := 0
+	for _, w := range desired {
+		totalDesired += w
+	}
+
+	// If we have enough space for everything, use desired widths
+	if totalDesired <= available {
+		copy(colWidths, desired)
+		return colWidths
+	}
+
+	// Start with minimum widths (longest word in column), capped at desired
+	remaining := available
+	for i, d := range desired {
+		minW := 1
+		if i < len(minWidths) && minWidths[i] > minW {
+			minW = minWidths[i]
+		}
+		colWidths[i] = min(d, minW)
+		remaining -= colWidths[i]
+	}
+
+	// Distribute remaining width proportionally to columns that still need more
+	for remaining > 0 {
+		// Find columns that can still grow
+		totalNeed := 0
+		for i, d := range desired {
+			if colWidths[i] < d {
+				totalNeed += d - colWidths[i]
+			}
+		}
+		if totalNeed == 0 {
+			break
+		}
+
+		// Distribute proportionally using largest remainder method
+		distributed := 0
+		remainders := make([]struct {
+			idx       int
+			remainder float64
+		}, 0, numCols)
+
+		for i, d := range desired {
+			need := d - colWidths[i]
+			if need <= 0 {
+				continue
+			}
+			// Proportional share of remaining width
+			share := float64(remaining) * float64(need) / float64(totalNeed)
+			intPart := int(share)
+			fracPart := share - float64(intPart)
+
+			// Cap at what the column actually needs
+			if intPart > need {
+				intPart = need
+			}
+			colWidths[i] += intPart
+			distributed += intPart
+
+			// Track remainder for later distribution
+			if colWidths[i] < d {
+				remainders = append(remainders, struct {
+					idx       int
+					remainder float64
+				}{i, fracPart})
+			}
+		}
+
+		remaining -= distributed
+
+		// Distribute leftover 1-by-1 to columns with largest remainders
+		// Sort by remainder descending
+		slices.SortFunc(remainders, func(a, b struct {
+			idx       int
+			remainder float64
+		},
+		) int {
+			return cmp.Compare(b.remainder, a.remainder) // descending order
+		})
+
+		for _, r := range remainders {
+			if remaining <= 0 {
+				break
+			}
+			if colWidths[r.idx] < desired[r.idx] {
+				colWidths[r.idx]++
+				remaining--
+			}
+		}
+	}
+
+	// Ensure minimum of 1 for all columns
+	for i := range colWidths {
+		if colWidths[i] < 1 {
+			colWidths[i] = 1
+		}
+	}
+
+	return colWidths
 }
 
 // tryTable checks for markdown tables
@@ -659,78 +851,191 @@ func (p *parser) tryTable(line string) bool {
 	// Advance line index past all table lines
 	p.lineIdx = startIdx + numLines
 
-	// Calculate column widths from pre-computed cell widths
-	colWidths := make([]int, numCols)
+	// Calculate desired column widths (natural width = max cell width per column)
+	// and minimum widths (longest single word in each column to avoid mid-word breaks)
+	desired := make([]int, numCols)
+	minWidths := make([]int, numCols)
 	for _, row := range rows {
 		for i, cell := range row {
-			if cell.width > colWidths[i] {
-				colWidths[i] = cell.width
+			if cell.width > desired[i] {
+				desired[i] = cell.width
+			}
+			if cell.longestWord > minWidths[i] {
+				minWidths[i] = cell.longestWord
 			}
 		}
 	}
 
-	// Pre-calculate separator line (only done once)
-	var sepLine string
-	{
-		// Calculate total separator length
-		sepLen := 0
-		for i, w := range colWidths {
-			sepLen += w
-			if i < numCols-1 {
-				sepLen += 9 // len("─┼─") in bytes = 9 (3 runes × 3 bytes each)
-			}
-		}
-		var sepBuilder strings.Builder
-		sepBuilder.Grow(sepLen)
-		for i, w := range colWidths {
-			for range w {
-				sepBuilder.WriteString("─")
-			}
-			if i < numCols-1 {
-				sepBuilder.WriteString("─┼─")
-			}
-		}
-		sepLine = sepBuilder.String()
-	}
+	// Compute viewport-fit layout
+	layout := computeTableLayout(desired, minWidths, p.width)
+	colWidths := layout.colWidths
 
-	// Render table rows directly to output
+	// Build separator line based on fitted widths
+	sepLine := p.buildTableSeparatorLine(colWidths, layout.dividerSep)
+
 	// Use ansiText style for table chrome (separators, dividers) to match content
 	textStyle := p.styles.ansiText
-
-	// Pre-render the styled separator line (computed once per table)
 	styledSepLine := textStyle.render(sepLine)
+	styledSep := textStyle.render(layout.sep)
+
+	if !layout.needsWrap {
+		// Fast path: no wrapping needed, render single-line rows
+		p.renderTableRowsFast(rows, colWidths, styledSep, styledSepLine)
+	} else {
+		// Slow path: wrap cells and render multi-line rows
+		p.renderTableRowsWrapped(rows, colWidths, styledSep, styledSepLine)
+	}
+
+	p.out.WriteByte('\n')
+	return true
+}
+
+// buildTableSeparatorLine builds the horizontal separator line for table header
+func (p *parser) buildTableSeparatorLine(colWidths []int, dividerSep string) string {
+	numCols := len(colWidths)
+	var sepBuilder strings.Builder
+	// Estimate size: each column width + divider separators
+	sepBuilder.Grow(numCols * 10)
+	for i, w := range colWidths {
+		for range w {
+			sepBuilder.WriteString("─")
+		}
+		if i < numCols-1 {
+			sepBuilder.WriteString(dividerSep)
+		}
+	}
+	return sepBuilder.String()
+}
+
+// buildTableBlankRow builds a blank row with column separators for visual separation
+func buildTableBlankRow(colWidths []int, styledSep string) string {
+	var b strings.Builder
+	for i, w := range colWidths {
+		b.WriteString(spaces(w))
+		if i < len(colWidths)-1 {
+			b.WriteString(styledSep)
+		}
+	}
+	return b.String()
+}
+
+// renderTableRowsFast renders table rows without wrapping (fast path)
+func (p *parser) renderTableRowsFast(rows [][]tableCell, colWidths []int, styledSep, styledSepLine string) {
+	numCols := len(colWidths)
+	blankRow := buildTableBlankRow(colWidths, styledSep)
 
 	for rowIdx, row := range rows {
-		for i, cell := range row {
-			if i >= numCols {
-				break
+		// Add blank row between data rows for visual separation
+		if rowIdx > 1 {
+			p.out.WriteString(blankRow)
+			p.out.WriteByte('\n')
+		}
+
+		for i := range numCols {
+			var cell tableCell
+			if i < len(row) {
+				cell = row[i]
 			}
+
 			if rowIdx == 0 {
-				// Header row - bold, write directly to output
+				// Header row - bold
 				p.styles.ansiBold.renderTo(&p.out, cell.rendered)
 			} else {
 				p.out.WriteString(cell.rendered)
 			}
-			// Add padding - plain spaces don't need styling
+
+			// Add padding
 			padding := colWidths[i] - cell.width
 			if padding > 0 {
 				p.out.WriteString(spaces(padding))
 			}
-			if i < len(row)-1 {
-				p.out.WriteString(p.styles.styledTableSep)
+
+			if i < numCols-1 {
+				p.out.WriteString(styledSep)
 			}
 		}
 		p.out.WriteByte('\n')
 
-		// Add separator after header (styled to match content)
+		// Add separator after header
 		if rowIdx == 0 {
 			p.out.WriteString(styledSepLine)
 			p.out.WriteByte('\n')
 		}
 	}
+}
 
-	p.out.WriteByte('\n')
-	return true
+// renderTableRowsWrapped renders table rows with cell wrapping (slow path)
+func (p *parser) renderTableRowsWrapped(rows [][]tableCell, colWidths []int, styledSep, styledSepLine string) {
+	numCols := len(colWidths)
+	blankRow := buildTableBlankRow(colWidths, styledSep)
+
+	for rowIdx, row := range rows {
+		// Add blank row between data rows for visual separation
+		if rowIdx > 1 {
+			p.out.WriteString(blankRow)
+			p.out.WriteByte('\n')
+		}
+
+		// Wrap each cell and collect wrapped lines
+		wrappedCells := make([][]string, numCols)
+		maxLines := 1
+
+		for i := range numCols {
+			var cell tableCell
+			if i < len(row) {
+				cell = row[i]
+			}
+
+			if cell.width <= colWidths[i] {
+				// Cell fits, no wrapping needed
+				wrappedCells[i] = []string{cell.rendered}
+			} else {
+				// Wrap the cell content
+				wrapped := p.wrapText(cell.rendered, colWidths[i])
+				lines := strings.Split(wrapped, "\n")
+				wrappedCells[i] = lines
+			}
+
+			if len(wrappedCells[i]) > maxLines {
+				maxLines = len(wrappedCells[i])
+			}
+		}
+
+		// Render each physical line of the row
+		for lineIdx := range maxLines {
+			for colIdx := range numCols {
+				var lineContent string
+				if lineIdx < len(wrappedCells[colIdx]) {
+					lineContent = wrappedCells[colIdx][lineIdx]
+				}
+
+				// Apply bold to header row
+				if rowIdx == 0 {
+					p.styles.ansiBold.renderTo(&p.out, lineContent)
+				} else {
+					p.out.WriteString(lineContent)
+				}
+
+				// Pad to column width
+				lineWidth := ansiStringWidth(lineContent)
+				padding := colWidths[colIdx] - lineWidth
+				if padding > 0 {
+					p.out.WriteString(spaces(padding))
+				}
+
+				if colIdx < numCols-1 {
+					p.out.WriteString(styledSep)
+				}
+			}
+			p.out.WriteByte('\n')
+		}
+
+		// Add separator after header
+		if rowIdx == 0 {
+			p.out.WriteString(styledSepLine)
+			p.out.WriteByte('\n')
+		}
+	}
 }
 
 // parseAndRenderTableRow parses a table row and renders cells in one pass
@@ -773,8 +1078,9 @@ func (p *parser) parseAndRenderTableRow(line string) []tableCell {
 			rendered, width = p.renderInlineWithWidth(cellText)
 		}
 		cells = append(cells, tableCell{
-			rendered: rendered,
-			width:    width,
+			rendered:    rendered,
+			width:       width,
+			longestWord: longestWordWidth(cellText),
 		})
 		start = i + 1
 	}
@@ -1456,6 +1762,35 @@ func (p *parser) renderInlineWithStyleTo(out *strings.Builder, text string, rest
 	}
 
 	return width
+}
+
+// longestWordWidth returns the visual width of the longest word in text.
+// Words are separated by whitespace. Used to determine minimum column width.
+func longestWordWidth(s string) int {
+	maxWidth := 0
+	wordStart := -1
+
+	for i, r := range s {
+		if r == ' ' || r == '\t' || r == '\n' {
+			if wordStart >= 0 {
+				w := textWidth(s[wordStart:i])
+				if w > maxWidth {
+					maxWidth = w
+				}
+				wordStart = -1
+			}
+		} else if wordStart < 0 {
+			wordStart = i
+		}
+	}
+	// Handle last word
+	if wordStart >= 0 {
+		w := textWidth(s[wordStart:])
+		if w > maxWidth {
+			maxWidth = w
+		}
+	}
+	return maxWidth
 }
 
 // textWidth calculates the visual width of plain text (no ANSI codes).

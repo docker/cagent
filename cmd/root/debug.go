@@ -49,7 +49,7 @@ func (f *debugFlags) runDebugConfigCommand(cmd *cobra.Command, args []string) er
 	ctx := cmd.Context()
 	agentFilename := args[0]
 
-	agentSource, err := config.Resolve(agentFilename)
+	agentSource, err := config.Resolve(agentFilename, f.runConfig.EnvProvider())
 	if err != nil {
 		return err
 	}
@@ -69,7 +69,7 @@ func (f *debugFlags) runDebugToolsetsCommand(cmd *cobra.Command, args []string) 
 	agentFilename := args[0]
 	out := cli.NewPrinter(cmd.OutOrStdout())
 
-	agentSource, err := config.Resolve(agentFilename)
+	agentSource, err := config.Resolve(agentFilename, f.runConfig.EnvProvider())
 	if err != nil {
 		return err
 	}

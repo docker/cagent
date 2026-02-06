@@ -16,6 +16,7 @@ import (
 	"github.com/goccy/go-yaml"
 	"github.com/natefinch/atomic"
 
+	"github.com/docker/cagent/pkg/config/latest"
 	"github.com/docker/cagent/pkg/paths"
 )
 
@@ -43,6 +44,8 @@ type Settings struct {
 	// Theme is the default theme reference (e.g., "dark", "light")
 	// Theme files are loaded from ~/.cagent/themes/<theme>.yaml
 	Theme string `yaml:"theme,omitempty"`
+	// YOLO enables auto-approve mode for all tool calls globally
+	YOLO bool `yaml:"YOLO,omitempty"`
 }
 
 // CredentialHelper contains configuration for a credential helper command
@@ -67,6 +70,9 @@ type Config struct {
 	Version string `yaml:"version,omitempty"`
 	// ModelsGateway is the default models gateway URL
 	ModelsGateway string `yaml:"models_gateway,omitempty"`
+	// DefaultModel is the default model to use when model is set to "auto".
+	// Supports both shorthand ("provider/model") and full model definition.
+	DefaultModel *latest.FlexibleModelConfig `yaml:"default_model,omitempty"`
 	// Aliases maps alias names to alias configurations
 	Aliases map[string]*Alias `yaml:"aliases,omitempty"`
 	// Settings contains global user settings

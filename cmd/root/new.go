@@ -90,8 +90,10 @@ func (f *newFlags) runNewCommand(cmd *cobra.Command, args []string) error {
 func runTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, opts ...app.Opt) error {
 	// For local runtime, create and pass a title generator.
 	if pr, ok := rt.(*runtime.PersistentRuntime); ok {
-		if model := pr.CurrentAgent().Model(); model != nil {
-			opts = append(opts, app.WithTitleGenerator(sessiontitle.New(model)))
+		if a := pr.CurrentAgent(); a != nil {
+			if model := a.Model(); model != nil {
+				opts = append(opts, app.WithTitleGenerator(sessiontitle.New(model, a.FallbackModels()...)))
+			}
 		}
 	}
 

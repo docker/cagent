@@ -1,8 +1,11 @@
 package fsx
 
 import (
+	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type TreeNode struct {
@@ -90,4 +93,125 @@ func CollectFilesFromTree(node *TreeNode, basePath string, files *[]string) {
 			CollectFilesFromTree(child, fullPath, files)
 		}
 	}
+}
+
+// WalkFilesOptions configures the bounded file walker.
+type WalkFilesOptions struct {
+	// MaxFiles is the maximum number of files to return (0 = no limit, but defaults to DefaultMaxFiles).
+	MaxFiles int
+	// MaxDepth is the maximum directory depth to descend (0 = unlimited).
+	// Depth 1 means only root directory, depth 2 means root + immediate children, etc.
+	MaxDepth int
+	// ShouldIgnore is an optional function to filter out paths (return true to skip).
+	ShouldIgnore func(path string) bool
+}
+
+// DefaultMaxFiles is the default cap for file walking to prevent runaway scans.
+const DefaultMaxFiles = 20000
+
+// heavyDirs are directory names that are skipped by default even outside VCS repos.
+var heavyDirs = map[string]bool{
+	".git":         true,
+	"node_modules": true,
+	"vendor":       true,
+	"__pycache__":  true,
+	".venv":        true,
+	"venv":         true,
+	".tox":         true,
+	"dist":         true,
+	"build":        true,
+	".cache":       true,
+	".gradle":      true,
+	".idea":        true,
+	".vscode":      true,
+}
+
+// WalkFiles walks the directory tree starting at root and returns a list of file paths.
+// It is bounded by MaxFiles (defaults to DefaultMaxFiles) and skips hidden directories
+// and known heavy directories like node_modules, vendor, etc.
+// The walk respects context cancellation.
+func WalkFiles(ctx context.Context, root string, opts WalkFilesOptions) ([]string, error) {
+	maxFiles := opts.MaxFiles
+	if maxFiles <= 0 {
+		maxFiles = DefaultMaxFiles
+	}
+
+	// Clean root path for consistent depth calculation
+	root = filepath.Clean(root)
+	rootDepth := strings.Count(root, string(filepath.Separator))
+
+	var files []string
+
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		// Check context cancellation
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		// If we hit the max, stop walking
+		if len(files) >= maxFiles {
+			return fs.SkipAll
+		}
+
+		if err != nil {
+			// For root directory errors (like ENOENT), return the error
+			if path == root {
+				return err
+			}
+			// Skip subdirectories we can't read
+			if d != nil && d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+
+		// Check depth limit
+		if opts.MaxDepth > 0 {
+			pathDepth := strings.Count(filepath.Clean(path), string(filepath.Separator)) - rootDepth
+			if d.IsDir() && pathDepth >= opts.MaxDepth {
+				return fs.SkipDir
+			}
+		}
+
+		name := d.Name()
+
+		// Skip hidden files/directories (starting with .)
+		if strings.HasPrefix(name, ".") && name != "." {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+
+		// Skip known heavy directories
+		if d.IsDir() && heavyDirs[name] {
+			return fs.SkipDir
+		}
+
+		// Apply custom ignore function
+		if opts.ShouldIgnore != nil && opts.ShouldIgnore(path) {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+
+		// Only collect files, not directories
+		if !d.IsDir() {
+			// Store path relative to root for cleaner display
+			relPath, relErr := filepath.Rel(root, path)
+			if relErr != nil {
+				relPath = path
+			}
+			files = append(files, relPath)
+		}
+
+		return nil
+	})
+
+	if err != nil && err != context.Canceled && err != context.DeadlineExceeded {
+		return files, err
+	}
+
+	return files, nil
 }

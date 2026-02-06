@@ -1020,8 +1020,9 @@ func (*DeleteSessionResponse) Descriptor() ([]byte, []int) {
 type ResumeSessionRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Confirmation  string                 `protobuf:"bytes,2,opt,name=confirmation,proto3" json:"confirmation,omitempty"` // "approve", "approve-session", or "reject"
-	Reason        string                 `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`             // optional reason for rejection
+	Confirmation  string                 `protobuf:"bytes,2,opt,name=confirmation,proto3" json:"confirmation,omitempty"`         // "approve", "approve-session", "approve-tool", or "reject"
+	Reason        string                 `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`                     // optional reason for rejection
+	ToolName      string                 `protobuf:"bytes,4,opt,name=tool_name,json=toolName,proto3" json:"tool_name,omitempty"` // optional tool name for approve-tool confirmation
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1073,6 +1074,13 @@ func (x *ResumeSessionRequest) GetConfirmation() string {
 func (x *ResumeSessionRequest) GetReason() string {
 	if x != nil {
 		return x.Reason
+	}
+	return ""
+}
+
+func (x *ResumeSessionRequest) GetToolName() string {
+	if x != nil {
+		return x.ToolName
 	}
 	return ""
 }
@@ -4421,11 +4429,12 @@ const file_cagent_v1_cagent_proto_rawDesc = "" +
 	"\asession\x18\x01 \x01(\v2\x12.cagent.v1.SessionR\asession\"&\n" +
 	"\x14DeleteSessionRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"\x17\n" +
-	"\x15DeleteSessionResponse\"b\n" +
+	"\x15DeleteSessionResponse\"\x7f\n" +
 	"\x14ResumeSessionRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\"\n" +
 	"\fconfirmation\x18\x02 \x01(\tR\fconfirmation\x12\x16\n" +
-	"\x06reason\x18\x03 \x01(\tR\x06reason\"\x17\n" +
+	"\x06reason\x18\x03 \x01(\tR\x06reason\x12\x1b\n" +
+	"\ttool_name\x18\x04 \x01(\tR\btoolName\"\x17\n" +
 	"\x15ResumeSessionResponse\":\n" +
 	"\x19ToggleToolApprovalRequest\x12\x1d\n" +
 	"\n" +

@@ -7,38 +7,31 @@ import (
 	"github.com/docker/cagent/pkg/session"
 )
 
-// EvalCriteria contains the evaluation criteria for a test case.
-type EvalCriteria struct {
-	Relevance  []string `json:"relevance,omitempty"`   // Statements that should be true about the response
-	WorkingDir string   `json:"working_dir,omitempty"` // Subdirectory under evals/working_dirs/
-	Size       string   `json:"size,omitempty"`        // Expected response size: S, M, L, XL
-}
-
-// EvalSession extends session.Session with evaluation criteria.
-type EvalSession struct {
-	session.Session
-	Evals      EvalCriteria `json:"evals"`
-	SourcePath string       `json:"-"` // Path to the source eval file (not serialized)
+// InputSession wraps a session with its source path for evaluation loading.
+type InputSession struct {
+	*session.Session
+	SourcePath string // Path to the source eval file (not serialized)
 }
 
 // Result contains the evaluation results for a single test case.
 type Result struct {
-	InputPath         string           `json:"input_path"`
-	Title             string           `json:"title"`
-	Question          string           `json:"question"`
-	Response          string           `json:"response"`
-	Cost              float64          `json:"cost"`
-	OutputTokens      int64            `json:"output_tokens"`
-	Size              string           `json:"size"`
-	SizeExpected      string           `json:"size_expected"`
-	ToolCallsScore    float64          `json:"tool_calls_score"`
-	ToolCallsExpected float64          `json:"tool_calls_score_expected"`
-	HandoffsMatch     bool             `json:"handoffs"`
-	RelevancePassed   float64          `json:"relevance"`
-	RelevanceExpected float64          `json:"relevance_expected"`
-	FailedRelevance   []string         `json:"failed_relevance,omitempty"`
-	Error             string           `json:"error,omitempty"`
-	RawOutput         []map[string]any `json:"raw_output,omitempty"`
+	InputPath         string            `json:"input_path"`
+	Title             string            `json:"title"`
+	Question          string            `json:"question"`
+	Response          string            `json:"response"`
+	Cost              float64           `json:"cost"`
+	OutputTokens      int64             `json:"output_tokens"`
+	Size              string            `json:"size"`
+	SizeExpected      string            `json:"size_expected"`
+	ToolCallsScore    float64           `json:"tool_calls_score"`
+	ToolCallsExpected float64           `json:"tool_calls_score_expected"`
+	HandoffsMatch     bool              `json:"handoffs"`
+	RelevancePassed   float64           `json:"relevance"`
+	RelevanceExpected float64           `json:"relevance_expected"`
+	FailedRelevance   []RelevanceResult `json:"failed_relevance,omitempty"`
+	Error             string            `json:"error,omitempty"`
+	RawOutput         []map[string]any  `json:"raw_output,omitempty"`
+	Session           *session.Session  `json:"-"` // Full session for database storage (not in JSON)
 }
 
 // checkResults returns successes and failures for this result.
@@ -77,8 +70,12 @@ func (r *Result) checkResults() (successes, failures []string) {
 		if r.RelevancePassed >= r.RelevanceExpected {
 			successes = append(successes, fmt.Sprintf("relevance %.0f/%.0f", r.RelevancePassed, r.RelevanceExpected))
 		} else {
-			for _, criterion := range r.FailedRelevance {
-				failures = append(failures, fmt.Sprintf("relevance: %s", criterion))
+			for _, result := range r.FailedRelevance {
+				if result.Reason != "" {
+					failures = append(failures, fmt.Sprintf("relevance: %s (reason: %s)", result.Criterion, result.Reason))
+				} else {
+					failures = append(failures, fmt.Sprintf("relevance: %s", result.Criterion))
+				}
 			}
 		}
 	}
@@ -93,8 +90,8 @@ type Summary struct {
 	TotalCost       float64 `json:"total_cost"`
 	SizesPassed     int     `json:"sizes_passed"`
 	SizesTotal      int     `json:"sizes_total"`
-	ToolsPassed     float64 `json:"tools_passed"`
-	ToolsTotal      float64 `json:"tools_total"`
+	ToolsF1Sum      float64 `json:"tools_f1_sum"`
+	ToolsCount      int     `json:"tools_count"`
 	HandoffsPassed  int     `json:"handoffs_passed"`
 	HandoffsTotal   int     `json:"handoffs_total"`
 	RelevancePassed float64 `json:"relevance_passed"`
@@ -120,6 +117,7 @@ type Config struct {
 	Only           []string // Only run evaluations matching these patterns
 	BaseImage      string   // Custom base Docker image for running evaluations
 	KeepContainers bool     // If true, don't remove containers after evaluation (skip --rm)
+	EnvVars        []string // Environment variables to pass: KEY (value from env) or KEY=VALUE (explicit)
 }
 
 // Session helper functions

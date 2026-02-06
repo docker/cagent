@@ -251,9 +251,9 @@ func (c *Client) CreateSession(ctx context.Context, sessTemplate *session.Sessio
 	return &sess, err
 }
 
-// ResumeSession resumes a session by ID with an optional rejection reason
-func (c *Client) ResumeSession(ctx context.Context, id, confirmation, reason string) error {
-	req := api.ResumeSessionRequest{Confirmation: confirmation, Reason: reason}
+// ResumeSession resumes a session by ID with optional rejection reason or tool name
+func (c *Client) ResumeSession(ctx context.Context, id, confirmation, reason, toolName string) error {
+	req := api.ResumeSessionRequest{Confirmation: confirmation, Reason: reason, ToolName: toolName}
 	return c.doRequest(ctx, http.MethodPost, "/api/sessions/"+id+"/resume", req, nil)
 }
 

@@ -72,9 +72,15 @@ func NewJudge(model provider.Provider, runConfig *config.RuntimeConfig, concurre
 	}
 }
 
+// RelevanceResult contains the result of a single relevance check.
+type RelevanceResult struct {
+	Criterion string `json:"criterion"`
+	Reason    string `json:"reason"`
+}
+
 // CheckRelevance runs all relevance checks concurrently with the configured concurrency.
-// It returns the number of passed checks, a slice of failed criteria, and any errors encountered.
-func (j *Judge) CheckRelevance(ctx context.Context, response string, criteria []string) (passed int, failed, errs []string) {
+// It returns the number of passed checks, a slice of failed results with reasons, and any errors encountered.
+func (j *Judge) CheckRelevance(ctx context.Context, response string, criteria []string) (passed int, failed []RelevanceResult, errs []string) {
 	if len(criteria) == 0 {
 		return 0, nil, nil
 	}
@@ -93,6 +99,7 @@ func (j *Judge) CheckRelevance(ctx context.Context, response string, criteria []
 	// Results slice preserves order
 	type result struct {
 		passed bool
+		reason string
 		err    error
 	}
 	results := make([]result, len(criteria))
@@ -107,8 +114,8 @@ func (j *Judge) CheckRelevance(ctx context.Context, response string, criteria []
 					results[item.index] = result{err: fmt.Errorf("context cancelled: %w", ctx.Err())}
 					continue
 				}
-				pass, err := j.checkSingle(ctx, response, item.criterion)
-				results[item.index] = result{passed: pass, err: err}
+				pass, reason, err := j.checkSingle(ctx, response, item.criterion)
+				results[item.index] = result{passed: pass, reason: reason, err: err}
 			}
 		}()
 	}
@@ -123,7 +130,10 @@ func (j *Judge) CheckRelevance(ctx context.Context, response string, criteria []
 		if r.passed {
 			passed++
 		} else {
-			failed = append(failed, criteria[i])
+			failed = append(failed, RelevanceResult{
+				Criterion: criteria[i],
+				Reason:    r.reason,
+			})
 		}
 	}
 
@@ -131,7 +141,8 @@ func (j *Judge) CheckRelevance(ctx context.Context, response string, criteria []
 }
 
 // checkSingle checks a single relevance criterion against the response.
-func (j *Judge) checkSingle(ctx context.Context, response, criterion string) (bool, error) {
+// It returns whether the check passed, the reason provided by the judge, and any error.
+func (j *Judge) checkSingle(ctx context.Context, response, criterion string) (passed bool, reason string, err error) {
 	modelCfg := j.model.BaseConfig().ModelConfig
 	judgeWithSchema, err := provider.New(
 		ctx,
@@ -140,7 +151,7 @@ func (j *Judge) checkSingle(ctx context.Context, response, criterion string) (bo
 		options.WithStructuredOutput(judgeResponseSchema),
 	)
 	if err != nil {
-		return false, fmt.Errorf("creating judge provider with structured output: %w", err)
+		return false, "", fmt.Errorf("creating judge provider with structured output: %w", err)
 	}
 
 	prompt := fmt.Sprintf(relevancePrompt, response, criterion)
@@ -148,7 +159,7 @@ func (j *Judge) checkSingle(ctx context.Context, response, criterion string) (bo
 
 	stream, err := judgeWithSchema.CreateChatCompletionStream(ctx, messages, nil)
 	if err != nil {
-		return false, fmt.Errorf("creating chat completion: %w", err)
+		return false, "", fmt.Errorf("creating chat completion: %w", err)
 	}
 	defer stream.Close()
 
@@ -163,23 +174,33 @@ func (j *Judge) checkSingle(ctx context.Context, response, criterion string) (bo
 		}
 	}
 
-	return parseJudgeResponse(fullResponse.String()), nil
+	result := parseJudgeResponse(fullResponse.String())
+	return result.passed, result.reason, nil
 }
 
-// judgeResult represents the structured response from the judge model.
-type judgeResult struct {
+// judgeResponse represents the structured response from the judge model.
+type judgeResponse struct {
 	Result string `json:"result"`
 	Reason string `json:"reason"`
 }
 
-func parseJudgeResponse(text string) bool {
+// parsedJudgeResult contains the parsed result from the judge.
+type parsedJudgeResult struct {
+	passed bool
+	reason string
+}
+
+func parseJudgeResponse(text string) parsedJudgeResult {
 	text = strings.TrimSpace(text)
 
-	var result judgeResult
-	if err := json.Unmarshal([]byte(text), &result); err != nil {
+	var resp judgeResponse
+	if err := json.Unmarshal([]byte(text), &resp); err != nil {
 		// With structured output this should not happen, but handle gracefully
-		return false
+		return parsedJudgeResult{passed: false, reason: "failed to parse judge response"}
 	}
 
-	return strings.EqualFold(result.Result, "pass")
+	return parsedJudgeResult{
+		passed: strings.EqualFold(resp.Result, "pass"),
+		reason: resp.Reason,
+	}
 }

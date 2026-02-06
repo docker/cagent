@@ -20,7 +20,7 @@ func TestURLSource_Read(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	source := NewURLSource(server.URL)
+	source := NewURLSource(server.URL, nil)
 
 	assert.Equal(t, server.URL, source.Name())
 	assert.Empty(t, source.ParentDir())
@@ -58,7 +58,7 @@ func TestURLSource_Read_HTTPError(t *testing.T) {
 			_ = os.Remove(cachePath)
 			_ = os.Remove(etagPath)
 
-			_, err := NewURLSource(server.URL).Read(t.Context())
+			_, err := NewURLSource(server.URL, nil).Read(t.Context())
 			require.Error(t, err)
 		})
 	}
@@ -67,7 +67,7 @@ func TestURLSource_Read_HTTPError(t *testing.T) {
 func TestURLSource_Read_ConnectionError(t *testing.T) {
 	t.Parallel()
 
-	_, err := NewURLSource("http://invalid.invalid/config.yaml").Read(t.Context())
+	_, err := NewURLSource("http://invalid.invalid/config.yaml", nil).Read(t.Context())
 	require.Error(t, err)
 }
 
@@ -80,7 +80,7 @@ func TestURLSource_Read_CachesContent(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	source := NewURLSource(server.URL)
+	source := NewURLSource(server.URL, nil)
 
 	// First read should fetch and cache
 	data, err := source.Read(t.Context())
@@ -138,7 +138,7 @@ func TestURLSource_Read_UsesETagForConditionalRequest(t *testing.T) {
 		_ = os.Remove(etagPath)
 	})
 
-	source := NewURLSource(server.URL)
+	source := NewURLSource(server.URL, nil)
 
 	// Read should use cached content via 304 response
 	data, err := source.Read(t.Context())
@@ -163,7 +163,7 @@ func TestURLSource_Read_FallsBackToCacheOnNetworkError(t *testing.T) {
 		_ = os.Remove(cachePath)
 	})
 
-	source := NewURLSource(url)
+	source := NewURLSource(url, nil)
 
 	// Read should fall back to cached content
 	data, err := source.Read(t.Context())
@@ -191,7 +191,7 @@ func TestURLSource_Read_FallsBackToCacheOnHTTPError(t *testing.T) {
 		_ = os.Remove(cachePath)
 	})
 
-	source := NewURLSource(server.URL)
+	source := NewURLSource(server.URL, nil)
 
 	// Read should fall back to cached content
 	data, err := source.Read(t.Context())
@@ -229,7 +229,7 @@ func TestURLSource_Read_UpdatesCacheWhenContentChanges(t *testing.T) {
 		_ = os.Remove(etagPath)
 	})
 
-	source := NewURLSource(server.URL)
+	source := NewURLSource(server.URL, nil)
 
 	// First read
 	data, err := source.Read(t.Context())
@@ -278,7 +278,7 @@ func TestIsURLReference(t *testing.T) {
 func TestResolve_URLReference(t *testing.T) {
 	t.Parallel()
 
-	source, err := Resolve("https://example.com/agent.yaml")
+	source, err := Resolve("https://example.com/agent.yaml", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "https://example.com/agent.yaml", source.Name())
 	assert.Empty(t, source.ParentDir())
@@ -288,11 +288,189 @@ func TestResolveSources_URLReference(t *testing.T) {
 	t.Parallel()
 
 	url := "https://example.com/agent.yaml"
-	sources, err := ResolveSources(url)
+	sources, err := ResolveSources(url, nil)
 	require.NoError(t, err)
 	require.Len(t, sources, 1)
 
 	source, ok := sources[url]
 	require.True(t, ok)
 	assert.Equal(t, url, source.Name())
+}
+
+func TestURLSource_Read_WithGitHubAuth(t *testing.T) {
+	t.Parallel()
+
+	var receivedAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedAuth = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte("test content"))
+	}))
+	t.Cleanup(server.Close)
+
+	// Create a mock env provider that returns a GitHub token
+	envProvider := &mockEnvProvider{
+		envVars: map[string]string{
+			"GITHUB_TOKEN": "test-token-123",
+		},
+	}
+
+	// For non-GitHub URLs, auth should not be added even with token available
+	source := NewURLSource(server.URL, envProvider)
+	_, err := source.Read(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, receivedAuth, "non-GitHub URLs should not receive auth header")
+}
+
+func TestURLSource_Read_WithGitHubAuth_GitHubURL(t *testing.T) {
+	t.Parallel()
+
+	// Note: We cannot directly test with real GitHub URLs in unit tests.
+	// This test verifies that URLs with GitHub hosts in the path (not hostname)
+	// are correctly identified as non-GitHub URLs and don't receive auth.
+	// This is a security-critical behavior to prevent token leakage.
+
+	for _, host := range githubHosts {
+		t.Run(host, func(t *testing.T) {
+			t.Parallel()
+
+			var receivedAuth string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				receivedAuth = r.Header.Get("Authorization")
+				_, _ = w.Write([]byte("test content"))
+			}))
+			t.Cleanup(server.Close)
+
+			envProvider := &mockEnvProvider{
+				envVars: map[string]string{
+					"GITHUB_TOKEN": "test-token-456",
+				},
+			}
+
+			// URL with GitHub host in path (not hostname) should NOT receive auth
+			// This prevents token leakage to attacker-controlled domains
+			maliciousURL := server.URL + "/" + host + "/path/to/file"
+			source := NewURLSource(maliciousURL, envProvider)
+
+			_, err := source.Read(t.Context())
+			require.NoError(t, err)
+			assert.Empty(t, receivedAuth, "should not add auth header when GitHub host is only in path")
+		})
+	}
+}
+
+func TestURLSource_Read_WithGitHubAuth_NoToken(t *testing.T) {
+	t.Parallel()
+
+	var receivedAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedAuth = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte("test content"))
+	}))
+	t.Cleanup(server.Close)
+
+	// Create a mock env provider without a GitHub token
+	envProvider := &mockEnvProvider{
+		envVars: map[string]string{},
+	}
+
+	source := NewURLSource(server.URL, envProvider)
+	_, err := source.Read(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, receivedAuth, "should not add auth header when token is missing")
+}
+
+func TestURLSource_Read_WithGitHubAuth_NoEnvProvider(t *testing.T) {
+	t.Parallel()
+
+	var receivedAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedAuth = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte("test content"))
+	}))
+	t.Cleanup(server.Close)
+
+	// No env provider
+	source := NewURLSource(server.URL, nil)
+	_, err := source.Read(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, receivedAuth, "should not add auth header without env provider")
+}
+
+func TestIsGitHubURL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		url      string
+		expected bool
+	}{
+		// Valid GitHub URLs
+		{"https://github.com/owner/repo/blob/main/agent.yaml", true},
+		{"https://raw.githubusercontent.com/owner/repo/main/agent.yaml", true},
+		{"https://gist.githubusercontent.com/owner/gist-id/raw/file.yaml", true},
+		{"http://github.com/owner/repo", true},
+
+		// Non-GitHub URLs
+		{"https://example.com/agent.yaml", false},
+		{"https://gitlab.com/owner/repo/agent.yaml", false},
+		{"http://localhost:8080/agent.yaml", false},
+		{"", false},
+
+		// Security: malicious URLs that should NOT be treated as GitHub URLs
+		// These test cases prevent token leakage to attacker-controlled domains
+		{"https://evil.com/github.com/file.yaml", false},           // github.com in path
+		{"https://notgithub.com/file.yaml", false},                 // similar domain name
+		{"https://github.com.attacker.com/file.yaml", false},       // github.com as subdomain
+		{"https://fakegithub.com/owner/repo/agent.yaml", false},    // contains "github.com" substring
+		{"https://raw.githubusercontent.com.evil.com/file", false}, // githubusercontent as subdomain
+		{"https://attacker.com?redirect=github.com", false},        // github.com in query string
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.url, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.expected, isGitHubURL(tt.url))
+		})
+	}
+}
+
+func TestResolve_URLReference_WithEnvProvider(t *testing.T) {
+	t.Parallel()
+
+	envProvider := &mockEnvProvider{
+		envVars: map[string]string{
+			"GITHUB_TOKEN": "test-token",
+		},
+	}
+
+	source, err := Resolve("https://github.com/owner/repo/raw/main/agent.yaml", envProvider)
+	require.NoError(t, err)
+	assert.Equal(t, "https://github.com/owner/repo/raw/main/agent.yaml", source.Name())
+
+	// Verify the source has the env provider set
+	urlSrc, ok := source.(*urlSource)
+	require.True(t, ok)
+	assert.NotNil(t, urlSrc.envProvider)
+}
+
+func TestResolveSources_URLReference_WithEnvProvider(t *testing.T) {
+	t.Parallel()
+
+	envProvider := &mockEnvProvider{
+		envVars: map[string]string{
+			"GITHUB_TOKEN": "test-token",
+		},
+	}
+
+	url := "https://github.com/owner/repo/raw/main/agent.yaml"
+	sources, err := ResolveSources(url, envProvider)
+	require.NoError(t, err)
+	require.Len(t, sources, 1)
+
+	source, ok := sources[url]
+	require.True(t, ok)
+
+	// Verify the source has the env provider set
+	urlSrc, ok := source.(*urlSource)
+	require.True(t, ok)
+	assert.NotNil(t, urlSrc.envProvider)
 }

@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/docker/cagent/pkg/chat"
@@ -20,6 +22,35 @@ var (
 	ErrEmptyID  = errors.New("session ID cannot be empty")
 	ErrNotFound = errors.New("session not found")
 )
+
+// parseRelativeSessionRef checks if ref is a relative session reference (e.g., "-1", "-2")
+// and returns the offset and whether it's a relative reference.
+// Returns (1, true) for "-1", (2, true) for "-2", etc.
+// Returns (0, false) if not a relative reference.
+func parseRelativeSessionRef(ref string) (offset int, isRelative bool) {
+	if !strings.HasPrefix(ref, "-") {
+		return 0, false
+	}
+
+	// Try to parse as negative integer
+	n, err := strconv.Atoi(ref)
+	if err != nil || n >= 0 {
+		return 0, false
+	}
+
+	return -n, true
+}
+
+// ResolveSessionID resolves a session reference to an actual session ID.
+// Supports relative references like "-1" (last session), "-2" (second to last), etc.
+// If the reference is not relative, it returns the input unchanged.
+func ResolveSessionID(ctx context.Context, store Store, ref string) (string, error) {
+	offset, isRelative := parseRelativeSessionRef(ref)
+	if !isRelative {
+		return ref, nil
+	}
+	return store.GetSessionByOffset(ctx, offset)
+}
 
 // Summary contains lightweight session metadata for listing purposes.
 // This is used instead of loading full Session objects with all messages.
@@ -40,6 +71,11 @@ type Store interface {
 	DeleteSession(ctx context.Context, id string) error
 	UpdateSession(ctx context.Context, session *Session) error // Updates metadata only (not messages/items)
 	SetSessionStarred(ctx context.Context, id string, starred bool) error
+
+	// GetSessionByOffset returns the session ID at the given offset from the most recent.
+	// Offset 1 returns the most recent session, 2 returns the second most recent, etc.
+	// Only root sessions are considered (sub-sessions are excluded).
+	GetSessionByOffset(ctx context.Context, offset int) (string, error)
 
 	// === Granular item operations ===
 
@@ -300,6 +336,34 @@ func (s *InMemorySessionStore) UpdateSessionTitle(_ context.Context, sessionID, 
 	return nil
 }
 
+// GetSessionByOffset returns the session ID at the given offset from the most recent.
+func (s *InMemorySessionStore) GetSessionByOffset(_ context.Context, offset int) (string, error) {
+	if offset < 1 {
+		return "", fmt.Errorf("offset must be >= 1, got %d", offset)
+	}
+
+	// Collect and sort sessions by creation time (newest first)
+	var sessions []*Session
+	s.sessions.Range(func(_ string, value *Session) bool {
+		// Only include root sessions (not sub-sessions)
+		if value.ParentID == "" {
+			sessions = append(sessions, value)
+		}
+		return true
+	})
+
+	sort.Slice(sessions, func(i, j int) bool {
+		return sessions[i].CreatedAt.After(sessions[j].CreatedAt)
+	})
+
+	index := offset - 1 // offset 1 means index 0 (most recent session)
+	if index >= len(sessions) {
+		return "", fmt.Errorf("session offset %d out of range (have %d sessions)", offset, len(sessions))
+	}
+
+	return sessions[index].ID, nil
+}
+
 // NewSQLiteSessionStore creates a new SQLite session store
 func NewSQLiteSessionStore(path string) (Store, error) {
 	store, err := openAndMigrateSQLiteStore(path)
@@ -441,8 +505,8 @@ func (s *SQLiteSessionStore) AddSession(ctx context.Context, session *Session) e
 	defer func() { _ = tx.Rollback() }()
 
 	_, err = tx.ExecContext(ctx,
-		"INSERT INTO sessions (id, tools_approved, input_tokens, output_tokens, title, send_user_message, max_iterations, working_dir, created_at, permissions, agent_model_overrides, custom_models_used, thinking, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		session.ID, session.ToolsApproved, session.InputTokens, session.OutputTokens, session.Title, session.SendUserMessage, session.MaxIterations, session.WorkingDir, session.CreatedAt.Format(time.RFC3339), permissionsJSON, agentModelOverridesJSON, customModelsUsedJSON, session.Thinking, parentID)
+		"INSERT INTO sessions (id, tools_approved, input_tokens, output_tokens, title, cost, send_user_message, max_iterations, working_dir, created_at, permissions, agent_model_overrides, custom_models_used, thinking, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		session.ID, session.ToolsApproved, session.InputTokens, session.OutputTokens, session.Title, session.Cost, session.SendUserMessage, session.MaxIterations, session.WorkingDir, session.CreatedAt.Format(time.RFC3339), permissionsJSON, agentModelOverridesJSON, customModelsUsedJSON, session.Thinking, parentID)
 	if err != nil {
 		return err
 	}
@@ -659,9 +723,20 @@ func (s *SQLiteSessionStore) loadSessionItemsWith(ctx context.Context, q querier
 			})
 
 		case "subsession":
+			// Skip if subsession_id is NULL (can happen if the sub-session was deleted
+			// and the foreign key set the reference to NULL)
+			if !row.subsessionID.Valid || row.subsessionID.String == "" {
+				slog.Warn("Skipping subsession item with NULL reference", "session_id", sessionID, "position", row.position)
+				continue
+			}
 			// Recursively load sub-session
 			subSession, err := s.loadSessionWith(ctx, q, row.subsessionID.String)
 			if err != nil {
+				if errors.Is(err, ErrNotFound) {
+					// Sub-session was deleted but item reference remains (orphaned reference)
+					slog.Warn("Skipping orphaned subsession reference", "session_id", sessionID, "subsession_id", row.subsessionID.String)
+					continue
+				}
 				return nil, fmt.Errorf("getting sub-session %s: %w", row.subsessionID.String, err)
 			}
 			items = append(items, Item{SubSession: subSession})
@@ -705,6 +780,13 @@ func (s *SQLiteSessionStore) loadMessagesFromLegacyColumn(ctx context.Context, s
 	err := s.db.QueryRowContext(ctx, "SELECT messages FROM sessions WHERE id = ?", sessionID).Scan(&messagesJSON)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		// Handle case where messages column doesn't exist (very old or corrupted database)
+		// This can happen if the database was created before the messages column was added
+		// or if migrations failed partially
+		if sqliteutil.IsNoSuchColumnError(err) {
+			slog.Warn("messages column not found in sessions table, returning empty messages", "session_id", sessionID)
 			return nil, nil
 		}
 		return nil, err
@@ -1178,4 +1260,29 @@ func (s *SQLiteSessionStore) UpdateSessionTitle(ctx context.Context, sessionID, 
 		"UPDATE sessions SET title = ? WHERE id = ?",
 		title, sessionID)
 	return err
+}
+
+// GetSessionByOffset returns the session ID at the given offset from the most recent.
+func (s *SQLiteSessionStore) GetSessionByOffset(ctx context.Context, offset int) (string, error) {
+	if offset < 1 {
+		return "", fmt.Errorf("offset must be >= 1, got %d", offset)
+	}
+
+	// Query sessions ordered by creation time (newest first), limited to offset
+	// Only include root sessions (not sub-sessions)
+	var sessionID string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id FROM sessions 
+		 WHERE parent_id IS NULL OR parent_id = '' 
+		 ORDER BY created_at DESC 
+		 LIMIT 1 OFFSET ?`,
+		offset-1).Scan(&sessionID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", fmt.Errorf("session offset %d out of range", offset)
+		}
+		return "", err
+	}
+
+	return sessionID, nil
 }

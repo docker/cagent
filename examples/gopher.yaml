@@ -3,7 +3,7 @@
 models:
   claude:
     provider: anthropic
-    model: claude-opus-4-5
+    model: claude-opus-4-6
   haiku:
     provider: anthropic
     model: claude-haiku-4-5
@@ -170,6 +170,7 @@ agents:
       You are the librarian, your job is to look for relevant documentation to help the golang developer agent.
       When given a query, search the internet for relevant documentation, articles, or resources that can assist in completing the task.
       Use context7 for searching documentation and brave for general web searches.
+      A good source of information available to agents is https://deepwiki.com/.
     toolsets:
       - type: mcp
         ref: docker:context7

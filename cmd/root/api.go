@@ -136,12 +136,18 @@ func (f *apiFlags) runAPICommand(cmd *cobra.Command, args []string) error {
 
 	slog.Debug("Starting server", "agents", agentsPath, "addr", ln.Addr().String())
 
-	sessionStore, err := session.NewSQLiteSessionStore(f.sessionDB)
+	// Expand tilde in session database path
+	sessionDB, err := expandTilde(f.sessionDB)
+	if err != nil {
+		return err
+	}
+
+	sessionStore, err := session.NewSQLiteSessionStore(sessionDB)
 	if err != nil {
 		return fmt.Errorf("creating session store: %w", err)
 	}
 
-	sources, err := config.ResolveSources(agentsPath)
+	sources, err := config.ResolveSources(agentsPath, f.runConfig.EnvProvider())
 	if err != nil {
 		return fmt.Errorf("resolving agent sources: %w", err)
 	}

@@ -52,7 +52,7 @@ func completeMessage(cmd *cobra.Command, args []string, toComplete string) ([]st
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	agentSource, err := config.Resolve(args[0])
+	agentSource, err := config.Resolve(args[0], nil)
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}

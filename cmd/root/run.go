@@ -87,7 +87,7 @@ func addRunOrExecFlags(cmd *cobra.Command, flags *runExecFlags) {
 	cmd.PersistentFlags().StringVar(&flags.remoteAddress, "remote", "", "Use remote runtime with specified address")
 	cmd.PersistentFlags().BoolVar(&flags.connectRPC, "connect-rpc", false, "Use Connect-RPC protocol for remote communication (requires --remote)")
 	cmd.PersistentFlags().StringVarP(&flags.sessionDB, "session-db", "s", filepath.Join(paths.GetHomeDir(), ".cagent", "session.db"), "Path to the session database")
-	cmd.PersistentFlags().StringVar(&flags.sessionID, "session", "", "Continue from a previous session by ID")
+	cmd.PersistentFlags().StringVar(&flags.sessionID, "session", "", "Continue from a previous session by ID or relative offset (e.g., -1 for last session)")
 	cmd.PersistentFlags().StringVar(&flags.fakeResponses, "fake", "", "Replay AI responses from cassette file (for testing)")
 	cmd.PersistentFlags().IntVar(&flags.fakeStreamDelay, "fake-stream", 0, "Simulate streaming with delay in ms between chunks (default 15ms if no value given)")
 	cmd.Flag("fake-stream").NoOptDefVal = "15" // --fake-stream without value uses 15ms
@@ -160,6 +160,10 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 		f.hideToolResults = true
 		slog.Debug("Applying user settings", "hide_tool_results", true)
 	}
+	if userSettings.YOLO && !f.autoApprove {
+		f.autoApprove = true
+		slog.Debug("Applying user settings", "YOLO", true)
+	}
 
 	// Apply alias options if this is an alias reference
 	// Alias options only apply if the flag wasn't explicitly set by the user
@@ -209,7 +213,7 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 		}
 		cleanup = func() {} // Remote runtime doesn't need local cleanup
 	} else {
-		agentSource, err := config.Resolve(agentFileName)
+		agentSource, err := config.Resolve(agentFileName, f.runConfig.EnvProvider())
 		if err != nil {
 			return err
 		}
@@ -330,7 +334,13 @@ func (f *runExecFlags) createLocalRuntimeAndSession(ctx context.Context, loadRes
 		return nil, nil, err
 	}
 
-	sessStore, err := session.NewSQLiteSessionStore(f.sessionDB)
+	// Expand tilde in session database path
+	sessionDB, err := expandTilde(f.sessionDB)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	sessStore, err := session.NewSQLiteSessionStore(sessionDB)
 	if err != nil {
 		return nil, nil, fmt.Errorf("creating session store: %w", err)
 	}
@@ -356,10 +366,16 @@ func (f *runExecFlags) createLocalRuntimeAndSession(ctx context.Context, loadRes
 
 	var sess *session.Session
 	if f.sessionID != "" {
-		// Load existing session
-		sess, err = sessStore.GetSession(ctx, f.sessionID)
+		// Resolve relative session references (e.g., "-1" for last session)
+		resolvedID, err := session.ResolveSessionID(ctx, sessStore, f.sessionID)
 		if err != nil {
-			return nil, nil, fmt.Errorf("loading session %q: %w", f.sessionID, err)
+			return nil, nil, fmt.Errorf("resolving session %q: %w", f.sessionID, err)
+		}
+
+		// Load existing session
+		sess, err = sessStore.GetSession(ctx, resolvedID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("loading session %q: %w", resolvedID, err)
 		}
 		sess.ToolsApproved = f.autoApprove
 		sess.HideToolResults = f.hideToolResults
@@ -375,7 +391,7 @@ func (f *runExecFlags) createLocalRuntimeAndSession(ctx context.Context, loadRes
 			}
 		}
 
-		slog.Debug("Loaded existing session", "session_id", f.sessionID, "agent", f.agentName)
+		slog.Debug("Loaded existing session", "session_id", resolvedID, "session_ref", f.sessionID, "agent", f.agentName)
 	} else {
 		sess = session.New(
 			session.WithMaxIterations(agent.MaxIterations()),

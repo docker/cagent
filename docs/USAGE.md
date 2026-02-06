@@ -312,6 +312,7 @@ In the TUI, you can click on the pencil icon (✎) next to the session title in 
 |------------------------|--------------|-----------------------------------------------------------------|----------|
 | `name`                 | string       | Agent identifier                                                | ✓        |
 | `model`                | string       | Model reference                                                 | ✓        |
+| `fallback`             | object       | Fallback model configuration (see below)                        | ✗        |
 | `description`          | string       | Agent purpose                                                   | ✓        |
 | `instruction`          | string       | Detailed behavior instructions                                  | ✓        |
 | `sub_agents`           | array        | List of sub-agent names                                         | ✗        |
@@ -321,6 +322,26 @@ In the TUI, you can click on the pencil icon (✎) next to the session title in 
 | `max_iterations`       | int          | Specifies how many times the agent can loop when using tools    | ✗        |
 | `commands`             | object/array | Named prompts for /commands                                     | ✗        |
 
+#### Fallback Configuration
+
+The `fallback` object configures automatic failover when the primary model fails. **Most users only need to specify `models`** — the defaults handle common scenarios automatically.
+
+| Property   | Type   | Description                                                                                       | Default |
+|------------|--------|---------------------------------------------------------------------------------------------------|---------|
+| `models`   | array  | List of fallback models to try in order (model names or `provider/model` format)                 | `[]`    |
+| `retries`  | int    | Number of retries per model with exponential backoff for retryable errors (5xx, timeouts). Use `-1` to disable retries entirely. | `2`     |
+| `cooldown` | string | Duration to stick with a successful fallback after a non-retryable error (e.g., 429). Uses Go duration format (e.g., `1m`, `30s`) | `1m`    |
+
+**Sensible Defaults:**
+- **`retries: 2`** — Each model gets 3 total attempts (initial + 2 retries) before moving to the next. This handles transient 5xx errors gracefully.
+- **`cooldown: 1m`** — After a rate limit (429), stick with the fallback for 1 minute before retrying the primary.
+
+**Error Classification:**
+- **Retryable errors** (retry same model with backoff): HTTP 5xx, 408, network timeouts, connection errors
+- **Non-retryable errors** (skip to next model immediately): HTTP 429 (rate limit), 4xx client errors
+
+When a non-retryable error like 429 occurs, the runtime switches to the next fallback model and "sticks" with it for the `cooldown` duration before attempting the primary again.
+
 #### Example
 
 ```yaml
@@ -329,6 +350,12 @@ agents:
     model: string # Model reference
     description: string # Agent purpose
     instruction: string # Detailed behavior instructions
+    fallback: # Fallback configuration (optional)
+      models: # Fallback models to try in order
+        - openai/gpt-4o
+        - anthropic/claude-sonnet-4-0
+      retries: 2 # Retries per model for 5xx errors (default: 2)
+      cooldown: 1m # How long to stick with fallback after 429 (default: 1m)
     tools: [] # Available tools (optional)
     sub_agents: [] # Sub-agent names (optional)
     add_date: boolean # Add current date to context (optional)
@@ -1020,6 +1047,145 @@ them to delegate tasks to other agents:
 
 ```
 transfer_task(agent="developer", task="Create a login form", expected_output="HTML and CSS code")
+```
+
+## Skills
+
+Skills provide specialized instructions for specific tasks that agents can load on demand. When a user's request matches a skill's description, the agent reads the skill's `SKILL.md` file to get detailed instructions for that task.
+
+### Enabling Skills
+
+Enable skills for an agent by setting `skills: true` in the agent configuration. The agent must also have a `filesystem` toolset with `read_file` capability:
+
+```yaml
+agents:
+  root:
+    model: openai/gpt-4o
+    instruction: You are a helpful assistant.
+    skills: true
+    toolsets:
+      - type: filesystem  # Required for reading skill files
+```
+
+### How Skills Work
+
+When skills are enabled:
+
+1. cagent scans default locations for `SKILL.md` files
+2. Skill metadata (name, description, location) is injected into the agent's system prompt
+3. When a user request matches a skill's description, the agent uses `read_file` to load the full instructions
+4. The agent follows the skill's instructions to complete the task
+
+### SKILL.md Format
+
+Skills are defined as Markdown files with YAML frontmatter:
+
+```markdown
+---
+name: my-skill
+description: A brief description of what this skill does and when to use it
+license: Apache-2.0
+compatibility: Requires docker and git
+metadata:
+  author: my-org
+  version: "1.0"
+allowed-tools:
+  - Bash(git:*)
+  - Read
+  - Write
+---
+
+# Skill Instructions
+
+Detailed instructions for the agent to follow when this skill is activated...
+```
+
+Required fields:
+- `name`: Unique identifier for the skill
+- `description`: Brief description used by the agent to determine when to use this skill
+
+Optional fields:
+- `license`: License for the skill
+- `compatibility`: Requirements or compatibility notes
+- `metadata`: Key-value pairs for additional metadata
+- `allowed-tools`: List of tools the skill is designed to work with
+
+### Default Skill Search Paths
+
+Skills are automatically discovered from the following locations (in order, later overrides earlier):
+
+**Global locations** (from home directory):
+- `~/.codex/skills/` — Recursive search (Codex format)
+- `~/.claude/skills/` — Flat search (Claude format)
+- `~/.agents/skills/` — Flat search (Agent Skills standard)
+
+**Project locations** (from git root up to current directory):
+- `.claude/skills/` — Flat search, only at current working directory
+- `.agents/skills/` — Flat search, scanned from git root to current directory
+
+### Project Skill Discovery
+
+For `.agents/skills`, cagent walks up from the current working directory to the git repository root, loading skills from each directory along the way. Skills in directories closer to your current working directory take precedence over those higher up in the hierarchy.
+
+**Example directory structure:**
+```
+my-repo/                          # Git root
+├── .git/
+├── .agents/skills/
+│   └── repo-skill/
+│       └── SKILL.md              # Available everywhere in repo
+└── frontend/
+    ├── .agents/skills/
+    │   └── frontend-skill/
+    │       └── SKILL.md          # Available in frontend/ and below
+    └── src/                      # Current working directory
+```
+
+When working in `my-repo/frontend/src/`:
+- Both `repo-skill` and `frontend-skill` are available
+- If both define the same skill name, `frontend-skill` wins (closer to cwd)
+
+### Skill Precedence
+
+When multiple skills have the same name, the later-loaded skill wins:
+
+1. Global skills load first (`~/.codex/skills/`, `~/.claude/skills/`, `~/.agents/skills/`)
+2. Project skills load next, from git root toward current directory
+3. Skills closer to the current directory override those further away
+
+This allows:
+- Global skills to provide defaults
+- Repository-level skills to customize for a project
+- Subdirectory skills to specialize further
+
+### Creating Skills
+
+To create a skill:
+
+1. Create a directory in one of the search paths (e.g., `~/.agents/skills/my-skill/`)
+2. Add a `SKILL.md` file with frontmatter and instructions
+3. The skill will automatically be available to agents with `skills: true`
+
+**Example:**
+
+```bash
+mkdir -p ~/.agents/skills/create-dockerfile
+cat > ~/.agents/skills/create-dockerfile/SKILL.md << 'EOF'
+---
+name: create-dockerfile
+description: Create optimized Dockerfiles for applications
+---
+
+# Creating Dockerfiles
+
+When asked to create a Dockerfile:
+
+1. Analyze the application type and language
+2. Use multi-stage builds for compiled languages
+3. Minimize image size by using slim base images
+4. Follow security best practices (non-root user, etc.)
+...
+EOF
 ```
 
 ## RAG (Retrieval-Augmented Generation)

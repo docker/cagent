@@ -164,14 +164,23 @@ func Run(ctx context.Context, out *Printer, cfg Config, rt runtime.Runtime, sess
 					return nil
 				}
 			case *runtime.ElicitationRequestEvent:
-				serverURL := e.Meta["cagent/server_url"].(string)
+				serverURL, ok := e.Meta["cagent/server_url"].(string)
+				if !ok || serverURL == "" {
+					slog.Warn("Skipping elicitation: missing or invalid server_url (non-interactive session?)")
+					_ = rt.ResumeElicitation(ctx, "decline", nil)
+					return nil
+				}
+
 				result := out.PromptOAuthAuthorization(ctx, serverURL)
-				switch {
-				case ctx.Err() != nil:
+
+				if ctx.Err() != nil {
 					return ctx.Err()
-				case result == ConfirmationApprove:
+				}
+
+				switch result {
+				case ConfirmationApprove:
 					_ = rt.ResumeElicitation(ctx, "accept", nil)
-				case result == ConfirmationReject:
+				case ConfirmationReject:
 					_ = rt.ResumeElicitation(ctx, "decline", nil)
 					return fmt.Errorf("OAuth authorization rejected by user")
 				}

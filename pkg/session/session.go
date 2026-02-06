@@ -54,6 +54,9 @@ type Session struct {
 	// Title is the title of the session, set by the runtime
 	Title string `json:"title"`
 
+	// Evals contains evaluation criteria for this session (used by eval framework)
+	Evals *EvalCriteria `json:"evals,omitempty"`
+
 	// Messages holds the conversation history (messages and sub-sessions)
 	Messages []Item `json:"messages"`
 
@@ -187,6 +190,13 @@ func NewMessageItem(msg *Message) Item {
 // NewSubSessionItem creates a SessionItem containing a sub-session
 func NewSubSessionItem(subSession *Session) Item {
 	return Item{SubSession: subSession}
+}
+
+// EvalCriteria contains the evaluation criteria for a session.
+type EvalCriteria struct {
+	Relevance  []string `json:"relevance"`             // Statements that should be true about the response
+	WorkingDir string   `json:"working_dir,omitempty"` // Subdirectory under evals/working_dirs/
+	Size       string   `json:"size,omitempty"`        // Expected response size: S, M, L, XL
 }
 
 // Session helper methods

@@ -320,8 +320,32 @@ func (c *Client) buildConfig() *genai.GenerateContentConfig {
 	// Gemini 3 models use level-based configuration (thinkingLevel):
 	// - Gemini 3 Pro: "low", "high"
 	// - Gemini 3 Flash: "minimal", "low", "medium", "high"
-	if c.ModelConfig.ThinkingBudget != nil {
+	//
+	// When thinking is explicitly disabled via ModelOptions (e.g., for title generation),
+	// we set ThinkingBudget to 0 to disable thinking completely. This is required for
+	// operations where max_tokens is very low and thinking would cause the request to
+	// hang or fail. IncludeThoughts=false is also set to ensure no thinking content
+	// is returned.
+	if thinking := c.ModelOptions.Thinking(); thinking != nil && !*thinking {
+		// Explicitly disable thinking - required for operations like title generation
+		// where max_tokens is very low and thinking would consume the token budget.
+		// ThinkingBudget=0 disables thinking for both Gemini 2.5 and 3 models.
+		config.ThinkingConfig = &genai.ThinkingConfig{
+			IncludeThoughts: false,
+			ThinkingBudget:  genai.Ptr(int32(0)),
+		}
+		slog.Debug("Gemini thinking explicitly disabled via ModelOptions",
+			"model", c.ModelConfig.Model,
+			"max_output_tokens", config.MaxOutputTokens,
+		)
+	} else if c.ModelConfig.ThinkingBudget != nil {
 		c.applyThinkingConfig(config)
+	} else {
+		slog.Debug("Gemini buildConfig: no thinking configuration applied",
+			"model", c.ModelConfig.Model,
+			"thinking_option", c.ModelOptions.Thinking(),
+			"thinking_budget", c.ModelConfig.ThinkingBudget,
+		)
 	}
 
 	if structuredOutput := c.ModelOptions.StructuredOutput(); structuredOutput != nil {

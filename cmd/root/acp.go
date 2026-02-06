@@ -1,15 +1,19 @@
 package root
 
 import (
+	"path/filepath"
+
 	"github.com/spf13/cobra"
 
 	"github.com/docker/cagent/pkg/acp"
 	"github.com/docker/cagent/pkg/config"
+	"github.com/docker/cagent/pkg/paths"
 	"github.com/docker/cagent/pkg/telemetry"
 )
 
 type acpFlags struct {
 	runConfig config.RuntimeConfig
+	sessionDB string
 }
 
 func newACPCmd() *cobra.Command {
@@ -28,6 +32,7 @@ func newACPCmd() *cobra.Command {
 	}
 
 	addRuntimeConfigFlags(cmd, &flags.runConfig)
+	cmd.Flags().StringVarP(&flags.sessionDB, "session-db", "s", filepath.Join(paths.GetHomeDir(), ".cagent", "session.db"), "Path to the session database")
 
 	return cmd
 }
@@ -38,5 +43,11 @@ func (f *acpFlags) runACPCommand(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	agentFilename := args[0]
 
-	return acp.Run(ctx, agentFilename, cmd.InOrStdin(), cmd.OutOrStdout(), &f.runConfig)
+	// Expand tilde in session database path
+	sessionDB, err := expandTilde(f.sessionDB)
+	if err != nil {
+		return err
+	}
+
+	return acp.Run(ctx, agentFilename, cmd.InOrStdin(), cmd.OutOrStdout(), &f.runConfig, sessionDB)
 }

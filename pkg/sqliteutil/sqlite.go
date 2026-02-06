@@ -60,6 +60,17 @@ func IsCantOpenError(err error) bool {
 	return false
 }
 
+// IsNoSuchColumnError checks if the error is due to a missing column in SQLite.
+// This typically happens when querying a column that doesn't exist in the schema.
+func IsNoSuchColumnError(err error) bool {
+	var sqliteErr *sqlite.Error
+	if errors.As(err, &sqliteErr) {
+		// SQLITE_ERROR (1) is the generic SQL error code used for "no such column"
+		return sqliteErr.Code() == sqlite3.SQLITE_ERROR
+	}
+	return false
+}
+
 // DiagnoseDBOpenError provides a more helpful error message when SQLite
 // fails to open/create a database file.
 func DiagnoseDBOpenError(path string, originalErr error) error {

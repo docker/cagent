@@ -5,8 +5,11 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/goccy/go-yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/docker/cagent/pkg/config/latest"
 )
 
 func TestConfig_Empty(t *testing.T) {
@@ -624,4 +627,158 @@ func TestConfig_CredentialHelper_Empty(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Nil(t, config.CredentialHelper)
+}
+
+func TestDefaultModelConfig_Shorthand(t *testing.T) {
+	t.Parallel()
+
+	yamlContent := `default_model: anthropic/claude-sonnet-4-5`
+
+	var config Config
+	err := yaml.Unmarshal([]byte(yamlContent), &config)
+	require.NoError(t, err)
+
+	require.NotNil(t, config.DefaultModel)
+	assert.Equal(t, "anthropic", config.DefaultModel.Provider)
+	assert.Equal(t, "claude-sonnet-4-5", config.DefaultModel.Model)
+	assert.Nil(t, config.DefaultModel.MaxTokens)
+}
+
+func TestDefaultModelConfig_FullDefinition(t *testing.T) {
+	t.Parallel()
+
+	yamlContent := `default_model:
+  provider: anthropic
+  model: claude-sonnet-4-5
+  max_tokens: 64000
+  thinking_budget: 10000`
+
+	var config Config
+	err := yaml.Unmarshal([]byte(yamlContent), &config)
+	require.NoError(t, err)
+
+	require.NotNil(t, config.DefaultModel)
+	assert.Equal(t, "anthropic", config.DefaultModel.Provider)
+	assert.Equal(t, "claude-sonnet-4-5", config.DefaultModel.Model)
+	require.NotNil(t, config.DefaultModel.MaxTokens)
+	assert.Equal(t, int64(64000), *config.DefaultModel.MaxTokens)
+	require.NotNil(t, config.DefaultModel.ThinkingBudget)
+	assert.Equal(t, 10000, config.DefaultModel.ThinkingBudget.Tokens)
+}
+
+func TestDefaultModelConfig_FullDefinitionWithEffort(t *testing.T) {
+	t.Parallel()
+
+	yamlContent := `default_model:
+  provider: openai
+  model: o1
+  thinking_budget: high`
+
+	var config Config
+	err := yaml.Unmarshal([]byte(yamlContent), &config)
+	require.NoError(t, err)
+
+	require.NotNil(t, config.DefaultModel)
+	assert.Equal(t, "openai", config.DefaultModel.Provider)
+	assert.Equal(t, "o1", config.DefaultModel.Model)
+	require.NotNil(t, config.DefaultModel.ThinkingBudget)
+	assert.Equal(t, "high", config.DefaultModel.ThinkingBudget.Effort)
+}
+
+func TestDefaultModelConfig_Marshal_ShorthandOutput(t *testing.T) {
+	t.Parallel()
+
+	config := &latest.FlexibleModelConfig{
+		ModelConfig: latest.ModelConfig{
+			Provider: "anthropic",
+			Model:    "claude-sonnet-4-5",
+		},
+	}
+
+	data, err := yaml.Marshal(config)
+	require.NoError(t, err)
+
+	// Should output shorthand format when only provider/model are set
+	assert.Equal(t, "anthropic/claude-sonnet-4-5\n", string(data))
+}
+
+func TestDefaultModelConfig_Marshal_FullOutput(t *testing.T) {
+	t.Parallel()
+
+	maxTokens := int64(64000)
+	config := &latest.FlexibleModelConfig{
+		ModelConfig: latest.ModelConfig{
+			Provider:  "anthropic",
+			Model:     "claude-sonnet-4-5",
+			MaxTokens: &maxTokens,
+		},
+	}
+
+	data, err := yaml.Marshal(config)
+	require.NoError(t, err)
+
+	// Should output full format when extra options are set
+	assert.Contains(t, string(data), "provider:")
+	assert.Contains(t, string(data), "model:")
+	assert.Contains(t, string(data), "max_tokens:")
+}
+
+func TestDefaultModelConfig_InvalidShorthand(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+	}{
+		{"no slash", "default_model: anthropic", true},
+		{"empty provider", "default_model: /model", true},
+		{"empty model", "default_model: provider/", true},
+		{"valid shorthand", "default_model: anthropic/claude-sonnet-4-5", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var config Config
+			err := yaml.Unmarshal([]byte(tt.yaml), &config)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestConfig_DefaultModel_SaveAndLoad(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	configFile := filepath.Join(tmpDir, "config.yaml")
+
+	maxTokens := int64(64000)
+	config := &Config{
+		DefaultModel: &latest.FlexibleModelConfig{
+			ModelConfig: latest.ModelConfig{
+				Provider:       "anthropic",
+				Model:          "claude-sonnet-4-5",
+				MaxTokens:      &maxTokens,
+				ThinkingBudget: &latest.ThinkingBudget{Tokens: 10000},
+			},
+		},
+	}
+
+	require.NoError(t, config.saveTo(configFile))
+
+	loaded, err := loadFrom(configFile, "")
+	require.NoError(t, err)
+
+	require.NotNil(t, loaded.DefaultModel)
+	assert.Equal(t, "anthropic", loaded.DefaultModel.Provider)
+	assert.Equal(t, "claude-sonnet-4-5", loaded.DefaultModel.Model)
+	require.NotNil(t, loaded.DefaultModel.MaxTokens)
+	assert.Equal(t, int64(64000), *loaded.DefaultModel.MaxTokens)
+	require.NotNil(t, loaded.DefaultModel.ThinkingBudget)
+	assert.Equal(t, 10000, loaded.DefaultModel.ThinkingBudget.Tokens)
 }

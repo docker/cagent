@@ -17,7 +17,13 @@ func (t *Config) UnmarshalYAML(unmarshal func(any) error) error {
 
 func (t *Config) validate() error {
 	for i := range t.Agents {
-		agent := t.Agents[i]
+		agent := &t.Agents[i]
+
+		// Validate fallback config
+		if err := agent.validateFallback(); err != nil {
+			return err
+		}
+
 		for j := range agent.Toolsets {
 			if err := agent.Toolsets[j].validate(); err != nil {
 				return err
@@ -28,6 +34,23 @@ func (t *Config) validate() error {
 				return err
 			}
 		}
+	}
+
+	return nil
+}
+
+// validateFallback validates the fallback configuration for an agent
+func (a *AgentConfig) validateFallback() error {
+	if a.Fallback == nil {
+		return nil
+	}
+
+	// -1 is allowed as a special value meaning "explicitly no retries"
+	if a.Fallback.Retries < -1 {
+		return errors.New("fallback.retries must be >= -1 (use -1 for no retries, 0 for default)")
+	}
+	if a.Fallback.Cooldown.Duration < 0 {
+		return errors.New("fallback.cooldown must be non-negative")
 	}
 
 	return nil

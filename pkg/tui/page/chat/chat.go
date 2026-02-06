@@ -604,6 +604,13 @@ const pendingSpinnerHeight = 3
 
 // renderCollapsedSidebar renders the sidebar in collapsed mode (at top of screen).
 func (p *chatPage) renderCollapsedSidebar(sl sidebarLayout) string {
+	// Guard against unset/invalid layout (can happen before WindowSizeMsg is received).
+	width := max(0, sl.innerWidth)
+	height := max(0, sl.sidebarHeight)
+	if width == 0 || height == 0 {
+		return ""
+	}
+
 	sidebarView := p.sidebar.View()
 	sidebarLines := strings.Split(sidebarView, "\n")
 
@@ -614,9 +621,9 @@ func (p *chatPage) renderCollapsedSidebar(sl sidebarLayout) string {
 	}
 
 	// Replace the last line with a subtle divider
-	divider := styles.FadingStyle.Render(strings.Repeat("─", sl.innerWidth))
-	if len(sidebarLines) >= sl.sidebarHeight {
-		sidebarLines[sl.sidebarHeight-1] = divider
+	divider := styles.FadingStyle.Render(strings.Repeat("─", width))
+	if len(sidebarLines) >= height {
+		sidebarLines[height-1] = divider
 	} else {
 		sidebarLines = append(sidebarLines, divider)
 	}
@@ -624,8 +631,8 @@ func (p *chatPage) renderCollapsedSidebar(sl sidebarLayout) string {
 	sidebarWithDivider := strings.Join(sidebarLines, "\n")
 
 	return lipgloss.NewStyle().
-		Width(sl.innerWidth).
-		Height(sl.sidebarHeight).
+		Width(width).
+		Height(height).
 		Align(lipgloss.Left, lipgloss.Top).
 		Render(sidebarWithDivider)
 }

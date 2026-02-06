@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
 
@@ -209,6 +210,52 @@ func hasEventType(t *testing.T, events []Event, target Event) bool {
 	return false
 }
 
+// assertEventsEqual compares two event slices, ignoring timestamps.
+// Timestamps are inherently non-deterministic in tests.
+func assertEventsEqual(t *testing.T, expected, actual []Event) {
+	t.Helper()
+
+	require.Len(t, actual, len(expected), "event count mismatch")
+
+	for i := range expected {
+		expectedType := reflect.TypeOf(expected[i])
+		actualType := reflect.TypeOf(actual[i])
+		assert.Equal(t, expectedType, actualType, "event type mismatch at index %d", i)
+
+		// Clear timestamps for comparison
+		clearTimestamps(expected[i])
+		clearTimestamps(actual[i])
+
+		assert.Equal(t, expected[i], actual[i], "event content mismatch at index %d", i)
+	}
+}
+
+// clearTimestamps sets Timestamp fields to zero value in events for comparison.
+func clearTimestamps(event Event) {
+	if event == nil {
+		return
+	}
+
+	// Use reflection to find and clear Timestamp in embedded AgentContext
+	v := reflect.ValueOf(event)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return
+	}
+
+	field := v.FieldByName("AgentContext")
+	if !field.IsValid() || field.Kind() != reflect.Struct {
+		return
+	}
+
+	timestampField := field.FieldByName("Timestamp")
+	if timestampField.IsValid() && timestampField.CanSet() {
+		timestampField.Set(reflect.Zero(timestampField.Type()))
+	}
+}
+
 func TestSimple(t *testing.T) {
 	stream := newStreamBuilder().
 		AddContent("Hello").
@@ -242,7 +289,7 @@ func TestSimple(t *testing.T) {
 		StreamStopped(sess.ID, "root"),
 	}
 
-	require.Equal(t, expectedEvents, events)
+	assertEventsEqual(t, expectedEvents, events)
 }
 
 func TestMultipleContentChunks(t *testing.T) {
@@ -284,7 +331,7 @@ func TestMultipleContentChunks(t *testing.T) {
 		StreamStopped(sess.ID, "root"),
 	}
 
-	require.Equal(t, expectedEvents, events)
+	assertEventsEqual(t, expectedEvents, events)
 }
 
 func TestWithReasoning(t *testing.T) {
@@ -322,7 +369,7 @@ func TestWithReasoning(t *testing.T) {
 		StreamStopped(sess.ID, "root"),
 	}
 
-	require.Equal(t, expectedEvents, events)
+	assertEventsEqual(t, expectedEvents, events)
 }
 
 func TestMixedContentAndReasoning(t *testing.T) {
@@ -362,7 +409,7 @@ func TestMixedContentAndReasoning(t *testing.T) {
 		StreamStopped(sess.ID, "root"),
 	}
 
-	require.Equal(t, expectedEvents, events)
+	assertEventsEqual(t, expectedEvents, events)
 }
 
 func TestToolCallSequence(t *testing.T) {
@@ -895,7 +942,7 @@ func TestEmitStartupInfo(t *testing.T) {
 		ToolsetInfo(0, false, "startup-test-agent"), // No tools configured
 	}
 
-	require.Equal(t, expectedEvents, collectedEvents)
+	assertEventsEqual(t, expectedEvents, collectedEvents)
 
 	// Test that calling EmitStartupInfo again doesn't emit duplicate events
 	events2 := make(chan Event, 10)

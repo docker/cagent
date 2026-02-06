@@ -82,7 +82,7 @@ func StartHTTPServer(ctx context.Context, agentFilename, agentName string, runCo
 }
 
 func createMCPServer(ctx context.Context, agentFilename, agentName string, runConfig *config.RuntimeConfig) (*mcp.Server, func(), error) {
-	agentSource, err := config.Resolve(agentFilename)
+	agentSource, err := config.Resolve(agentFilename, nil)
 	if err != nil {
 		return nil, nil, err
 	}

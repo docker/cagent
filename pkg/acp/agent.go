@@ -6,13 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
 
 	"github.com/coder/acp-go-sdk"
-	"github.com/google/uuid"
 
 	"github.com/docker/cagent/pkg/config"
 	"github.com/docker/cagent/pkg/runtime"
@@ -26,9 +26,10 @@ import (
 
 // Agent implements the ACP Agent interface for cagent
 type Agent struct {
-	agentSource config.Source
-	runConfig   *config.RuntimeConfig
-	sessions    map[string]*Session
+	agentSource  config.Source
+	runConfig    *config.RuntimeConfig
+	sessionStore session.Store
+	sessions     map[string]*Session
 
 	conn *acp.AgentSideConnection
 	team *team.Team
@@ -47,11 +48,12 @@ type Session struct {
 }
 
 // NewAgent creates a new ACP agent
-func NewAgent(agentSource config.Source, runConfig *config.RuntimeConfig) *Agent {
+func NewAgent(agentSource config.Source, runConfig *config.RuntimeConfig, sessionStore session.Store) *Agent {
 	return &Agent{
-		agentSource: agentSource,
-		runConfig:   runConfig,
-		sessions:    make(map[string]*Session),
+		agentSource:  agentSource,
+		runConfig:    runConfig,
+		sessionStore: sessionStore,
+		sessions:     make(map[string]*Session),
 	}
 }
 
@@ -108,30 +110,75 @@ func (a *Agent) Initialize(ctx context.Context, params acp.InitializeRequest) (a
 }
 
 // NewSession implements [acp.Agent]
-func (a *Agent) NewSession(_ context.Context, params acp.NewSessionRequest) (acp.NewSessionResponse, error) {
-	sid := uuid.New().String()
-	slog.Debug("ACP NewSession called", "session_id", sid, "cwd", params.Cwd)
+func (a *Agent) NewSession(ctx context.Context, params acp.NewSessionRequest) (acp.NewSessionResponse, error) {
+	slog.Debug("ACP NewSession called", "cwd", params.Cwd)
 
 	// Log warning if MCP servers are provided (not yet supported)
 	if len(params.McpServers) > 0 {
 		slog.Warn("MCP servers provided by client are not yet supported", "count", len(params.McpServers))
 	}
 
-	rt, err := runtime.New(a.team, runtime.WithCurrentAgent("root"))
+	// Validate and normalize working directory
+	var workingDir string
+	if wd := strings.TrimSpace(params.Cwd); wd != "" {
+		absWd, err := filepath.Abs(wd)
+		if err != nil {
+			return acp.NewSessionResponse{}, fmt.Errorf("invalid working directory: %w", err)
+		}
+		info, err := os.Stat(absWd)
+		if err != nil {
+			return acp.NewSessionResponse{}, fmt.Errorf("working directory does not exist: %w", err)
+		}
+		if !info.IsDir() {
+			return acp.NewSessionResponse{}, fmt.Errorf("working directory must be a directory")
+		}
+		workingDir = absWd
+	}
+
+	rt, err := runtime.New(a.team,
+		runtime.WithCurrentAgent("root"),
+		runtime.WithSessionStore(a.sessionStore),
+	)
 	if err != nil {
 		return acp.NewSessionResponse{}, fmt.Errorf("failed to create runtime: %w", err)
 	}
 
+	// Get root agent config for session settings
+	rootAgent, err := a.team.Agent("root")
+	if err != nil {
+		return acp.NewSessionResponse{}, fmt.Errorf("failed to get root agent: %w", err)
+	}
+
+	// Build session options (title will be set after we have the session ID)
+	sessOpts := []session.Opt{
+		session.WithMaxIterations(rootAgent.MaxIterations()),
+		session.WithThinking(rootAgent.ThinkingConfigured()),
+	}
+	if workingDir != "" {
+		sessOpts = append(sessOpts, session.WithWorkingDir(workingDir))
+	}
+
+	// Create session - use its auto-generated ID
+	sess := session.New(sessOpts...)
+	sess.Title = "ACP Session " + sess.ID
+
+	// Persist session to the store
+	if err := a.sessionStore.AddSession(ctx, sess); err != nil {
+		return acp.NewSessionResponse{}, fmt.Errorf("failed to persist session: %w", err)
+	}
+
+	slog.Debug("ACP session created", "session_id", sess.ID)
+
 	a.mu.Lock()
-	a.sessions[sid] = &Session{
-		id:         sid,
-		sess:       session.New(session.WithTitle("ACP Session " + sid)),
+	a.sessions[sess.ID] = &Session{
+		id:         sess.ID,
+		sess:       sess,
 		rt:         rt,
-		workingDir: params.Cwd,
+		workingDir: workingDir,
 	}
 	a.mu.Unlock()
 
-	return acp.NewSessionResponse{SessionId: acp.SessionId(sid)}, nil
+	return acp.NewSessionResponse{SessionId: acp.SessionId(sess.ID)}, nil
 }
 
 // Authenticate implements [acp.Agent]

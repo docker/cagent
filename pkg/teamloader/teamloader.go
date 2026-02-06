@@ -132,7 +132,7 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 	agentsByName := make(map[string]*agent.Agent)
 
 	autoModel := sync.OnceValue(func() latest.ModelConfig {
-		return config.AutoModelConfig(ctx, runConfig.ModelsGateway, env)
+		return config.AutoModelConfig(ctx, runConfig.ModelsGateway, env, runConfig.DefaultModel)
 	})
 
 	expander := js.NewJsExpander(env)
@@ -172,6 +172,22 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 			opts = append(opts, agent.WithModel(model))
 		}
 		opts = append(opts, agent.WithThinkingConfigured(thinkingConfigured))
+
+		// Load fallback models if configured
+		fallbackModelRefs := agentConfig.GetFallbackModels()
+		if len(fallbackModelRefs) > 0 {
+			fallbackModels, err := getFallbackModelsForAgent(ctx, cfg, &agentConfig, runConfig)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get fallback models: %w", err)
+			}
+			for _, model := range fallbackModels {
+				opts = append(opts, agent.WithFallbackModel(model))
+			}
+			opts = append(opts,
+				agent.WithFallbackRetries(agentConfig.GetFallbackRetries()),
+				agent.WithFallbackCooldown(agentConfig.GetFallbackCooldown()),
+			)
+		}
 
 		agentTools, warnings := getToolsForAgent(ctx, &agentConfig, parentDir, runConfig, loadOpts.toolsetRegistry)
 		if len(warnings) > 0 {
@@ -264,18 +280,11 @@ func getModelsForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentC
 			thinkingConfigured = true
 		}
 
-		opts := []options.Opt{
-			options.WithGateway(runConfig.ModelsGateway),
-			options.WithStructuredOutput(a.StructuredOutput),
-			options.WithProviders(cfg.Providers),
-		}
-
 		// Use max_tokens from config if specified, otherwise look up from models.dev
-		var maxTokens *int64
+		maxTokens := &defaultMaxTokens
 		if modelCfg.MaxTokens != nil {
 			maxTokens = modelCfg.MaxTokens
 		} else {
-			maxTokens = &defaultMaxTokens
 			modelsStore, err := modelsdev.NewStore()
 			if err != nil {
 				return nil, false, err
@@ -284,6 +293,12 @@ func getModelsForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentC
 			if err == nil {
 				maxTokens = &m.Limit.Output
 			}
+		}
+
+		opts := []options.Opt{
+			options.WithGateway(runConfig.ModelsGateway),
+			options.WithStructuredOutput(a.StructuredOutput),
+			options.WithProviders(cfg.Providers),
 		}
 		if maxTokens != nil {
 			opts = append(opts, options.WithMaxTokens(*maxTokens))
@@ -307,6 +322,65 @@ func getModelsForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentC
 	}
 
 	return models, thinkingConfigured, nil
+}
+
+// getFallbackModelsForAgent returns fallback providers for an agent based on its fallback configuration.
+// It uses the same resolution logic as primary models (named model, inline provider/model format).
+func getFallbackModelsForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentConfig, runConfig *config.RuntimeConfig) ([]provider.Provider, error) {
+	var fallbackModels []provider.Provider
+
+	for _, name := range a.GetFallbackModels() {
+		modelCfg, exists := cfg.Models[name]
+		if !exists {
+			// Try parsing as inline provider/model format (e.g., "openai/gpt-4o")
+			providerName, modelName, ok := strings.Cut(name, "/")
+			if !ok {
+				return nil, fmt.Errorf("fallback model '%s' not found in configuration and is not a valid provider/model format", name)
+			}
+			modelCfg = latest.ModelConfig{
+				Provider: providerName,
+				Model:    modelName,
+			}
+		}
+
+		// Use max_tokens from config if specified, otherwise look up from models.dev
+		maxTokens := &defaultMaxTokens
+		if modelCfg.MaxTokens != nil {
+			maxTokens = modelCfg.MaxTokens
+		} else {
+			modelsStore, err := modelsdev.NewStore()
+			if err != nil {
+				return nil, err
+			}
+			m, err := modelsStore.GetModel(ctx, modelCfg.Provider+"/"+modelCfg.Model)
+			if err == nil {
+				maxTokens = &m.Limit.Output
+			}
+		}
+
+		opts := []options.Opt{
+			options.WithGateway(runConfig.ModelsGateway),
+			options.WithStructuredOutput(a.StructuredOutput),
+			options.WithProviders(cfg.Providers),
+		}
+		if maxTokens != nil {
+			opts = append(opts, options.WithMaxTokens(*maxTokens))
+		}
+
+		// Pass the full models map for routing rules to resolve model references
+		model, err := provider.NewWithModels(ctx,
+			&modelCfg,
+			cfg.Models,
+			runConfig.EnvProvider(),
+			opts...,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create fallback model '%s': %w", name, err)
+		}
+		fallbackModels = append(fallbackModels, model)
+	}
+
+	return fallbackModels, nil
 }
 
 // getToolsForAgent returns the tool definitions for an agent based on its configuration

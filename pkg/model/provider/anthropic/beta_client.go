@@ -66,8 +66,10 @@ func (c *Client) createBetaStream(
 		// Add structured outputs beta header
 		params.Betas = append(params.Betas, "structured-outputs-2025-11-13")
 
-		// Configure output format using the SDK helper
-		params.OutputFormat = anthropic.BetaJSONSchemaOutputFormat(structuredOutput.Schema)
+		// Configure output format using the SDK helper via OutputConfig
+		params.OutputConfig = anthropic.BetaOutputConfigParam{
+			Format: anthropic.BetaJSONSchemaOutputFormat(structuredOutput.Schema),
+		}
 	}
 
 	// Configure thinking if not explicitly disabled via /think command
@@ -342,8 +344,10 @@ func (c *Client) Rerank(ctx context.Context, query string, documents []types.Doc
 		Messages:  msgs,
 		// Enable structured outputs beta.
 		Betas: []anthropic.AnthropicBeta{"structured-outputs-2025-11-13"},
-		// Enforce schema for the output JSON.
-		OutputFormat: anthropic.BetaJSONSchemaOutputFormat(schema),
+		// Enforce schema for the output JSON via OutputConfig.
+		OutputConfig: anthropic.BetaOutputConfigParam{
+			Format: anthropic.BetaJSONSchemaOutputFormat(schema),
+		},
 	}
 
 	// Apply user-configured sampling settings if specified.

@@ -533,8 +533,12 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	default:
-		if _, isRuntimeEvent := msg.(runtime.Event); isRuntimeEvent {
-			// Always forward runtime events to chat page
+		if event, isRuntimeEvent := msg.(runtime.Event); isRuntimeEvent {
+			// Update current agent name if the event carries one
+			if agentName := event.GetAgentName(); agentName != "" {
+				a.sessionState.SetCurrentAgentName(agentName)
+			}
+			// Forward to chat page
 			updated, cmd := a.chatPage.Update(msg)
 			a.chatPage = updated.(chat.Page)
 			return a, cmd

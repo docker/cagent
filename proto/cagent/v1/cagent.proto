@@ -157,8 +157,9 @@ message DeleteSessionResponse {}
 // ResumeSessionRequest is the request for ResumeSession.
 message ResumeSessionRequest {
   string id = 1;
-  string confirmation = 2; // "approve", "approve-session", or "reject"
+  string confirmation = 2; // "approve", "approve-session", "approve-tool", or "reject"
   string reason = 3; // optional reason for rejection
+  string tool_name = 4; // optional tool name for approve-tool confirmation
 }
 
 // ResumeSessionResponse is the response for ResumeSession.

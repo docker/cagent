@@ -146,7 +146,8 @@ type UpdateSessionPermissionsRequest struct {
 // ResumeSessionRequest represents a request to resume a session
 type ResumeSessionRequest struct {
 	Confirmation string `json:"confirmation"`
-	Reason       string `json:"reason,omitempty"` // e.g reason for tool call rejection
+	Reason       string `json:"reason,omitempty"`    // e.g reason for tool call rejection
+	ToolName     string `json:"tool_name,omitempty"` // tool name for approve-tool confirmation
 }
 
 // DesktopTokenResponse represents the response from getting a desktop token

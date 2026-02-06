@@ -198,14 +198,14 @@ func (r *RemoteRuntime) Run(ctx context.Context, sess *session.Session) ([]sessi
 
 // Resume allows resuming execution after user confirmation
 func (r *RemoteRuntime) Resume(ctx context.Context, req ResumeRequest) {
-	slog.Debug("Resuming remote runtime", "agent", r.currentAgent, "type", req.Type, "reason", req.Reason, "session_id", r.sessionID)
+	slog.Debug("Resuming remote runtime", "agent", r.currentAgent, "type", req.Type, "reason", req.Reason, "tool_name", req.ToolName, "session_id", r.sessionID)
 
 	if r.sessionID == "" {
 		slog.Error("Cannot resume: no session ID available")
 		return
 	}
 
-	if err := r.client.ResumeSession(ctx, r.sessionID, string(req.Type), req.Reason); err != nil {
+	if err := r.client.ResumeSession(ctx, r.sessionID, string(req.Type), req.Reason, req.ToolName); err != nil {
 		slog.Error("Failed to resume remote session", "error", err, "session_id", r.sessionID)
 	}
 }

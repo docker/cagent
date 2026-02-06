@@ -59,14 +59,16 @@ func (e *ElicitationError) Error() string {
 const (
 	ResumeTypeApprove        ResumeType = "approve"
 	ResumeTypeApproveSession ResumeType = "approve-session"
+	ResumeTypeApproveTool    ResumeType = "approve-tool"
 	ResumeTypeReject         ResumeType = "reject"
 )
 
 // ResumeRequest carries the user's confirmation decision along with an optional
 // reason (used when rejecting a tool call to help the model understand why).
 type ResumeRequest struct {
-	Type   ResumeType
-	Reason string // Optional; primarily used with ResumeTypeReject
+	Type     ResumeType
+	Reason   string // Optional; primarily used with ResumeTypeReject
+	ToolName string // Optional; used with ResumeTypeApproveTool to specify which tool to always allow
 }
 
 // ResumeApprove creates a ResumeRequest to approve a single tool call.
@@ -77,6 +79,11 @@ func ResumeApprove() ResumeRequest {
 // ResumeApproveSession creates a ResumeRequest to approve all tool calls for the session.
 func ResumeApproveSession() ResumeRequest {
 	return ResumeRequest{Type: ResumeTypeApproveSession}
+}
+
+// ResumeApproveTool creates a ResumeRequest to always approve a specific tool for the session.
+func ResumeApproveTool(toolName string) ResumeRequest {
+	return ResumeRequest{Type: ResumeTypeApproveTool, ToolName: toolName}
 }
 
 // ResumeReject creates a ResumeRequest to reject a tool call with an optional reason.
@@ -172,6 +179,10 @@ type LocalRuntime struct {
 	workingDir                  string   // Working directory for hooks execution
 	env                         []string // Environment variables for hooks execution
 	modelSwitcherCfg            *ModelSwitcherConfig
+
+	// fallbackCooldowns tracks per-agent cooldown state for sticky fallback behavior
+	fallbackCooldowns    map[string]*fallbackCooldownState
+	fallbackCooldownsMux sync.RWMutex
 }
 
 type streamResult struct {
@@ -242,11 +253,6 @@ func WithEnv(env []string) Opt {
 // NewLocalRuntime creates a new LocalRuntime without the persistence wrapper.
 // This is useful for testing or when persistence is handled externally.
 func NewLocalRuntime(agents *team.Team, opts ...Opt) (*LocalRuntime, error) {
-	modelsStore, err := modelsdev.NewStore()
-	if err != nil {
-		return nil, err
-	}
-
 	defaultAgent, err := agents.DefaultAgent()
 	if err != nil {
 		return nil, err
@@ -258,14 +264,22 @@ func NewLocalRuntime(agents *team.Team, opts ...Opt) (*LocalRuntime, error) {
 		currentAgent:         defaultAgent.Name(),
 		resumeChan:           make(chan ResumeRequest),
 		elicitationRequestCh: make(chan ElicitationResult),
-		modelsStore:          modelsStore,
 		sessionCompaction:    true,
 		managedOAuth:         true,
 		sessionStore:         session.NewInMemorySessionStore(),
+		fallbackCooldowns:    make(map[string]*fallbackCooldownState),
 	}
 
 	for _, opt := range opts {
 		opt(r)
+	}
+
+	if r.modelsStore == nil {
+		modelsStore, err := modelsdev.NewStore()
+		if err != nil {
+			return nil, err
+		}
+		r.modelsStore = modelsStore
 	}
 
 	// Validate that the current agent exists and has a model
@@ -516,16 +530,55 @@ func getAgentModelID(a *agent.Agent) string {
 	return ""
 }
 
-// agentDetailsFromTeam converts team agent info to AgentDetails for events
+// getEffectiveModelID returns the currently active model ID for an agent, accounting
+// for any active fallback cooldown. During a cooldown period, this returns the fallback
+// model ID instead of the configured primary model, so the UI reflects the actual model in use.
+func (r *LocalRuntime) getEffectiveModelID(a *agent.Agent) string {
+	cooldownState := r.getCooldownState(a.Name())
+	if cooldownState != nil {
+		fallbacks := a.FallbackModels()
+		if cooldownState.fallbackIndex >= 0 && cooldownState.fallbackIndex < len(fallbacks) {
+			return fallbacks[cooldownState.fallbackIndex].ID()
+		}
+	}
+	return getAgentModelID(a)
+}
+
+// agentDetailsFromTeam converts team agent info to AgentDetails for events.
+// It accounts for active fallback cooldowns, returning the effective model
+// instead of the configured model when a fallback is in effect.
 func (r *LocalRuntime) agentDetailsFromTeam() []AgentDetails {
 	agentsInfo := r.team.AgentsInfo()
 	details := make([]AgentDetails, len(agentsInfo))
 	for i, info := range agentsInfo {
+		providerName := info.Provider
+		modelName := info.Model
+
+		// Check if this agent has an active fallback cooldown
+		cooldownState := r.getCooldownState(info.Name)
+		if cooldownState != nil {
+			// Get the agent to access fallback models
+			if a, err := r.team.Agent(info.Name); err == nil && a != nil {
+				fallbacks := a.FallbackModels()
+				if cooldownState.fallbackIndex >= 0 && cooldownState.fallbackIndex < len(fallbacks) {
+					fb := fallbacks[cooldownState.fallbackIndex]
+					// Parse provider/model from the fallback model ID
+					modelID := fb.ID()
+					if p, m, found := strings.Cut(modelID, "/"); found {
+						providerName = p
+						modelName = m
+					} else {
+						modelName = modelID
+					}
+				}
+			}
+		}
+
 		details[i] = AgentDetails{
 			Name:        info.Name,
 			Description: info.Description,
-			Provider:    info.Provider,
-			Model:       info.Model,
+			Provider:    providerName,
+			Model:       modelName,
 			Commands:    info.Commands,
 		}
 	}
@@ -578,7 +631,8 @@ func (r *LocalRuntime) EmitStartupInfo(ctx context.Context, events chan Event) {
 	}
 
 	// Emit agent and team information immediately for fast sidebar display
-	if !send(AgentInfo(a.Name(), getAgentModelID(a), a.Description(), a.WelcomeMessage())) {
+	// Use getEffectiveModelID to account for active fallback cooldowns
+	if !send(AgentInfo(a.Name(), r.getEffectiveModelID(a), a.Description(), a.WelcomeMessage())) {
 		return
 	}
 	if !send(TeamInfo(r.agentDetailsFromTeam(), r.currentAgent)) {
@@ -706,7 +760,8 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 		a := r.CurrentAgent()
 
 		// Emit agent information for sidebar display
-		events <- AgentInfo(a.Name(), getAgentModelID(a), a.Description(), a.WelcomeMessage())
+		// Use getEffectiveModelID to account for active fallback cooldowns
+		events <- AgentInfo(a.Name(), r.getEffectiveModelID(a), a.Description(), a.WelcomeMessage())
 
 		// Emit team information
 		events <- TeamInfo(r.agentDetailsFromTeam(), r.currentAgent)
@@ -850,21 +905,8 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 			messages := sess.GetMessages(a)
 			slog.Debug("Retrieved messages for processing", "agent", a.Name(), "message_count", len(messages))
 
-			slog.Debug("Creating chat completion stream", "agent", a.Name())
-			stream, err := model.CreateChatCompletionStream(streamCtx, messages, agentTools)
-			if err != nil {
-				streamSpan.RecordError(err)
-				streamSpan.SetStatus(codes.Error, "creating chat completion")
-				slog.Error("Failed to create chat completion stream", "agent", a.Name(), "error", err)
-				// Track error in telemetry
-				telemetry.RecordError(ctx, err.Error())
-				events <- Error(fmt.Sprintf("creating chat completion: %v", err))
-				streamSpan.End()
-				return
-			}
-
-			slog.Debug("Processing stream", "agent", a.Name())
-			res, err := r.handleStream(ctx, stream, a, agentTools, sess, m, events)
+			// Try primary model with fallback chain if configured
+			res, usedModel, err := r.tryModelWithFallback(streamCtx, a, model, messages, agentTools, sess, m, events)
 			if err != nil {
 				// Treat context cancellation as a graceful stop
 				if errors.Is(err, context.Canceled) {
@@ -874,12 +916,18 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 				}
 				streamSpan.RecordError(err)
 				streamSpan.SetStatus(codes.Error, "error handling stream")
-				slog.Error("Error handling stream", "agent", a.Name(), "error", err)
+				slog.Error("All models failed", "agent", a.Name(), "error", err)
 				// Track error in telemetry
 				telemetry.RecordError(ctx, err.Error())
 				events <- Error(err.Error())
 				streamSpan.End()
 				return
+			}
+
+			// Update model info if we used a fallback
+			if usedModel != nil && usedModel.ID() != model.ID() {
+				slog.Info("Used fallback model", "agent", a.Name(), "primary", model.ID(), "used", usedModel.ID())
+				events <- AgentInfo(a.Name(), usedModel.ID(), a.Description(), a.WelcomeMessage())
 			}
 			streamSpan.SetAttributes(
 				attribute.Int("tool.calls", len(res.Calls)),
@@ -1431,6 +1479,20 @@ func (r *LocalRuntime) executeWithApproval(
 		case ResumeTypeApproveSession:
 			slog.Debug("Resume signal received, approving session", "tool", toolCall.Function.Name, "session_id", sess.ID)
 			sess.ToolsApproved = true
+			runTool()
+		case ResumeTypeApproveTool:
+			// Add the tool to session's allow list for future auto-approval
+			approvedTool := req.ToolName
+			if approvedTool == "" {
+				approvedTool = toolName
+			}
+			if sess.Permissions == nil {
+				sess.Permissions = &session.PermissionsConfig{}
+			}
+			if !slices.Contains(sess.Permissions.Allow, approvedTool) {
+				sess.Permissions.Allow = append(sess.Permissions.Allow, approvedTool)
+			}
+			slog.Debug("Resume signal received, approving tool permanently", "tool", approvedTool, "session_id", sess.ID)
 			runTool()
 		case ResumeTypeReject:
 			slog.Debug("Resume signal received, rejecting tool", "tool", toolCall.Function.Name, "session_id", sess.ID, "reason", req.Reason)

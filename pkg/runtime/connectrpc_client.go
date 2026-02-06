@@ -154,12 +154,13 @@ func (c *ConnectRPCClient) DeleteSession(ctx context.Context, id string) error {
 	return err
 }
 
-// ResumeSession resumes a session by ID with an optional rejection reason
-func (c *ConnectRPCClient) ResumeSession(ctx context.Context, id, confirmation, reason string) error {
+// ResumeSession resumes a session by ID with optional rejection reason or tool name
+func (c *ConnectRPCClient) ResumeSession(ctx context.Context, id, confirmation, reason, toolName string) error {
 	_, err := c.client.ResumeSession(ctx, connect.NewRequest(&cagentv1.ResumeSessionRequest{
 		Id:           id,
 		Confirmation: confirmation,
 		Reason:       reason,
+		ToolName:     toolName,
 	}))
 	return err
 }

@@ -9,11 +9,13 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/docker/cagent/pkg/content"
+	"github.com/docker/cagent/pkg/environment"
 	"github.com/docker/cagent/pkg/httpclient"
 	"github.com/docker/cagent/pkg/paths"
 	"github.com/docker/cagent/pkg/remote"
@@ -174,12 +176,16 @@ func (a ociSource) Read(ctx context.Context) ([]byte, error) {
 
 // urlSource is used to load an agent configuration from an HTTP/HTTPS URL.
 type urlSource struct {
-	url string
+	url         string
+	envProvider environment.Provider
 }
 
-func NewURLSource(url string) Source {
-	return urlSource{
-		url: url,
+// NewURLSource creates a new URL source. If envProvider is non-nil, it will be used
+// to look up GITHUB_TOKEN for authentication when fetching from GitHub URLs.
+func NewURLSource(rawURL string, envProvider environment.Provider) Source {
+	return &urlSource{
+		url:         rawURL,
+		envProvider: envProvider,
 	}
 }
 
@@ -217,6 +223,9 @@ func (a urlSource) Read(ctx context.Context) ([]byte, error) {
 	if cachedETag != "" {
 		req.Header.Set("If-None-Match", cachedETag)
 	}
+
+	// Add GitHub token authorization for GitHub URLs
+	a.addGitHubAuth(ctx, req)
 
 	resp, err := httpclient.NewHTTPClient().Do(req)
 	if err != nil {
@@ -272,9 +281,53 @@ func (a urlSource) Read(ctx context.Context) ([]byte, error) {
 	return data, nil
 }
 
+// githubHosts lists the hostnames that support GitHub token authentication.
+var githubHosts = []string{
+	"github.com",
+	"raw.githubusercontent.com",
+	"gist.githubusercontent.com",
+}
+
+// isGitHubURL checks if the URL is a GitHub URL that can use token authentication.
+// It performs strict hostname validation to prevent token leakage to malicious domains.
+func isGitHubURL(urlStr string) bool {
+	u, err := url.Parse(urlStr)
+	if err != nil {
+		return false
+	}
+	for _, host := range githubHosts {
+		if u.Host == host {
+			return true
+		}
+	}
+	return false
+}
+
+// addGitHubAuth adds GitHub token authorization to the request if:
+// - The URL is a GitHub URL
+// - An environment provider is configured
+// - GITHUB_TOKEN is available in the environment
+func (a urlSource) addGitHubAuth(ctx context.Context, req *http.Request) {
+	if a.envProvider == nil {
+		return
+	}
+
+	if !isGitHubURL(a.url) {
+		return
+	}
+
+	token, ok := a.envProvider.Get(ctx, "GITHUB_TOKEN")
+	if !ok || token == "" {
+		return
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token)
+	slog.Debug("Added GitHub token authorization to request", "url", a.url)
+}
+
 // hashURL creates a safe filename from a URL.
-func hashURL(url string) string {
-	h := sha256.Sum256([]byte(url))
+func hashURL(rawURL string) string {
+	h := sha256.Sum256([]byte(rawURL))
 	return hex.EncodeToString(h[:])
 }
 

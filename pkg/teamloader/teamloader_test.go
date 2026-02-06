@@ -17,8 +17,21 @@ import (
 	"github.com/docker/cagent/pkg/config/latest"
 	"github.com/docker/cagent/pkg/environment"
 	"github.com/docker/cagent/pkg/model/provider/dmr"
+	"github.com/docker/cagent/pkg/modelsdev"
 	"github.com/docker/cagent/pkg/tools"
 )
+
+// TestMain sets up the test environment for all tests in this package.
+func TestMain(m *testing.M) {
+	store, err := modelsdev.NewStore()
+	if err != nil {
+		os.Exit(1)
+	}
+	store.SetDatabaseForTesting(&modelsdev.Database{
+		Providers: make(map[string]modelsdev.Provider),
+	})
+	os.Exit(m.Run())
+}
 
 // skipExamples contains example files that require cloud-specific configurations
 // (e.g., AWS profiles, GCP credentials) that can't be mocked with dummy env vars.
@@ -80,7 +93,7 @@ func TestLoadExamples(t *testing.T) {
 	// This avoids calling Load() twice for each example.
 	missingEnvs := make(map[string]bool)
 	for _, agentFilename := range examples {
-		agentSource, err := config.Resolve(agentFilename)
+		agentSource, err := config.Resolve(agentFilename, nil)
 		require.NoError(t, err)
 
 		cfg, err := config.Load(t.Context(), agentSource)
@@ -111,7 +124,7 @@ func TestLoadExamples(t *testing.T) {
 	// multiple RAG examples share the same relative database paths (e.g., ./bm25.db).
 	for _, agentFilename := range examples {
 		t.Run(agentFilename, func(t *testing.T) {
-			agentSource, err := config.Resolve(agentFilename)
+			agentSource, err := config.Resolve(agentFilename, nil)
 			require.NoError(t, err)
 
 			// First make sure it doesn't define a version
@@ -139,7 +152,7 @@ func TestLoadExamples(t *testing.T) {
 func TestLoadDefaultAgent(t *testing.T) {
 	t.Parallel()
 
-	agentSource, err := config.Resolve("../../pkg/config/default-agent.yaml")
+	agentSource, err := config.Resolve("../../pkg/config/default-agent.yaml", nil)
 	require.NoError(t, err)
 
 	runConfig := &config.RuntimeConfig{
@@ -180,7 +193,7 @@ func TestOverrideModel(t *testing.T) {
 		t.Run(test.expected, func(t *testing.T) {
 			t.Parallel()
 
-			agentSource, err := config.Resolve("testdata/basic.yaml")
+			agentSource, err := config.Resolve("testdata/basic.yaml", nil)
 			require.NoError(t, err)
 
 			team, err := Load(t.Context(), agentSource, &config.RuntimeConfig{}, WithModelOverrides(test.overrides))
@@ -199,7 +212,7 @@ func TestOverrideModel(t *testing.T) {
 func TestToolsetInstructions(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "dummy")
 
-	agentSource, err := config.Resolve("testdata/tool-instruction.yaml")
+	agentSource, err := config.Resolve("testdata/tool-instruction.yaml", nil)
 	require.NoError(t, err)
 
 	team, err := Load(t.Context(), agentSource, &config.RuntimeConfig{})
@@ -231,7 +244,7 @@ func TestAutoModelFallbackError(t *testing.T) {
 	t.Setenv("PATH", tempDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("MODEL_RUNNER_HOST", "")
 
-	agentSource, err := config.Resolve("testdata/auto-model.yaml")
+	agentSource, err := config.Resolve("testdata/auto-model.yaml", nil)
 	require.NoError(t, err)
 
 	// Use noEnvProvider to ensure no API keys are available,

@@ -5,6 +5,7 @@ func IsValidResumeType(t ResumeType) bool {
 	switch t {
 	case ResumeTypeApprove,
 		ResumeTypeApproveSession,
+		ResumeTypeApproveTool,
 		ResumeTypeReject:
 		return true
 	default:
@@ -17,6 +18,7 @@ func ValidResumeTypes() []ResumeType {
 	return []ResumeType{
 		ResumeTypeApprove,
 		ResumeTypeApproveSession,
+		ResumeTypeApproveTool,
 		ResumeTypeReject,
 	}
 }

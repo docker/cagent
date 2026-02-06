@@ -225,7 +225,7 @@ func (s *Server) DeleteSession(ctx context.Context, req *connect.Request[cagentv
 
 // ResumeSession resumes a paused session.
 func (s *Server) ResumeSession(ctx context.Context, req *connect.Request[cagentv1.ResumeSessionRequest]) (*connect.Response[cagentv1.ResumeSessionResponse], error) {
-	if err := s.sm.ResumeSession(ctx, req.Msg.Id, req.Msg.Confirmation, req.Msg.Reason); err != nil {
+	if err := s.sm.ResumeSession(ctx, req.Msg.Id, req.Msg.Confirmation, req.Msg.Reason, req.Msg.ToolName); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to resume session: %w", err))
 	}
 	return connect.NewResponse(&cagentv1.ResumeSessionResponse{}), nil
