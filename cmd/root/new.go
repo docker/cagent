@@ -2,6 +2,7 @@ package root
 
 import (
 	"context"
+	"os"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -14,6 +15,7 @@ import (
 	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/telemetry"
 	"github.com/docker/cagent/pkg/tui"
+	"github.com/docker/cagent/pkg/tui/background"
 	tuiinput "github.com/docker/cagent/pkg/tui/input"
 )
 
@@ -86,14 +88,14 @@ func (f *newFlags) runNewCommand(cmd *cobra.Command, args []string) error {
 	return runTUI(ctx, rt, sess, appOpts...)
 }
 
-func runTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, opts ...app.Opt) error {
-	// If the runtime can provide a title generator, use it.
+// newTUIApp creates the shared app and wheel coalescer/filter used by both
+// single-session and multi-session TUI entry points.
+func newTUIApp(ctx context.Context, rt runtime.Runtime, sess *session.Session, opts []app.Opt) (*app.App, *tuiinput.WheelCoalescer, func(tea.Model, tea.Msg) tea.Msg) {
 	if gen := rt.TitleGenerator(); gen != nil {
 		opts = append(opts, app.WithTitleGenerator(gen))
 	}
 
 	a := app.New(ctx, rt, sess, opts...)
-	m := tui.New(ctx, a)
 
 	coalescer := tuiinput.NewWheelCoalescer()
 	filter := func(model tea.Model, msg tea.Msg) tea.Msg {
@@ -107,9 +109,38 @@ func runTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, opts
 		return msg
 	}
 
+	return a, coalescer, filter
+}
+
+func runTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, opts ...app.Opt) error {
+	a, coalescer, filter := newTUIApp(ctx, rt, sess, opts)
+
+	m := tui.New(ctx, a)
+
 	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithFilter(filter))
 	coalescer.SetSender(p.Send)
 	go a.Subscribe(ctx, p)
+
+	_, err := p.Run()
+	return err
+}
+
+func runMultiSessionTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, spawner background.SessionSpawner, cleanup func(), opts ...app.Opt) error {
+	a, coalescer, filter := newTUIApp(ctx, rt, sess, opts)
+
+	if cleanup == nil {
+		cleanup = func() {}
+	}
+	wd, _ := os.Getwd()
+	bgModel := background.New(ctx, spawner, a, wd, cleanup)
+
+	p := tea.NewProgram(bgModel, tea.WithContext(ctx), tea.WithFilter(filter))
+	coalescer.SetSender(p.Send)
+
+	// Set program on background model for routed message sending
+	if m, ok := bgModel.(interface{ SetProgram(p *tea.Program) }); ok {
+		m.SetProgram(p)
+	}
 
 	_, err := p.Run()
 	return err

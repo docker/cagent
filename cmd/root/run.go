@@ -21,8 +21,10 @@ import (
 	"github.com/docker/cagent/pkg/paths"
 	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/session"
+	"github.com/docker/cagent/pkg/sessiontitle"
 	"github.com/docker/cagent/pkg/teamloader"
 	"github.com/docker/cagent/pkg/telemetry"
+	"github.com/docker/cagent/pkg/tui/background"
 	"github.com/docker/cagent/pkg/tui/styles"
 )
 
@@ -204,45 +206,38 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 		out.Println("Recording mode enabled, cassette: " + cassettePath)
 	}
 
-	var (
-		rt      runtime.Runtime
-		sess    *session.Session
-		cleanup func()
-	)
+	// Remote runtime
 	if f.remoteAddress != "" {
-		rt, sess, err = f.createRemoteRuntimeAndSession(ctx, agentFileName)
+		rt, sess, err := f.createRemoteRuntimeAndSession(ctx, agentFileName)
 		if err != nil {
 			return err
 		}
-		cleanup = func() {} // Remote runtime doesn't need local cleanup
-	} else {
-		agentSource, err := config.Resolve(agentFileName, f.runConfig.EnvProvider())
-		if err != nil {
-			return err
-		}
+		return f.launchTUI(ctx, out, rt, sess, args, tui)
+	}
 
-		loadResult, err := f.loadAgentFrom(ctx, agentSource)
-		if err != nil {
-			return err
-		}
+	// Local runtime
+	agentSource, err := config.Resolve(agentFileName, f.runConfig.EnvProvider())
+	if err != nil {
+		return err
+	}
 
-		rt, sess, err = f.createLocalRuntimeAndSession(ctx, loadResult)
-		if err != nil {
-			return err
-		}
+	loadResult, err := f.loadAgentFrom(ctx, agentSource)
+	if err != nil {
+		return err
+	}
 
-		// Setup cleanup for local runtime
-		cleanup = func() {
-			// Use a fresh context for cleanup since the original may be canceled
-			cleanupCtx := context.WithoutCancel(ctx)
-			if err := loadResult.Team.StopToolSets(cleanupCtx); err != nil {
-				slog.Error("Failed to stop tool sets", "error", err)
-			}
+	rt, sess, err := f.createLocalRuntimeAndSession(ctx, loadResult)
+	if err != nil {
+		return err
+	}
+	cleanup := func() {
+		cleanupCtx := context.WithoutCancel(ctx)
+		if err := loadResult.Team.StopToolSets(cleanupCtx); err != nil {
+			slog.Error("Failed to stop tool sets", "error", err)
 		}
 	}
 	defer cleanup()
 
-	// Apply theme before TUI starts
 	if tui {
 		applyTheme()
 	}
@@ -256,7 +251,25 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 		return f.handleExecMode(ctx, out, rt, sess, args)
 	}
 
-	return f.handleRunMode(ctx, rt, sess, args)
+	opts, err := f.buildAppOpts(args)
+	if err != nil {
+		return err
+	}
+
+	// Concurrent agents: use multi-session TUI
+	if background.IsEnabled() {
+		var sessStore session.Store
+		switch typedRt := rt.(type) {
+		case *runtime.LocalRuntime:
+			sessStore = typedRt.SessionStore()
+		case *runtime.PersistentRuntime:
+			sessStore = typedRt.SessionStore()
+		}
+
+		return runMultiSessionTUI(ctx, rt, sess, f.createSessionSpawner(agentSource, sessStore), cleanup, opts...)
+	}
+
+	return runTUI(ctx, rt, sess, opts...)
 }
 
 func (f *runExecFlags) loadAgentFrom(ctx context.Context, agentSource config.Source) (*teamloader.LoadResult, error) {
@@ -456,10 +469,32 @@ func readInitialMessage(args []string) (*string, error) {
 	return &args[1], nil
 }
 
-func (f *runExecFlags) handleRunMode(ctx context.Context, rt runtime.Runtime, sess *session.Session, args []string) error {
-	firstMessage, err := readInitialMessage(args)
+func (f *runExecFlags) launchTUI(ctx context.Context, out *cli.Printer, rt runtime.Runtime, sess *session.Session, args []string, tui bool) error {
+	if tui {
+		applyTheme()
+	}
+
+	if f.dryRun {
+		out.Println("Dry run mode enabled. Agent initialized but will not execute.")
+		return nil
+	}
+
+	if !tui {
+		return f.handleExecMode(ctx, out, rt, sess, args)
+	}
+
+	opts, err := f.buildAppOpts(args)
 	if err != nil {
 		return err
+	}
+
+	return runTUI(ctx, rt, sess, opts...)
+}
+
+func (f *runExecFlags) buildAppOpts(args []string) ([]app.Opt, error) {
+	firstMessage, err := readInitialMessage(args)
+	if err != nil {
+		return nil, err
 	}
 
 	var opts []app.Opt
@@ -472,8 +507,74 @@ func (f *runExecFlags) handleRunMode(ctx context.Context, rt runtime.Runtime, se
 	if f.exitAfterResponse {
 		opts = append(opts, app.WithExitAfterFirstResponse())
 	}
+	return opts, nil
+}
 
-	return runTUI(ctx, rt, sess, opts...)
+// createSessionSpawner creates a function that can spawn new sessions with different working directories.
+func (f *runExecFlags) createSessionSpawner(agentSource config.Source, sessStore session.Store) background.SessionSpawner {
+	return func(spawnCtx context.Context, workingDir string) (*app.App, *session.Session, func(), error) {
+		// Create a copy of the runtime config with the new working directory
+		runConfigCopy := f.runConfig.Clone()
+		runConfigCopy.WorkingDir = workingDir
+
+		// Load team with the new working directory
+		loadResult, err := teamloader.LoadWithConfig(spawnCtx, agentSource, runConfigCopy, teamloader.WithModelOverrides(f.modelOverrides))
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		team := loadResult.Team
+		agent, err := team.Agent(f.agentName)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		// Create model switcher config
+		modelSwitcherCfg := &runtime.ModelSwitcherConfig{
+			Models:             loadResult.Models,
+			Providers:          loadResult.Providers,
+			ModelsGateway:      runConfigCopy.ModelsGateway,
+			EnvProvider:        runConfigCopy.EnvProvider(),
+			AgentDefaultModels: loadResult.AgentDefaultModels,
+		}
+
+		// Create the local runtime
+		localRt, err := runtime.New(team,
+			runtime.WithSessionStore(sessStore),
+			runtime.WithCurrentAgent(f.agentName),
+			runtime.WithTracer(otel.Tracer(AppName)),
+			runtime.WithModelSwitcherConfig(modelSwitcherCfg),
+		)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		// Create a new session
+		newSess := session.New(
+			session.WithMaxIterations(agent.MaxIterations()),
+			session.WithToolsApproved(f.autoApprove),
+			session.WithThinking(agent.ThinkingConfigured()),
+			session.WithWorkingDir(workingDir),
+		)
+
+		// Create cleanup function
+		cleanup := func() {
+			cleanupCtx := context.WithoutCancel(spawnCtx)
+			_ = team.StopToolSets(cleanupCtx)
+		}
+
+		// Create the app
+		var appOpts []app.Opt
+		if pr, ok := localRt.(*runtime.PersistentRuntime); ok {
+			if model := pr.CurrentAgent().Model(); model != nil {
+				appOpts = append(appOpts, app.WithTitleGenerator(sessiontitle.New(model)))
+			}
+		}
+
+		a := app.New(spawnCtx, localRt, newSess, appOpts...)
+
+		return a, newSess, cleanup, nil
+	}
 }
 
 // applyTheme applies the theme from user config, or the built-in default.

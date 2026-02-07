@@ -18,3 +18,18 @@ type BranchFromEditMsg struct {
 // InvalidateStatusBarMsg signals that the statusbar cache should be invalidated.
 // This is emitted when bindings change (e.g., entering/exiting inline edit mode).
 type InvalidateStatusBarMsg struct{}
+
+// FocusPanel identifies a focusable panel in the TUI.
+type FocusPanel int
+
+const (
+	PanelEditor   FocusPanel = iota // Focus the editor/input panel
+	PanelMessages                   // Focus the messages/content panel
+)
+
+// RequestFocusMsg is emitted by the chat page to request the parent to change panel focus.
+// This is needed because in the concurrent-sessions architecture, the editor and focus state
+// are managed by the parent (appModel or background.Model), not by the chat page.
+type RequestFocusMsg struct {
+	Target FocusPanel
+}

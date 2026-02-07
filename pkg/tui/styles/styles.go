@@ -78,9 +78,13 @@ var (
 	FadedGray color.Color
 
 	// Tabs
-	TabBg        color.Color
-	TabPrimaryFg color.Color
-	TabAccentFg  color.Color
+	TabBg         color.Color
+	TabPrimaryFg  color.Color
+	TabAccentFg   color.Color
+	TabActiveBg   color.Color
+	TabActiveFg   color.Color
+	TabInactiveFg color.Color
+	TabBorder     color.Color
 )
 
 // Base Styles

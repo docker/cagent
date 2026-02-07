@@ -11,11 +11,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/docker/cagent/pkg/tui/components/completion"
+	"github.com/docker/cagent/pkg/tui/components/editor"
 	"github.com/docker/cagent/pkg/tui/components/notification"
+	"github.com/docker/cagent/pkg/tui/components/spinner"
 	"github.com/docker/cagent/pkg/tui/core/layout"
 	"github.com/docker/cagent/pkg/tui/dialog"
 	"github.com/docker/cagent/pkg/tui/messages"
 	"github.com/docker/cagent/pkg/tui/page/chat"
+	"github.com/docker/cagent/pkg/tui/styles"
 )
 
 // mockChatPage implements chat.Page for testing
@@ -29,18 +32,47 @@ func (m *mockChatPage) View() string                           { return "" }
 func (m *mockChatPage) SetSize(int, int) tea.Cmd               { return nil }
 func (m *mockChatPage) CompactSession(string) tea.Cmd          { return nil }
 func (m *mockChatPage) Cleanup()                               { m.cleanupCalled = true }
-func (m *mockChatPage) GetInputHeight() int                    { return 0 }
 func (m *mockChatPage) SetSessionStarred(bool)                 {}
 func (m *mockChatPage) SetTitleRegenerating(bool) tea.Cmd      { return nil }
-func (m *mockChatPage) InsertText(string)                      {}
-func (m *mockChatPage) SetRecording(bool) tea.Cmd              { return nil }
-func (m *mockChatPage) SendEditorContent() tea.Cmd             { return nil }
+func (m *mockChatPage) ScrollToBottom() tea.Cmd                { return nil }
+func (m *mockChatPage) IsWorking() bool                        { return false }
+func (m *mockChatPage) QueueLength() int                       { return 0 }
+func (m *mockChatPage) FocusMessages() tea.Cmd                 { return nil }
+func (m *mockChatPage) BlurMessages()                          {}
 func (m *mockChatPage) GetSidebarSettings() chat.SidebarSettings {
 	return chat.SidebarSettings{}
 }
 func (m *mockChatPage) SetSidebarSettings(chat.SidebarSettings) {}
 func (m *mockChatPage) Bindings() []key.Binding                 { return nil }
 func (m *mockChatPage) Help() help.KeyMap                       { return nil }
+
+// mockEditor implements editor.Editor for testing
+type mockEditor struct {
+	cleanupCalled bool
+}
+
+func (m *mockEditor) Init() tea.Cmd                          { return nil }
+func (m *mockEditor) Update(tea.Msg) (layout.Model, tea.Cmd) { return m, nil }
+func (m *mockEditor) View() string                           { return "" }
+func (m *mockEditor) SetSize(int, int) tea.Cmd               { return nil }
+func (m *mockEditor) Focus() tea.Cmd                         { return nil }
+func (m *mockEditor) Blur() tea.Cmd                          { return nil }
+func (m *mockEditor) SetWorking(bool) tea.Cmd                { return nil }
+func (m *mockEditor) AcceptSuggestion() tea.Cmd              { return nil }
+func (m *mockEditor) ScrollByWheel(int)                      {}
+func (m *mockEditor) Value() string                          { return "" }
+func (m *mockEditor) SetValue(string)                        {}
+func (m *mockEditor) InsertText(string)                      {}
+func (m *mockEditor) AttachFile(string)                      {}
+func (m *mockEditor) Cleanup()                               { m.cleanupCalled = true }
+func (m *mockEditor) GetSize() (int, int)                    { return 0, 0 }
+func (m *mockEditor) BannerHeight() int                      { return 0 }
+func (m *mockEditor) AttachmentAt(int) (editor.AttachmentPreview, bool) {
+	return editor.AttachmentPreview{}, false
+}
+func (m *mockEditor) SetRecording(bool) tea.Cmd { return nil }
+func (m *mockEditor) IsRecording() bool         { return false }
+func (m *mockEditor) SendContent() tea.Cmd      { return nil }
 
 // collectMsgs executes a command (or batch/sequence of commands) and collects all returned messages.
 func collectMsgs(cmd tea.Cmd) []tea.Msg {
@@ -99,13 +131,16 @@ func TestExitSessionMsg_ExitsImmediately(t *testing.T) {
 
 	mockPage := &mockChatPage{}
 
-	// Create minimal appModel with the mock chat page
+	// Create minimal appModel with the mock chat page and editor
 	model := &appModel{
-		keyMap:       DefaultKeyMap(),
-		dialog:       dialog.New(),
-		notification: notification.New(),
-		completions:  completion.New(),
-		chatPage:     mockPage,
+		keyMap:         DefaultKeyMap(),
+		dialog:         dialog.New(),
+		notification:   notification.New(),
+		completions:    completion.New(),
+		chatPage:       mockPage,
+		editor:         &mockEditor{},
+		workingSpinner: spinner.New(spinner.ModeSpinnerOnly, styles.SpinnerDotsHighlightStyle),
+		focusedPanel:   panelEditor,
 	}
 
 	// Send ExitSessionMsg
@@ -126,11 +161,14 @@ func TestExitConfirmedMsg_ExitsImmediately(t *testing.T) {
 	mockPage := &mockChatPage{}
 
 	model := &appModel{
-		keyMap:       DefaultKeyMap(),
-		dialog:       dialog.New(),
-		notification: notification.New(),
-		completions:  completion.New(),
-		chatPage:     mockPage,
+		keyMap:         DefaultKeyMap(),
+		dialog:         dialog.New(),
+		notification:   notification.New(),
+		completions:    completion.New(),
+		chatPage:       mockPage,
+		editor:         &mockEditor{},
+		workingSpinner: spinner.New(spinner.ModeSpinnerOnly, styles.SpinnerDotsHighlightStyle),
+		focusedPanel:   panelEditor,
 	}
 
 	// Send ExitConfirmedMsg (from dialog confirmation)

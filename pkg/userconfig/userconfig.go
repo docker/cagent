@@ -46,6 +46,21 @@ type Settings struct {
 	Theme string `yaml:"theme,omitempty"`
 	// YOLO enables auto-approve mode for all tool calls globally
 	YOLO bool `yaml:"YOLO,omitempty"`
+	// TabTitleMaxLength is the maximum display length for tab titles in the TUI.
+	// Titles longer than this are truncated with an ellipsis. Defaults to 20.
+	// only applies when CAGENT_EXPERIMENTAL_CONCURRENT_AGENTS is enabled
+	TabTitleMaxLength int `yaml:"tab_title_max_length,omitempty"`
+}
+
+// DefaultTabTitleMaxLength is the default maximum tab title length when not configured.
+const DefaultTabTitleMaxLength = 20
+
+// GetTabTitleMaxLength returns the configured tab title max length, falling back to the default.
+func (s *Settings) GetTabTitleMaxLength() int {
+	if s == nil || s.TabTitleMaxLength <= 0 {
+		return DefaultTabTitleMaxLength
+	}
+	return s.TabTitleMaxLength
 }
 
 // CredentialHelper contains configuration for a credential helper command

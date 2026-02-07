@@ -588,7 +588,7 @@ func (m *model) GetSize() (width, height int) {
 	return m.width, m.height
 }
 
-// Focus gives focus to the component
+// Focus gives focus to the component.
 func (m *model) Focus() tea.Cmd {
 	m.focused = true
 	// Start selection on the last assistant message for better UX
@@ -600,9 +600,6 @@ func (m *model) Focus() tea.Cmd {
 	// Invalidate render cache so selection highlight is shown
 	m.invalidateAllItems()
 	m.renderDirty = true
-	if m.selectedMessageIndex >= 0 {
-		m.scrollToSelectedMessage()
-	}
 	return nil
 }
 
@@ -856,15 +853,13 @@ func (m *model) scrollToSelectedMessage() {
 	}
 	endLine := startLine + selectedHeight
 
-	// Scroll to make the selected message visible
-	if startLine < m.scrollOffset {
+	// Scroll to show the top of the selected message.
+	// When messages are taller than the viewport, always anchor to the start
+	// so the user sees the beginning of the message first.
+	if startLine < m.scrollOffset || endLine > m.scrollOffset+m.height {
 		m.userHasScrolled = true
 		m.bottomSlack = 0
 		m.setScrollOffset(startLine)
-	} else if endLine > m.scrollOffset+m.height {
-		m.userHasScrolled = true
-		m.bottomSlack = 0
-		m.setScrollOffset(endLine - m.height)
 	}
 }
 
@@ -1597,11 +1592,18 @@ func (m *model) isMouseOnScrollbar(x, y int) bool {
 }
 
 func (m *model) handleScrollbarUpdate(msg tea.Msg) (layout.Model, tea.Cmd) {
+	prevOffset := m.scrollbar.GetScrollOffset()
 	sb, cmd := m.scrollbar.Update(msg)
 	m.scrollbar = sb
-	m.userHasScrolled = true
-	m.bottomSlack = 0
-	m.scrollOffset = m.scrollbar.GetScrollOffset()
+	newOffset := m.scrollbar.GetScrollOffset()
+
+	// Sync scroll state when the scrollbar handled the event (click → cmd)
+	// or when a drag changed the offset (drag motion → no cmd, offset changes).
+	if cmd != nil || newOffset != prevOffset {
+		m.userHasScrolled = true
+		m.bottomSlack = 0
+		m.scrollOffset = newOffset
+	}
 	return m, cmd
 }
 

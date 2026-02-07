@@ -339,10 +339,13 @@ func (a *App) Run(ctx context.Context, cancel context.CancelFunc, message string
 			a.session.AddMessage(session.UserMessage(message))
 		}
 		for event := range a.runtime.RunStream(ctx, a.session) {
-			// If context is cancelled, continue draining but don't forward events.
-			// This prevents the runtime from blocking on event sends.
+			// If context is cancelled, continue draining but don't forward events
+			// — except StreamStoppedEvent, which must always propagate so the
+			// supervisor can mark the session as no longer running.
 			if ctx.Err() != nil {
-				continue
+				if _, ok := event.(*runtime.StreamStoppedEvent); !ok {
+					continue
+				}
 			}
 
 			// Clear titleGenerating flag when title is generated (from server for remote runtime)
@@ -379,10 +382,13 @@ func (a *App) RunWithMessage(ctx context.Context, cancel context.CancelFunc, msg
 	go func() {
 		a.session.AddMessage(msg)
 		for event := range a.runtime.RunStream(ctx, a.session) {
-			// If context is cancelled, continue draining but don't forward events.
-			// This prevents the runtime from blocking on event sends.
+			// If context is cancelled, continue draining but don't forward events
+			// — except StreamStoppedEvent, which must always propagate so the
+			// supervisor can mark the session as no longer running.
 			if ctx.Err() != nil {
-				continue
+				if _, ok := event.(*runtime.StreamStoppedEvent); !ok {
+					continue
+				}
 			}
 
 			// Clear titleGenerating flag when title is generated (from server for remote runtime)
@@ -401,6 +407,14 @@ func (a *App) RunBangCommand(ctx context.Context, command string) {
 }
 
 func (a *App) Subscribe(ctx context.Context, program *tea.Program) {
+	a.SubscribeWith(ctx, program.Send)
+}
+
+// SubscribeWith subscribes to app events using a custom send function.
+// This allows callers to wrap or transform messages before sending them
+// to the Bubble Tea program. It's used by the concurrent agents feature
+// to tag events with their session ID for proper routing.
+func (a *App) SubscribeWith(ctx context.Context, send func(tea.Msg)) {
 	throttledChan := a.throttleEvents(ctx, a.events)
 	for {
 		select {
@@ -411,7 +425,7 @@ func (a *App) Subscribe(ctx context.Context, program *tea.Program) {
 				return
 			}
 
-			program.Send(msg)
+			send(msg)
 		}
 	}
 }

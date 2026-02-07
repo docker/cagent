@@ -13,9 +13,13 @@ type Renderer interface {
 	Render(input string) (string, error)
 }
 
-// NewRenderer creates a new fast markdown renderer with the given width.
+// NewRenderer creates a new markdown renderer with the given width.
+// The fast renderer is used when either the experimental markdown renderer
+// or the experimental concurrent agents feature is enabled — the concurrent
+// agents TUI bundles the fast renderer by default.
 func NewRenderer(width int) Renderer {
-	if os.Getenv("CAGENT_EXPERIMENTAL_MARKDOWN_RENDERER") == "1" {
+	if os.Getenv("CAGENT_EXPERIMENTAL_MARKDOWN_RENDERER") == "1" ||
+		os.Getenv("CAGENT_EXPERIMENTAL_CONCURRENT_AGENTS") == "1" {
 		return NewFastRenderer(width)
 	}
 	return NewGlamourRenderer(width)

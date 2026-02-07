@@ -425,6 +425,15 @@ func (m *model) LoadFromSession(sess *session.Session) {
 	// Load starred status
 	m.sessionStarred = sess.Starred
 
+	// Load working directory from session
+	if sess.WorkingDir != "" {
+		wd := sess.WorkingDir
+		if homeDir := paths.GetHomeDir(); homeDir != "" && strings.HasPrefix(wd, homeDir) {
+			wd = "~" + wd[len(homeDir):]
+		}
+		m.workingDirectory = wd
+	}
+
 	// Session has content if it has messages or token usage
 	m.sessionHasContent = len(sess.Messages) > 0 || sess.InputTokens > 0 || sess.OutputTokens > 0
 

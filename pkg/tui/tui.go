@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	goruntime "runtime"
+	"strings"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
@@ -15,20 +16,38 @@ import (
 
 	"github.com/docker/cagent/pkg/app"
 	"github.com/docker/cagent/pkg/audio/transcribe"
+	"github.com/docker/cagent/pkg/history"
 	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/tui/animation"
 	"github.com/docker/cagent/pkg/tui/commands"
 	"github.com/docker/cagent/pkg/tui/components/completion"
+	"github.com/docker/cagent/pkg/tui/components/editor"
 	"github.com/docker/cagent/pkg/tui/components/markdown"
 	"github.com/docker/cagent/pkg/tui/components/notification"
+	"github.com/docker/cagent/pkg/tui/components/spinner"
 	"github.com/docker/cagent/pkg/tui/components/statusbar"
+	"github.com/docker/cagent/pkg/tui/components/tool/editfile"
 	"github.com/docker/cagent/pkg/tui/core"
+	"github.com/docker/cagent/pkg/tui/core/layout"
 	"github.com/docker/cagent/pkg/tui/dialog"
 	"github.com/docker/cagent/pkg/tui/messages"
 	"github.com/docker/cagent/pkg/tui/page/chat"
 	"github.com/docker/cagent/pkg/tui/service"
 	"github.com/docker/cagent/pkg/tui/styles"
 	"github.com/docker/cagent/pkg/tui/subscription"
+)
+
+// FocusedPanel represents which panel is currently focused
+type FocusedPanel string
+
+const (
+	panelContent FocusedPanel = "content"
+	panelEditor  FocusedPanel = "editor"
+
+	// appPaddingHorizontal is total horizontal padding from AppStyle (left + right)
+	appPaddingHorizontal = 2
+	// resizeHandleWidth is the width of the draggable center portion of the resize handle
+	resizeHandleWidth = 8
 )
 
 // appModel represents the main application model
@@ -39,7 +58,11 @@ type appModel struct {
 	keyMap          KeyMap
 
 	chatPage  chat.Page
+	editor    editor.Editor
 	statusBar statusbar.StatusBar
+
+	// Working state indicator (resize handle spinner)
+	workingSpinner spinner.Spinner
 
 	notification notification.Manager
 	dialog       dialog.Manager
@@ -51,12 +74,24 @@ type appModel struct {
 
 	// External event subscriptions (Elm Architecture pattern)
 	themeWatcher      *styles.ThemeWatcher
-	themeSubscription *subscription.ChannelSubscription[string] // Listens for theme file changes
-	themeSubStarted   bool                                      // Guard against multiple subscriptions
+	themeSubscription *subscription.ChannelSubscription[string]
+	themeSubStarted   bool
+
+	// Content area height
+	contentHeight int
+
+	// Editor resize state
+	editorLines int
+	isDragging  bool
+
+	// Focus state
+	focusedPanel FocusedPanel
 
 	// keyboardEnhancements stores the last keyboard enhancements message from the terminal.
-	// This is reapplied to new chat/editor instances when sessions are switched.
 	keyboardEnhancements *tea.KeyboardEnhancementsMsg
+
+	// keyboardEnhancementsSupported tracks whether the terminal supports keyboard enhancements
+	keyboardEnhancementsSupported bool
 
 	ready bool
 	err   error
@@ -124,14 +159,23 @@ func New(ctx context.Context, a *app.App) tea.Model {
 	// Create a channel for theme file change events
 	themeEventCh := make(chan string, 1)
 
+	// Initialize shared command history
+	historyStore, err := history.New()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to initialize command history: %v\n", err)
+	}
+
 	t := &appModel{
-		keyMap:       DefaultKeyMap(),
-		dialog:       dialog.New(),
-		notification: notification.New(),
-		completions:  completion.New(),
-		application:  a,
-		sessionState: sessionState,
-		transcriber:  transcribe.New(os.Getenv("OPENAI_API_KEY")), // TODO(dga): should use envProvider
+		keyMap:         DefaultKeyMap(),
+		dialog:         dialog.New(),
+		notification:   notification.New(),
+		completions:    completion.New(),
+		application:    a,
+		sessionState:   sessionState,
+		transcriber:    transcribe.New(os.Getenv("OPENAI_API_KEY")),
+		workingSpinner: spinner.New(spinner.ModeSpinnerOnly, styles.SpinnerDotsHighlightStyle),
+		focusedPanel:   panelEditor,
+		editorLines:    3,
 		// Set up theme subscription using the subscription package
 		themeSubscription: subscription.NewChannelSubscription(themeEventCh, func(themeRef string) tea.Msg {
 			return messages.ThemeFileChangedMsg{ThemeRef: themeRef}
@@ -140,16 +184,15 @@ func New(ctx context.Context, a *app.App) tea.Model {
 
 	// Create theme watcher with callback that sends to the subscription channel
 	t.themeWatcher = styles.NewThemeWatcher(func(themeRef string) {
-		// Non-blocking send to the event channel
 		select {
 		case themeEventCh <- themeRef:
 		default:
-			// Channel full, event will be coalesced
 		}
 	})
 
 	t.statusBar = statusbar.New(t)
 	t.chatPage = chat.New(a, sessionState)
+	t.editor = editor.New(a, historyStore)
 
 	// Start watching the current theme (if it's a user theme file)
 	currentTheme := styles.CurrentTheme()
@@ -161,6 +204,7 @@ func New(ctx context.Context, a *app.App) tea.Model {
 	go func() {
 		<-ctx.Done()
 		t.chatPage.Cleanup()
+		t.editor.Cleanup()
 		t.themeWatcher.Stop()
 	}()
 
@@ -172,10 +216,12 @@ func (a *appModel) Init() tea.Cmd {
 	cmds := []tea.Cmd{
 		a.dialog.Init(),
 		a.chatPage.Init(),
+		a.editor.Init(),
+		a.editor.Focus(),
 		a.application.SendFirstMessage(),
 	}
 
-	// Start theme subscription only once (guard against Init being called multiple times)
+	// Start theme subscription only once
 	if !a.themeSubStarted {
 		a.themeSubStarted = true
 		cmds = append(cmds, a.themeSubscription.Listen())
@@ -190,65 +236,61 @@ func (a *appModel) Help() help.KeyMap {
 }
 
 func (a *appModel) Bindings() []key.Binding {
-	return append([]key.Binding{
+	bindings := []key.Binding{
 		a.keyMap.Quit,
 		a.keyMap.CommandPalette,
 		a.keyMap.ModelPicker,
-	}, a.chatPage.Bindings()...)
-}
-
-func (a *appModel) handleWheelMsg(msg tea.MouseWheelMsg) tea.Cmd {
-	if a.dialog.Open() {
-		u, dialogCmd := a.dialog.Update(msg)
-		a.dialog = u.(dialog.Manager)
-		return dialogCmd
 	}
 
-	updated, chatCmd := a.chatPage.Update(msg)
-	a.chatPage = updated.(chat.Page)
-	return chatCmd
-}
+	tabBinding := key.NewBinding(
+		key.WithKeys("tab"),
+		key.WithHelp("Tab", "switch focus"),
+	)
+	bindings = append(bindings, tabBinding)
 
-func (a *appModel) handleDialogWheelDelta(msg messages.WheelCoalescedMsg) tea.Cmd {
-	steps := msg.Delta
-	button := tea.MouseWheelDown
-	if steps < 0 {
-		steps = -steps
-		button = tea.MouseWheelUp
+	// Show newline help based on keyboard enhancement support
+	if a.keyboardEnhancementsSupported {
+		bindings = append(bindings, key.NewBinding(
+			key.WithKeys("shift+enter"),
+			key.WithHelp("Shift+Enter", "newline"),
+		))
+	} else {
+		bindings = append(bindings, key.NewBinding(
+			key.WithKeys("ctrl+j"),
+			key.WithHelp("Ctrl+j", "newline"),
+		))
 	}
 
-	var cmds []tea.Cmd
-	for range steps {
-		u, dialogCmd := a.dialog.Update(tea.MouseWheelMsg{X: msg.X, Y: msg.Y, Button: button})
-		a.dialog = u.(dialog.Manager)
-		if dialogCmd != nil {
-			cmds = append(cmds, dialogCmd)
-		}
+	if a.focusedPanel == panelContent {
+		bindings = append(bindings, a.chatPage.Bindings()...)
+	} else {
+		bindings = append(bindings, key.NewBinding(
+			key.WithKeys("ctrl+g"),
+			key.WithHelp("Ctrl+g", fmt.Sprintf("edit in %s", editorDisplayName())),
+		))
 	}
-
-	if len(cmds) == 0 {
-		return nil
-	}
-	return tea.Batch(cmds...)
+	return bindings
 }
 
 // Update handles incoming messages and updates the application state
 func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	// Handle global animation tick - broadcast to all components
 	case animation.TickMsg:
 		var cmds []tea.Cmd
-		// Forward to chat page (which forwards to all child components with animations)
 		updated, cmd := a.chatPage.Update(msg)
 		a.chatPage = updated.(chat.Page)
 		cmds = append(cmds, cmd)
-		// Continue ticking if any animations are still active
+		if a.chatPage.IsWorking() {
+			var model layout.Model
+			model, cmd = a.workingSpinner.Update(msg)
+			a.workingSpinner = model.(spinner.Spinner)
+			cmds = append(cmds, cmd)
+		}
 		if animation.HasActive() {
 			cmds = append(cmds, animation.StartTick())
 		}
 		return a, tea.Batch(cmds...)
 
-	// Handle dialog-specific messages first
 	case dialog.OpenDialogMsg, dialog.CloseDialogMsg:
 		u, dialogCmd := a.dialog.Update(msg)
 		a.dialog = u.(dialog.Manager)
@@ -257,7 +299,6 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case *runtime.TeamInfoEvent:
 		a.sessionState.SetAvailableAgents(msg.AvailableAgents)
 		a.sessionState.SetCurrentAgentName(msg.CurrentAgent)
-		// Forward to chat page
 		updated, cmd := a.chatPage.Update(msg)
 		a.chatPage = updated.(chat.Page)
 		return a, cmd
@@ -265,14 +306,12 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case *runtime.AgentInfoEvent:
 		a.sessionState.SetCurrentAgentName(msg.AgentName)
 		a.application.TrackCurrentAgentModel(msg.Model)
-		// Forward to chat page
 		updated, cmd := a.chatPage.Update(msg)
 		a.chatPage = updated.(chat.Page)
 		return a, cmd
 
 	case *runtime.SessionTitleEvent:
 		a.sessionState.SetSessionTitle(msg.Title)
-		// Forward to chat page (which forwards to sidebar)
 		updated, cmd := a.chatPage.Update(msg)
 		a.chatPage = updated.(chat.Page)
 		return a, cmd
@@ -283,15 +322,16 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		a.wWidth, a.wHeight = msg.Width, msg.Height
 		cmd := a.handleWindowResize(msg.Width, msg.Height)
-		a.completions.Update(msg)
 		return a, cmd
 
 	case tea.KeyboardEnhancementsMsg:
-		// Store the keyboard enhancements message so we can reapply it to new chat pages
 		a.keyboardEnhancements = &msg
+		a.keyboardEnhancementsSupported = msg.Flags != 0
 		updated, cmd := a.chatPage.Update(msg)
 		a.chatPage = updated.(chat.Page)
-		return a, cmd
+		editorModel, editorCmd := a.editor.Update(msg)
+		a.editor = editorModel.(editor.Editor)
+		return a, tea.Batch(cmd, editorCmd)
 
 	case notification.ShowMsg, notification.HideMsg:
 		updated, cmd := a.notification.Update(msg)
@@ -307,16 +347,13 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a.handleKeyPressMsg(msg)
 
 	case tea.PasteMsg:
-		// If dialogs are active, only they should receive paste events.
-		// This prevents paste content from going to both dialog and editor.
 		if a.dialog.Open() {
 			u, dialogCmd := a.dialog.Update(msg)
 			a.dialog = u.(dialog.Manager)
 			return a, dialogCmd
 		}
-		// Otherwise forward to chat page (editor)
-		updated, cmd := a.chatPage.Update(msg)
-		a.chatPage = updated.(chat.Page)
+		editorModel, cmd := a.editor.Update(msg)
+		a.editor = editorModel.(editor.Editor)
 		return a, cmd
 
 	case tea.MouseWheelMsg:
@@ -331,26 +368,62 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd := a.handleDialogWheelDelta(msg)
 			return a, cmd
 		}
-
 		updated, cmd := a.chatPage.Update(msg)
 		a.chatPage = updated.(chat.Page)
 		return a, cmd
 
-	case tea.MouseClickMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
-		// If dialogs are active, they get priority for mouse events
-		if a.dialog.Open() {
-			u, dialogCmd := a.dialog.Update(msg)
-			a.dialog = u.(dialog.Manager)
-			return a, dialogCmd
+	case tea.MouseClickMsg:
+		return a.handleMouseClick(msg)
+
+	case tea.MouseMotionMsg:
+		return a.handleMouseMotion(msg)
+
+	case tea.MouseReleaseMsg:
+		return a.handleMouseRelease(msg)
+
+	// --- Focus requests from content view ---
+	case messages.RequestFocusMsg:
+		switch msg.Target {
+		case messages.PanelMessages:
+			if a.focusedPanel != panelContent {
+				a.focusedPanel = panelContent
+				a.editor.Blur()
+				return a, a.chatPage.FocusMessages()
+			}
+		case messages.PanelEditor:
+			if a.focusedPanel != panelEditor {
+				a.focusedPanel = panelEditor
+				a.chatPage.BlurMessages()
+				return a, a.editor.Focus()
+			}
 		}
-		// Otherwise forward to chat page
+		return a, nil
+
+	// --- Working state from content view ---
+	case messages.WorkingStateChangedMsg:
+		var cmds []tea.Cmd
+		cmds = append(cmds, a.editor.SetWorking(msg.Working))
+		if msg.Working {
+			cmds = append(cmds, a.workingSpinner.Init())
+		} else {
+			a.workingSpinner.Stop()
+		}
+		return a, tea.Batch(cmds...)
+
+	// --- SendMsg from editor ---
+	case messages.SendMsg:
 		updated, cmd := a.chatPage.Update(msg)
 		a.chatPage = updated.(chat.Page)
 		return a, cmd
+
+	// --- File attachments (routed to editor) ---
+	case messages.InsertFileRefMsg:
+		a.editor.AttachFile(msg.FilePath)
+		return a, nil
 
 	case messages.ExitSessionMsg:
-		// /exit command exits immediately without confirmation
 		a.chatPage.Cleanup()
+		a.editor.Cleanup()
 		return a, tea.Quit
 
 	case messages.NewSessionMsg:
@@ -368,7 +441,6 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.ToggleSessionStarMsg:
 		sessionID := msg.SessionID
 		if sessionID == "" {
-			// Empty ID means current session
 			if sess := a.application.Session(); sess != nil {
 				sessionID = sess.ID
 			} else {
@@ -409,6 +481,11 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messages.ToggleHideToolResultsMsg:
 		return a.handleToggleHideToolResults()
+
+	case messages.ToggleSplitDiffMsg:
+		updated, cmd := a.chatPage.Update(editfile.ToggleDiffViewMsg{})
+		a.chatPage = updated.(chat.Page)
+		return a, cmd
 
 	case messages.ClearQueueMsg:
 		updated, cmd := a.chatPage.Update(msg)
@@ -470,19 +547,16 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a.applyThemeChanged()
 
 	case messages.ThemeFileChangedMsg:
-		// Theme file was modified on disk - load and apply on the main goroutine
 		theme, err := styles.LoadTheme(msg.ThemeRef)
 		if err != nil {
-			// Failed to load - show error but keep current theme
 			return a, tea.Batch(
-				a.themeSubscription.Listen(), // Re-subscribe to continue listening
+				a.themeSubscription.Listen(),
 				notification.ErrorCmd(fmt.Sprintf("Failed to hot-reload theme: %v", err)),
 			)
 		}
 		styles.ApplyTheme(theme)
-		// Continue listening for more changes and emit ThemeChangedMsg for cache invalidation
 		return a, tea.Batch(
-			a.themeSubscription.Listen(), // Re-subscribe to continue listening
+			a.themeSubscription.Listen(),
 			notification.SuccessCmd("Theme hot-reloaded"),
 			core.CmdHandler(messages.ThemeChangedMsg{}),
 		)
@@ -491,29 +565,23 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a.handleElicitationResponse(msg.Action, msg.Content)
 
 	case messages.SendAttachmentMsg:
-		// Handle first message with image attachment using the pre-prepared message
 		a.application.RunWithMessage(context.Background(), nil, msg.Content)
 		return a, nil
 
 	case speakTranscriptAndContinue:
-		// Insert the transcript delta into the editor
-		a.chatPage.InsertText(msg.delta)
-		// Continue listening for more transcripts
+		a.editor.InsertText(msg.delta)
 		cmd := a.listenForTranscripts(msg.ch)
 		return a, cmd
 
 	case dialog.MultiChoiceResultMsg:
-		// Handle multi-choice dialog results
 		if msg.DialogID == dialog.ToolRejectionDialogID {
 			if msg.Result.IsCancelled {
-				// User cancelled - multi-choice dialog already closed, tool confirmation still open
 				return a, nil
 			}
-			// User selected a reason - close the tool confirmation dialog and send resume
 			resumeMsg := dialog.HandleToolRejectionResult(msg.Result)
 			if resumeMsg != nil {
 				return a, tea.Sequence(
-					core.CmdHandler(dialog.CloseDialogMsg{}), // Close tool confirmation dialog
+					core.CmdHandler(dialog.CloseDialogMsg{}),
 					core.CmdHandler(*resumeMsg),
 				)
 			}
@@ -526,15 +594,13 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case dialog.ExitConfirmedMsg:
 		a.chatPage.Cleanup()
+		a.editor.Cleanup()
 		return a, tea.Quit
 
 	case messages.ExitAfterFirstResponseMsg:
 		a.chatPage.Cleanup()
+		a.editor.Cleanup()
 		return a, tea.Quit
-
-	case chat.EditorHeightChangedMsg:
-		a.completions.SetEditorBottom(msg.Height)
-		return a, nil
 
 	case error:
 		a.err = msg
@@ -542,18 +608,14 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	default:
 		if event, isRuntimeEvent := msg.(runtime.Event); isRuntimeEvent {
-			// Update current agent name if the event carries one
 			if agentName := event.GetAgentName(); agentName != "" {
 				a.sessionState.SetCurrentAgentName(agentName)
 			}
-			// Forward to chat page
 			updated, cmd := a.chatPage.Update(msg)
 			a.chatPage = updated.(chat.Page)
 			return a, cmd
 		}
 
-		// For other messages, check if dialogs should handle them first
-		// If dialogs are active, they get priority for input
 		if a.dialog.Open() {
 			u, dialogCmd := a.dialog.Update(msg)
 			a.dialog = u.(dialog.Manager)
@@ -564,51 +626,225 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, tea.Batch(dialogCmd, cmdChatPage)
 		}
 
-		updated, cmdCompletions := a.completions.Update(msg)
-		a.completions = updated.(completion.Manager)
+		updatedComp, cmdCompletions := a.completions.Update(msg)
+		a.completions = updatedComp.(completion.Manager)
+
+		editorModel, cmdEditor := a.editor.Update(msg)
+		a.editor = editorModel.(editor.Editor)
 
 		updated, cmdChatPage := a.chatPage.Update(msg)
 		a.chatPage = updated.(chat.Page)
 
-		return a, tea.Batch(cmdCompletions, cmdChatPage)
+		return a, tea.Batch(cmdCompletions, cmdEditor, cmdChatPage)
 	}
 }
 
 // handleWindowResize processes window resize events
 func (a *appModel) handleWindowResize(width, height int) tea.Cmd {
-	var cmds []tea.Cmd
+	a.width, a.height = width, height
 
-	// Update status bar width first so we can measure its height
 	a.statusBar.SetWidth(width)
-
-	// Compute status bar height from rendered content
-	statusBarHeight := 1 // default fallback
-	if statusBarView := a.statusBar.View(); statusBarView != "" {
-		statusBarHeight = lipgloss.Height(statusBarView)
-	}
-
-	// Update dimensions, reserving space for the status bar
-	a.width, a.height = width, height-statusBarHeight
 
 	if !a.ready {
 		a.ready = true
 	}
+
+	return a.resizeAll()
+}
+
+// resizeAll recalculates all component sizes.
+func (a *appModel) resizeAll() tea.Cmd {
+	var cmds []tea.Cmd
+
+	width, height := a.width, a.height
+
+	// Calculate fixed heights
+	statusBarHeight := 1
+	if statusBarView := a.statusBar.View(); statusBarView != "" {
+		statusBarHeight = lipgloss.Height(statusBarView)
+	}
+	resizeHandleHeight := 1
+
+	// Calculate editor height
+	innerWidth := width - appPaddingHorizontal
+	minLines := 4
+	maxLines := max(minLines, (height-6)/2)
+	a.editorLines = max(minLines, min(a.editorLines, maxLines))
+
+	targetEditorHeight := a.editorLines - 1
+	cmds = append(cmds, a.editor.SetSize(innerWidth, targetEditorHeight))
+	_, editorHeight := a.editor.GetSize()
+	// The editor's View() adds MarginBottom(1) which isn't included in GetSize(),
+	// so account for it in the layout calculation.
+	editorRenderedHeight := editorHeight + 1
+
+	// Content gets remaining space
+	a.contentHeight = max(1, height-statusBarHeight-resizeHandleHeight-editorRenderedHeight)
 
 	// Update dialog system
 	u, cmd := a.dialog.Update(tea.WindowSizeMsg{Width: width, Height: height})
 	a.dialog = u.(dialog.Manager)
 	cmds = append(cmds, cmd)
 
-	cmd = a.chatPage.SetSize(a.width, a.height)
+	// Update chat page (content area)
+	cmd = a.chatPage.SetSize(width, a.contentHeight)
 	cmds = append(cmds, cmd)
 
-	// Update completion manager with actual editor height for popup positioning
-	a.completions.SetEditorBottom(a.chatPage.GetInputHeight())
+	// Update completion manager
+	a.completions.SetEditorBottom(editorHeight)
+	a.completions.Update(tea.WindowSizeMsg{Width: width, Height: height})
 
 	// Update notification size
-	a.notification.SetSize(a.width, a.height)
+	a.notification.SetSize(width, height)
 
 	return tea.Batch(cmds...)
+}
+
+// layoutRegion represents a vertical region in the TUI layout.
+type layoutRegion int
+
+const (
+	regionContent layoutRegion = iota
+	regionResizeHandle
+	regionEditor
+	regionStatusBar
+)
+
+// hitTestRegion determines which layout region a Y coordinate falls in.
+func (a *appModel) hitTestRegion(y int) layoutRegion {
+	resizeHandleTop := a.contentHeight
+	editorTop := resizeHandleTop + 1
+
+	switch {
+	case y < resizeHandleTop:
+		return regionContent
+	case y < editorTop:
+		return regionResizeHandle
+	default:
+		_, editorHeight := a.editor.GetSize()
+		if y < editorTop+editorHeight {
+			return regionEditor
+		}
+		return regionStatusBar
+	}
+}
+
+// editorTop returns the Y coordinate where the editor starts.
+func (a *appModel) editorTop() int {
+	return a.contentHeight + 1
+}
+
+// handleEditorResize adjusts editor height based on drag position.
+func (a *appModel) handleEditorResize(y int) tea.Cmd {
+	editorPadding := styles.EditorStyle.GetVerticalFrameSize()
+	targetLines := a.height - y - 1 - editorPadding
+	minLines := 4
+	maxLines := max(minLines, (a.height-6)/2)
+	newLines := max(minLines, min(targetLines, maxLines))
+	if newLines != a.editorLines {
+		a.editorLines = newLines
+		return a.resizeAll()
+	}
+	return nil
+}
+
+func (a *appModel) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	if a.dialog.Open() {
+		u, dialogCmd := a.dialog.Update(msg)
+		a.dialog = u.(dialog.Manager)
+		return a, dialogCmd
+	}
+
+	region := a.hitTestRegion(msg.Y)
+
+	switch region {
+	case regionContent:
+		if a.focusedPanel != panelContent {
+			a.focusedPanel = panelContent
+			a.editor.Blur()
+			a.chatPage.FocusMessages()
+		}
+		updated, cmd := a.chatPage.Update(msg)
+		a.chatPage = updated.(chat.Page)
+		return a, cmd
+
+	case regionResizeHandle:
+		if msg.Button == tea.MouseLeft {
+			a.isDragging = true
+		}
+		return a, nil
+
+	case regionEditor:
+		if a.focusedPanel != panelEditor {
+			a.focusedPanel = panelEditor
+			a.chatPage.BlurMessages()
+		}
+		adjustedMsg := msg
+		adjustedMsg.Y = msg.Y - a.editorTop()
+		editorModel, cmd := a.editor.Update(adjustedMsg)
+		a.editor = editorModel.(editor.Editor)
+		return a, tea.Batch(cmd, a.editor.Focus())
+	}
+
+	return a, nil
+}
+
+func (a *appModel) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
+	if a.isDragging {
+		cmd := a.handleEditorResize(msg.Y)
+		return a, cmd
+	}
+
+	if a.dialog.Open() {
+		u, cmd := a.dialog.Update(msg)
+		a.dialog = u.(dialog.Manager)
+		return a, cmd
+	}
+
+	region := a.hitTestRegion(msg.Y)
+	switch region {
+	case regionContent:
+		updated, cmd := a.chatPage.Update(msg)
+		a.chatPage = updated.(chat.Page)
+		return a, cmd
+	case regionEditor:
+		adjustedMsg := msg
+		adjustedMsg.Y = msg.Y - a.editorTop()
+		editorModel, cmd := a.editor.Update(adjustedMsg)
+		a.editor = editorModel.(editor.Editor)
+		return a, cmd
+	}
+
+	return a, nil
+}
+
+func (a *appModel) handleMouseRelease(msg tea.MouseReleaseMsg) (tea.Model, tea.Cmd) {
+	if a.isDragging {
+		a.isDragging = false
+		return a, nil
+	}
+
+	if a.dialog.Open() {
+		u, cmd := a.dialog.Update(msg)
+		a.dialog = u.(dialog.Manager)
+		return a, cmd
+	}
+
+	region := a.hitTestRegion(msg.Y)
+	switch region {
+	case regionContent:
+		updated, cmd := a.chatPage.Update(msg)
+		a.chatPage = updated.(chat.Page)
+		return a, cmd
+	case regionEditor:
+		adjustedMsg := msg
+		adjustedMsg.Y = msg.Y - a.editorTop()
+		editorModel, cmd := a.editor.Update(adjustedMsg)
+		a.editor = editorModel.(editor.Editor)
+		return a, cmd
+	}
+
+	return a, nil
 }
 
 func (a *appModel) handleKeyPressMsg(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -617,9 +853,8 @@ func (a *appModel) handleKeyPressMsg(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "enter":
 			model, cmd := a.handleStopSpeak()
-			sendCmd := a.chatPage.SendEditorContent()
+			sendCmd := a.editor.SendContent()
 			return model, tea.Batch(cmd, sendCmd)
-
 		case "esc":
 			return a.handleStopSpeak()
 		}
@@ -632,23 +867,19 @@ func (a *appModel) handleKeyPressMsg(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if a.completions.Open() {
-		// Check if this is a navigation key that the completion manager should handle
 		if core.IsNavigationKey(msg) {
-			// Let completion manager handle navigation keys
 			u, completionCmd := a.completions.Update(msg)
 			a.completions = u.(completion.Manager)
 			return a, completionCmd
 		}
 
-		// For all other keys (typing), send to both completion (for filtering) and editor
 		var cmds []tea.Cmd
 		u, completionCmd := a.completions.Update(msg)
 		a.completions = u.(completion.Manager)
 		cmds = append(cmds, completionCmd)
 
-		// Also send to chat page/editor so user can continue typing
-		updated, cmd := a.chatPage.Update(msg)
-		a.chatPage = updated.(chat.Page)
+		editorModel, cmd := a.editor.Update(msg)
+		a.editor = editorModel.(editor.Editor)
 		cmds = append(cmds, cmd)
 
 		return a, tea.Batch(cmds...)
@@ -690,16 +921,63 @@ func (a *appModel) handleKeyPressMsg(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, a.keyMap.ClearQueue):
 		return a, core.CmdHandler(messages.ClearQueueMsg{})
 
+	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+g"))):
+		return a.openExternalEditor()
+
+	// Toggle sidebar (propagates to content view regardless of focus)
+	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+b"))):
+		updated, cmd := a.chatPage.Update(msg)
+		a.chatPage = updated.(chat.Page)
+		return a, cmd
+
+	// Focus switching
+	case key.Matches(msg, key.NewBinding(key.WithKeys("tab"))):
+		return a.switchFocus()
+
+	// Esc: cancel stream
+	case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
+		updated, cmd := a.chatPage.Update(msg)
+		a.chatPage = updated.(chat.Page)
+		return a, cmd
+
 	default:
 		// Handle ctrl+1 through ctrl+9 for quick agent switching
 		if index := parseCtrlNumberKey(msg); index >= 0 {
 			return a.handleSwitchToAgentByIndex(index)
 		}
 
-		updated, cmd := a.chatPage.Update(msg)
-		a.chatPage = updated.(chat.Page)
-		return a, cmd
+		// Focus-based routing
+		switch a.focusedPanel {
+		case panelEditor:
+			editorModel, cmd := a.editor.Update(msg)
+			a.editor = editorModel.(editor.Editor)
+			return a, cmd
+		case panelContent:
+			updated, cmd := a.chatPage.Update(msg)
+			a.chatPage = updated.(chat.Page)
+			return a, cmd
+		}
+
+		return a, nil
 	}
+}
+
+// switchFocus toggles between content and editor panels.
+func (a *appModel) switchFocus() (tea.Model, tea.Cmd) {
+	switch a.focusedPanel {
+	case panelEditor:
+		if cmd := a.editor.AcceptSuggestion(); cmd != nil {
+			return a, cmd
+		}
+		a.focusedPanel = panelContent
+		a.editor.Blur()
+		return a, a.chatPage.FocusMessages()
+	case panelContent:
+		a.focusedPanel = panelEditor
+		a.chatPage.BlurMessages()
+		return a, a.editor.Focus()
+	}
+	return a, nil
 }
 
 // parseCtrlNumberKey checks if msg is ctrl+1 through ctrl+9 and returns the index (0-8), or -1 if not matched
@@ -711,16 +989,108 @@ func parseCtrlNumberKey(msg tea.KeyPressMsg) int {
 	return -1
 }
 
+func (a *appModel) handleWheelMsg(msg tea.MouseWheelMsg) tea.Cmd {
+	if a.dialog.Open() {
+		u, dialogCmd := a.dialog.Update(msg)
+		a.dialog = u.(dialog.Manager)
+		return dialogCmd
+	}
+
+	region := a.hitTestRegion(msg.Y)
+	switch region {
+	case regionContent:
+		updated, chatCmd := a.chatPage.Update(msg)
+		a.chatPage = updated.(chat.Page)
+		return chatCmd
+	case regionEditor:
+		if msg.Button == tea.MouseWheelUp {
+			a.editor.ScrollByWheel(-1)
+		} else {
+			a.editor.ScrollByWheel(1)
+		}
+		return nil
+	}
+
+	return nil
+}
+
+func (a *appModel) handleDialogWheelDelta(msg messages.WheelCoalescedMsg) tea.Cmd {
+	steps := msg.Delta
+	button := tea.MouseWheelDown
+	if steps < 0 {
+		steps = -steps
+		button = tea.MouseWheelUp
+	}
+
+	var cmds []tea.Cmd
+	for range steps {
+		u, dialogCmd := a.dialog.Update(tea.MouseWheelMsg{X: msg.X, Y: msg.Y, Button: button})
+		a.dialog = u.(dialog.Manager)
+		if dialogCmd != nil {
+			cmds = append(cmds, dialogCmd)
+		}
+	}
+
+	if len(cmds) == 0 {
+		return nil
+	}
+	return tea.Batch(cmds...)
+}
+
+// renderResizeHandle renders the separator between content and editor.
+func (a *appModel) renderResizeHandle(width int) string {
+	if width <= 0 {
+		return ""
+	}
+
+	innerWidth := width - appPaddingHorizontal
+
+	centerStyle := styles.ResizeHandleHoverStyle
+	if a.isDragging {
+		centerStyle = styles.ResizeHandleActiveStyle
+	}
+
+	centerPart := strings.Repeat("─", min(resizeHandleWidth, innerWidth))
+	handle := centerStyle.Render(centerPart)
+
+	fullLine := lipgloss.PlaceHorizontal(
+		max(0, innerWidth), lipgloss.Center, handle,
+		lipgloss.WithWhitespaceChars("─"),
+		lipgloss.WithWhitespaceStyle(styles.ResizeHandleStyle),
+	)
+
+	if a.chatPage.IsWorking() {
+		workingText := "Working…"
+		if queueLen := a.chatPage.QueueLength(); queueLen > 0 {
+			workingText = fmt.Sprintf("Working… (%d queued)", queueLen)
+		}
+		suffix := " " + a.workingSpinner.View() + " " + styles.SpinnerDotsHighlightStyle.Render(workingText)
+		cancelKeyPart := styles.HighlightWhiteStyle.Render("Esc")
+		suffix += " (" + cancelKeyPart + " to interrupt)"
+		suffixWidth := lipgloss.Width(suffix)
+		truncated := lipgloss.NewStyle().MaxWidth(innerWidth - suffixWidth).Render(fullLine)
+		return truncated + suffix
+	}
+
+	if queueLen := a.chatPage.QueueLength(); queueLen > 0 {
+		queueText := fmt.Sprintf("%d queued", queueLen)
+		suffix := " " + styles.WarningStyle.Render(queueText) + " "
+		suffixWidth := lipgloss.Width(suffix)
+		truncated := lipgloss.NewStyle().MaxWidth(innerWidth - suffixWidth).Render(fullLine)
+		return truncated + suffix
+	}
+
+	return fullLine
+}
+
 // View renders the complete application interface
 func (a *appModel) View() tea.View {
 	windowTitle := a.windowTitle()
 
-	// Show error if present
 	if a.err != nil {
 		return toFullscreenView(styles.ErrorStyle.Render(a.err.Error()), windowTitle)
 	}
 
-	// Show loading if not ready
 	if !a.ready {
 		return toFullscreenView(
 			styles.CenterStyle.
@@ -731,15 +1101,21 @@ func (a *appModel) View() tea.View {
 		)
 	}
 
-	// Render chat page
-	pageView := a.chatPage.View()
+	// Content area (messages + sidebar)
+	contentView := a.chatPage.View()
 
-	// Create status bar
+	// Resize handle
+	resizeHandle := a.renderResizeHandle(a.width)
+
+	// Editor
+	editorView := a.editor.View()
+
+	// Status bar
 	statusBar := a.statusBar.View()
 
-	// Combine page view with status bar
+	// Combine: content | resize handle | editor | status bar
 	var components []string
-	components = append(components, pageView)
+	components = append(components, contentView, resizeHandle, editorView)
 	if statusBar != "" {
 		components = append(components, statusBar)
 	}
@@ -753,7 +1129,6 @@ func (a *appModel) View() tea.View {
 		var allLayers []*lipgloss.Layer
 		allLayers = append(allLayers, baseLayer)
 
-		// Add dialog layers
 		if a.dialog.Open() {
 			dialogLayers := a.dialog.GetLayers()
 			allLayers = append(allLayers, dialogLayers...)
@@ -775,7 +1150,6 @@ func (a *appModel) View() tea.View {
 	return toFullscreenView(baseView, windowTitle)
 }
 
-// windowTitle returns the terminal window title
 func (a *appModel) windowTitle() string {
 	if sessionTitle := a.sessionState.SessionTitle(); sessionTitle != "" {
 		return sessionTitle + " - cagent"
@@ -787,7 +1161,6 @@ func (a *appModel) startShell() (tea.Model, tea.Cmd) {
 	var cmd *exec.Cmd
 
 	if goruntime.GOOS == "windows" {
-		// Prefer PowerShell (pwsh or Windows PowerShell) when available, otherwise fall back to cmd.exe
 		if path, err := exec.LookPath("pwsh.exe"); err == nil {
 			cmd = exec.Command(path, "-NoLogo", "-NoExit", "-Command",
 				`Write-Host ""; Write-Host "Type 'exit' to return to cagent 🐳"`)
@@ -795,12 +1168,10 @@ func (a *appModel) startShell() (tea.Model, tea.Cmd) {
 			cmd = exec.Command(path, "-NoLogo", "-NoExit", "-Command",
 				`Write-Host ""; Write-Host "Type 'exit' to return to cagent 🐳"`)
 		} else {
-			// Use ComSpec if available, otherwise default to cmd.exe
 			shell := cmp.Or(os.Getenv("ComSpec"), "cmd.exe")
 			cmd = exec.Command(shell, "/K", `echo. & echo Type 'exit' to return to cagent`)
 		}
 	} else {
-		// Unix-like: use SHELL or default to /bin/sh
 		shell := cmp.Or(os.Getenv("SHELL"), "/bin/sh")
 		cmd = exec.Command(shell, "-i", "-c",
 			`echo -e "\nType 'exit' to return to cagent 🐳"; exec `+shell)
@@ -812,22 +1183,14 @@ func (a *appModel) startShell() (tea.Model, tea.Cmd) {
 	return a, tea.ExecProcess(cmd, nil)
 }
 
-// invalidateCachesForThemeChange performs synchronous cache invalidation
-// after a theme change. This does NOT forward messages to child components.
-// Use applyThemeChanged() when you also need to forward ThemeChangedMsg.
 func (a *appModel) invalidateCachesForThemeChange() {
 	markdown.ResetStyles()
 	a.statusBar.InvalidateCache()
 }
 
-// applyThemeChanged invalidates all theme-dependent caches and forwards
-// ThemeChangedMsg to child components. This is called synchronously when
-// themes are changed/previewed to ensure View() renders with updated styles.
 func (a *appModel) applyThemeChanged() (tea.Model, tea.Cmd) {
-	// Invalidate all caches
 	a.invalidateCachesForThemeChange()
 
-	// Update theme watcher to watch new theme file
 	currentTheme := styles.CurrentTheme()
 	if currentTheme != nil {
 		_ = a.themeWatcher.Watch(currentTheme.Ref)
@@ -835,17 +1198,77 @@ func (a *appModel) applyThemeChanged() (tea.Model, tea.Cmd) {
 
 	var cmds []tea.Cmd
 
-	// Forward to dialog manager to propagate to all open dialogs
 	dialogUpdated, dialogCmd := a.dialog.Update(messages.ThemeChangedMsg{})
 	a.dialog = dialogUpdated.(dialog.Manager)
 	cmds = append(cmds, dialogCmd)
 
-	// Forward to chat page to propagate to all child components
 	chatUpdated, chatCmd := a.chatPage.Update(messages.ThemeChangedMsg{})
 	a.chatPage = chatUpdated.(chat.Page)
 	cmds = append(cmds, chatCmd)
 
+	editorModel, editorCmd := a.editor.Update(messages.ThemeChangedMsg{})
+	a.editor = editorModel.(editor.Editor)
+	cmds = append(cmds, editorCmd)
+
+	// Recreate working spinner with new theme colors
+	a.workingSpinner = spinner.New(spinner.ModeSpinnerOnly, styles.SpinnerDotsHighlightStyle)
+
 	return a, tea.Batch(cmds...)
+}
+
+// openExternalEditor opens the current editor content in an external editor.
+func (a *appModel) openExternalEditor() (tea.Model, tea.Cmd) {
+	content := a.editor.Value()
+
+	tmpFile, err := os.CreateTemp("", "cagent-*.md")
+	if err != nil {
+		return a, notification.ErrorCmd(fmt.Sprintf("Failed to create temp file: %v", err))
+	}
+	tmpPath := tmpFile.Name()
+
+	if _, err := tmpFile.WriteString(content); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
+		return a, notification.ErrorCmd(fmt.Sprintf("Failed to write temp file: %v", err))
+	}
+	tmpFile.Close()
+
+	editorCmd := cmp.Or(os.Getenv("VISUAL"), os.Getenv("EDITOR"))
+	if editorCmd == "" {
+		if goruntime.GOOS == "windows" {
+			editorCmd = "notepad"
+		} else {
+			editorCmd = "vi"
+		}
+	}
+
+	parts := strings.Fields(editorCmd)
+	args := append(parts[1:], tmpPath)
+	cmd := exec.Command(parts[0], args...)
+
+	ed := a.editor
+	return a, tea.ExecProcess(cmd, func(err error) tea.Msg {
+		if err != nil {
+			os.Remove(tmpPath)
+			return notification.ShowMsg{Text: fmt.Sprintf("Editor error: %v", err), Type: notification.TypeError}
+		}
+
+		updatedContent, readErr := os.ReadFile(tmpPath)
+		os.Remove(tmpPath)
+
+		if readErr != nil {
+			return notification.ShowMsg{Text: fmt.Sprintf("Failed to read edited file: %v", readErr), Type: notification.TypeError}
+		}
+
+		c := strings.TrimSuffix(string(updatedContent), "\n")
+		if strings.TrimSpace(c) == "" {
+			ed.SetValue("")
+		} else {
+			ed.SetValue(c)
+		}
+
+		return nil
+	})
 }
 
 func toFullscreenView(content, windowTitle string) tea.View {
@@ -856,4 +1279,46 @@ func toFullscreenView(content, windowTitle string) tea.View {
 	view.WindowTitle = windowTitle
 
 	return view
+}
+
+// editorDisplayName returns a friendly display name for the configured external editor.
+func editorDisplayName() string {
+	editorCmd := cmp.Or(os.Getenv("VISUAL"), os.Getenv("EDITOR"))
+	if editorCmd == "" {
+		if goruntime.GOOS == "windows" {
+			return "Notepad"
+		}
+		return "Vi"
+	}
+	parts := strings.Fields(editorCmd)
+	if len(parts) == 0 {
+		return "$EDITOR"
+	}
+	name := parts[0]
+	if i := strings.LastIndex(name, "/"); i >= 0 {
+		name = name[i+1:]
+	}
+	if i := strings.LastIndex(name, `\`); i >= 0 {
+		name = name[i+1:]
+	}
+	// Map common editor prefixes to friendly names
+	for _, e := range []struct{ prefix, display string }{
+		{"code", "VSCode"},
+		{"cursor", "Cursor"},
+		{"nvim", "Neovim"},
+		{"vim", "Vim"},
+		{"vi", "Vi"},
+		{"nano", "Nano"},
+		{"emacs", "Emacs"},
+		{"subl", "Sublime Text"},
+		{"zed", "Zed"},
+	} {
+		if strings.HasPrefix(name, e.prefix) {
+			return e.display
+		}
+	}
+	if name != "" {
+		return strings.ToUpper(name[:1]) + name[1:]
+	}
+	return "$EDITOR"
 }

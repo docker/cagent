@@ -8,7 +8,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/docker/cagent/pkg/app"
-	"github.com/docker/cagent/pkg/tui/components/editor"
 	"github.com/docker/cagent/pkg/tui/components/messages"
 	"github.com/docker/cagent/pkg/tui/components/notification"
 	"github.com/docker/cagent/pkg/tui/components/sidebar"
@@ -20,85 +19,56 @@ import (
 )
 
 // handleKeyPress handles keyboard input events for the chat page.
-// Returns the updated model and command, plus a bool indicating if the event was handled.
-func (p *chatPage) handleKeyPress(msg tea.KeyPressMsg) (layout.Model, tea.Cmd, bool) {
+// Returns the updated model and command. All key presses are handled (forwarded to messages if no match).
+func (p *chatPage) handleKeyPress(msg tea.KeyPressMsg) (layout.Model, tea.Cmd) {
 	// When editing title, route keypresses to the sidebar
 	if p.sidebar.IsEditingTitle() {
 		switch msg.Key().Code {
 		case tea.KeyEnter:
 			newTitle := p.sidebar.CommitTitleEdit()
 			cmd := p.persistSessionTitle(newTitle)
-			return p, cmd, true
+			return p, cmd
 		case tea.KeyEscape:
 			p.sidebar.CancelTitleEdit()
-			return p, nil, true
+			return p, nil
 		default:
 			cmd := p.sidebar.UpdateTitleInput(msg)
-			return p, cmd, true
+			return p, cmd
 		}
 	}
 
 	switch {
-	case key.Matches(msg, p.keyMap.Tab):
-		// Block Tab when inline editing - user must escape or submit first
-		if p.messages.IsInlineEditing() {
-			return p, nil, true
-		}
-		if p.focusedPanel == PanelEditor {
-			if cmd := p.editor.AcceptSuggestion(); cmd != nil {
-				return p, cmd, true
-			}
-		}
-		p.switchFocus()
-		return p, nil, true
-
 	case key.Matches(msg, p.keyMap.Cancel):
 		// If inline editing is active, cancel the edit first
 		if p.messages.IsInlineEditing() {
 			cmd := p.messages.CancelInlineEdit()
-			return p, cmd, true
+			return p, cmd
 		}
 		// Otherwise cancel the stream (only if something is running)
 		if p.working || p.msgCancel != nil {
 			cmd := p.cancelStream(true)
-			return p, cmd, true
+			return p, cmd
 		}
-		// Forward to focused component for other uses (e.g., clear selection)
-		if p.focusedPanel == PanelChat {
-			model, cmd := p.messages.Update(msg)
-			p.messages = model.(messages.Model)
-			return p, cmd, true
-		}
-		return p, nil, true
-
-	case key.Matches(msg, p.keyMap.ExternalEditor):
-		cmd := p.openExternalEditor()
-		return p, cmd, true
+		// Forward to messages for other uses (e.g., clear selection)
+		model, cmd := p.messages.Update(msg)
+		p.messages = model.(messages.Model)
+		return p, cmd
 
 	case key.Matches(msg, p.keyMap.ToggleSplitDiff):
 		model, cmd := p.messages.Update(editfile.ToggleDiffViewMsg{})
 		p.messages = model.(messages.Model)
-		return p, cmd, true
+		return p, cmd
 
 	case key.Matches(msg, p.keyMap.ToggleSidebar):
 		p.sidebar.ToggleCollapsed()
 		cmd := p.SetSize(p.width, p.height)
-		return p, cmd, true
+		return p, cmd
 	}
 
-	// Route other keys to focused component
-	switch p.focusedPanel {
-	case PanelChat:
-		model, cmd := p.messages.Update(msg)
-		p.messages = model.(messages.Model)
-		return p, cmd, true
-	case PanelEditor:
-		model, cmd := p.editor.Update(msg)
-		p.editor = model.(editor.Editor)
-		return p, cmd, true
-	}
-
-	return p, nil, false
+	// Route keys to messages (for scrolling, etc.)
+	model, cmd := p.messages.Update(msg)
+	p.messages = model.(messages.Model)
+	return p, cmd
 }
 
 // persistSessionTitle saves the new session title to the store
@@ -122,10 +92,6 @@ func (p *chatPage) handleMouseClick(msg tea.MouseClickMsg) (layout.Model, tea.Cm
 	target := hit.At(msg.X, msg.Y)
 
 	switch target {
-	case TargetEditorResizeHandle:
-		p.isDragging = true
-		return p, nil
-
 	case TargetSidebarToggle:
 		if msg.Button == tea.MouseLeft {
 			p.sidebar.ToggleCollapsed()
@@ -159,15 +125,6 @@ func (p *chatPage) handleMouseClick(msg tea.MouseClickMsg) (layout.Model, tea.Cm
 			}
 			return p, nil
 		}
-
-	case TargetEditorBanner:
-		if msg.Button == tea.MouseLeft {
-			localX := max(0, msg.X-styles.AppPaddingLeft)
-			if preview, ok := p.editor.AttachmentAt(localX); ok {
-				cmd := p.openAttachmentPreview(preview)
-				return p, cmd
-			}
-		}
 	}
 
 	// Default: route to appropriate component
@@ -177,10 +134,6 @@ func (p *chatPage) handleMouseClick(msg tea.MouseClickMsg) (layout.Model, tea.Cm
 
 // handleMouseMotion handles mouse motion events.
 func (p *chatPage) handleMouseMotion(msg tea.MouseMotionMsg) (layout.Model, tea.Cmd) {
-	if p.isDragging {
-		cmd := p.handleResize(msg.Y)
-		return p, cmd
-	}
 	if p.isDraggingSidebar {
 		delta := p.sidebarDragStartX - msg.X
 		if max(delta, -delta) >= dragThreshold {
@@ -193,19 +146,12 @@ func (p *chatPage) handleMouseMotion(msg tea.MouseMotionMsg) (layout.Model, tea.
 		return p, nil
 	}
 
-	hit := NewHitTest(p)
-	p.isHoveringHandle = hit.IsOnResizeLine(msg.Y)
-
 	cmd := p.routeMouseEvent(msg, msg.Y)
 	return p, cmd
 }
 
 // handleMouseRelease handles mouse release events.
 func (p *chatPage) handleMouseRelease(msg tea.MouseReleaseMsg) (layout.Model, tea.Cmd) {
-	if p.isDragging {
-		p.isDragging = false
-		return p, nil
-	}
 	if p.isDraggingSidebar {
 		p.isDraggingSidebar = false
 		return p, nil
@@ -221,13 +167,9 @@ func (p *chatPage) handleMouseWheel(msg tea.MouseWheelMsg) (layout.Model, tea.Cm
 		model, cmd := p.sidebar.Update(msg)
 		p.sidebar = model.(sidebar.Model)
 		return p, cmd
-	case wheelTargetMessages:
+	default:
 		model, cmd := p.messages.Update(msg)
 		p.messages = model.(messages.Model)
-		return p, cmd
-	default:
-		model, cmd := p.editor.Update(msg)
-		p.editor = model.(editor.Editor)
 		return p, cmd
 	}
 }
@@ -239,10 +181,8 @@ func (p *chatPage) handleWheelCoalesced(msg msgtypes.WheelCoalescedMsg) (layout.
 	switch p.wheelTarget(msg.X, msg.Y) {
 	case wheelTargetSidebar:
 		p.sidebar.ScrollByWheel(msg.Delta)
-	case wheelTargetMessages:
-		p.messages.ScrollByWheel(msg.Delta)
 	default:
-		p.editor.ScrollByWheel(msg.Delta)
+		p.messages.ScrollByWheel(msg.Delta)
 	}
 	return p, nil
 }
@@ -251,11 +191,10 @@ type wheelTarget int
 
 const (
 	wheelTargetMessages wheelTarget = iota
-	wheelTargetEditor
 	wheelTargetSidebar
 )
 
-func (p *chatPage) wheelTarget(x, y int) wheelTarget {
+func (p *chatPage) wheelTarget(x, _ int) wheelTarget {
 	sl := p.computeSidebarLayout()
 	if sl.mode == sidebarVertical && !p.sidebar.IsCollapsed() {
 		adjustedX := x - styles.AppPaddingLeft
@@ -264,12 +203,7 @@ func (p *chatPage) wheelTarget(x, y int) wheelTarget {
 		}
 	}
 
-	editorTop := p.height - p.inputHeight
-	if y < editorTop {
-		return wheelTargetMessages
-	}
-
-	return wheelTargetEditor
+	return wheelTargetMessages
 }
 
 // handleSidebarResize adjusts sidebar width based on drag position.
