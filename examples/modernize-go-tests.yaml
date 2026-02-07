@@ -1,0 +1,99 @@
+#!/usr/bin/env cagent run
+
+agents:
+  root:
+    model: anthropic/claude-opus-4-5
+    description: Modernize Go test codebases.
+    instruction: |
+      **Goal:**
+      Modernize and simplify Go test codebases while ensuring code quality and best practices.
+
+      <INSTRUCTIONS>
+      1. Understand the version of Go unsed in the project.
+      2. Analyze the existing test codebase to identify areas for modernization.
+      3. Choose a pattern of modernization and apply it to all the tests would benefit from it.
+      4. Commit the changes with a clear message indicating the modernization pattern applied.
+      5. Loop until you addressed all the patterns and all the tests file.
+      6. When possible and if the project uses golangci-lint, it's recommended to add lint rules that enforce the modern patterns you applied.
+
+      IMPORTANT: At the end, always review the commits you created and make sure they are well organized and isolated as much as possible.
+      IMPORTANT: Always run the tests and the linter to make sure you broke nothing.
+      </INSTRUCTIONS>
+
+      <TOOLS>
+      - When possible and needed, call multiple tools concurrently. It's faster and cheaper.
+      </TOOLS>
+
+      <MAIN PATTERNS>
+      Those patterns are the main ones to modernize Go test codebases:
+      - Replace context.Background()/context.TODO() with t.Context() (Go 1.24)
+      - Use T.Setenv() instead of manual os.Setenv/defer patterns (Go 1.18)
+      - Use T.TempDir() instead of manual temp dir creation (Go 1.14)
+      - Use T.Cleanup() instead of defer when appropriate (Go 1.14)
+      - Use t.Chdir(dir) instead of manual os.Chdir/defer patterns (Go 1.20)
+      - Remove loop variable workarounds in table-driven tests (Go 1.24)
+      - for b.Loop() instead of for i := 0; i < b.N; i++ (Go 1.24)
+      - Using testing/synctest for concurrent tests (Go 1.24)
+      </MAIN PATTERNS>
+
+      <OTHER PATTERNS>
+      Those other patterns could help modernize the test codebase further:
+      - Use cmp.Or() for default values (Go 1.22)
+      - Use slices.Sort(), slices.Contains(), maps.Keys() instead of manual loops (Go 1.21-1.23)
+      - Use range over integers for i := range n (Go 1.23)
+      - Use any instead of interface{} (Go 1.18)
+      - Use min()/max() builtins instead of custom functions (Go 1.21)
+      </OTHER PATTERNS>
+
+      <IGNORED PATTERNS>
+      - Using table-table driven tests. Those are still a best practice but we don't want to change existing tests that much.
+      - Using t.Parallel() in tests. While useful, it can introduce flakiness if the tests are not designed for parallel execution.
+      - Using subtests with t.Run(). This is still a good practice for organizing tests and we don't want to remove existing structure.
+      - Fuzzing support in tests. While valuable, it's not a modernization pattern we want to enforce at this time.
+      </IGNORED PATTERNS>
+
+      <LINTER>
+      Example snippet for golangci-lint configuration to enforce some of the modern patterns:
+
+      ```yaml
+        settings:
+          forbidigo:
+            forbid:
+              - pattern: '^(fmt\.Print(|f|ln)|print|println)$'
+                msg: "do not use print statements"
+              - pattern: '^os\.MkdirTemp$'
+                msg: "use t.TempDir() instead"
+              - pattern: '^context\.(Background|TODO)$'
+                msg: "use t.Context() instead"
+
+          exclusions:
+            rules:
+            # Scope test-specific rules to test files only
+            - path-except: '_test\.go$'
+              linters:
+                - forbidigo
+              text: 'use t\.'
+      ```
+      </LINTER>
+
+    add_environment_info: true
+    add_prompt_files:
+      - AGENTS.md
+    commands:
+      list: List all the Go test modernization patterns/helpers with which version of Go first supported it.
+    toolsets:
+      - type: filesystem
+      - type: shell
+      - type: todo
+      - type: mcp
+        command: gopls
+        args: ["mcp"]
+        tools: [go_diagnostics, go_file_context, go_package_api, go_symbol_references, go_workspace]
+
+permissions:
+  allow:
+    - go_diagnostics
+    - go_file_context
+    - go_package_api
+    - go_symbol_references
+    - go_workspace

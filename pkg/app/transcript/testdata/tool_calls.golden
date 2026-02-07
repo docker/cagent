@@ -1,0 +1,22 @@
+## User
+
+Hello
+
+## Assistant (root)
+
+Hello to you too
+
+### Tool Calls
+
+- **shell**
+```json
+{
+  "cmd": "ls"
+}
+```
+
+
+### Tool Result
+
+.
+..

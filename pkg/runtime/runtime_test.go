@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
 
@@ -28,11 +30,16 @@ import (
 )
 
 type stubToolSet struct {
-	tools.BaseToolSet
 	startErr error
 	tools    []tools.Tool
 	listErr  error
 }
+
+// Verify interface compliance
+var (
+	_ tools.ToolSet   = (*stubToolSet)(nil)
+	_ tools.Startable = (*stubToolSet)(nil)
+)
 
 func newStubToolSet(startErr error, toolsList []tools.Tool, listErr error) tools.ToolSet {
 	return &stubToolSet{
@@ -43,6 +50,7 @@ func newStubToolSet(startErr error, toolsList []tools.Tool, listErr error) tools
 }
 
 func (s *stubToolSet) Start(context.Context) error { return s.startErr }
+func (s *stubToolSet) Stop(context.Context) error  { return nil }
 func (s *stubToolSet) Tools(context.Context) ([]tools.Tool, error) {
 	if s.listErr != nil {
 		return nil, s.listErr
@@ -176,7 +184,7 @@ func runSession(t *testing.T, sess *session.Session, stream *mockStream) []Event
 	root := agent.New("root", "You are a test agent", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	sess.Title = "Unit Test"
@@ -202,6 +210,52 @@ func hasEventType(t *testing.T, events []Event, target Event) bool {
 	return false
 }
 
+// assertEventsEqual compares two event slices, ignoring timestamps.
+// Timestamps are inherently non-deterministic in tests.
+func assertEventsEqual(t *testing.T, expected, actual []Event) {
+	t.Helper()
+
+	require.Len(t, actual, len(expected), "event count mismatch")
+
+	for i := range expected {
+		expectedType := reflect.TypeOf(expected[i])
+		actualType := reflect.TypeOf(actual[i])
+		assert.Equal(t, expectedType, actualType, "event type mismatch at index %d", i)
+
+		// Clear timestamps for comparison
+		clearTimestamps(expected[i])
+		clearTimestamps(actual[i])
+
+		assert.Equal(t, expected[i], actual[i], "event content mismatch at index %d", i)
+	}
+}
+
+// clearTimestamps sets Timestamp fields to zero value in events for comparison.
+func clearTimestamps(event Event) {
+	if event == nil {
+		return
+	}
+
+	// Use reflection to find and clear Timestamp in embedded AgentContext
+	v := reflect.ValueOf(event)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return
+	}
+
+	field := v.FieldByName("AgentContext")
+	if !field.IsValid() || field.Kind() != reflect.Struct {
+		return
+	}
+
+	timestampField := field.FieldByName("Timestamp")
+	if timestampField.IsValid() && timestampField.CanSet() {
+		timestampField.Set(reflect.Zero(timestampField.Type()))
+	}
+}
+
 func TestSimple(t *testing.T) {
 	stream := newStreamBuilder().
 		AddContent("Hello").
@@ -212,13 +266,22 @@ func TestSimple(t *testing.T) {
 
 	events := runSession(t, sess, stream)
 
+	// Extract the actual message from MessageAddedEvent to use in comparison
+	// (it contains dynamic fields like CreatedAt that we can't predict)
+	require.Len(t, events, 9)
+	msgAdded := events[6].(*MessageAddedEvent)
+	require.NotNil(t, msgAdded.Message)
+	require.Equal(t, "Hello", msgAdded.Message.Message.Content)
+	require.Equal(t, chat.MessageRoleAssistant, msgAdded.Message.Message.Role)
+
 	expectedEvents := []Event{
 		AgentInfo("root", "test/mock-model", "", ""),
 		TeamInfo([]AgentDetails{{Name: "root", Provider: "test", Model: "mock-model"}}, "root"),
 		ToolsetInfo(0, false, "root"),
-		UserMessage("Hi"),
+		UserMessage("Hi", sess.ID, 0),
 		StreamStarted(sess.ID, "root"),
 		AgentChoice("root", "Hello"),
+		MessageAdded(sess.ID, msgAdded.Message, "root"),
 		TokenUsageWithMessage(sess.ID, "root", 3, 2, 5, 0, 0, &MessageUsage{
 			Usage: chat.Usage{InputTokens: 3, OutputTokens: 2},
 			Model: "test/mock-model",
@@ -226,7 +289,7 @@ func TestSimple(t *testing.T) {
 		StreamStopped(sess.ID, "root"),
 	}
 
-	require.Equal(t, expectedEvents, events)
+	assertEventsEqual(t, expectedEvents, events)
 }
 
 func TestMultipleContentChunks(t *testing.T) {
@@ -243,17 +306,24 @@ func TestMultipleContentChunks(t *testing.T) {
 
 	events := runSession(t, sess, stream)
 
+	// Extract the actual message from MessageAddedEvent to use in comparison
+	// (it contains dynamic fields like CreatedAt that we can't predict)
+	require.Len(t, events, 13)
+	msgAdded := events[10].(*MessageAddedEvent)
+	require.NotNil(t, msgAdded.Message)
+
 	expectedEvents := []Event{
 		AgentInfo("root", "test/mock-model", "", ""),
 		TeamInfo([]AgentDetails{{Name: "root", Provider: "test", Model: "mock-model"}}, "root"),
 		ToolsetInfo(0, false, "root"),
-		UserMessage("Please greet me"),
+		UserMessage("Please greet me", sess.ID, 0),
 		StreamStarted(sess.ID, "root"),
 		AgentChoice("root", "Hello "),
 		AgentChoice("root", "there, "),
 		AgentChoice("root", "how "),
 		AgentChoice("root", "are "),
 		AgentChoice("root", "you?"),
+		MessageAdded(sess.ID, msgAdded.Message, "root"),
 		TokenUsageWithMessage(sess.ID, "root", 8, 12, 20, 0, 0, &MessageUsage{
 			Usage: chat.Usage{InputTokens: 8, OutputTokens: 12},
 			Model: "test/mock-model",
@@ -261,7 +331,7 @@ func TestMultipleContentChunks(t *testing.T) {
 		StreamStopped(sess.ID, "root"),
 	}
 
-	require.Equal(t, expectedEvents, events)
+	assertEventsEqual(t, expectedEvents, events)
 }
 
 func TestWithReasoning(t *testing.T) {
@@ -276,15 +346,22 @@ func TestWithReasoning(t *testing.T) {
 
 	events := runSession(t, sess, stream)
 
+	// Extract the actual message from MessageAddedEvent to use in comparison
+	// (it contains dynamic fields like CreatedAt that we can't predict)
+	require.Len(t, events, 11)
+	msgAdded := events[8].(*MessageAddedEvent)
+	require.NotNil(t, msgAdded.Message)
+
 	expectedEvents := []Event{
 		AgentInfo("root", "test/mock-model", "", ""),
 		TeamInfo([]AgentDetails{{Name: "root", Provider: "test", Model: "mock-model"}}, "root"),
 		ToolsetInfo(0, false, "root"),
-		UserMessage("Hi"),
+		UserMessage("Hi", sess.ID, 0),
 		StreamStarted(sess.ID, "root"),
 		AgentChoiceReasoning("root", "Let me think about this..."),
 		AgentChoiceReasoning("root", " I should respond politely."),
 		AgentChoice("root", "Hello, how can I help you?"),
+		MessageAdded(sess.ID, msgAdded.Message, "root"),
 		TokenUsageWithMessage(sess.ID, "root", 10, 15, 25, 0, 0, &MessageUsage{
 			Usage: chat.Usage{InputTokens: 10, OutputTokens: 15},
 			Model: "test/mock-model",
@@ -292,7 +369,7 @@ func TestWithReasoning(t *testing.T) {
 		StreamStopped(sess.ID, "root"),
 	}
 
-	require.Equal(t, expectedEvents, events)
+	assertEventsEqual(t, expectedEvents, events)
 }
 
 func TestMixedContentAndReasoning(t *testing.T) {
@@ -308,16 +385,23 @@ func TestMixedContentAndReasoning(t *testing.T) {
 
 	events := runSession(t, sess, stream)
 
+	// Extract the actual message from MessageAddedEvent to use in comparison
+	// (it contains dynamic fields like CreatedAt that we can't predict)
+	require.Len(t, events, 12)
+	msgAdded := events[9].(*MessageAddedEvent)
+	require.NotNil(t, msgAdded.Message)
+
 	expectedEvents := []Event{
 		AgentInfo("root", "test/mock-model", "", ""),
 		TeamInfo([]AgentDetails{{Name: "root", Provider: "test", Model: "mock-model"}}, "root"),
 		ToolsetInfo(0, false, "root"),
-		UserMessage("Hi there"),
+		UserMessage("Hi there", sess.ID, 0),
 		StreamStarted(sess.ID, "root"),
 		AgentChoiceReasoning("root", "The user wants a greeting"),
 		AgentChoice("root", "Hello!"),
 		AgentChoiceReasoning("root", " I should be friendly"),
 		AgentChoice("root", " How can I help you today?"),
+		MessageAdded(sess.ID, msgAdded.Message, "root"),
 		TokenUsageWithMessage(sess.ID, "root", 15, 20, 35, 0, 0, &MessageUsage{
 			Usage: chat.Usage{InputTokens: 15, OutputTokens: 20},
 			Model: "test/mock-model",
@@ -325,7 +409,7 @@ func TestMixedContentAndReasoning(t *testing.T) {
 		StreamStopped(sess.ID, "root"),
 	}
 
-	require.Equal(t, expectedEvents, events)
+	assertEventsEqual(t, expectedEvents, events)
 }
 
 func TestToolCallSequence(t *testing.T) {
@@ -351,7 +435,7 @@ func TestErrorEvent(t *testing.T) {
 	root := agent.New("root", "You are a test agent", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	sess := session.New(session.WithUserMessage("Hi"))
@@ -387,7 +471,7 @@ func TestContextCancellation(t *testing.T) {
 	root := agent.New("root", "You are a test agent", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	sess := session.New(session.WithUserMessage("Hi"))
@@ -568,12 +652,15 @@ func TestToolCallVariations(t *testing.T) {
 // queueProvider returns a different stream on each CreateChatCompletionStream call.
 type queueProvider struct {
 	id      string
+	mu      sync.Mutex
 	streams []chat.MessageStream
 }
 
 func (p *queueProvider) ID() string { return p.id }
 
 func (p *queueProvider) CreateChatCompletionStream(context.Context, []chat.Message, []tools.Tool) (chat.MessageStream, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	if len(p.streams) == 0 {
 		return &mockStream{}, nil
 	}
@@ -611,7 +698,7 @@ func TestCompaction(t *testing.T) {
 	tm := team.New(team.WithAgents(root))
 
 	// Enable compaction and provide a model store with context limit = 100
-	rt, err := New(tm, WithSessionCompaction(true), WithModelStore(mockModelStoreWithLimit{limit: 100}))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(true), WithModelStore(mockModelStoreWithLimit{limit: 100}))
 	require.NoError(t, err)
 
 	sess := session.New(session.WithUserMessage("Start"))
@@ -709,7 +796,7 @@ func TestGetTools_WarningHandling(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			root := agent.New("root", "test", agent.WithToolSets(tt.toolsets...), agent.WithModel(&mockProvider{}))
 			tm := team.New(team.WithAgents(root))
-			rt, err := New(tm, WithModelStore(mockModelStore{}))
+			rt, err := NewLocalRuntime(tm, WithModelStore(mockModelStore{}))
 			require.NoError(t, err)
 
 			events := make(chan Event, 10)
@@ -749,7 +836,7 @@ func TestSummarize_EmptySession(t *testing.T) {
 	root := agent.New("root", "You are a test agent", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	sess := session.New()
@@ -780,7 +867,7 @@ func TestProcessToolCalls_UnknownTool_NoToolResultMessage(t *testing.T) {
 	root := agent.New("root", "You are a test agent", agent.WithModel(&mockProvider{}))
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	// Register default tools (contains only transfer_task) to ensure unknown tool isn't matched
@@ -829,7 +916,7 @@ func TestEmitStartupInfo(t *testing.T) {
 	)
 	tm := team.New(team.WithAgents(root, other))
 
-	rt, err := New(tm, WithCurrentAgent("startup-test-agent"), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(tm, WithCurrentAgent("startup-test-agent"), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	// Create a channel to collect events
@@ -855,7 +942,7 @@ func TestEmitStartupInfo(t *testing.T) {
 		ToolsetInfo(0, false, "startup-test-agent"), // No tools configured
 	}
 
-	require.Equal(t, expectedEvents, collectedEvents)
+	assertEventsEqual(t, expectedEvents, collectedEvents)
 
 	// Test that calling EmitStartupInfo again doesn't emit duplicate events
 	events2 := make(chan Event, 10)
@@ -884,7 +971,7 @@ func TestPermissions_DenyBlocksToolExecution(t *testing.T) {
 		team.WithPermissions(permChecker),
 	)
 
-	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	sess := session.New(session.WithUserMessage("Test"))
@@ -948,7 +1035,7 @@ func TestPermissions_AllowAutoApprovesTool(t *testing.T) {
 		team.WithPermissions(permChecker),
 	)
 
-	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	sess := session.New(session.WithUserMessage("Test"))
@@ -983,7 +1070,7 @@ func TestPermissions_DenyTakesPriorityOverAllow(t *testing.T) {
 		team.WithPermissions(permChecker),
 	)
 
-	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	sess := session.New(session.WithUserMessage("Test"))
@@ -1025,7 +1112,7 @@ func TestSessionPermissions_DenyBlocksToolExecution(t *testing.T) {
 	root := agent.New("root", "You are a test agent", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	// Create session with permissions that deny the tool
@@ -1085,7 +1172,7 @@ func TestSessionPermissions_AllowAutoApprovesTool(t *testing.T) {
 	)
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	// Create session with permissions that allow the tool
@@ -1124,7 +1211,7 @@ func TestSessionPermissions_TakePriorityOverTeamPermissions(t *testing.T) {
 		team.WithPermissions(teamPermChecker),
 	)
 
-	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	// Session denies the tool (should override team allow)
@@ -1166,59 +1253,14 @@ func TestSessionPermissions_TakePriorityOverTeamPermissions(t *testing.T) {
 	require.Contains(t, toolResponse.Response, "denied by session permissions")
 }
 
-func TestSessionPermissions_PerToolAlwaysAllow(t *testing.T) {
-	// Test that per-tool settings with Mode: "always_allow" auto-approve tools
-	var executed bool
-	agentTools := []tools.Tool{{
-		Name:       "shell",
-		Parameters: map[string]any{},
-		Handler: func(ctx context.Context, tc tools.ToolCall) (*tools.ToolCallResult, error) {
-			executed = true
-			return tools.ResultSuccess("executed"), nil
-		},
-	}}
-
-	prov := &mockProvider{id: "test/mock-model", stream: &mockStream{}}
-	root := agent.New("root", "You are a test agent",
-		agent.WithModel(prov),
-		agent.WithToolSets(newStubToolSet(nil, agentTools, nil)),
-	)
-	tm := team.New(team.WithAgents(root))
-
-	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
-	require.NoError(t, err)
-
-	enabled := true
-	sess := session.New(
-		session.WithUserMessage("Test"),
-		session.WithPermissions(&session.PermissionsConfig{
-			Tools: map[string]session.ToolPermission{
-				"shell": {Enabled: &enabled, Mode: session.PermissionModeAlwaysAllow},
-			},
-		}),
-	)
-	require.False(t, sess.ToolsApproved) // No --yolo
-
-	calls := []tools.ToolCall{{
-		ID:       "call_1",
-		Type:     "function",
-		Function: tools.FunctionCall{Name: "shell", Arguments: "{}"},
-	}}
-
-	events := make(chan Event, 10)
-	rt.processToolCalls(t.Context(), sess, calls, agentTools, events)
-	close(events)
-
-	require.True(t, executed, "expected tool to be auto-approved by per-tool always_allow mode")
-}
-
-func TestSessionPermissions_PerToolAskMode(t *testing.T) {
-	// Test that per-tool settings with Mode: "ask" requires confirmation
+func TestToolRejectionWithReason(t *testing.T) {
+	// Test that rejection reasons are included in the tool error response
 	agentTools := []tools.Tool{{
 		Name:       "shell",
 		Parameters: map[string]any{},
 		Handler: func(_ context.Context, _ tools.ToolCall) (*tools.ToolCallResult, error) {
-			return tools.ResultSuccess("executed"), nil
+			t.Fatal("tool should not be executed when rejected")
+			return nil, nil
 		},
 	}}
 
@@ -1229,18 +1271,10 @@ func TestSessionPermissions_PerToolAskMode(t *testing.T) {
 	)
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
-	enabled := true
-	sess := session.New(
-		session.WithUserMessage("Test"),
-		session.WithPermissions(&session.PermissionsConfig{
-			Tools: map[string]session.ToolPermission{
-				"shell": {Enabled: &enabled, Mode: session.PermissionModeAsk},
-			},
-		}),
-	)
+	sess := session.New(session.WithUserMessage("Test"))
 	require.False(t, sess.ToolsApproved) // No --yolo
 
 	calls := []tools.ToolCall{{
@@ -1257,86 +1291,32 @@ func TestSessionPermissions_PerToolAskMode(t *testing.T) {
 		close(events)
 	}()
 
-	// Should receive confirmation request, not auto-execute
-	var gotConfirmation bool
-	for ev := range events {
-		if _, ok := ev.(*ToolCallConfirmationEvent); ok {
-			gotConfirmation = true
-			// Send approval to unblock
-			rt.resumeChan <- ResumeTypeApprove
-			break
-		}
-	}
-
-	require.True(t, gotConfirmation, "expected tool to require confirmation with ask mode")
-}
-
-func TestSessionPermissions_PerToolDisabled(t *testing.T) {
-	// Test that per-tool settings with Enabled: false rejects tools
-	var executed bool
-	agentTools := []tools.Tool{{
-		Name:       "shell",
-		Parameters: map[string]any{},
-		Handler: func(ctx context.Context, tc tools.ToolCall) (*tools.ToolCallResult, error) {
-			executed = true
-			return tools.ResultSuccess("executed"), nil
-		},
-	}}
-
-	prov := &mockProvider{id: "test/mock-model", stream: &mockStream{}}
-	root := agent.New("root", "You are a test agent",
-		agent.WithModel(prov),
-		agent.WithToolSets(newStubToolSet(nil, agentTools, nil)),
-	)
-	tm := team.New(team.WithAgents(root))
-
-	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
-	require.NoError(t, err)
-
-	enabled := false
-	sess := session.New(
-		session.WithUserMessage("Test"),
-		session.WithPermissions(&session.PermissionsConfig{
-			Tools: map[string]session.ToolPermission{
-				"shell": {Enabled: &enabled},
-			},
-		}),
-	)
-
-	calls := []tools.ToolCall{{
-		ID:       "call_1",
-		Type:     "function",
-		Function: tools.FunctionCall{Name: "shell", Arguments: "{}"},
-	}}
-
-	events := make(chan Event, 10)
-	rt.processToolCalls(t.Context(), sess, calls, agentTools, events)
-	close(events)
-
-	require.False(t, executed, "expected tool to be rejected when disabled")
-
-	// Check for error response
+	// Wait for confirmation request and then reject with a reason
 	var toolResponse *ToolCallResponseEvent
 	for ev := range events {
-		if tr, ok := ev.(*ToolCallResponseEvent); ok {
-			toolResponse = tr
-			break
+		if _, ok := ev.(*ToolCallConfirmationEvent); ok {
+			// Send rejection with a specific reason
+			rt.resumeChan <- ResumeReject("The arguments provided are incorrect.")
+		}
+		if resp, ok := ev.(*ToolCallResponseEvent); ok {
+			toolResponse = resp
 		}
 	}
 
-	require.NotNil(t, toolResponse, "expected ToolCallResponseEvent")
-	require.Contains(t, toolResponse.Response, "disabled by session permissions")
+	require.NotNil(t, toolResponse, "expected a tool response event")
+	require.True(t, toolResponse.Result.IsError, "expected tool result to be an error")
+	require.Contains(t, toolResponse.Response, "The user rejected the tool call.")
+	require.Contains(t, toolResponse.Response, "Reason: The arguments provided are incorrect.")
 }
 
-func TestSessionPermissions_PerToolTakesPriorityOverAllowPatterns(t *testing.T) {
-	// Test that Tools map takes priority over Allow patterns
-	var executed bool
+func TestToolRejectionWithoutReason(t *testing.T) {
+	// Test that rejection without a reason still works
 	agentTools := []tools.Tool{{
 		Name:       "shell",
 		Parameters: map[string]any{},
-		Handler: func(ctx context.Context, tc tools.ToolCall) (*tools.ToolCallResult, error) {
-			executed = true
-			return tools.ResultSuccess("executed"), nil
+		Handler: func(_ context.Context, _ tools.ToolCall) (*tools.ToolCallResult, error) {
+			t.Fatal("tool should not be executed when rejected")
+			return nil, nil
 		},
 	}}
 
@@ -1347,79 +1327,42 @@ func TestSessionPermissions_PerToolTakesPriorityOverAllowPatterns(t *testing.T) 
 	)
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
-	// Allow pattern would auto-approve, but Tools map disables
-	enabled := false
-	sess := session.New(
-		session.WithUserMessage("Test"),
-		session.WithPermissions(&session.PermissionsConfig{
-			Tools: map[string]session.ToolPermission{
-				"shell": {Enabled: &enabled},
-			},
-			Allow: []string{"shell"}, // Pattern-based allow - should be overridden by Tools
-		}),
-	)
-
-	calls := []tools.ToolCall{{
-		ID:       "call_1",
-		Type:     "function",
-		Function: tools.FunctionCall{Name: "shell", Arguments: "{}"},
-	}}
-
-	events := make(chan Event, 10)
-	rt.processToolCalls(t.Context(), sess, calls, agentTools, events)
-	close(events)
-
-	require.False(t, executed, "expected Tools map to take priority over Allow patterns")
-}
-
-func TestSessionPermissions_FallbackToPatternRules(t *testing.T) {
-	// Test that tools not in Tools map fall through to pattern-based Allow rules
-	var executed bool
-	agentTools := []tools.Tool{{
-		Name:       "other_tool",
-		Parameters: map[string]any{},
-		Handler: func(ctx context.Context, tc tools.ToolCall) (*tools.ToolCallResult, error) {
-			executed = true
-			return tools.ResultSuccess("executed"), nil
-		},
-	}}
-
-	prov := &mockProvider{id: "test/mock-model", stream: &mockStream{}}
-	root := agent.New("root", "You are a test agent",
-		agent.WithModel(prov),
-		agent.WithToolSets(newStubToolSet(nil, agentTools, nil)),
-	)
-	tm := team.New(team.WithAgents(root))
-
-	rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
-	require.NoError(t, err)
-
-	enabled := true
-	sess := session.New(
-		session.WithUserMessage("Test"),
-		session.WithPermissions(&session.PermissionsConfig{
-			Tools: map[string]session.ToolPermission{
-				"shell": {Enabled: &enabled, Mode: session.PermissionModeAsk}, // Different tool
-			},
-			Allow: []string{"other_*"}, // Pattern-based allow for other_tool
-		}),
-	)
+	sess := session.New(session.WithUserMessage("Test"))
 	require.False(t, sess.ToolsApproved) // No --yolo
 
 	calls := []tools.ToolCall{{
 		ID:       "call_1",
 		Type:     "function",
-		Function: tools.FunctionCall{Name: "other_tool", Arguments: "{}"},
+		Function: tools.FunctionCall{Name: "shell", Arguments: "{}"},
 	}}
 
 	events := make(chan Event, 10)
-	rt.processToolCalls(t.Context(), sess, calls, agentTools, events)
-	close(events)
 
-	require.True(t, executed, "expected tool to fall through to pattern-based Allow rules")
+	// Run in goroutine since it will block waiting for confirmation
+	go func() {
+		rt.processToolCalls(t.Context(), sess, calls, agentTools, events)
+		close(events)
+	}()
+
+	// Wait for confirmation request and then reject without a reason
+	var toolResponse *ToolCallResponseEvent
+	for ev := range events {
+		if _, ok := ev.(*ToolCallConfirmationEvent); ok {
+			// Send rejection without a reason
+			rt.resumeChan <- ResumeReject("")
+		}
+		if resp, ok := ev.(*ToolCallResponseEvent); ok {
+			toolResponse = resp
+		}
+	}
+
+	require.NotNil(t, toolResponse, "expected a tool response event")
+	require.True(t, toolResponse.Result.IsError, "expected tool result to be an error")
+	require.Equal(t, "The user rejected the tool call.", toolResponse.Response)
+	require.NotContains(t, toolResponse.Response, "Reason:")
 }
 
 func TestStream_CapturesUsageOnlyOnce(t *testing.T) {

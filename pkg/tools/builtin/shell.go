@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -29,11 +30,15 @@ const (
 
 // ShellTool provides shell command execution capabilities.
 type ShellTool struct {
-	tools.BaseToolSet
 	handler *shellHandler
 }
 
-var _ tools.ToolSet = (*ShellTool)(nil)
+// Verify interface compliance
+var (
+	_ tools.ToolSet      = (*ShellTool)(nil)
+	_ tools.Startable    = (*ShellTool)(nil)
+	_ tools.Instructable = (*ShellTool)(nil)
+)
 
 type shellHandler struct {
 	shell           string
@@ -238,7 +243,8 @@ func (h *shellHandler) monitorJob(job *backgroundJob, cmd *exec.Cmd) {
 	}
 
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			job.exitCode = exitErr.ExitCode()
 		} else {
 			job.exitCode = -1
@@ -422,50 +428,59 @@ func (t *ShellTool) Tools(context.Context) ([]tools.Tool, error) {
 
 	return []tools.Tool{
 		{
-			Name:         ToolNameShell,
-			Category:     "shell",
-			Description:  shellDesc,
-			Parameters:   tools.MustSchemaFor[RunShellArgs](),
-			OutputSchema: tools.MustSchemaFor[string](),
-			Handler:      tools.NewHandler(t.handler.RunShell),
-			Annotations:  tools.ToolAnnotations{Title: "Shell"},
+			Name:                    ToolNameShell,
+			Category:                "shell",
+			Description:             shellDesc,
+			Parameters:              tools.MustSchemaFor[RunShellArgs](),
+			OutputSchema:            tools.MustSchemaFor[string](),
+			Handler:                 tools.NewHandler(t.handler.RunShell),
+			Annotations:             tools.ToolAnnotations{Title: "Shell"},
+			AddDescriptionParameter: true,
 		},
 		{
-			Name:         ToolNameRunShellBackground,
-			Category:     "shell",
-			Description:  `Starts a shell command in the background and returns immediately with a job ID. Use this for long-running processes like servers, watches, or any command that should run while other tasks are performed.`,
-			Parameters:   tools.MustSchemaFor[RunShellBackgroundArgs](),
-			OutputSchema: tools.MustSchemaFor[string](),
-			Handler:      tools.NewHandler(t.handler.RunShellBackground),
-			Annotations:  tools.ToolAnnotations{Title: "Background Job"},
+			Name:                    ToolNameRunShellBackground,
+			Category:                "shell",
+			Description:             `Starts a shell command in the background and returns immediately with a job ID. Use this for long-running processes like servers, watches, or any command that should run while other tasks are performed.`,
+			Parameters:              tools.MustSchemaFor[RunShellBackgroundArgs](),
+			OutputSchema:            tools.MustSchemaFor[string](),
+			Handler:                 tools.NewHandler(t.handler.RunShellBackground),
+			Annotations:             tools.ToolAnnotations{Title: "Background Job"},
+			AddDescriptionParameter: true,
 		},
 		{
-			Name:         ToolNameListBackgroundJobs,
-			Category:     "shell",
-			Description:  `Lists all background jobs with their status, runtime, and other information.`,
-			OutputSchema: tools.MustSchemaFor[string](),
-			Handler:      tools.NewHandler(t.handler.ListBackgroundJobs),
-			Annotations:  tools.ToolAnnotations{Title: "List Background Jobs", ReadOnlyHint: true},
+			Name:                    ToolNameListBackgroundJobs,
+			Category:                "shell",
+			Description:             `Lists all background jobs with their status, runtime, and other information.`,
+			OutputSchema:            tools.MustSchemaFor[string](),
+			Handler:                 tools.NewHandler(t.handler.ListBackgroundJobs),
+			Annotations:             tools.ToolAnnotations{Title: "List Background Jobs", ReadOnlyHint: true},
+			AddDescriptionParameter: true,
 		},
 		{
-			Name:         ToolNameViewBackgroundJob,
-			Category:     "shell",
-			Description:  `Views the output and status of a specific background job by job ID.`,
-			Parameters:   tools.MustSchemaFor[ViewBackgroundJobArgs](),
-			OutputSchema: tools.MustSchemaFor[string](),
-			Handler:      tools.NewHandler(t.handler.ViewBackgroundJob),
-			Annotations:  tools.ToolAnnotations{Title: "View Background Job Output", ReadOnlyHint: true},
+			Name:                    ToolNameViewBackgroundJob,
+			Category:                "shell",
+			Description:             `Views the output and status of a specific background job by job ID.`,
+			Parameters:              tools.MustSchemaFor[ViewBackgroundJobArgs](),
+			OutputSchema:            tools.MustSchemaFor[string](),
+			Handler:                 tools.NewHandler(t.handler.ViewBackgroundJob),
+			Annotations:             tools.ToolAnnotations{Title: "View Background Job Output", ReadOnlyHint: true},
+			AddDescriptionParameter: true,
 		},
 		{
-			Name:         ToolNameStopBackgroundJob,
-			Category:     "shell",
-			Description:  `Stops a running background job by job ID. The process and all its child processes will be terminated.`,
-			Parameters:   tools.MustSchemaFor[StopBackgroundJobArgs](),
-			OutputSchema: tools.MustSchemaFor[string](),
-			Handler:      tools.NewHandler(t.handler.StopBackgroundJob),
-			Annotations:  tools.ToolAnnotations{Title: "Stop Background Job"},
+			Name:                    ToolNameStopBackgroundJob,
+			Category:                "shell",
+			Description:             `Stops a running background job by job ID. The process and all its child processes will be terminated.`,
+			Parameters:              tools.MustSchemaFor[StopBackgroundJobArgs](),
+			OutputSchema:            tools.MustSchemaFor[string](),
+			Handler:                 tools.NewHandler(t.handler.StopBackgroundJob),
+			Annotations:             tools.ToolAnnotations{Title: "Stop Background Job"},
+			AddDescriptionParameter: true,
 		},
 	}, nil
+}
+
+func (t *ShellTool) Start(context.Context) error {
+	return nil
 }
 
 func (t *ShellTool) Stop(context.Context) error {

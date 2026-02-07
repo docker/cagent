@@ -16,7 +16,7 @@ func TestRuntime_OpenAI_Basic(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	agentSource, err := config.Resolve("testdata/basic.yaml")
+	agentSource, err := config.Resolve("testdata/basic.yaml", nil)
 	require.NoError(t, err)
 
 	_, runConfig := startRecordingAIProxy(t)
@@ -32,14 +32,14 @@ func TestRuntime_OpenAI_Basic(t *testing.T) {
 
 	response := sess.GetLastAssistantMessageContent()
 	assert.Equal(t, "2 + 2 equals 4.", response)
-	assert.Equal(t, "Simple Math: Addition of 2 and 2", sess.Title)
+	// Title generation is now handled by pkg/app or pkg/server, not the runtime
 }
 
 func TestRuntime_Mistral_Basic(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	agentSource, err := config.Resolve("testdata/basic.yaml")
+	agentSource, err := config.Resolve("testdata/basic.yaml", nil)
 	require.NoError(t, err)
 
 	_, runConfig := startRecordingAIProxy(t)
@@ -55,5 +55,5 @@ func TestRuntime_Mistral_Basic(t *testing.T) {
 
 	response := sess.GetLastAssistantMessageContent()
 	assert.Equal(t, "The sum of 2 + 2 is 4.", response)
-	assert.Equal(t, "Math Basics: Simple Addition", sess.Title)
+	// Title generation is now handled by pkg/app or pkg/server, not the runtime
 }

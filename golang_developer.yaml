@@ -1,5 +1,4 @@
 #!/usr/bin/env cagent run
-version: "2"
 
 metadata:
   author: Djordje Lukic
@@ -36,7 +35,7 @@ metadata:
 models:
   opus:
     provider: anthropic
-    model: claude-opus-4-5
+    model: claude-opus-4-6
   sonnet:
     provider: anthropic
     model: claude-sonnet-4-5

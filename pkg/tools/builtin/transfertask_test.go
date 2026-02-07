@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/docker/cagent/pkg/tools"
 )
 
 func TestNewTaskTool(t *testing.T) {
@@ -15,8 +17,10 @@ func TestNewTaskTool(t *testing.T) {
 
 func TestTaskTool_Instructions(t *testing.T) {
 	tool := NewTransferTaskTool()
-	instructions := tool.Instructions()
-	assert.Empty(t, instructions)
+
+	// TransferTaskTool doesn't implement Instructable
+	_, ok := any(tool).(tools.Instructable)
+	assert.False(t, ok, "TransferTaskTool should not implement Instructable")
 }
 
 func TestTaskTool_Tools(t *testing.T) {
@@ -76,9 +80,8 @@ func TestTaskTool_DisplayNames(t *testing.T) {
 func TestTaskTool_StartStop(t *testing.T) {
 	tool := NewTransferTaskTool()
 
-	err := tool.Start(t.Context())
-	require.NoError(t, err)
-
-	err = tool.Stop(t.Context())
-	require.NoError(t, err)
+	// TransferTaskTool doesn't need to implement Startable -
+	// it has no initialization or cleanup requirements
+	_, ok := any(tool).(tools.Startable)
+	assert.False(t, ok, "TransferTaskTool should not implement Startable")
 }

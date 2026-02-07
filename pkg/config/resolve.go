@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/name"
 
+	"github.com/docker/cagent/pkg/environment"
 	"github.com/docker/cagent/pkg/reference"
 	"github.com/docker/cagent/pkg/userconfig"
 )
@@ -36,13 +37,25 @@ func ResolveAlias(agentFilename string) *userconfig.Alias {
 	return alias
 }
 
-// ResolveSources resolves an agent file reference (local file, URL, or OCI image) to sources
-// For OCI references, always checks remote for updates but falls back to local cache if offline
-func ResolveSources(agentsPath string) (Sources, error) {
+// GetUserSettings returns the global user settings from the config file.
+// Returns an empty Settings if the config file doesn't exist or has no settings.
+func GetUserSettings() *userconfig.Settings {
+	cfg, err := userconfig.Load()
+	if err != nil {
+		return &userconfig.Settings{}
+	}
+	return cfg.GetSettings()
+}
+
+// ResolveSources resolves an agent file reference (local file, URL, or OCI image) to sources.
+// If envProvider is non-nil, it will be used to look up GITHUB_TOKEN for authentication
+// when fetching from GitHub URLs.
+// For OCI references, always checks remote for updates but falls back to local cache if offline.
+func ResolveSources(agentsPath string, envProvider environment.Provider) (Sources, error) {
 	// Handle URL references first (before resolve() which converts to absolute path)
 	if IsURLReference(agentsPath) {
 		return map[string]Source{
-			agentsPath: NewURLSource(agentsPath),
+			agentsPath: NewURLSource(agentsPath, envProvider),
 		}, nil
 	}
 
@@ -83,7 +96,7 @@ func ResolveSources(agentsPath string) (Sources, error) {
 				continue
 			}
 			a := filepath.Join(resolvedPath, entry.Name())
-			sources[fileNameWithoutExt(a)], err = Resolve(a)
+			sources[fileNameWithoutExt(a)], err = Resolve(a, envProvider)
 			if err != nil {
 				return nil, err
 			}
@@ -96,14 +109,11 @@ func ResolveSources(agentsPath string) (Sources, error) {
 	}, nil
 }
 
-// Resolve resolves an agent file reference (local file, URL, or OCI image) to a source
-// For OCI references, always checks remote for updates but falls back to local cache if offline
-func Resolve(agentFilename string) (Source, error) {
-	// Handle URL references first (before resolve() which converts to absolute path)
-	if IsURLReference(agentFilename) {
-		return NewURLSource(agentFilename), nil
-	}
-
+// Resolve resolves an agent file reference (local file, URL, or OCI image) to a source.
+// If envProvider is non-nil, it will be used to look up GITHUB_TOKEN for authentication
+// when fetching from GitHub URLs.
+// For OCI references, always checks remote for updates but falls back to local cache if offline.
+func Resolve(agentFilename string, envProvider environment.Provider) (Source, error) {
 	resolvedPath, err := resolve(agentFilename)
 	if err != nil {
 		if IsOCIReference(agentFilename) {
@@ -115,9 +125,15 @@ func Resolve(agentFilename string) (Source, error) {
 	if resolvedPath == "default" {
 		return NewBytesSource(resolvedPath, defaultAgent), nil
 	}
+
+	if IsURLReference(resolvedPath) {
+		return NewURLSource(resolvedPath, envProvider), nil
+	}
+
 	if isLocalFile(resolvedPath) {
 		return NewFileSource(resolvedPath), nil
 	}
+
 	return NewOCISource(resolvedPath), nil
 }
 

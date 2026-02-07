@@ -54,6 +54,9 @@ const (
 	// AgentServiceToggleToolApprovalProcedure is the fully-qualified name of the AgentService's
 	// ToggleToolApproval RPC.
 	AgentServiceToggleToolApprovalProcedure = "/cagent.v1.AgentService/ToggleToolApproval"
+	// AgentServiceUpdateSessionTitleProcedure is the fully-qualified name of the AgentService's
+	// UpdateSessionTitle RPC.
+	AgentServiceUpdateSessionTitleProcedure = "/cagent.v1.AgentService/UpdateSessionTitle"
 	// AgentServiceResumeElicitationProcedure is the fully-qualified name of the AgentService's
 	// ResumeElicitation RPC.
 	AgentServiceResumeElicitationProcedure = "/cagent.v1.AgentService/ResumeElicitation"
@@ -81,6 +84,8 @@ type AgentServiceClient interface {
 	ResumeSession(context.Context, *connect.Request[v1.ResumeSessionRequest]) (*connect.Response[v1.ResumeSessionResponse], error)
 	// ToggleToolApproval toggles the YOLO mode for a session.
 	ToggleToolApproval(context.Context, *connect.Request[v1.ToggleToolApprovalRequest]) (*connect.Response[v1.ToggleToolApprovalResponse], error)
+	// UpdateSessionTitle updates the title of a session.
+	UpdateSessionTitle(context.Context, *connect.Request[v1.UpdateSessionTitleRequest]) (*connect.Response[v1.UpdateSessionTitleResponse], error)
 	// ResumeElicitation resumes an elicitation request.
 	ResumeElicitation(context.Context, *connect.Request[v1.ResumeElicitationRequest]) (*connect.Response[v1.ResumeElicitationResponse], error)
 	// RunAgent runs an agent loop and streams events.
@@ -148,6 +153,12 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("ToggleToolApproval")),
 			connect.WithClientOptions(opts...),
 		),
+		updateSessionTitle: connect.NewClient[v1.UpdateSessionTitleRequest, v1.UpdateSessionTitleResponse](
+			httpClient,
+			baseURL+AgentServiceUpdateSessionTitleProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("UpdateSessionTitle")),
+			connect.WithClientOptions(opts...),
+		),
 		resumeElicitation: connect.NewClient[v1.ResumeElicitationRequest, v1.ResumeElicitationResponse](
 			httpClient,
 			baseURL+AgentServiceResumeElicitationProcedure,
@@ -179,6 +190,7 @@ type agentServiceClient struct {
 	deleteSession      *connect.Client[v1.DeleteSessionRequest, v1.DeleteSessionResponse]
 	resumeSession      *connect.Client[v1.ResumeSessionRequest, v1.ResumeSessionResponse]
 	toggleToolApproval *connect.Client[v1.ToggleToolApprovalRequest, v1.ToggleToolApprovalResponse]
+	updateSessionTitle *connect.Client[v1.UpdateSessionTitleRequest, v1.UpdateSessionTitleResponse]
 	resumeElicitation  *connect.Client[v1.ResumeElicitationRequest, v1.ResumeElicitationResponse]
 	runAgent           *connect.Client[v1.RunAgentRequest, v1.Event]
 	ping               *connect.Client[v1.PingRequest, v1.PingResponse]
@@ -224,6 +236,11 @@ func (c *agentServiceClient) ToggleToolApproval(ctx context.Context, req *connec
 	return c.toggleToolApproval.CallUnary(ctx, req)
 }
 
+// UpdateSessionTitle calls cagent.v1.AgentService.UpdateSessionTitle.
+func (c *agentServiceClient) UpdateSessionTitle(ctx context.Context, req *connect.Request[v1.UpdateSessionTitleRequest]) (*connect.Response[v1.UpdateSessionTitleResponse], error) {
+	return c.updateSessionTitle.CallUnary(ctx, req)
+}
+
 // ResumeElicitation calls cagent.v1.AgentService.ResumeElicitation.
 func (c *agentServiceClient) ResumeElicitation(ctx context.Context, req *connect.Request[v1.ResumeElicitationRequest]) (*connect.Response[v1.ResumeElicitationResponse], error) {
 	return c.resumeElicitation.CallUnary(ctx, req)
@@ -257,6 +274,8 @@ type AgentServiceHandler interface {
 	ResumeSession(context.Context, *connect.Request[v1.ResumeSessionRequest]) (*connect.Response[v1.ResumeSessionResponse], error)
 	// ToggleToolApproval toggles the YOLO mode for a session.
 	ToggleToolApproval(context.Context, *connect.Request[v1.ToggleToolApprovalRequest]) (*connect.Response[v1.ToggleToolApprovalResponse], error)
+	// UpdateSessionTitle updates the title of a session.
+	UpdateSessionTitle(context.Context, *connect.Request[v1.UpdateSessionTitleRequest]) (*connect.Response[v1.UpdateSessionTitleResponse], error)
 	// ResumeElicitation resumes an elicitation request.
 	ResumeElicitation(context.Context, *connect.Request[v1.ResumeElicitationRequest]) (*connect.Response[v1.ResumeElicitationResponse], error)
 	// RunAgent runs an agent loop and streams events.
@@ -320,6 +339,12 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("ToggleToolApproval")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceUpdateSessionTitleHandler := connect.NewUnaryHandler(
+		AgentServiceUpdateSessionTitleProcedure,
+		svc.UpdateSessionTitle,
+		connect.WithSchema(agentServiceMethods.ByName("UpdateSessionTitle")),
+		connect.WithHandlerOptions(opts...),
+	)
 	agentServiceResumeElicitationHandler := connect.NewUnaryHandler(
 		AgentServiceResumeElicitationProcedure,
 		svc.ResumeElicitation,
@@ -356,6 +381,8 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceResumeSessionHandler.ServeHTTP(w, r)
 		case AgentServiceToggleToolApprovalProcedure:
 			agentServiceToggleToolApprovalHandler.ServeHTTP(w, r)
+		case AgentServiceUpdateSessionTitleProcedure:
+			agentServiceUpdateSessionTitleHandler.ServeHTTP(w, r)
 		case AgentServiceResumeElicitationProcedure:
 			agentServiceResumeElicitationHandler.ServeHTTP(w, r)
 		case AgentServiceRunAgentProcedure:
@@ -401,6 +428,10 @@ func (UnimplementedAgentServiceHandler) ResumeSession(context.Context, *connect.
 
 func (UnimplementedAgentServiceHandler) ToggleToolApproval(context.Context, *connect.Request[v1.ToggleToolApprovalRequest]) (*connect.Response[v1.ToggleToolApprovalResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cagent.v1.AgentService.ToggleToolApproval is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) UpdateSessionTitle(context.Context, *connect.Request[v1.UpdateSessionTitleRequest]) (*connect.Response[v1.UpdateSessionTitleResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cagent.v1.AgentService.UpdateSessionTitle is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) ResumeElicitation(context.Context, *connect.Request[v1.ResumeElicitationRequest]) (*connect.Response[v1.ResumeElicitationResponse], error) {

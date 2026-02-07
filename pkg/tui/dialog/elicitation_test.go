@@ -323,7 +323,7 @@ func TestNewElicitationDialog(t *testing.T) {
 	}
 }
 
-func TestElicitationDialog_collectValues(t *testing.T) {
+func TestElicitationDialog_collectAndValidate(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -536,7 +536,8 @@ func TestElicitationDialog_collectValues(t *testing.T) {
 				tt.setupInputs(dialog)
 			}
 
-			content, valid := dialog.collectValues()
+			content, firstErrorIdx := dialog.collectAndValidate()
+			valid := firstErrorIdx < 0
 			assert.Equal(t, tt.expectedValid, valid)
 
 			if valid && tt.expectedKeys != nil {

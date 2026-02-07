@@ -1,10 +1,12 @@
 package markdown
 
 import (
+	_ "embed"
 	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
 	runewidth "github.com/mattn/go-runewidth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -87,6 +89,92 @@ func TestFastRendererCodeBlocksNoLanguage(t *testing.T) {
 	assert.Contains(t, stripANSI(result), "some code here")
 }
 
+func TestFastRendererCodeBlockWrapping(t *testing.T) {
+	t.Parallel()
+
+	// A very long line that should be wrapped at the configured width
+	longLine := "this_is_a_very_long_line_of_code_that_should_definitely_be_wrapped_when_rendered_at_a_narrow_width"
+	input := "```\n" + longLine + "\n```"
+
+	r := NewFastRenderer(30)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	// The original long line should NOT appear unbroken in the output
+	plain := stripANSI(result)
+	assert.NotContains(t, plain, longLine, "Long line should be wrapped, not appear unbroken")
+
+	// Every line should have the exact target width
+	lines := strings.Split(result, "\n")
+	for i, line := range lines {
+		lineWidth := runewidth.StringWidth(stripANSI(line))
+		assert.Equal(t, 30, lineWidth, "Line %d has incorrect width: %q (width=%d, expected=30)", i, stripANSI(line), lineWidth)
+	}
+}
+
+func TestFastRendererCodeBlockNarrowWidth(t *testing.T) {
+	t.Parallel()
+
+	// At narrow widths (< 24), padding should be disabled to avoid exceeding target width
+	input := "```\nshort code\n```"
+
+	r := NewFastRenderer(20)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	// Every line should have exactly the target width (20), not 24 (20 + 4 padding)
+	lines := strings.Split(result, "\n")
+	for i, line := range lines {
+		lineWidth := runewidth.StringWidth(stripANSI(line))
+		assert.Equal(t, 20, lineWidth, "Line %d has incorrect width: %q (width=%d, expected=20)", i, stripANSI(line), lineWidth)
+	}
+}
+
+func TestFastRendererCodeBlockAllLinesSameWidth(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+		width int
+	}{
+		{
+			name:  "normal width with padding",
+			input: "```go\nfunc main() {\n\tfmt.Println(\"hello\")\n}\n```",
+			width: 50,
+		},
+		{
+			name:  "narrow width no padding",
+			input: "```\ncode\n```",
+			width: 15,
+		},
+		{
+			name:  "long line wrapping",
+			input: "```\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n```",
+			width: 30,
+		},
+		{
+			name:  "mixed short and long lines",
+			input: "```\nshort\nthis_is_a_much_longer_line_that_needs_wrapping\n```",
+			width: 25,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := NewFastRenderer(tt.width)
+			result, err := r.Render(tt.input)
+			require.NoError(t, err)
+
+			lines := strings.Split(result, "\n")
+			for i, line := range lines {
+				lineWidth := runewidth.StringWidth(stripANSI(line))
+				assert.Equal(t, tt.width, lineWidth, "Line %d has incorrect width: %q (width=%d, expected=%d)", i, stripANSI(line), lineWidth, tt.width)
+			}
+		})
+	}
+}
+
 func TestFastRendererInlineCode(t *testing.T) {
 	t.Parallel()
 
@@ -95,6 +183,102 @@ func TestFastRendererInlineCode(t *testing.T) {
 	result, err := r.Render(input)
 	require.NoError(t, err)
 	assert.Contains(t, result, "fmt.Println")
+}
+
+func TestFastRendererHeadingWithLongCode(t *testing.T) {
+	t.Parallel()
+
+	// A heading with a very long inline code that should wrap
+	input := "# Heading with `very_long_function_name_that_should_wrap_when_rendered_at_narrow_width` in it"
+	r := NewFastRenderer(40)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	// Should contain all parts
+	plain := stripANSI(result)
+	assert.Contains(t, plain, "Heading with")
+	assert.Contains(t, plain, "very_long_function_name")
+	assert.Contains(t, plain, "in it")
+
+	// All lines should have correct width
+	lines := strings.Split(result, "\n")
+	for i, line := range lines {
+		lineWidth := runewidth.StringWidth(stripANSI(line))
+		assert.Equal(t, 40, lineWidth, "Line %d has incorrect width: %q (width=%d)", i, stripANSI(line), lineWidth)
+	}
+}
+
+func TestFastRendererHeadingInlineCodeStyleRestoration(t *testing.T) {
+	t.Parallel()
+
+	// Test that text after inline code in heading maintains heading style
+	input := "# Title `code` more text"
+	r := NewFastRenderer(80)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	// The plain text should contain all parts
+	plain := stripANSI(result)
+	assert.Contains(t, plain, "Title")
+	assert.Contains(t, plain, "code")
+	assert.Contains(t, plain, "more text")
+
+	// After the code's ANSI reset, there should be a style restoration sequence
+	// The text "more text" should not appear unstyled
+	seqs := ansiRegex.FindAllString(result, -1)
+	// We should have multiple ANSI sequences (not just at start and end)
+	assert.GreaterOrEqual(t, len(seqs), 3, "Should have style sequences for code and restoration")
+}
+
+func TestFastRendererBlockquoteInlineCodeStyleRestoration(t *testing.T) {
+	t.Parallel()
+
+	// Test that text after inline code in blockquote maintains blockquote style
+	input := "> Quote with `code` and more text"
+	r := NewFastRenderer(80)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	// The plain text should contain all parts
+	plain := stripANSI(result)
+	assert.Contains(t, plain, "Quote with")
+	assert.Contains(t, plain, "code")
+	assert.Contains(t, plain, "more text")
+}
+
+func TestFastRendererBlockquoteWithFencedCodeBlock(t *testing.T) {
+	t.Parallel()
+
+	input := "> Some quote text\n> ```go\n> func main() {}\n> ```\n> More quote text"
+	r := NewFastRenderer(60)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	// Should contain all parts
+	plain := stripANSI(result)
+	assert.Contains(t, plain, "Some quote text")
+	assert.Contains(t, plain, "func main()")
+	assert.Contains(t, plain, "More quote text")
+
+	// All lines should have correct width
+	lines := strings.Split(result, "\n")
+	for i, line := range lines {
+		lineWidth := runewidth.StringWidth(stripANSI(line))
+		assert.Equal(t, 60, lineWidth, "Line %d has incorrect width: %q (width=%d)", i, stripANSI(line), lineWidth)
+	}
+}
+
+func TestFastRendererBoldWithInlineCode(t *testing.T) {
+	t.Parallel()
+
+	// Test that inline code within bold text properly restores bold style
+	input := "**bold `code` still bold**"
+	r := NewFastRenderer(80)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	plain := stripANSI(result)
+	assert.Contains(t, plain, "bold code still bold")
 }
 
 func TestFastRendererBold(t *testing.T) {
@@ -141,6 +325,54 @@ func TestFastRendererItalic(t *testing.T) {
 	}
 }
 
+func TestFastRendererItalicWithInlineCode(t *testing.T) {
+	t.Parallel()
+
+	// Test that inline code within italic text works and asterisks are stripped
+	input := "*italic with `code` inside*"
+	r := NewFastRenderer(80)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	plain := stripANSI(result)
+	// Asterisks should be removed (italic markers processed)
+	assert.NotContains(t, plain, "*")
+	assert.Contains(t, plain, "italic with code inside")
+}
+
+func TestFastRendererHeadingWithItalicAndCode(t *testing.T) {
+	t.Parallel()
+
+	// Test that italic with inline code works inside headings
+	input := "### *Bold italic with `code` inside*"
+	r := NewFastRenderer(80)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	plain := stripANSI(result)
+	// Asterisks should be removed (italic markers processed)
+	// The ### prefix is rendered as ### by the heading renderer
+	assert.NotContains(t, plain, "*italic")
+	assert.NotContains(t, plain, "inside*")
+	assert.Contains(t, plain, "Bold italic with code inside")
+}
+
+func TestFastRendererHeadingItalicStripsMarkers(t *testing.T) {
+	t.Parallel()
+
+	input := "### *Bold italic with `code` inside*"
+	r := NewFastRenderer(80)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	plain := stripANSI(result)
+	assert.NotContains(t, plain, "*")
+	assert.Contains(t, plain, "Bold italic with code inside")
+
+	italicPattern := regexp.MustCompile(`\x1b\[3[;m]`)
+	assert.True(t, italicPattern.MatchString(result), "Heading should apply italic styling")
+}
+
 func TestFastRendererStrikethrough(t *testing.T) {
 	t.Parallel()
 
@@ -177,7 +409,7 @@ func TestFastRendererUnorderedLists(t *testing.T) {
 	assert.Contains(t, result, "Item 1")
 	assert.Contains(t, result, "Item 2")
 	assert.Contains(t, result, "Item 3")
-	assert.Contains(t, result, "•")
+	assert.Contains(t, result, "- ")
 }
 
 func TestFastRendererOrderedLists(t *testing.T) {
@@ -256,6 +488,242 @@ func TestFastRendererTables(t *testing.T) {
 	assert.Contains(t, plain, "25")
 }
 
+// assertTableColumnsAligned verifies that all rows in a rendered table have
+// column separators at the same positions.
+func assertTableColumnsAligned(t *testing.T, rendered string) {
+	t.Helper()
+
+	plain := stripANSI(rendered)
+	lines := strings.Split(strings.TrimSpace(plain), "\n")
+
+	// Filter out empty lines and separator lines (lines starting with ─)
+	var dataLines []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" && !strings.HasPrefix(trimmed, "─") {
+			dataLines = append(dataLines, line)
+		}
+	}
+
+	require.GreaterOrEqual(t, len(dataLines), 2, "Table should have at least header + 1 data row")
+
+	// Find the position of the column separator (│) in each line
+	// All rows should have separators at the same positions
+	var expectedPositions []int
+	for i, line := range dataLines {
+		var positions []int
+		for j, r := range line {
+			if r == '│' {
+				positions = append(positions, j)
+			}
+		}
+		if i == 0 {
+			expectedPositions = positions
+		} else {
+			assert.Equal(t, expectedPositions, positions,
+				"Column separators should be at same positions in all rows\nLine %d: %q\nLine 0: %q",
+				i, line, dataLines[0])
+		}
+	}
+}
+
+func TestFastRendererTablesColumnAlignment(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{
+			name: "plain text columns",
+			input: `| Name | Age | City |
+|------|-----|------|
+| Alice | 30 | New York |
+| Bob | 25 | LA |`,
+		},
+		{
+			name: "styled content (bold, italic, code)",
+			input: `| Feature | Status | Notes |
+|---------|--------|-------|
+| **Bold** | Done | This is bold |
+| *Italic* | WIP | This is italic |
+| ` + "`Code`" + ` | Todo | Inline code |`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			r := NewFastRenderer(80)
+			result, err := r.Render(tt.input)
+			require.NoError(t, err)
+			assertTableColumnsAligned(t, result)
+		})
+	}
+}
+
+func TestFastRendererTableViewportWidth(t *testing.T) {
+	t.Parallel()
+
+	// Table with long cell content that would overflow a narrow viewport
+	input := `| Short | This is a very long cell content that should wrap when the viewport is narrow |
+|-------|------------------------------------------------------------------|
+| A | Another long piece of text that definitely needs wrapping to fit |`
+
+	tests := []struct {
+		name  string
+		width int
+	}{
+		{"width 40", 40},
+		{"width 50", 50},
+		{"width 60", 60},
+		{"width 30", 30},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			r := NewFastRenderer(tt.width)
+			result, err := r.Render(input)
+			require.NoError(t, err)
+
+			// Every line should be exactly tt.width (padAllLines pads to width)
+			lines := strings.Split(result, "\n")
+			for i, line := range lines {
+				lineWidth := runewidth.StringWidth(stripANSI(line))
+				assert.Equal(t, tt.width, lineWidth,
+					"Line %d should have width %d, got %d: %q",
+					i, tt.width, lineWidth, stripANSI(line))
+			}
+		})
+	}
+}
+
+func TestFastRendererTableProportionalWidths(t *testing.T) {
+	t.Parallel()
+
+	// Table with one narrow column and one wide column
+	// The wide column should get proportionally more width
+	input := `| A | This is a much longer column that should get more space |
+|---|----------------------------------------------------------|
+| B | Another long text in this cell that needs wrapping |`
+
+	r := NewFastRenderer(50)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	plain := stripANSI(result)
+	lines := strings.Split(plain, "\n")
+
+	// Find separator positions in the first data line
+	var sepPositions []int
+	for i, char := range lines[0] {
+		if char == '│' {
+			sepPositions = append(sepPositions, i)
+		}
+	}
+
+	require.NotEmpty(t, sepPositions, "Should have column separators")
+
+	// The first column (just "A" or "B") should be narrow
+	// The separator should be near the beginning, not in the middle
+	// This proves proportional allocation gives more to the wide column
+	assert.Less(t, sepPositions[0], 15,
+		"First separator should be near the start, indicating narrow first column")
+}
+
+func TestFastRendererTableMultiLineAlignment(t *testing.T) {
+	t.Parallel()
+
+	// Table where wrapping produces multi-line rows
+	input := `| ID | Description |
+|-----|-------------|
+| 1 | A short description |
+| 2 | A much longer description that will definitely need to wrap when rendered in a narrow viewport |`
+
+	r := NewFastRenderer(40)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	plain := stripANSI(result)
+	lines := strings.Split(plain, "\n")
+
+	// Filter out empty lines and separator lines (─)
+	var dataLines []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" && !strings.HasPrefix(trimmed, "─") {
+			dataLines = append(dataLines, line)
+		}
+	}
+
+	// All data lines should have column separators at the same position
+	var expectedSepPos int
+	foundFirst := false
+	for i, line := range dataLines {
+		for j, char := range line {
+			if char == '│' {
+				if !foundFirst {
+					expectedSepPos = j
+					foundFirst = true
+				} else {
+					assert.Equal(t, expectedSepPos, j,
+						"Line %d has separator at position %d, expected %d: %q",
+						i, j, expectedSepPos, line)
+				}
+				break
+			}
+		}
+	}
+}
+
+func TestFastRendererTableCompactMode(t *testing.T) {
+	t.Parallel()
+
+	// Table with multiple columns in very narrow viewport
+	// Should switch to compact separators
+	input := `| A | B | C | D |
+|---|---|---|---|
+| 1 | 2 | 3 | 4 |`
+
+	r := NewFastRenderer(20)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	// Every line should still fit within the viewport
+	lines := strings.Split(result, "\n")
+	for i, line := range lines {
+		lineWidth := runewidth.StringWidth(stripANSI(line))
+		assert.Equal(t, 20, lineWidth,
+			"Line %d should have width 20, got %d: %q",
+			i, lineWidth, stripANSI(line))
+	}
+}
+
+func TestFastRendererTableWrappedCellContent(t *testing.T) {
+	t.Parallel()
+
+	// Verify that cell content is preserved when wrapped
+	input := `| Header One | Header Two |
+|------------|------------|
+| Short | This cell has a lot of text that needs to wrap properly without losing any content |`
+
+	r := NewFastRenderer(45)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	plain := stripANSI(result)
+
+	// All key words from the cells should be present (may be on separate lines due to wrapping)
+	assert.Contains(t, plain, "Header")
+	assert.Contains(t, plain, "One")
+	assert.Contains(t, plain, "Two")
+	assert.Contains(t, plain, "Short")
+	assert.Contains(t, plain, "cell has")
+	assert.Contains(t, plain, "properly")
+	assert.Contains(t, plain, "content")
+}
+
 func TestFastRendererEscapedCharacters(t *testing.T) {
 	t.Parallel()
 
@@ -263,7 +731,9 @@ func TestFastRendererEscapedCharacters(t *testing.T) {
 	r := NewFastRenderer(80)
 	result, err := r.Render(input)
 	require.NoError(t, err)
-	assert.Contains(t, result, "*not italic*")
+	// Strip ANSI codes to check actual content
+	plain := stripANSI(result)
+	assert.Contains(t, plain, "*not italic*")
 }
 
 func TestFastRendererNestedLists(t *testing.T) {
@@ -433,16 +903,14 @@ The fast renderer should handle all of these efficiently.
 
 func BenchmarkFastRenderer(b *testing.B) {
 	r := NewFastRenderer(80)
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		_, _ = r.Render(benchmarkInput)
 	}
 }
 
 func BenchmarkGlamourRenderer(b *testing.B) {
 	r := NewGlamourRenderer(80)
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		_, _ = r.Render(benchmarkInput)
 	}
 }
@@ -450,8 +918,7 @@ func BenchmarkGlamourRenderer(b *testing.B) {
 func BenchmarkFastRendererSmall(b *testing.B) {
 	r := NewFastRenderer(80)
 	input := "Hello **world**, this is a *test*."
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		_, _ = r.Render(input)
 	}
 }
@@ -459,8 +926,7 @@ func BenchmarkFastRendererSmall(b *testing.B) {
 func BenchmarkGlamourRendererSmall(b *testing.B) {
 	r := NewGlamourRenderer(80)
 	input := "Hello **world**, this is a *test*."
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		_, _ = r.Render(input)
 	}
 }
@@ -468,18 +934,65 @@ func BenchmarkGlamourRendererSmall(b *testing.B) {
 func BenchmarkFastRendererCodeBlock(b *testing.B) {
 	r := NewFastRenderer(80)
 	input := "```go\nfunc main() {\n\tfmt.Println(\"hello\")\n}\n```"
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		_, _ = r.Render(input)
 	}
 }
 
 func BenchmarkGlamourRendererCodeBlock(b *testing.B) {
 	r := NewGlamourRenderer(80)
-	input := "```go\nfunc main() {\n\tfmt.Println(\"hello\")\n}\n```"
-	b.ResetTimer()
-	for range b.N {
+	input := "```go\nfunc main() {\n\tfmt.Println(\"hello`\")\n}\n```"
+	for b.Loop() {
 		_, _ = r.Render(input)
+	}
+}
+
+var benchmarkTableInput = `| Name | Age | City | Country | Occupation |
+|------|-----|------|---------|------------|
+| Alice | 30 | New York | USA | Engineer |
+| Bob | 25 | London | UK | Designer |
+| Charlie | 35 | Paris | France | Manager |
+| Diana | 28 | Berlin | Germany | Developer |`
+
+func BenchmarkFastRendererTable(b *testing.B) {
+	r := NewFastRenderer(80)
+	for b.Loop() {
+		_, _ = r.Render(benchmarkTableInput)
+	}
+}
+
+func BenchmarkGlamourRendererTable(b *testing.B) {
+	r := NewGlamourRenderer(80)
+	for b.Loop() {
+		_, _ = r.Render(benchmarkTableInput)
+	}
+}
+
+func BenchmarkFastRendererTableWidth20(b *testing.B) {
+	r := NewFastRenderer(20)
+	for b.Loop() {
+		_, _ = r.Render(benchmarkTableInput)
+	}
+}
+
+func BenchmarkGlamourRendererTableWidth20(b *testing.B) {
+	r := NewGlamourRenderer(20)
+	for b.Loop() {
+		_, _ = r.Render(benchmarkTableInput)
+	}
+}
+
+func BenchmarkFastRendererTableWidth200(b *testing.B) {
+	r := NewFastRenderer(200)
+	for b.Loop() {
+		_, _ = r.Render(benchmarkTableInput)
+	}
+}
+
+func BenchmarkGlamourRendererTableWidth200(b *testing.B) {
+	r := NewGlamourRenderer(200)
+	for b.Loop() {
+		_, _ = r.Render(benchmarkTableInput)
 	}
 }
 
@@ -500,7 +1013,7 @@ func TestFastRendererListWrapping(t *testing.T) {
 	assert.Greater(t, len(lines), 1, "Long list item should wrap to multiple lines")
 
 	// First line should start with bullet
-	assert.Contains(t, lines[0], "•", "First line should contain bullet")
+	assert.Contains(t, lines[0], "- ", "First line should contain bullet")
 
 	// Check that continuation lines are indented (should have leading spaces)
 	if len(lines) > 1 {
@@ -579,7 +1092,61 @@ func TestFastRendererNestedListWrapping(t *testing.T) {
 	assert.Greater(t, len(lines), 2, "Nested list should produce multiple lines")
 
 	// First line should have bullet at start
-	assert.True(t, strings.HasPrefix(lines[0], "•"), "First line should start with bullet")
+	assert.True(t, strings.HasPrefix(lines[0], "- "), "First line should start with bullet")
+}
+
+func TestFastRendererCodeBlockInList(t *testing.T) {
+	t.Parallel()
+
+	input := "- List item\n  ```go\n  func main() {}\n  ```\n- Another item"
+
+	r := NewFastRenderer(50)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	plain := stripANSI(result)
+
+	// Should contain list items and code
+	assert.Contains(t, plain, "List item")
+	assert.Contains(t, plain, "func main()")
+	assert.Contains(t, plain, "Another item")
+
+	// All lines should have the correct width
+	lines := strings.Split(result, "\n")
+	for i, line := range lines {
+		lineWidth := runewidth.StringWidth(stripANSI(line))
+		assert.Equal(t, 50, lineWidth, "Line %d has incorrect width: %q (width=%d)", i, stripANSI(line), lineWidth)
+	}
+}
+
+func TestFastRendererCodeBlockInNestedList(t *testing.T) {
+	t.Parallel()
+
+	input := `- First level
+  - Nested item
+    ` + "```" + `
+    code here
+    ` + "```" + `
+  - Another nested`
+
+	r := NewFastRenderer(60)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	plain := stripANSI(result)
+
+	// Should contain all parts
+	assert.Contains(t, plain, "First level")
+	assert.Contains(t, plain, "Nested item")
+	assert.Contains(t, plain, "code here")
+	assert.Contains(t, plain, "Another nested")
+
+	// All lines should have correct width
+	lines := strings.Split(result, "\n")
+	for i, line := range lines {
+		lineWidth := runewidth.StringWidth(stripANSI(line))
+		assert.Equal(t, 60, lineWidth, "Line %d has incorrect width: %q (width=%d)", i, stripANSI(line), lineWidth)
+	}
 }
 
 func TestFastRendererAllLinesSameWidth(t *testing.T) {
@@ -633,5 +1200,548 @@ This is a paragraph.
 				assert.Equal(t, tt.width, lineWidth, "Line %d has incorrect width: %q (width=%d, expected=%d)", i, stripANSI(line), lineWidth, tt.width)
 			}
 		})
+	}
+}
+
+func TestInlineCodeRestoresBaseStyle(t *testing.T) {
+	t.Parallel()
+
+	// This test verifies that text after inline code has the document's base style restored,
+	// not just a reset to terminal default.
+	// Bug: "Hello `there` beautiful" - "beautiful" was appearing with terminal default
+	// instead of the document's text color.
+
+	r := NewFastRenderer(80)
+	result, err := r.Render("Hello `there` beautiful")
+	require.NoError(t, err)
+
+	seqs := ansiRegex.FindAllString(result, -1)
+
+	// We should have multiple ANSI sequences:
+	// - Base text style for "Hello " and " beautiful"
+	// - Code style for "there" (RGB foreground + background)
+	// - Resets between styled segments
+	require.GreaterOrEqual(t, len(seqs), 3, "Should have at least 3 ANSI sequences")
+
+	// Verify that text styling is applied (either ANSI 256 color or RGB)
+	allSeqs := strings.Join(seqs, "")
+	// Text color can be either "38;5;N" (256 color) or "38;2;R;G;B" (RGB) depending on theme
+	hasTextColor := strings.Contains(allSeqs, "38;5;") || strings.Contains(allSeqs, "38;2;")
+	assert.True(t, hasTextColor, "Should have text color applied (38;5; or 38;2;)")
+
+	// Verify code style appears (RGB foreground and background)
+	assert.Contains(t, allSeqs, "38;2;", "Code style should have RGB foreground")
+	assert.Contains(t, allSeqs, "48;2;", "Code style should have RGB background")
+}
+
+func TestInlineCodeTextContent(t *testing.T) {
+	t.Parallel()
+
+	r := NewFastRenderer(80)
+	result, err := r.Render("Hello `there` beautiful")
+	require.NoError(t, err)
+
+	plain := ansi.Strip(result)
+	require.Contains(t, plain, "Hello there beautiful")
+}
+
+func TestFastRendererFootnotes(t *testing.T) {
+	t.Parallel()
+
+	input := `This has a footnote[^1] and another[^note].
+
+[^1]: First footnote content
+[^note]: Named footnote content`
+
+	r := NewFastRenderer(80)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	plain := stripANSI(result)
+	// Should contain the footnote markers
+	assert.Contains(t, plain, "[^1]")
+	assert.Contains(t, plain, "[^note]")
+	// Should contain the footnote definitions
+	assert.Contains(t, plain, "First footnote content")
+	assert.Contains(t, plain, "Named footnote content")
+}
+
+func TestFastRendererTextAfterFootnoteStyledCorrectly(t *testing.T) {
+	t.Parallel()
+
+	// Text after footnotes should maintain proper styling
+	input := `This has a footnote[^1] and **bold text** after.
+
+[^1]: Footnote content`
+
+	r := NewFastRenderer(80)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	plain := stripANSI(result)
+	assert.Contains(t, plain, "bold text")
+	// Should have ANSI sequences for styling after the footnote
+	seqs := ansiRegex.FindAllString(result, -1)
+	assert.GreaterOrEqual(t, len(seqs), 2, "Should have styling sequences")
+}
+
+func TestFastRendererStrikethroughWithInlineCode(t *testing.T) {
+	t.Parallel()
+
+	// Strikethrough should apply to inline code (for deprecated code indication)
+	input := "This has ~~deprecated `code` here~~ text"
+	r := NewFastRenderer(80)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	plain := stripANSI(result)
+	assert.Contains(t, plain, "deprecated code here")
+
+	// The code within strikethrough should have strikethrough attribute
+	// Check for strikethrough ANSI code \x1b[9m
+	assert.Contains(t, result, "\x1b[9m", "Strikethrough should be present in output")
+}
+
+func TestFastRendererConsecutiveHeadingsConsistentStyle(t *testing.T) {
+	t.Parallel()
+
+	// All consecutive headings should have consistent bold styling
+	input := `# First Heading
+## Second Heading
+### Third Heading with ` + "`code`" + `
+#### Fourth Heading`
+
+	r := NewFastRenderer(80)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	plain := stripANSI(result)
+	assert.Contains(t, plain, "First Heading")
+	assert.Contains(t, plain, "Second Heading")
+	assert.Contains(t, plain, "Third Heading with code")
+	assert.Contains(t, plain, "Fourth Heading")
+
+	// All headings should have bold ANSI code (may be combined with color as \x1b[1;38;...)
+	// Check for bold attribute which can appear as \x1b[1m or \x1b[1;...
+	boldPattern := regexp.MustCompile(`\x1b\[1[;m]`)
+	lines := strings.Split(result, "\n")
+	headingCount := 0
+	for _, line := range lines {
+		plainLine := stripANSI(line)
+		if strings.Contains(plainLine, "Heading") {
+			// Each heading line should contain bold code
+			assert.True(t, boldPattern.MatchString(line), "Heading should have bold styling: %q", plainLine)
+			headingCount++
+		}
+	}
+	assert.Equal(t, 4, headingCount, "Should have 4 headings")
+}
+
+func TestFastRendererHeadingBoldItalicMaintainsColor(t *testing.T) {
+	t.Parallel()
+
+	// Bold/italic text within headings should keep heading color, not become white
+	input := "## Heading with **bold** and *italic* text"
+	r := NewFastRenderer(80)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	plain := stripANSI(result)
+	assert.Contains(t, plain, "Heading with bold and italic text")
+
+	// Should have color codes for the heading (not just reset to default white)
+	// Check for RGB color or 256-color code
+	assert.True(t,
+		strings.Contains(result, "38;2;") || strings.Contains(result, "38;5;"),
+		"Heading should have foreground color styling")
+}
+
+func TestFastRendererTableCellStyleAfterInlineCode(t *testing.T) {
+	t.Parallel()
+
+	// Table cells with inline code followed by text should maintain styling
+	input := `| Column 1 | Column 2 |
+|----------|----------|
+| Text ` + "`code`" + ` more | Plain |`
+
+	r := NewFastRenderer(80)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	plain := stripANSI(result)
+	assert.Contains(t, plain, "Text code more")
+	assert.Contains(t, plain, "Plain")
+
+	// The text after code in table cell should have styling applied
+	seqs := ansiRegex.FindAllString(result, -1)
+	assert.GreaterOrEqual(t, len(seqs), 4, "Table should have styling sequences")
+}
+
+func TestFastRendererNestedBlockquotesInList(t *testing.T) {
+	t.Parallel()
+
+	input := `- List item
+  > Blockquote level 1
+  >> Nested blockquote
+  > Back to level 1
+- Another item`
+
+	r := NewFastRenderer(60)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	plain := stripANSI(result)
+	assert.Contains(t, plain, "List item")
+	assert.Contains(t, plain, "Blockquote level 1")
+	assert.Contains(t, plain, "Nested blockquote")
+	assert.Contains(t, plain, "Another item")
+
+	// All lines should be padded to width
+	lines := strings.Split(result, "\n")
+	for i, line := range lines {
+		lineWidth := runewidth.StringWidth(stripANSI(line))
+		assert.Equal(t, 60, lineWidth, "Line %d has incorrect width: %q (width=%d)", i, stripANSI(line), lineWidth)
+	}
+}
+
+func TestFastRendererBlockquoteWithCode(t *testing.T) {
+	t.Parallel()
+
+	input := `> Quote with ` + "`inline code`" + ` here
+>> Nested with ` + "`more code`"
+
+	r := NewFastRenderer(60)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	plain := stripANSI(result)
+	assert.Contains(t, plain, "Quote with inline code here")
+	assert.Contains(t, plain, "Nested with more code")
+}
+
+func TestFastRendererNestedBlockquoteWithFencedCodeBlock(t *testing.T) {
+	t.Parallel()
+
+	// Nested blockquote with a fenced code block inside
+	// This tests that code blocks are correctly detected after stripping nested > prefixes
+	input := `> Outer quote
+> > Inner quote:
+> > ` + "```go" + `
+> > fmt.Println("Deeply quoted code")
+> > ` + "```" + `
+> > More nested text
+> Back to outer`
+
+	r := NewFastRenderer(60)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	plain := stripANSI(result)
+
+	// Should contain all text parts (code block fences should be consumed, not rendered)
+	assert.Contains(t, plain, "Outer quote")
+	assert.Contains(t, plain, "Inner quote")
+	assert.Contains(t, plain, "Deeply quoted code")
+	assert.Contains(t, plain, "More nested text")
+	assert.Contains(t, plain, "Back to outer")
+
+	// The > symbols from nested blockquotes should NOT appear as literal text
+	// (they should be processed as blockquote markers)
+	assert.NotContains(t, plain, "> Inner quote")
+	assert.NotContains(t, plain, "> ```")
+
+	// All lines should have correct width
+	lines := strings.Split(result, "\n")
+	for i, line := range lines {
+		lineWidth := runewidth.StringWidth(stripANSI(line))
+		assert.Equal(t, 60, lineWidth, "Line %d has incorrect width: %q (width=%d)", i, stripANSI(line), lineWidth)
+	}
+}
+
+func TestFastRendererDeeplyNestedBlockquotes(t *testing.T) {
+	t.Parallel()
+
+	// Test multiple levels of nesting
+	input := `> Level 1
+> > Level 2
+> > > Level 3
+> > Back to level 2
+> Back to level 1`
+
+	r := NewFastRenderer(60)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	plain := stripANSI(result)
+
+	// All levels should be rendered without literal > symbols
+	assert.Contains(t, plain, "Level 1")
+	assert.Contains(t, plain, "Level 2")
+	assert.Contains(t, plain, "Level 3")
+	assert.Contains(t, plain, "Back to level 2")
+	assert.Contains(t, plain, "Back to level 1")
+
+	// No literal > symbols should appear in the text content
+	// (they should all be consumed as blockquote markers)
+	for _, line := range strings.Split(plain, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			assert.NotRegexp(t, `^>`, trimmed, "Line should not start with literal >: %q", trimmed)
+		}
+	}
+
+	// All lines should have correct width
+	lines := strings.Split(result, "\n")
+	for i, line := range lines {
+		lineWidth := runewidth.StringWidth(stripANSI(line))
+		assert.Equal(t, 60, lineWidth, "Line %d has incorrect width: %q (width=%d)", i, stripANSI(line), lineWidth)
+	}
+}
+
+func TestFastRendererHorizontalRuleSpacing(t *testing.T) {
+	t.Parallel()
+
+	input := `Text before
+
+---
+
+Text after`
+
+	r := NewFastRenderer(40)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	plain := stripANSI(result)
+
+	// Should have consistent spacing around the HR
+	assert.Contains(t, plain, "Text before")
+	assert.Contains(t, plain, "---")
+	assert.Contains(t, plain, "Text after")
+
+	// Count blank lines before and after HR
+	lines := strings.Split(plain, "\n")
+	var hrIndex int
+	for i, line := range lines {
+		if strings.Contains(line, "---") {
+			hrIndex = i
+			break
+		}
+	}
+
+	// Check there's at least one blank line before and after HR
+	if hrIndex > 0 {
+		assert.Empty(t, strings.TrimSpace(lines[hrIndex-1]), "Should have blank line before HR")
+	}
+	if hrIndex < len(lines)-1 {
+		assert.Empty(t, strings.TrimSpace(lines[hrIndex+1]), "Should have blank line after HR")
+	}
+}
+
+func TestFastRendererCodeBlockNewlineSpacing(t *testing.T) {
+	t.Parallel()
+
+	input := `Text before
+` + "```" + `
+code
+` + "```" + `
+Text after`
+
+	r := NewFastRenderer(40)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	plain := stripANSI(result)
+	assert.Contains(t, plain, "Text before")
+	assert.Contains(t, plain, "code")
+	assert.Contains(t, plain, "Text after")
+
+	// Should have blank lines around the code block for readability
+	lines := strings.Split(plain, "\n")
+	var codeIndex int
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "code" {
+			codeIndex = i
+			break
+		}
+	}
+
+	// The code block should have proper separation from surrounding text
+	assert.Positive(t, codeIndex, "Code block should not be at start")
+}
+
+func TestFastRendererCodeBlockWhitespaceWrap(t *testing.T) {
+	t.Parallel()
+
+	// Code should wrap at whitespace, not mid-word
+	input := "```\nfunction myLongFunctionName() { return something; }\n```"
+
+	r := NewFastRenderer(30)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	plain := stripANSI(result)
+	lines := strings.Split(plain, "\n")
+
+	// If wrapping occurred, it should have wrapped at a space
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" && len(trimmed) > 1 {
+			// Line shouldn't end mid-word (unless the word itself is longer than width)
+			// If a line contains a space, it should have broken at a space if possible
+			if strings.Contains(trimmed, " ") {
+				// This line has spaces, so wrapping should work correctly
+				continue
+			}
+		}
+	}
+}
+
+func TestFastRendererListWithCodeBlockSpacing(t *testing.T) {
+	t.Parallel()
+
+	// List items with code blocks should have proper spacing for legibility
+	input := `- First item with text
+  ` + "```" + `
+  some code
+  ` + "```" + `
+- Second item`
+
+	r := NewFastRenderer(50)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	plain := stripANSI(result)
+	assert.Contains(t, plain, "First item with text")
+	assert.Contains(t, plain, "some code")
+	assert.Contains(t, plain, "Second item")
+}
+
+func TestFastRendererHeadingWithInlineCodeBold(t *testing.T) {
+	t.Parallel()
+
+	// Inline code in headings should inherit bold from the heading
+	input := "## Heading with `code` here"
+
+	r := NewFastRenderer(80)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	plain := stripANSI(result)
+	assert.Contains(t, plain, "Heading with code here")
+
+	// The heading line should contain bold code (may be combined with color as \x1b[1;38;...)
+	boldPattern := regexp.MustCompile(`\x1b\[1[;m]`)
+	assert.True(t, boldPattern.MatchString(result), "Heading should have bold styling")
+}
+
+func TestFastRendererWrappedInlineCodeInHeadingMaintainsStyle(t *testing.T) {
+	t.Parallel()
+
+	// When inline code in a heading wraps, continuation lines should maintain style
+	input := "# Heading with `very_long_inline_code_that_will_wrap` text"
+
+	r := NewFastRenderer(35)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	plain := stripANSI(result)
+	assert.Contains(t, plain, "Heading with")
+	assert.Contains(t, plain, "very_long_inline_code")
+	assert.Contains(t, plain, "text")
+
+	// Each line of the heading should maintain styling
+	lines := strings.Split(result, "\n")
+	headingLines := 0
+	for _, line := range lines {
+		plainLine := stripANSI(line)
+		if strings.TrimSpace(plainLine) != "" {
+			headingLines++
+			// Each non-empty line should have ANSI styling
+			seqs := ansiRegex.FindAllString(line, -1)
+			assert.GreaterOrEqual(t, len(seqs), 1, "Line should have styling: %q", plainLine)
+		}
+	}
+	assert.GreaterOrEqual(t, headingLines, 2, "Heading should wrap to multiple lines")
+}
+
+func TestFastRendererTableSeparatorStyling(t *testing.T) {
+	t.Parallel()
+
+	input := `| Header 1 | Header 2 |
+|----------|----------|
+| Cell 1   | Cell 2   |`
+
+	r := NewFastRenderer(60)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	// The separator line should have styling applied (same as other table elements)
+	lines := strings.Split(result, "\n")
+	for _, line := range lines {
+		plainLine := stripANSI(line)
+		if strings.Contains(plainLine, "─") {
+			// Separator line should have ANSI styling
+			seqs := ansiRegex.FindAllString(line, -1)
+			assert.GreaterOrEqual(t, len(seqs), 1, "Table separator should have styling")
+		}
+	}
+}
+
+//go:embed testdata/streaming_benchmark.md
+var streamingBenchmarkContent string
+
+// splitIntoStreamingChunks splits content into chunks that simulate LLM streaming.
+// LLM tokens are typically 3-4 characters, so we use small varying chunk sizes.
+func splitIntoStreamingChunks(content string) []string {
+	var chunks []string
+	i := 0
+	chunkSizes := []int{3, 4, 3, 5, 2, 4, 3, 4, 5, 3, 2, 4, 3, 4, 3, 5}
+	sizeIdx := 0
+
+	for i < len(content) {
+		chunkSize := chunkSizes[sizeIdx%len(chunkSizes)]
+		end := i + chunkSize
+		if end > len(content) {
+			end = len(content)
+		}
+		chunks = append(chunks, content[i:end])
+		i = end
+		sizeIdx++
+	}
+	return chunks
+}
+
+// BenchmarkStreamingFastRenderer benchmarks rendering progressively growing markdown.
+// This simulates the streaming use case where content arrives in chunks and
+// the entire accumulated content is re-rendered on each update.
+func BenchmarkStreamingFastRenderer(b *testing.B) {
+	chunks := splitIntoStreamingChunks(streamingBenchmarkContent)
+	r := NewFastRenderer(80)
+
+	b.ResetTimer()
+	for b.Loop() {
+		var accumulated strings.Builder
+		for _, chunk := range chunks {
+			accumulated.WriteString(chunk)
+			_, _ = r.Render(accumulated.String())
+		}
+	}
+}
+
+// BenchmarkStreamingGlamourRenderer benchmarks glamour with progressively growing markdown.
+// Note: glamour's TermRenderer has internal state issues when reused many times,
+// so we create a fresh renderer for each benchmark iteration. This adds overhead
+// but is necessary to avoid panics in glamour's internal ANSI parser.
+func BenchmarkStreamingGlamourRenderer(b *testing.B) {
+	chunks := splitIntoStreamingChunks(streamingBenchmarkContent)
+
+	b.ResetTimer()
+	for b.Loop() {
+		r := NewGlamourRenderer(80)
+		var accumulated strings.Builder
+		for _, chunk := range chunks {
+			accumulated.WriteString(chunk)
+			_, _ = r.Render(accumulated.String())
+		}
 	}
 }

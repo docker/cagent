@@ -52,7 +52,7 @@ func New(msg, previous *types.Message) *messageModel {
 // Init initializes the message view
 func (mv *messageModel) Init() tea.Cmd {
 	if mv.message.Type == types.MessageTypeSpinner || mv.message.Type == types.MessageTypeLoading {
-		return mv.spinner.Tick()
+		return mv.spinner.Init()
 	}
 	return nil
 }
@@ -87,7 +87,41 @@ func (mv *messageModel) Render(width int) string {
 	case types.MessageTypeSpinner:
 		return mv.spinner.View()
 	case types.MessageTypeUser:
-		return styles.UserMessageStyle.Width(width).Render(msg.Content)
+		// Choose style based on selection state
+		messageStyle := styles.UserMessageStyle
+		if mv.selected && msg.SessionPosition != nil {
+			messageStyle = styles.SelectedUserMessageStyle
+		}
+
+		if msg.SessionPosition == nil {
+			return messageStyle.Width(width).Render(msg.Content)
+		}
+
+		// For editable messages, place the pencil icon in the top padding row
+		innerWidth := width - messageStyle.GetHorizontalFrameSize()
+		content := strings.TrimRight(msg.Content, "\n\r\t ")
+		if content == "" {
+			content = msg.Content
+		}
+
+		// Create the edit icon for the top row
+		editIcon := styles.MutedStyle.Render(types.UserMessageEditLabel)
+		iconWidth := ansi.StringWidth(types.UserMessageEditLabel)
+
+		// Create a top row with the icon pushed to the right edge
+		// This row replaces the top padding and becomes part of the content
+		topPadding := innerWidth - iconWidth
+		if topPadding < 0 {
+			topPadding = 0
+		}
+		topRow := strings.Repeat(" ", topPadding) + editIcon
+
+		// Combine: icon row + content (icon row acts as the top padding)
+		contentWithIcon := topRow + "\n" + content
+
+		// Use a modified style with no top padding (our icon row replaces it)
+		noTopPaddingStyle := messageStyle.PaddingTop(0)
+		return noTopPaddingStyle.Width(width).Render(contentWithIcon)
 	case types.MessageTypeAssistant:
 		if msg.Content == "" {
 			return mv.spinner.View()
@@ -108,40 +142,6 @@ func (mv *messageModel) Render(width int) string {
 		}
 
 		return mv.senderPrefix(msg.Sender) + messageStyle.Render(rendered)
-	case types.MessageTypeAssistantReasoning:
-		if msg.Content == "" {
-			return mv.spinner.View()
-		}
-
-		messageStyle := styles.AssistantMessageStyle
-		thinkingStyle := styles.MutedStyle.Italic(true)
-
-		rendered, err := markdown.NewRenderer(width - messageStyle.GetHorizontalFrameSize()).Render(msg.Content)
-		if err != nil {
-			rendered = msg.Content
-		}
-
-		// Strip ANSI so muted style applies uniformly, and trim trailing whitespace.
-		// Unlike regular content where markdown ANSI output goes directly to messageStyle,
-		// here we strip ANSI which exposes raw trailing newlines from markdown that would
-		// otherwise be handled differently by lipgloss when embedded in ANSI sequences.
-		clean := strings.TrimRight(stripANSI(rendered), "\n\r\t ")
-
-		// Show "Thinking:" badge only when starting a new thinking block after content
-		var text string
-		if mv.continuingThinking(msg) {
-			text = thinkingStyle.Render(clean)
-		} else {
-			text = styles.ThinkingBadgeStyle.Render("Thinking:") + "\n\n" + thinkingStyle.Render(clean)
-		}
-
-		styledContent := messageStyle.Render(text)
-
-		if mv.sameAgentAsPrevious(msg) {
-			return styledContent
-		}
-
-		return mv.senderPrefix(msg.Sender) + styledContent
 	case types.MessageTypeShellOutput:
 		if rendered, err := markdown.NewRenderer(width).Render(fmt.Sprintf("```console\n%s\n```", msg.Content)); err == nil {
 			return rendered
@@ -187,23 +187,7 @@ func (mv *messageModel) sameAgentAsPrevious(msg *types.Message) bool {
 	}
 	switch mv.previous.Type {
 	case types.MessageTypeAssistant,
-		types.MessageTypeAssistantReasoning,
-		types.MessageTypeToolCall,
-		types.MessageTypeToolResult:
-		return true
-	default:
-		return false
-	}
-}
-
-// continuingThinking returns true if we're continuing a thinking flow
-// (previous was thinking or tool call, not content)
-func (mv *messageModel) continuingThinking(msg *types.Message) bool {
-	if mv.previous == nil || mv.previous.Sender != msg.Sender {
-		return false
-	}
-	switch mv.previous.Type {
-	case types.MessageTypeAssistantReasoning,
+		types.MessageTypeAssistantReasoningBlock,
 		types.MessageTypeToolCall,
 		types.MessageTypeToolResult:
 		return true

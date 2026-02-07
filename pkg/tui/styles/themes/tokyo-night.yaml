@@ -1,0 +1,93 @@
+version: 1
+name: "Tokyo Night"
+colors:
+  # Text colors
+  text_bright: "#c0caf5"
+  text_primary: "#c0caf5"
+  text_secondary: "#9aa5ce"
+  text_muted: "#9aa5ce"
+  text_faint: "#414868"
+  
+  # Accent colors
+  accent: "#7aa2f7"
+  accent_muted: "#565f89"
+  
+  # Background colors
+  background: "#1a1b26"
+  background_alt: "#24283b"
+  
+  # Border colors
+  border_secondary: "#414868"
+  
+  # Status colors
+  success: "#9ece6a"
+  error: "#f7768e"
+  warning: "#e0af68"
+  info: "#7dcfff"
+  highlight: "#bb9af7"
+  
+  # Brand colors
+  # NOTE: Used as selection background in dialogs - must be dark for white text
+  brand: "#3a5280"
+  brand_bg: "#24283b"
+  
+  # Error colors
+  error_strong: "#f7768e"
+  error_dark: "#3d2a2a"
+  
+  # Spinner colors
+  spinner_dim: "#7aa2f7"
+  spinner_bright: "#9bb3f7"
+  spinner_brightest: "#bcc4f7"
+  
+  # Diff colors
+  diff_add_bg: "#20303b"
+  diff_remove_bg: "#3c2a2a"
+  
+  # UI element colors
+  line_number: "#565f89"
+  separator: "#414868"
+  selected: "#33467c"
+  selected_fg: "#ffffff"
+  suggestion_ghost: "#565f89"
+  tab_bg: "#1f2335"
+  placeholder: "#9aa5ce"
+  
+  # Badge colors
+  badge_accent: "#bb9af7"
+  badge_info: "#7dcfff"
+  badge_success: "#9ece6a"
+
+chroma:
+  # Syntax highlighting colors - Tokyo Night style
+  comment: "#565f89"
+  comment_preproc: "#bb9af7"
+  keyword: "#bb9af7"
+  keyword_reserved: "#f7768e"
+  keyword_namespace: "#7dcfff"
+  keyword_type: "#7aa2f7"
+  operator: "#89ddff"
+  punctuation: "#c0caf5"
+  name_builtin: "#e0af68"
+  name_tag: "#f7768e"
+  name_attribute: "#7aa2f7"
+  name_decorator: "#e0af68"
+  literal_number: "#ff9e64"
+  literal_string: "#9ece6a"
+  literal_string_escape: "#73daca"
+  generic_deleted: "#f7768e"
+  generic_subheading: "#565f89"
+  background: "#1a1b26"
+  error_fg: "#f7768e"
+  error_bg: "#3d2a2a"
+  success: "#9ece6a"
+
+markdown:
+  heading: "#7aa2f7"
+  link: "#73daca"
+  strong: "#c0caf5"
+  code: "#e0af68"
+  code_bg: "#24283b"
+  blockquote: "#9aa5ce"
+  list: "#c0caf5"
+  hr: "#414868"

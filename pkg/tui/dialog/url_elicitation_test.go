@@ -55,4 +55,15 @@ func TestURLElicitationDialog_View(t *testing.T) {
 	assert.Contains(t, view, "https://example.com/callback")
 	assert.Contains(t, view, "confirm")
 	assert.Contains(t, view, "cancel")
+	assert.Contains(t, view, "open") // New "open" key binding
+}
+
+func TestURLElicitationDialog_HasOpenKeyBinding(t *testing.T) {
+	t.Parallel()
+
+	dialog := NewURLElicitationDialog("Test", "https://example.com").(*URLElicitationDialog)
+
+	// Verify the openBrowser key binding exists and is configured correctly
+	require.NotNil(t, dialog.openBrowser)
+	assert.NotEmpty(t, dialog.openBrowser.Keys())
 }

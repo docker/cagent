@@ -35,9 +35,14 @@ func Wrap(toolsets ...tools.ToolSet) tools.ToolSet {
 }
 
 type codeModeTool struct {
-	tools.BaseToolSet
 	toolsets []tools.ToolSet
 }
+
+// Verify interface compliance
+var (
+	_ tools.ToolSet   = (*codeModeTool)(nil)
+	_ tools.Startable = (*codeModeTool)(nil)
+)
 
 type RunToolsWithJavascriptArgs struct {
 	Script string `json:"script" jsonschema:"Script to execute"`
@@ -99,8 +104,10 @@ func (c *codeModeTool) Tools(ctx context.Context) ([]tools.Tool, error) {
 
 func (c *codeModeTool) Start(ctx context.Context) error {
 	for _, t := range c.toolsets {
-		if err := t.Start(ctx); err != nil {
-			return err
+		if startable, ok := t.(tools.Startable); ok {
+			if err := startable.Start(ctx); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -111,8 +118,10 @@ func (c *codeModeTool) Stop(ctx context.Context) error {
 	var errs []error
 
 	for _, t := range c.toolsets {
-		if err := t.Stop(ctx); err != nil {
-			errs = append(errs, err)
+		if startable, ok := t.(tools.Startable); ok {
+			if err := startable.Stop(ctx); err != nil {
+				errs = append(errs, err)
+			}
 		}
 	}
 

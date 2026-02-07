@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin && !no_audio
 
 // Package transcribe provides real-time audio transcription using OpenAI's Realtime API.
 package transcribe

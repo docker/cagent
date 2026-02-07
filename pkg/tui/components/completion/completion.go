@@ -61,6 +61,24 @@ type SelectionChangedMsg struct {
 	Value string
 }
 
+// AppendItemsMsg appends items to the current completion list without closing the popup.
+// Useful for async loading of completion items.
+type AppendItemsMsg struct {
+	Items []Item
+}
+
+// ReplaceItemsMsg replaces non-pinned items in the completion list.
+// Pinned items (like "Browse files…") are preserved.
+// Useful for full async load that supersedes initial results.
+type ReplaceItemsMsg struct {
+	Items []Item
+}
+
+// SetLoadingMsg sets the loading state for the completion popup.
+type SetLoadingMsg struct {
+	Loading bool
+}
+
 type matchResult struct {
 	item  Item
 	score int
@@ -119,6 +137,7 @@ type manager struct {
 	scrollOffset  int
 	visible       bool
 	matchMode     MatchMode
+	loading       bool // true when async loading is in progress
 }
 
 // New creates a new  completion component
@@ -168,7 +187,43 @@ func (c *manager) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 
 	case CloseMsg:
 		c.visible = false
+		c.loading = false
 		return c, nil
+
+	case SetLoadingMsg:
+		c.loading = msg.Loading
+		return c, nil
+
+	case AppendItemsMsg:
+		// Append new items to the existing list
+		c.items = append(c.items, msg.Items...)
+		// Re-filter with current query
+		c.filterItems(c.query)
+		// Make popup visible if we now have items
+		if len(c.filteredItems) > 0 && !c.visible {
+			c.visible = true
+		}
+		cmd := c.notifySelectionChanged()
+		return c, cmd
+
+	case ReplaceItemsMsg:
+		// Keep pinned items, replace everything else
+		var pinnedItems []Item
+		for _, item := range c.items {
+			if item.Pinned {
+				pinnedItems = append(pinnedItems, item)
+			}
+		}
+		// Combine pinned items with new items
+		c.items = append(pinnedItems, msg.Items...)
+		// Re-filter with current query
+		c.filterItems(c.query)
+		// Make popup visible if we have items
+		if len(c.filteredItems) > 0 && !c.visible {
+			c.visible = true
+		}
+		cmd := c.notifySelectionChanged()
+		return c, cmd
 
 	case tea.KeyPressMsg:
 		switch {
@@ -186,8 +241,8 @@ func (c *manager) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 			if c.selected < len(c.filteredItems)-1 {
 				c.selected++
 			}
-			if c.selected >= c.scrollOffset+10 {
-				c.scrollOffset = c.selected - 9
+			if c.selected >= c.scrollOffset+maxItems {
+				c.scrollOffset = c.selected - maxItems + 1
 			}
 			cmd := c.notifySelectionChanged()
 			return c, cmd
@@ -232,7 +287,11 @@ func (c *manager) View() string {
 	var lines []string
 
 	if len(c.filteredItems) == 0 {
-		lines = append(lines, styles.CompletionNoResultsStyle.Render("No command found"))
+		if c.loading {
+			lines = append(lines, styles.CompletionNoResultsStyle.Render("Loading…"))
+		} else {
+			lines = append(lines, styles.CompletionNoResultsStyle.Render("No results"))
+		}
 	} else {
 		visibleStart := c.scrollOffset
 		visibleEnd := min(c.scrollOffset+maxItems, len(c.filteredItems))
@@ -297,8 +356,23 @@ func (c *manager) notifySelectionChanged() tea.Cmd {
 }
 
 func (c *manager) filterItems(query string) {
+	// Pinned items are always shown at the top, in their original order.
+	var pinnedItems []Item
+	for _, item := range c.items {
+		if item.Pinned {
+			pinnedItems = append(pinnedItems, item)
+		}
+	}
+
 	if query == "" {
-		c.filteredItems = c.items
+		// Preserve original order for non-pinned items.
+		c.filteredItems = make([]Item, 0, len(c.items))
+		c.filteredItems = append(c.filteredItems, pinnedItems...)
+		for _, item := range c.items {
+			if !item.Pinned {
+				c.filteredItems = append(c.filteredItems, item)
+			}
+		}
 		// Reset selection when clearing the query
 		if c.selected >= len(c.filteredItems) {
 			c.selected = max(0, len(c.filteredItems)-1)
@@ -307,10 +381,12 @@ func (c *manager) filterItems(query string) {
 	}
 
 	lowerQuery := strings.ToLower(query)
-	var pinnedItems []Item
 	var matches []matchResult
 
 	for _, item := range c.items {
+		if item.Pinned {
+			continue
+		}
 		var matched bool
 		var score int
 
@@ -340,15 +416,10 @@ func (c *manager) filterItems(query string) {
 		}
 
 		if matched {
-			if item.Pinned {
-				// Pinned items keep their original order at the top
-				pinnedItems = append(pinnedItems, item)
-			} else {
-				matches = append(matches, matchResult{
-					item:  item,
-					score: score,
-				})
-			}
+			matches = append(matches, matchResult{
+				item:  item,
+				score: score,
+			})
 		}
 	}
 

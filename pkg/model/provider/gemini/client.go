@@ -320,8 +320,50 @@ func (c *Client) buildConfig() *genai.GenerateContentConfig {
 	// Gemini 3 models use level-based configuration (thinkingLevel):
 	// - Gemini 3 Pro: "low", "high"
 	// - Gemini 3 Flash: "minimal", "low", "medium", "high"
-	if c.ModelConfig.ThinkingBudget != nil {
+	//
+	// When thinking is explicitly disabled via ModelOptions (e.g., for title generation),
+	// we set ThinkingBudget to 0 to disable thinking completely. This is required for
+	// operations where max_tokens is very low and thinking would cause the request to
+	// hang or fail. IncludeThoughts=false is also set to ensure no thinking content
+	// is returned.
+	if thinking := c.ModelOptions.Thinking(); thinking != nil && !*thinking {
+		model := strings.ToLower(c.ModelConfig.Model)
+		if strings.HasPrefix(model, "gemini-3-") {
+			// Gemini 3 models require thinking — they reject ThinkingBudget=0.
+			// Use the lowest level instead and bump MaxOutputTokens so that
+			// even a tiny caller budget (e.g. 20 for title generation) leaves
+			// room for the model's internal reasoning.
+			config.ThinkingConfig = &genai.ThinkingConfig{
+				IncludeThoughts: false,
+				ThinkingLevel:   genai.ThinkingLevelLow,
+			}
+			const minOutputTokens int32 = 200
+			if config.MaxOutputTokens < minOutputTokens {
+				config.MaxOutputTokens = minOutputTokens
+			}
+			slog.Debug("Gemini 3 thinking reduced to low (cannot be fully disabled)",
+				"model", c.ModelConfig.Model,
+				"max_output_tokens", config.MaxOutputTokens,
+			)
+		} else {
+			// Gemini 2.5 and older: ThinkingBudget=0 disables thinking.
+			config.ThinkingConfig = &genai.ThinkingConfig{
+				IncludeThoughts: false,
+				ThinkingBudget:  genai.Ptr(int32(0)),
+			}
+			slog.Debug("Gemini thinking explicitly disabled via ModelOptions",
+				"model", c.ModelConfig.Model,
+				"max_output_tokens", config.MaxOutputTokens,
+			)
+		}
+	} else if c.ModelConfig.ThinkingBudget != nil {
 		c.applyThinkingConfig(config)
+	} else {
+		slog.Debug("Gemini buildConfig: no thinking configuration applied",
+			"model", c.ModelConfig.Model,
+			"thinking_option", c.ModelOptions.Thinking(),
+			"thinking_budget", c.ModelConfig.ThinkingBudget,
+		)
 	}
 
 	if structuredOutput := c.ModelOptions.StructuredOutput(); structuredOutput != nil {

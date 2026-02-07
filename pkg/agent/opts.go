@@ -1,8 +1,7 @@
 package agent
 
 import (
-	"context"
-	"sync"
+	"time"
 
 	"github.com/docker/cagent/pkg/config/latest"
 	"github.com/docker/cagent/pkg/config/types"
@@ -19,11 +18,9 @@ func WithInstruction(instruction string) Opt {
 }
 
 func WithToolSets(toolSet ...tools.ToolSet) Opt {
-	var startableToolSet []*StartableToolSet
+	var startableToolSet []*tools.StartableToolSet
 	for _, ts := range toolSet {
-		startableToolSet = append(startableToolSet, &StartableToolSet{
-			ToolSet: ts,
-		})
+		startableToolSet = append(startableToolSet, tools.NewStartable(ts))
 	}
 
 	return func(a *Agent) {
@@ -61,6 +58,30 @@ func WithModel(model provider.Provider) Opt {
 	}
 }
 
+// WithFallbackModel adds a fallback model to try if the primary model fails.
+// For retryable errors (5xx, timeouts), the same model is retried with backoff.
+// For non-retryable errors (429), we immediately move to the next model in the chain.
+func WithFallbackModel(model provider.Provider) Opt {
+	return func(a *Agent) {
+		a.fallbackModels = append(a.fallbackModels, model)
+	}
+}
+
+// WithFallbackRetries sets the number of retries per fallback model with exponential backoff.
+func WithFallbackRetries(retries int) Opt {
+	return func(a *Agent) {
+		a.fallbackRetries = retries
+	}
+}
+
+// WithFallbackCooldown sets the duration to stick with a successful fallback model
+// before retrying the primary. Only applies after a non-retryable error (e.g., 429).
+func WithFallbackCooldown(cooldown time.Duration) Opt {
+	return func(a *Agent) {
+		a.fallbackCooldown = cooldown
+	}
+}
+
 func WithSubAgents(subAgents ...*Agent) Opt {
 	return func(a *Agent) {
 		a.subAgents = subAgents
@@ -85,6 +106,12 @@ func WithAddDate(addDate bool) Opt {
 func WithAddEnvironmentInfo(addEnvironmentInfo bool) Opt {
 	return func(a *Agent) {
 		a.addEnvironmentInfo = addEnvironmentInfo
+	}
+}
+
+func WithAddDescriptionParameter(addDescriptionParameter bool) Opt {
+	return func(a *Agent) {
+		a.addDescriptionParameter = addDescriptionParameter
 	}
 }
 
@@ -132,35 +159,10 @@ func WithHooks(hooks *latest.HooksConfig) Opt {
 	}
 }
 
-type StartableToolSet struct {
-	tools.ToolSet
-
-	mu      sync.Mutex
-	started bool
-}
-
-// IsStarted returns whether the toolset has been successfully started.
-func (s *StartableToolSet) IsStarted() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.started
-}
-
-// Start starts the toolset.
-//
-// It provides single-flight semantics: concurrent callers block until this start
-// attempt completes. If this attempt fails, a future call will retry.
-func (s *StartableToolSet) Start(ctx context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.started {
-		return nil
+// WithThinkingConfigured sets whether thinking_budget was explicitly configured in the agent's YAML.
+// When true, the session will initialize with thinking enabled.
+func WithThinkingConfigured(configured bool) Opt {
+	return func(a *Agent) {
+		a.thinkingConfigured = configured
 	}
-
-	err := s.ToolSet.Start(ctx)
-	if err == nil {
-		s.started = true
-	}
-	return err
 }

@@ -134,6 +134,6 @@ The DMR provider supports speculative decoding for faster inference. Configure i
 - `speculative_num_tokens` (int): Number of tokens to generate speculatively
 - `speculative_acceptance_rate` (float): Acceptance rate threshold for speculative tokens
 
-All three options are passed to `docker model configure` as command-line flags.
+All three options are sent to Model Runner via its internal `POST /engines/_configure` API endpoint.
 
 You can also pass any flag of the underlying model runtime (llama.cpp or vllm) using the `runtime_flags` option

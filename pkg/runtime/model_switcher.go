@@ -456,22 +456,14 @@ func (r *LocalRuntime) createProviderFromConfig(ctx context.Context, cfg *latest
 		options.WithProviders(r.modelSwitcherCfg.Providers),
 	}
 
-	// Look up max tokens from models.dev if not specified in config
-	var maxTokens *int64
+	// Use max_tokens from config if specified, otherwise look up from models.dev
 	if cfg.MaxTokens != nil {
-		maxTokens = cfg.MaxTokens
-	} else {
-		defaultMaxTokens := int64(32000)
-		maxTokens = &defaultMaxTokens
-		if r.modelsStore != nil {
-			m, err := r.modelsStore.GetModel(ctx, cfg.Provider+"/"+cfg.Model)
-			if err == nil && m != nil {
-				maxTokens = &m.Limit.Output
-			}
+		opts = append(opts, options.WithMaxTokens(*cfg.MaxTokens))
+	} else if r.modelsStore != nil {
+		m, err := r.modelsStore.GetModel(ctx, cfg.Provider+"/"+cfg.Model)
+		if err == nil && m != nil {
+			opts = append(opts, options.WithMaxTokens(m.Limit.Output))
 		}
-	}
-	if maxTokens != nil {
-		opts = append(opts, options.WithMaxTokens(*maxTokens))
 	}
 
 	return provider.NewWithModels(ctx,

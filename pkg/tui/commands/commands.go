@@ -9,6 +9,7 @@ import (
 
 	"github.com/docker/cagent/pkg/app"
 	"github.com/docker/cagent/pkg/feedback"
+	"github.com/docker/cagent/pkg/modelsdev"
 	"github.com/docker/cagent/pkg/tui/components/toolcommon"
 	"github.com/docker/cagent/pkg/tui/core"
 	"github.com/docker/cagent/pkg/tui/messages"
@@ -73,6 +74,22 @@ func builtInSessionCommands() []Item {
 			Category:     "Session",
 			Execute: func(string) tea.Cmd {
 				return core.CmdHandler(messages.ToggleSessionStarMsg{})
+			},
+		},
+		{
+			ID:           "session.title",
+			Label:        "Title",
+			SlashCommand: "/title",
+			Description:  "Set or regenerate session title (usage: /title [new title])",
+			Category:     "Session",
+			Execute: func(arg string) tea.Cmd {
+				arg = strings.TrimSpace(arg)
+				if arg == "" {
+					// No argument: regenerate title
+					return core.CmdHandler(messages.RegenerateTitleMsg{})
+				}
+				// With argument: set title
+				return core.CmdHandler(messages.SetSessionTitleMsg{Title: arg})
 			},
 		},
 		{
@@ -176,6 +193,16 @@ func builtInSessionCommands() []Item {
 			},
 		},
 		{
+			ID:           "session.permissions",
+			Label:        "Permissions",
+			SlashCommand: "/permissions",
+			Description:  "Show tool permission rules for this session",
+			Category:     "Session",
+			Execute: func(string) tea.Cmd {
+				return core.CmdHandler(messages.ShowPermissionsDialogMsg{})
+			},
+		},
+		{
 			ID:           "session.attach",
 			Label:        "Attach",
 			SlashCommand: "/attach",
@@ -183,6 +210,16 @@ func builtInSessionCommands() []Item {
 			Category:     "Session",
 			Execute: func(arg string) tea.Cmd {
 				return core.CmdHandler(messages.AttachFileMsg{FilePath: arg})
+			},
+		},
+		{
+			ID:           "settings.theme",
+			Label:        "Theme",
+			SlashCommand: "/theme",
+			Description:  "Change the color theme",
+			Category:     "Settings",
+			Execute: func(string) tea.Cmd {
+				return core.CmdHandler(messages.OpenThemePickerMsg{})
 			},
 		},
 	}
@@ -220,10 +257,36 @@ func builtInFeedbackCommands() []Item {
 
 // BuildCommandCategories builds the list of command categories for the command palette
 func BuildCommandCategories(ctx context.Context, application *app.App) []Category {
+	// Get session commands and filter based on model capabilities
+	sessionCommands := builtInSessionCommands()
+
+	// Check if the current model supports reasoning; hide /think if not
+	currentModel := application.CurrentAgentModel()
+	if !modelsdev.ModelSupportsReasoning(ctx, currentModel) {
+		filtered := make([]Item, 0, len(sessionCommands))
+		for _, cmd := range sessionCommands {
+			if cmd.ID != "session.think" {
+				filtered = append(filtered, cmd)
+			}
+		}
+		sessionCommands = filtered
+	}
+
+	// Hide /permissions if no permissions are configured
+	if !application.HasPermissions() {
+		filtered := make([]Item, 0, len(sessionCommands))
+		for _, cmd := range sessionCommands {
+			if cmd.ID != "session.permissions" {
+				filtered = append(filtered, cmd)
+			}
+		}
+		sessionCommands = filtered
+	}
+
 	categories := []Category{
 		{
 			Name:     "Session",
-			Commands: builtInSessionCommands(),
+			Commands: sessionCommands,
 		},
 		{
 			Name:     "Feedback",
@@ -322,6 +385,36 @@ func BuildCommandCategories(ctx context.Context, application *app.App) []Categor
 		categories = append(categories, Category{
 			Name:     "MCP Prompts",
 			Commands: mcpCommands,
+		})
+	}
+
+	// Add skill commands if skills are enabled for the current agent
+	skillsList := application.CurrentAgentSkills()
+	if len(skillsList) > 0 {
+		skillCommands := make([]Item, 0, len(skillsList))
+		for _, skill := range skillsList {
+			skillName := skill.Name
+			description := toolcommon.TruncateText(skill.Description, 55)
+
+			skillCommands = append(skillCommands, Item{
+				ID:           "skill." + skillName,
+				Label:        skillName,
+				Description:  description,
+				Category:     "Skills",
+				SlashCommand: "/" + skillName,
+				Execute: func(arg string) tea.Cmd {
+					input := "/" + skillName
+					if arg = strings.TrimSpace(arg); arg != "" {
+						input += " " + arg
+					}
+					return core.CmdHandler(messages.SendMsg{Content: input})
+				},
+			})
+		}
+
+		categories = append(categories, Category{
+			Name:     "Skills",
+			Commands: skillCommands,
 		})
 	}
 

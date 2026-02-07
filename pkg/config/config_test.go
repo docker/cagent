@@ -271,7 +271,9 @@ func TestCheckRequiredEnvVars(t *testing.T) {
 				require.NoError(t, err)
 			} else {
 				require.Error(t, err)
-				assert.Equal(t, test.expectedMissing, err.(*environment.RequiredEnvError).Missing)
+				var reqErr *environment.RequiredEnvError
+				require.ErrorAs(t, err, &reqErr)
+				assert.Equal(t, test.expectedMissing, reqErr.Missing)
 			}
 		})
 	}

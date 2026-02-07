@@ -22,6 +22,10 @@ type replaceInstruction struct {
 	instruction string
 }
 
+// Verify interface compliance
+var _ tools.Instructable = (*replaceInstruction)(nil)
+
 func (a replaceInstruction) Instructions() string {
-	return strings.Replace(a.instruction, "{ORIGINAL_INSTRUCTIONS}", a.ToolSet.Instructions(), 1)
+	original := tools.GetInstructions(a.ToolSet)
+	return strings.Replace(a.instruction, "{ORIGINAL_INSTRUCTIONS}", original, 1)
 }

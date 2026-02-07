@@ -10,12 +10,14 @@ import (
 const ToolNameThink = "think"
 
 type ThinkTool struct {
-	tools.BaseToolSet
 	thoughts []string
 }
 
-// Make sure Think Tool implements the ToolSet Interface
-var _ tools.ToolSet = (*ThinkTool)(nil)
+// Verify interface compliance
+var (
+	_ tools.ToolSet      = (*ThinkTool)(nil)
+	_ tools.Instructable = (*ThinkTool)(nil)
+)
 
 type ThinkArgs struct {
 	Thought string `json:"thought" jsonschema:"The thought to think about"`

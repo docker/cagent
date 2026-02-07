@@ -13,9 +13,9 @@ import (
 // via the `security` command-line tool.
 type KeychainProvider struct{}
 
-type ErrKeychainNotAvailable struct{}
+type KeychainNotAvailableError struct{}
 
-func (ErrKeychainNotAvailable) Error() string {
+func (KeychainNotAvailableError) Error() string {
 	return "security command is not available (macOS keychain access)"
 }
 
@@ -27,7 +27,7 @@ func NewKeychainProvider() (*KeychainProvider, error) {
 		slog.Warn("failed to lookup `security` binary", "error", err)
 	}
 	if path == "" {
-		return nil, ErrKeychainNotAvailable{}
+		return nil, KeychainNotAvailableError{}
 	}
 	return &KeychainProvider{}, nil
 }

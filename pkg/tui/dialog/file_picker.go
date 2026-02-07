@@ -197,6 +197,13 @@ func (d *filePickerDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		cmd := d.SetSize(msg.Width, msg.Height)
 		return d, cmd
 
+	case tea.PasteMsg:
+		// Forward paste to text input
+		var cmd tea.Cmd
+		d.textInput, cmd = d.textInput.Update(msg)
+		d.filterEntries()
+		return d, cmd
+
 	case tea.KeyPressMsg:
 		if cmd := HandleQuit(msg); cmd != nil {
 			return d, cmd

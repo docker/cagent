@@ -6,8 +6,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/docker/cagent/pkg/tui/components/editor"
 	"github.com/docker/cagent/pkg/tui/components/sidebar"
+	"github.com/docker/cagent/pkg/tui/messages"
 	"github.com/docker/cagent/pkg/tui/service"
 )
 
@@ -32,7 +32,7 @@ func TestQueueFlow_BusyAgent_QueuesMessage(t *testing.T) {
 	// newTestChatPage already sets working=true
 
 	// Send first message while busy
-	msg1 := editor.SendMsg{Content: "first message"}
+	msg1 := messages.SendMsg{Content: "first message"}
 	_, cmd := p.handleSendMsg(msg1)
 
 	// Should be queued
@@ -42,7 +42,7 @@ func TestQueueFlow_BusyAgent_QueuesMessage(t *testing.T) {
 	assert.NotNil(t, cmd)
 
 	// Send second message while still busy
-	msg2 := editor.SendMsg{Content: "second message"}
+	msg2 := messages.SendMsg{Content: "second message"}
 	_, _ = p.handleSendMsg(msg2)
 
 	require.Len(t, p.messageQueue, 2)
@@ -50,7 +50,7 @@ func TestQueueFlow_BusyAgent_QueuesMessage(t *testing.T) {
 	assert.Equal(t, "second message", p.messageQueue[1].content)
 
 	// Send third message
-	msg3 := editor.SendMsg{Content: "third message"}
+	msg3 := messages.SendMsg{Content: "third message"}
 	_, _ = p.handleSendMsg(msg3)
 
 	require.Len(t, p.messageQueue, 3)
@@ -64,7 +64,7 @@ func TestQueueFlow_QueueFull_RejectsMessage(t *testing.T) {
 
 	// Fill the queue to max
 	for i := range maxQueuedMessages {
-		msg := editor.SendMsg{Content: "message"}
+		msg := messages.SendMsg{Content: "message"}
 		_, _ = p.handleSendMsg(msg)
 		assert.Len(t, p.messageQueue, i+1)
 	}
@@ -72,7 +72,7 @@ func TestQueueFlow_QueueFull_RejectsMessage(t *testing.T) {
 	require.Len(t, p.messageQueue, maxQueuedMessages)
 
 	// Try to add one more - should be rejected
-	msg := editor.SendMsg{Content: "overflow message"}
+	msg := messages.SendMsg{Content: "overflow message"}
 	_, cmd := p.handleSendMsg(msg)
 
 	// Queue size should not change
@@ -87,9 +87,9 @@ func TestQueueFlow_PopFromQueue(t *testing.T) {
 	p := newTestChatPage(t)
 
 	// Queue some messages
-	p.handleSendMsg(editor.SendMsg{Content: "first"})
-	p.handleSendMsg(editor.SendMsg{Content: "second"})
-	p.handleSendMsg(editor.SendMsg{Content: "third"})
+	p.handleSendMsg(messages.SendMsg{Content: "first"})
+	p.handleSendMsg(messages.SendMsg{Content: "second"})
+	p.handleSendMsg(messages.SendMsg{Content: "third"})
 
 	require.Len(t, p.messageQueue, 3)
 
@@ -127,9 +127,9 @@ func TestQueueFlow_ClearQueue(t *testing.T) {
 	// newTestChatPage sets working=true
 
 	// Queue some messages
-	p.handleSendMsg(editor.SendMsg{Content: "first"})
-	p.handleSendMsg(editor.SendMsg{Content: "second"})
-	p.handleSendMsg(editor.SendMsg{Content: "third"})
+	p.handleSendMsg(messages.SendMsg{Content: "first"})
+	p.handleSendMsg(messages.SendMsg{Content: "second"})
+	p.handleSendMsg(messages.SendMsg{Content: "third"})
 
 	require.Len(t, p.messageQueue, 3)
 

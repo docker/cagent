@@ -311,13 +311,13 @@ func TestApplyModelDefaults_Google(t *testing.T) {
 			expectThinkingBudget: &latest.ThinkingBudget{Effort: "low"},
 		},
 		{
-			name: "explicit thinking_budget 0 (disabled) is preserved",
+			name: "thinking_budget 0 disables thinking completely (nil)",
 			config: &latest.ModelConfig{
 				Provider:       "google",
 				Model:          "gemini-2.5-flash",
 				ThinkingBudget: &latest.ThinkingBudget{Tokens: 0},
 			},
-			expectThinkingBudget: &latest.ThinkingBudget{Tokens: 0},
+			expectNoDefault: true, // thinking_budget: 0 means disable thinking entirely
 		},
 	}
 
@@ -675,4 +675,137 @@ func TestApplyProviderDefaults_IncludesModelDefaults(t *testing.T) {
 // boolPtr is a helper to create a pointer to a bool value.
 func boolPtr(b bool) *bool {
 	return &b
+}
+
+// TestApplyProviderDefaults_ThinkingDefaultsApplied tests that thinking defaults
+// are always applied when the config doesn't have an explicit thinking budget.
+func TestApplyProviderDefaults_ThinkingDefaultsApplied(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                      string
+		config                    *latest.ModelConfig
+		expectThinkingBudget      *latest.ThinkingBudget
+		expectInterleavedThinking bool
+	}{
+		{
+			name: "OpenAI gets default thinking_budget",
+			config: &latest.ModelConfig{
+				Provider: "openai",
+				Model:    "gpt-4o",
+			},
+			expectThinkingBudget: &latest.ThinkingBudget{Effort: "medium"},
+		},
+		{
+			name: "Anthropic gets default thinking_budget and interleaved_thinking",
+			config: &latest.ModelConfig{
+				Provider: "anthropic",
+				Model:    "claude-sonnet-4-0",
+			},
+			expectThinkingBudget:      &latest.ThinkingBudget{Tokens: 8192},
+			expectInterleavedThinking: true,
+		},
+		{
+			name: "Google Gemini 2.5 gets default thinking_budget",
+			config: &latest.ModelConfig{
+				Provider: "google",
+				Model:    "gemini-2.5-pro",
+			},
+			expectThinkingBudget: &latest.ThinkingBudget{Tokens: -1},
+		},
+		{
+			name: "Google Gemini 3 Pro gets default thinking_budget",
+			config: &latest.ModelConfig{
+				Provider: "google",
+				Model:    "gemini-3-pro",
+			},
+			expectThinkingBudget: &latest.ThinkingBudget{Effort: "high"},
+		},
+		{
+			name: "Bedrock Claude gets default thinking_budget and interleaved_thinking",
+			config: &latest.ModelConfig{
+				Provider: "amazon-bedrock",
+				Model:    "anthropic.claude-3-sonnet",
+			},
+			expectThinkingBudget:      &latest.ThinkingBudget{Tokens: 8192},
+			expectInterleavedThinking: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Apply provider defaults
+			result := applyProviderDefaults(tt.config, nil)
+
+			// Verify default thinking budget was applied
+			require.NotNil(t, result.ThinkingBudget, "ThinkingBudget should be set")
+			assert.Equal(t, tt.expectThinkingBudget.Effort, result.ThinkingBudget.Effort, "Effort should match")
+			assert.Equal(t, tt.expectThinkingBudget.Tokens, result.ThinkingBudget.Tokens, "Tokens should match")
+
+			// Verify interleaved_thinking for Anthropic/Bedrock
+			if tt.expectInterleavedThinking {
+				require.NotNil(t, result.ProviderOpts, "ProviderOpts should be set")
+				val, exists := result.ProviderOpts["interleaved_thinking"]
+				require.True(t, exists, "interleaved_thinking should be set")
+				assert.Equal(t, true, val, "interleaved_thinking should be true")
+			}
+		})
+	}
+}
+
+// TestApplyProviderDefaults_ExplicitThinkingPreserved tests that explicitly set
+// thinking options are preserved and not overwritten by defaults.
+func TestApplyProviderDefaults_ExplicitThinkingPreserved(t *testing.T) {
+	t.Parallel()
+
+	config := &latest.ModelConfig{
+		Provider:       "openai",
+		Model:          "gpt-4o",
+		ThinkingBudget: &latest.ThinkingBudget{Effort: "high"},
+	}
+
+	result := applyProviderDefaults(config, nil)
+
+	require.NotNil(t, result.ThinkingBudget, "ThinkingBudget should be preserved")
+	assert.Equal(t, "high", result.ThinkingBudget.Effort, "Effort should be preserved")
+}
+
+// TestApplyProviderDefaults_DisabledThinkingBecomesNil tests that explicitly disabled
+// thinking (thinking_budget: 0 or thinking_budget: none) results in nil ThinkingBudget.
+func TestApplyProviderDefaults_DisabledThinkingBecomesNil(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		config *latest.ModelConfig
+	}{
+		{
+			name: "thinking_budget 0 becomes nil",
+			config: &latest.ModelConfig{
+				Provider:       "anthropic",
+				Model:          "claude-sonnet-4-0",
+				ThinkingBudget: &latest.ThinkingBudget{Tokens: 0},
+			},
+		},
+		{
+			name: "thinking_budget none becomes nil",
+			config: &latest.ModelConfig{
+				Provider:       "openai",
+				Model:          "gpt-4o",
+				ThinkingBudget: &latest.ThinkingBudget{Effort: "none"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := applyProviderDefaults(tt.config, nil)
+
+			assert.Nil(t, result.ThinkingBudget, "ThinkingBudget should be nil when explicitly disabled")
+		})
+	}
 }

@@ -2,10 +2,13 @@ package messages
 
 import (
 	"os"
+	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -15,21 +18,19 @@ import (
 	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/tools"
 	"github.com/docker/cagent/pkg/tools/builtin"
+	"github.com/docker/cagent/pkg/tui/animation"
 	"github.com/docker/cagent/pkg/tui/components/message"
+	"github.com/docker/cagent/pkg/tui/components/reasoningblock"
 	"github.com/docker/cagent/pkg/tui/components/scrollbar"
 	"github.com/docker/cagent/pkg/tui/components/tool"
 	"github.com/docker/cagent/pkg/tui/components/tool/editfile"
 	"github.com/docker/cagent/pkg/tui/core"
 	"github.com/docker/cagent/pkg/tui/core/layout"
+	"github.com/docker/cagent/pkg/tui/messages"
 	"github.com/docker/cagent/pkg/tui/service"
 	"github.com/docker/cagent/pkg/tui/styles"
 	"github.com/docker/cagent/pkg/tui/types"
 )
-
-// StreamCancelledMsg notifies components that the stream has been cancelled
-type StreamCancelledMsg struct {
-	ShowMessage bool // Whether to show a cancellation message after cleanup
-}
 
 // ToggleHideToolResultsMsg triggers hiding/showing tool results
 type ToggleHideToolResultsMsg struct{}
@@ -44,24 +45,40 @@ type Model interface {
 
 	AddUserMessage(content string) tea.Cmd
 	AddLoadingMessage(description string) tea.Cmd
-	ReplaceLoadingWithUser(content string) tea.Cmd
+	ReplaceLoadingWithUser(content string, sessionPos int) tea.Cmd
 	AddErrorMessage(content string) tea.Cmd
 	AddAssistantMessage() tea.Cmd
 	AddCancelledMessage() tea.Cmd
 	AddWelcomeMessage(content string) tea.Cmd
 	AddOrUpdateToolCall(agentName string, toolCall tools.ToolCall, toolDef tools.Tool, status types.ToolStatus) tea.Cmd
 	AddToolResult(msg *runtime.ToolCallResponseEvent, status types.ToolStatus) tea.Cmd
-	AppendToLastMessage(agentName string, messageType types.MessageType, content string) tea.Cmd
+	AppendToLastMessage(agentName, content string) tea.Cmd
+	AppendReasoning(agentName, content string) tea.Cmd
 	AddShellOutputMessage(content string) tea.Cmd
 	LoadFromSession(sess *session.Session) tea.Cmd
 
 	ScrollToBottom() tea.Cmd
+	AdjustBottomSlack(delta int)
+	ScrollByWheel(delta int)
+
+	// Inline editing methods
+	StartInlineEdit(msgIndex, sessionPosition int, content string) tea.Cmd
+	CancelInlineEdit() tea.Cmd
+	IsInlineEditing() bool
 }
 
 // renderedItem represents a cached rendered message with position information
 type renderedItem struct {
 	view   string // Cached rendered content
 	height int    // Height in lines
+}
+
+// blockIDCounter generates unique IDs for reasoning blocks.
+var blockIDCounter atomic.Uint64
+
+func nextBlockID() string {
+	id := blockIDCounter.Add(1)
+	return "block-" + strconv.FormatUint(id, 10)
 }
 
 // model implements Model
@@ -73,9 +90,11 @@ type model struct {
 
 	// Height tracking system fields
 	scrollOffset  int                  // Current scroll position in lines
-	rendered      string               // Complete rendered content string
+	bottomSlack   int                  // Extra blank lines added after content shrinks
+	renderedLines []string             // Cached rendered content as lines (avoids split/join per frame)
 	renderedItems map[int]renderedItem // Cache of rendered items with positions
 	totalHeight   int                  // Total height of all content in lines
+	renderDirty   bool                 // True when rendered content needs rebuild
 
 	selection selectionState
 
@@ -93,6 +112,13 @@ type model struct {
 
 	// Debug layout mode - highlights truncated lines with red background
 	debugLayout bool
+
+	// Inline editing state
+	inlineEditMsgIndex      int            // Index of message being edited (-1 = not editing)
+	inlineEditSessionPos    int            // Session position for branching
+	inlineEditTextarea      textarea.Model // Textarea for inline editing
+	inlineEditOriginal      string         // Original content (for cancel)
+	inlineEditPrevSelection int            // Previous selection index before entering inline edit (-1 = was not in selection mode)
 }
 
 // New creates a new message list component
@@ -114,7 +140,9 @@ func newModel(width, height int, sessionState *service.SessionState) *model {
 		sessionState:         sessionState,
 		scrollbar:            scrollbar.New(),
 		selectedMessageIndex: -1,
+		inlineEditMsgIndex:   -1,
 		debugLayout:          os.Getenv("CAGENT_EXPERIMENTAL_DEBUG_LAYOUT") == "1",
+		renderDirty:          true,
 	}
 }
 
@@ -134,7 +162,7 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
-	case StreamCancelledMsg:
+	case messages.StreamCancelledMsg:
 		m.removeSpinner()
 		m.removePendingToolCallMessages()
 		return m, nil
@@ -175,6 +203,30 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		m.invalidateAllItems()
 		return m, nil
 
+	case messages.ThemeChangedMsg:
+		// Theme changed - invalidate all render caches
+		m.invalidateAllItems()
+		editfile.InvalidateCaches()
+		for i, view := range m.views {
+			updatedView, cmd := view.Update(msg)
+			m.views[i] = updatedView
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		return m, tea.Batch(cmds...)
+
+	case reasoningblock.BlockMsg:
+		return m.forwardToReasoningBlock(msg.GetBlockID(), msg)
+
+	case animation.TickMsg:
+		// Invalidate render cache if there's animated content that needs redrawing.
+		// This ensures fades, spinners, etc. actually update visually on each tick.
+		if m.hasAnimatedContent() {
+			m.renderDirty = true
+		}
+		// Fall through to forward tick to all views
+
 	case tea.KeyPressMsg:
 		return m.handleKeyPress(msg)
 	}
@@ -183,7 +235,11 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	for i, view := range m.views {
 		updatedView, cmd := view.Update(msg)
 		m.views[i] = updatedView
-		cmds = append(cmds, cmd)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+			// Child state changed (e.g., spinner tick), invalidate render cache
+			m.renderDirty = true
+		}
 	}
 
 	return m, tea.Batch(cmds...)
@@ -199,6 +255,30 @@ func (m *model) handleMouseClick(msg tea.MouseClickMsg) (layout.Model, tea.Cmd) 
 	}
 
 	line, col := m.mouseToLineCol(msg.X, msg.Y)
+
+	// Check for reasoning block header toggle
+	if msgIdx, localLine := m.globalLineToMessageLine(line); msgIdx >= 0 {
+		if block, ok := m.views[msgIdx].(*reasoningblock.Model); ok {
+			if block.IsToggleLine(localLine) {
+				block.Toggle()
+				m.userHasScrolled = true // Prevent auto-scroll jump
+				m.bottomSlack = 0
+				m.invalidateItem(msgIdx)
+				return m, nil
+			}
+		}
+
+		if clicked, msg := m.isEditLabelClick(msgIdx, localLine, col); clicked {
+			// Prevent auto-scroll jump when entering edit mode
+			m.userHasScrolled = true
+			return m, core.CmdHandler(messages.EditUserMessageMsg{
+				MsgIndex:        msgIdx,
+				SessionPosition: *msg.SessionPosition,
+				OriginalContent: msg.Content,
+			})
+		}
+	}
+
 	clickCount := m.selection.detectClickType(line, col)
 
 	switch clickCount {
@@ -216,6 +296,32 @@ func (m *model) handleMouseClick(msg tea.MouseClickMsg) (layout.Model, tea.Cmd) 
 		m.selection.mouseY = msg.Y
 		return m, nil
 	}
+}
+
+// globalLineToMessageLine maps a global line index to (message index, local line within message).
+// Returns (-1, -1) if the line doesn't correspond to any message.
+func (m *model) globalLineToMessageLine(globalLine int) (msgIdx, localLine int) {
+	m.ensureAllItemsRendered()
+
+	currentLine := 0
+	for i, view := range m.views {
+		item := m.renderItem(i, view)
+		if item.height == 0 {
+			continue
+		}
+
+		endLine := currentLine + item.height
+		if globalLine >= currentLine && globalLine < endLine {
+			return i, globalLine - currentLine
+		}
+
+		currentLine = endLine
+		if m.needsSeparator(i) {
+			currentLine++ // Account for separator line
+		}
+	}
+
+	return -1, -1
 }
 
 func (m *model) handleMouseMotion(msg tea.MouseMotionMsg) (layout.Model, tea.Cmd) {
@@ -252,29 +358,50 @@ func (m *model) handleMouseRelease(msg tea.MouseReleaseMsg) (layout.Model, tea.C
 }
 
 func (m *model) handleMouseWheel(msg tea.MouseWheelMsg) (layout.Model, tea.Cmd) {
-	const mouseScrollAmount = 2
 	switch msg.Button.String() {
 	case "wheelup":
-		if m.scrollOffset > 0 {
-			m.userHasScrolled = true
-			for range mouseScrollAmount {
-				m.setScrollOffset(m.scrollOffset - defaultScrollAmount)
-			}
-		}
+		m.scrollByWheel(-1)
 	case "wheeldown":
-		m.userHasScrolled = true
-		for range mouseScrollAmount {
-			m.setScrollOffset(m.scrollOffset + defaultScrollAmount)
-		}
-		if m.isAtBottom() {
-			m.userHasScrolled = false
-		}
+		m.scrollByWheel(1)
 	}
-	m.scrollbar.SetScrollOffset(m.scrollOffset)
 	return m, nil
 }
 
 func (m *model) handleKeyPress(msg tea.KeyPressMsg) (layout.Model, tea.Cmd) {
+	// Handle inline editing keys first
+	if m.inlineEditMsgIndex >= 0 {
+		// Check for newline insertion using key.Matches against the textarea's InsertNewline binding
+		// This properly handles shift+enter and ctrl+j based on the configured keymap
+		if key.Matches(msg, m.inlineEditTextarea.KeyMap.InsertNewline) {
+			// Forward to textarea for newline insertion
+			var cmd tea.Cmd
+			m.inlineEditTextarea, cmd = m.inlineEditTextarea.Update(msg)
+			m.updateInlineEditTextareaHeight()
+			m.invalidateItem(m.inlineEditMsgIndex)
+			m.renderDirty = true
+			return m, cmd
+		}
+
+		switch msg.Key().Code {
+		case tea.KeyEnter:
+			// Plain Enter commits the edit
+			cmd := m.commitInlineEdit()
+			return m, cmd
+		case tea.KeyEscape:
+			// Esc cancels the edit
+			cmd := m.CancelInlineEdit()
+			return m, cmd
+		default:
+			// Forward all other keys to the textarea
+			var cmd tea.Cmd
+			m.inlineEditTextarea, cmd = m.inlineEditTextarea.Update(msg)
+			m.updateInlineEditTextareaHeight()
+			m.invalidateItem(m.inlineEditMsgIndex)
+			m.renderDirty = true
+			return m, cmd
+		}
+	}
+
 	switch msg.String() {
 	case "esc":
 		m.clearSelection()
@@ -299,6 +426,20 @@ func (m *model) handleKeyPress(msg tea.KeyPressMsg) (layout.Model, tea.Cmd) {
 			return m, cmd
 		}
 		return m, nil
+	case "e":
+		if m.focused && m.selectedMessageIndex >= 0 {
+			msg := m.messages[m.selectedMessageIndex]
+			if msg.Type == types.MessageTypeUser && msg.SessionPosition != nil {
+				return m, func() tea.Msg {
+					return messages.EditUserMessageMsg{
+						MsgIndex:        m.selectedMessageIndex,
+						SessionPosition: *msg.SessionPosition,
+						OriginalContent: msg.Content,
+					}
+				}
+			}
+		}
+		return m, nil
 	case "pgup":
 		m.scrollPageUp()
 		return m, nil
@@ -321,35 +462,57 @@ func (m *model) View() string {
 	}
 
 	prevTotalHeight := m.totalHeight
+	prevScrollableHeight := m.totalHeight + m.bottomSlack
 	m.ensureAllItemsRendered()
 
 	if m.totalHeight == 0 {
 		return ""
 	}
 
-	// Calculate viewport bounds
-	maxScrollOffset := max(0, m.totalHeight-m.height)
+	if m.userHasScrolled {
+		m.bottomSlack = 0
+	} else {
+		delta := m.totalHeight - prevTotalHeight
+		if delta < 0 {
+			m.bottomSlack += -delta
+		} else if delta > 0 && m.bottomSlack > 0 {
+			consume := min(delta, m.bottomSlack)
+			m.bottomSlack -= consume
+		}
+	}
 
-	// Auto-scroll if content grew and user hasn't manually scrolled
-	if !m.userHasScrolled && m.totalHeight > prevTotalHeight {
+	scrollableHeight := m.totalHeight + m.bottomSlack
+	maxScrollOffset := max(0, scrollableHeight-m.height)
+
+	// Auto-scroll when content grows beyond any slack.
+	if !m.userHasScrolled && scrollableHeight > prevScrollableHeight {
 		m.scrollOffset = maxScrollOffset
 	} else {
 		m.scrollOffset = max(0, min(m.scrollOffset, maxScrollOffset))
 	}
 
-	lines := strings.Split(m.rendered, "\n")
-	if len(lines) == 0 {
+	// Use cached lines directly - O(1) instead of O(totalHeight) split
+	totalLines := len(m.renderedLines) + m.bottomSlack
+	if totalLines == 0 {
 		return ""
 	}
 
 	startLine := m.scrollOffset
-	endLine := min(startLine+m.height, len(lines))
+	endLine := min(startLine+m.height, totalLines)
 
 	if startLine >= endLine {
 		return ""
 	}
 
-	visibleLines := lines[startLine:endLine]
+	// Copy only the visible window to avoid mutating cached lines
+	// This is O(viewportHeight) instead of O(totalHeight)
+	visibleLines := make([]string, endLine-startLine)
+	for i := startLine; i < endLine; i++ {
+		if i < len(m.renderedLines) {
+			visibleLines[i-startLine] = m.renderedLines[i]
+		}
+		// Lines beyond renderedLines are bottom slack (empty strings), already zero-valued
+	}
 
 	if m.selection.active {
 		visibleLines = m.applySelectionHighlight(visibleLines, startLine)
@@ -372,22 +535,18 @@ func (m *model) View() string {
 		}
 	}
 
-	contentView := strings.Join(visibleLines, "\n")
 	scrollbarView := m.scrollbar.View()
 
 	if scrollbarView != "" {
-		// For proper horizontal layout, all components must have the same height
-		contentLines := strings.Split(contentView, "\n")
-
 		// Ensure content is exactly m.height lines by padding with empty lines if needed
-		for len(contentLines) < m.height {
-			contentLines = append(contentLines, "")
+		for len(visibleLines) < m.height {
+			visibleLines = append(visibleLines, "")
 		}
 		// Truncate if somehow longer (shouldn't happen but safety check)
-		if len(contentLines) > m.height {
-			contentLines = contentLines[:m.height]
+		if len(visibleLines) > m.height {
+			visibleLines = visibleLines[:m.height]
 		}
-		paddedContentView := strings.Join(contentLines, "\n")
+		contentView := strings.Join(visibleLines, "\n")
 
 		// Create spacer with exactly m.height lines
 		spacerLines := make([]string, m.height)
@@ -396,10 +555,10 @@ func (m *model) View() string {
 		}
 		spacer := strings.Join(spacerLines, "\n")
 
-		return lipgloss.JoinHorizontal(lipgloss.Top, paddedContentView, spacer, scrollbarView)
+		return lipgloss.JoinHorizontal(lipgloss.Top, contentView, spacer, scrollbarView)
 	}
 
-	return contentView
+	return strings.Join(visibleLines, "\n")
 }
 
 // SetSize sets the dimensions of the component
@@ -432,7 +591,15 @@ func (m *model) GetSize() (width, height int) {
 // Focus gives focus to the component
 func (m *model) Focus() tea.Cmd {
 	m.focused = true
-	m.selectedMessageIndex = m.findLastSelectableMessage()
+	// Start selection on the last assistant message for better UX
+	m.selectedMessageIndex = m.findLastAssistantMessage()
+	if m.selectedMessageIndex < 0 {
+		// Fall back to last selectable if no assistant messages
+		m.selectedMessageIndex = m.findLastSelectableMessage()
+	}
+	// Invalidate render cache so selection highlight is shown
+	m.invalidateAllItems()
+	m.renderDirty = true
 	if m.selectedMessageIndex >= 0 {
 		m.scrollToSelectedMessage()
 	}
@@ -443,15 +610,51 @@ func (m *model) Focus() tea.Cmd {
 func (m *model) Blur() tea.Cmd {
 	m.focused = false
 	m.selectedMessageIndex = -1
+	// Invalidate render cache so selection highlight is cleared
+	m.invalidateAllItems()
+	m.renderDirty = true
 	return nil
 }
 
 // Bindings returns key bindings for the component
 func (m *model) Bindings() []key.Binding {
-	return []key.Binding{
+	// Return editing bindings when inline editing is active
+	if m.inlineEditMsgIndex >= 0 {
+		return m.InlineEditBindings()
+	}
+
+	bindings := []key.Binding{
 		key.NewBinding(key.WithKeys("up"), key.WithHelp("↑", "select prev")),
 		key.NewBinding(key.WithKeys("down"), key.WithHelp("↓", "select next")),
 		key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "copy message")),
+	}
+
+	// Only show edit binding when a user message with session position is selected
+	if m.selectedMessageIndex >= 0 && m.selectedMessageIndex < len(m.messages) {
+		msg := m.messages[m.selectedMessageIndex]
+		if msg.Type == types.MessageTypeUser && msg.SessionPosition != nil {
+			bindings = append(bindings, key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit message")))
+		}
+	}
+
+	return bindings
+}
+
+// InlineEditBindings returns key bindings for inline edit mode
+func (m *model) InlineEditBindings() []key.Binding {
+	// Get the newline key help based on the configured keymap
+	newlineKeys := m.inlineEditTextarea.KeyMap.InsertNewline.Keys()
+	newlineHelp := "Ctrl+j"
+	for _, k := range newlineKeys {
+		if k == "shift+enter" {
+			newlineHelp = "Shift+Enter"
+			break
+		}
+	}
+	return []key.Binding{
+		key.NewBinding(key.WithKeys("enter"), key.WithHelp("Enter", "save")),
+		key.NewBinding(key.WithKeys("esc"), key.WithHelp("Esc", "cancel")),
+		key.NewBinding(key.WithKeys(newlineKeys...), key.WithHelp(newlineHelp, "newline")),
 	}
 }
 
@@ -461,17 +664,22 @@ func (m *model) Help() help.KeyMap {
 }
 
 // Scrolling methods
-const defaultScrollAmount = 1
+const (
+	defaultScrollAmount = 1
+	wheelScrollAmount   = 2
+)
 
 func (m *model) scrollUp() {
 	if m.scrollOffset > 0 {
 		m.userHasScrolled = true
+		m.bottomSlack = 0
 		m.setScrollOffset(max(0, m.scrollOffset-defaultScrollAmount))
 	}
 }
 
 func (m *model) scrollDown() {
 	m.userHasScrolled = true
+	m.bottomSlack = 0
 	m.setScrollOffset(m.scrollOffset + defaultScrollAmount)
 	if m.isAtBottom() {
 		m.userHasScrolled = false
@@ -480,11 +688,13 @@ func (m *model) scrollDown() {
 
 func (m *model) scrollPageUp() {
 	m.userHasScrolled = true
+	m.bottomSlack = 0
 	m.setScrollOffset(max(0, m.scrollOffset-m.height))
 }
 
 func (m *model) scrollPageDown() {
 	m.userHasScrolled = true
+	m.bottomSlack = 0
 	m.setScrollOffset(m.scrollOffset + m.height)
 	if m.isAtBottom() {
 		m.userHasScrolled = false
@@ -493,6 +703,7 @@ func (m *model) scrollPageDown() {
 
 func (m *model) scrollToTop() {
 	m.userHasScrolled = true
+	m.bottomSlack = 0
 	m.setScrollOffset(0)
 }
 
@@ -501,8 +712,30 @@ func (m *model) scrollToBottom() {
 	m.setScrollOffset(9_999_999) // Will be clamped in View()
 }
 
+func (m *model) ScrollByWheel(delta int) {
+	m.scrollByWheel(delta)
+}
+
+func (m *model) scrollByWheel(delta int) {
+	if delta == 0 {
+		return
+	}
+
+	prevOffset := m.scrollOffset
+	m.setScrollOffset(m.scrollOffset + (delta * wheelScrollAmount * defaultScrollAmount))
+	if m.scrollOffset == prevOffset {
+		return
+	}
+
+	m.userHasScrolled = true
+	m.bottomSlack = 0
+	if m.isAtBottom() {
+		m.userHasScrolled = false
+	}
+}
+
 func (m *model) setScrollOffset(offset int) {
-	maxOffset := max(0, m.totalHeight-m.height)
+	maxOffset := max(0, m.totalScrollableHeight()-m.height)
 	m.scrollOffset = max(0, min(offset, maxOffset))
 	m.scrollbar.SetScrollOffset(m.scrollOffset)
 }
@@ -511,7 +744,7 @@ func (m *model) isAtBottom() bool {
 	if len(m.messages) == 0 {
 		return true
 	}
-	maxScrollOffset := max(0, m.totalHeight-m.height)
+	maxScrollOffset := max(0, m.totalScrollableHeight()-m.height)
 	return m.scrollOffset >= maxScrollOffset
 }
 
@@ -520,13 +753,36 @@ func (m *model) isSelectableMessage(index int) bool {
 	if index < 0 || index >= len(m.messages) {
 		return false
 	}
-	msgType := m.messages[index].Type
-	return msgType == types.MessageTypeAssistant || msgType == types.MessageTypeAssistantReasoning
+	msg := m.messages[index]
+	switch msg.Type {
+	case types.MessageTypeAssistant, types.MessageTypeAssistantReasoningBlock:
+		return true
+	case types.MessageTypeUser:
+		// User messages are selectable only if they have a session position (editable)
+		return msg.SessionPosition != nil
+	default:
+		return false
+	}
 }
 
 func (m *model) findLastSelectableMessage() int {
 	for i := len(m.messages) - 1; i >= 0; i-- {
 		if m.isSelectableMessage(i) {
+			return i
+		}
+	}
+	return -1
+}
+
+// findLastAssistantMessage finds the last assistant or reasoning block message.
+// Used for initial focus selection to start on assistant content.
+func (m *model) findLastAssistantMessage() int {
+	for i := len(m.messages) - 1; i >= 0; i-- {
+		if i >= len(m.messages) {
+			continue
+		}
+		msg := m.messages[i]
+		if msg.Type == types.MessageTypeAssistant || msg.Type == types.MessageTypeAssistantReasoningBlock {
 			return i
 		}
 	}
@@ -603,9 +859,11 @@ func (m *model) scrollToSelectedMessage() {
 	// Scroll to make the selected message visible
 	if startLine < m.scrollOffset {
 		m.userHasScrolled = true
+		m.bottomSlack = 0
 		m.setScrollOffset(startLine)
 	} else if endLine > m.scrollOffset+m.height {
 		m.userHasScrolled = true
+		m.bottomSlack = 0
 		m.setScrollOffset(endLine - m.height)
 	}
 }
@@ -624,8 +882,11 @@ func (m *model) shouldCacheMessage(index int) bool {
 			msg.ToolStatus == types.ToolStatusConfirmation
 	case types.MessageTypeToolResult:
 		return true
-	case types.MessageTypeAssistant, types.MessageTypeAssistantReasoning:
+	case types.MessageTypeAssistant:
 		return strings.Trim(msg.Content, "\r\n\t ") != ""
+	case types.MessageTypeAssistantReasoningBlock:
+		// Don't cache reasoning blocks - they can have spinners for in-progress tools
+		return false
 	case types.MessageTypeUser:
 		return true
 	default:
@@ -634,6 +895,13 @@ func (m *model) shouldCacheMessage(index int) bool {
 }
 
 func (m *model) renderItem(index int, view layout.Model) renderedItem {
+	// If this message is being inline edited, render the textarea instead
+	if index == m.inlineEditMsgIndex {
+		rendered := m.renderInlineEditTextarea()
+		height := lipgloss.Height(rendered)
+		return renderedItem{view: rendered, height: height}
+	}
+
 	isSelected := m.focused && index == m.selectedMessageIndex
 
 	if msgView, ok := view.(message.Model); ok {
@@ -662,6 +930,68 @@ func (m *model) renderItem(index int, view layout.Model) renderedItem {
 	return item
 }
 
+// renderInlineEditTextarea renders the inline editing textarea with user message styling.
+func (m *model) renderInlineEditTextarea() string {
+	// Use the same style as user messages but with a highlight to indicate editing
+	editStyle := styles.UserMessageStyle.
+		BorderForeground(styles.Accent)
+
+	innerWidth := m.contentWidth() - editStyle.GetHorizontalFrameSize()
+	if innerWidth > 0 {
+		m.inlineEditTextarea.SetWidth(innerWidth)
+	}
+
+	// Add a minimal edit indicator at the bottom left with extra padding
+	editHint := styles.MutedStyle.Render("[editing]")
+
+	content := m.inlineEditTextarea.View() + "\n\n" + editHint
+	return editStyle.Width(m.contentWidth()).Render(content)
+}
+
+// updateInlineEditTextareaHeight recalculates and sets the textarea height based on current content.
+func (m *model) updateInlineEditTextareaHeight() {
+	if m.inlineEditMsgIndex < 0 {
+		return
+	}
+
+	editStyle := styles.UserMessageStyle
+	innerWidth := m.contentWidth() - editStyle.GetHorizontalFrameSize()
+	if innerWidth <= 0 {
+		return
+	}
+
+	content := m.inlineEditTextarea.Value()
+	lineCount := 0
+	for _, line := range strings.Split(content, "\n") {
+		lineWidth := ansi.StringWidth(line)
+		if lineWidth == 0 {
+			lineCount++
+		} else {
+			lineCount += (lineWidth + innerWidth - 1) / innerWidth
+		}
+	}
+
+	newHeight := max(1, lineCount)
+	if m.inlineEditTextarea.Height() == newHeight {
+		return
+	}
+
+	// Save cursor position
+	cursorRow := m.inlineEditTextarea.Line()
+	cursorCol := m.inlineEditTextarea.LineInfo().ColumnOffset
+
+	m.inlineEditTextarea.SetHeight(newHeight)
+
+	// Reset viewport scroll state by moving to start then restoring position
+	// NOTE(krissetto): This is a workaround because the textarea's internal viewport
+	// scrolling is not updated when the height is changed.
+	m.inlineEditTextarea.MoveToBegin()
+	for range cursorRow {
+		m.inlineEditTextarea.CursorDown()
+	}
+	m.inlineEditTextarea.SetCursorColumn(cursorCol)
+}
+
 func (m *model) needsSeparator(index int) bool {
 	if index >= len(m.messages)-1 {
 		return false
@@ -678,9 +1008,14 @@ func (m *model) needsSeparator(index int) bool {
 }
 
 func (m *model) ensureAllItemsRendered() {
+	if !m.renderDirty && len(m.renderedLines) > 0 {
+		return
+	}
+
 	if len(m.views) == 0 {
-		m.rendered = ""
+		m.renderedLines = nil
 		m.totalHeight = 0
+		m.renderDirty = false
 		return
 	}
 
@@ -701,20 +1036,39 @@ func (m *model) ensureAllItemsRendered() {
 		}
 	}
 
-	m.rendered = strings.Join(allLines, "\n")
+	// Store lines directly - avoid join/split on every View() call
+	m.renderedLines = allLines
 	m.totalHeight = len(allLines)
+	m.renderDirty = false
 }
 
 func (m *model) invalidateItem(index int) {
 	if m.shouldCacheMessage(index) {
 		delete(m.renderedItems, index)
 	}
+	m.renderDirty = true
 }
 
 func (m *model) invalidateAllItems() {
 	m.renderedItems = make(map[int]renderedItem)
-	m.rendered = ""
+	m.renderedLines = nil
 	m.totalHeight = 0
+	m.renderDirty = true
+}
+
+// forwardToReasoningBlock finds the reasoning block with the given ID and forwards the message to it.
+func (m *model) forwardToReasoningBlock(blockID string, msg tea.Msg) (layout.Model, tea.Cmd) {
+	for i, tuiMsg := range m.messages {
+		if tuiMsg.Type == types.MessageTypeAssistantReasoningBlock {
+			if block, ok := m.views[i].(*reasoningblock.Model); ok && block.ID() == blockID {
+				updatedView, cmd := m.views[i].Update(msg)
+				m.views[i] = updatedView
+				m.invalidateItem(i)
+				return m, cmd
+			}
+		}
+	}
+	return m, nil
 }
 
 // Message management methods
@@ -726,7 +1080,7 @@ func (m *model) AddLoadingMessage(description string) tea.Cmd {
 	return m.addMessage(types.Loading(description))
 }
 
-func (m *model) ReplaceLoadingWithUser(content string) tea.Cmd {
+func (m *model) ReplaceLoadingWithUser(content string, sessionPos int) tea.Cmd {
 	for i := len(m.messages) - 1; i >= 0; i-- {
 		if m.messages[i].Type == types.MessageTypeLoading {
 			m.messages = append(m.messages[:i], m.messages[i+1:]...)
@@ -737,7 +1091,12 @@ func (m *model) ReplaceLoadingWithUser(content string) tea.Cmd {
 			break
 		}
 	}
-	return m.addMessage(types.User(content))
+	msg := types.User(content)
+	if sessionPos >= 0 {
+		pos := sessionPos
+		msg.SessionPosition = &pos
+	}
+	return m.addMessage(msg)
 }
 
 func (m *model) AddErrorMessage(content string) tea.Cmd {
@@ -758,6 +1117,7 @@ func (m *model) AddCancelledMessage() tea.Cmd {
 	m.messages = append(m.messages, msg)
 	view := m.createMessageView(msg)
 	m.views = append(m.views, view)
+	m.renderDirty = true
 	return view.Init()
 }
 
@@ -769,6 +1129,7 @@ func (m *model) AddWelcomeMessage(content string) tea.Cmd {
 	m.messages = append(m.messages, msg)
 	view := m.createMessageView(msg)
 	m.views = append(m.views, view)
+	m.renderDirty = true
 	return view.Init()
 }
 
@@ -778,8 +1139,9 @@ func (m *model) addMessage(msg *types.Message) tea.Cmd {
 
 	m.messages = append(m.messages, msg)
 	view := m.createMessageView(msg)
-	m.sessionState.PreviousMessage = msg
+	m.sessionState.SetPreviousMessage(msg)
 	m.views = append(m.views, view)
+	m.renderDirty = true
 
 	var cmds []tea.Cmd
 	if initCmd := view.Init(); initCmd != nil {
@@ -799,20 +1161,70 @@ func (m *model) LoadFromSession(sess *session.Session) tea.Cmd {
 	appendSessionMessage := func(msg *types.Message, view layout.Model) {
 		m.messages = append(m.messages, msg)
 		m.views = append(m.views, view)
-		m.sessionState.PreviousMessage = msg
+		m.sessionState.SetPreviousMessage(msg)
+	}
+
+	// getOrCreateReasoningBlock returns an existing reasoning block for the agent if the
+	// last message is one, otherwise creates a new one. This combines consecutive
+	// reasoning/tool messages from the same agent into a single block.
+	getOrCreateReasoningBlock := func(agentName string) *reasoningblock.Model {
+		if len(m.messages) > 0 {
+			lastIdx := len(m.messages) - 1
+			lastMsg := m.messages[lastIdx]
+			if lastMsg.Type == types.MessageTypeAssistantReasoningBlock && lastMsg.Sender == agentName {
+				if block, ok := m.views[lastIdx].(*reasoningblock.Model); ok {
+					return block
+				}
+			}
+		}
+
+		// Create new reasoning block
+		block := reasoningblock.New(nextBlockID(), agentName, m.sessionState)
+		block.SetSize(m.contentWidth(), 0)
+
+		blockMsg := &types.Message{
+			Type:   types.MessageTypeAssistantReasoningBlock,
+			Sender: agentName,
+		}
+		appendSessionMessage(blockMsg, block)
+		return block
+	}
+
+	// addStandaloneToolCall adds a tool call as a standalone message (not in a reasoning block)
+	addStandaloneToolCall := func(agentName string, tc tools.ToolCall, toolDef tools.Tool, toolResults map[string]string) {
+		toolMsg := types.ToolCallMessage(agentName, tc, toolDef, types.ToolStatusCompleted)
+		// Apply tool result if available
+		if result, ok := toolResults[tc.ID]; ok {
+			toolMsg.Content = strings.ReplaceAll(result, "\t", "    ")
+		}
+		view := m.createToolCallView(toolMsg)
+		appendSessionMessage(toolMsg, view)
 	}
 
 	m.messages = nil
 	m.views = nil
 	m.renderedItems = make(map[int]renderedItem)
-	m.rendered = ""
+	m.renderedLines = nil
 	m.scrollOffset = 0
 	m.totalHeight = 0
+	m.bottomSlack = 0
 	m.selectedMessageIndex = -1
 
 	var cmds []tea.Cmd
 
+	// First pass: collect tool results by ToolCallID
+	toolResults := make(map[string]string)
 	for _, item := range sess.Messages {
+		if !item.IsMessage() {
+			continue
+		}
+		smsg := item.Message
+		if smsg.Message.Role == chat.MessageRoleTool && smsg.Message.ToolCallID != "" {
+			toolResults[smsg.Message.ToolCallID] = smsg.Message.Content
+		}
+	}
+
+	for pos, item := range sess.Messages {
 		if !item.IsMessage() {
 			continue
 		}
@@ -825,24 +1237,54 @@ func (m *model) LoadFromSession(sess *session.Session) tea.Cmd {
 		switch smsg.Message.Role {
 		case chat.MessageRoleUser:
 			msg := types.User(smsg.Message.Content)
+			msgPos := pos
+			msg.SessionPosition = &msgPos
 			appendSessionMessage(msg, m.createMessageView(msg))
 		case chat.MessageRoleAssistant:
-			// Reasoning content comes first (matches live stream order)
-			if smsg.Message.ReasoningContent != "" {
-				msg := types.Agent(types.MessageTypeAssistantReasoning, smsg.AgentName, smsg.Message.ReasoningContent)
-				appendSessionMessage(msg, m.createMessageView(msg))
-			}
-			for i, tc := range smsg.Message.ToolCalls {
-				var toolDef tools.Tool
-				if i < len(smsg.Message.ToolDefinitions) {
-					toolDef = smsg.Message.ToolDefinitions[i]
+			hasReasoning := smsg.Message.ReasoningContent != ""
+			hasContent := smsg.Message.Content != ""
+			hasToolCalls := len(smsg.Message.ToolCalls) > 0
+			var reasoningBlock *reasoningblock.Model
+
+			// Step 1: Handle reasoning content - only create/extend a reasoning block if there's actual reasoning
+			if hasReasoning {
+				reasoningBlock = getOrCreateReasoningBlock(smsg.AgentName)
+				reasoningBlock.AppendReasoning(smsg.Message.ReasoningContent)
+				// Update the message content for copying
+				lastIdx := len(m.messages) - 1
+				if m.messages[lastIdx].Content != "" {
+					m.messages[lastIdx].Content += "\n\n"
 				}
-				msg := types.ToolCallMessage(smsg.AgentName, tc, toolDef, types.ToolStatusCompleted)
-				appendSessionMessage(msg, m.createToolCallView(msg))
+				m.messages[lastIdx].Content += smsg.Message.ReasoningContent
 			}
-			if smsg.Message.Content != "" {
+
+			// Step 2: Handle assistant content - this breaks the reasoning block chain
+			if hasContent {
 				msg := types.Agent(types.MessageTypeAssistant, smsg.AgentName, smsg.Message.Content)
 				appendSessionMessage(msg, m.createMessageView(msg))
+			}
+
+			// Step 3: Handle tool calls
+			// Tool calls go into the reasoning block ONLY if there was reasoning content AND no regular content
+			if hasToolCalls {
+				attachToReasoning := reasoningBlock != nil && !hasContent
+				for i, tc := range smsg.Message.ToolCalls {
+					var toolDef tools.Tool
+					if i < len(smsg.Message.ToolDefinitions) {
+						toolDef = smsg.Message.ToolDefinitions[i]
+					}
+
+					if attachToReasoning {
+						toolMsg := types.ToolCallMessage(smsg.AgentName, tc, toolDef, types.ToolStatusCompleted)
+						reasoningBlock.AddToolCall(toolMsg)
+						if result, ok := toolResults[tc.ID]; ok {
+							reasoningBlock.UpdateToolResult(tc.ID, result, types.ToolStatusCompleted, nil)
+						}
+						continue
+					}
+
+					addStandaloneToolCall(smsg.AgentName, tc, toolDef, toolResults)
+				}
 			}
 		case chat.MessageRoleTool:
 			continue
@@ -858,10 +1300,19 @@ func (m *model) LoadFromSession(sess *session.Session) tea.Cmd {
 }
 
 func (m *model) AddOrUpdateToolCall(agentName string, toolCall tools.ToolCall, toolDef tools.Tool, status types.ToolStatus) tea.Cmd {
-	// First try to update existing tool by ID
+	// First check if this tool call exists in an active reasoning block
+	if block, blockIdx := m.getActiveReasoningBlock(agentName); block != nil {
+		if block.HasToolCall(toolCall.ID) {
+			block.UpdateToolCall(toolCall.ID, status, toolCall.Function.Arguments)
+			m.invalidateItem(blockIdx)
+			return nil
+		}
+	}
+
+	// Then try to update existing standalone tool by ID
 	for i := len(m.messages) - 1; i >= 0; i-- {
 		msg := m.messages[i]
-		if msg.ToolCall.ID == toolCall.ID {
+		if msg.Type == types.MessageTypeToolCall && msg.ToolCall.ID == toolCall.ID {
 			msg.ToolStatus = status
 			if toolCall.Function.Arguments != "" {
 				msg.ToolCall.Function.Arguments = toolCall.Function.Arguments
@@ -873,18 +1324,42 @@ func (m *model) AddOrUpdateToolCall(agentName string, toolCall tools.ToolCall, t
 
 	m.removeSpinner()
 
+	// If there's an active reasoning block, add the tool call to it
+	if block, blockIdx := m.getActiveReasoningBlock(agentName); block != nil {
+		msg := types.ToolCallMessage(agentName, toolCall, toolDef, status)
+		cmd := block.AddToolCall(msg)
+		m.invalidateItem(blockIdx)
+		return cmd
+	}
+
+	// Otherwise create a standalone tool call message
 	msg := types.ToolCallMessage(agentName, toolCall, toolDef, status)
 	m.messages = append(m.messages, msg)
 	view := m.createToolCallView(msg)
 	m.views = append(m.views, view)
+	m.renderDirty = true
 
 	return view.Init()
 }
 
 func (m *model) AddToolResult(msg *runtime.ToolCallResponseEvent, status types.ToolStatus) tea.Cmd {
+	// First check reasoning blocks for the tool call
+	for i := len(m.messages) - 1; i >= 0; i-- {
+		if m.messages[i].Type == types.MessageTypeAssistantReasoningBlock {
+			if block, ok := m.views[i].(*reasoningblock.Model); ok {
+				if block.HasToolCall(msg.ToolCall.ID) {
+					cmd := block.UpdateToolResult(msg.ToolCall.ID, msg.Response, status, msg.Result)
+					m.invalidateItem(i)
+					return cmd
+				}
+			}
+		}
+	}
+
+	// Then check standalone tool call messages
 	for i := len(m.messages) - 1; i >= 0; i-- {
 		toolMessage := m.messages[i]
-		if toolMessage.ToolCall.ID == msg.ToolCall.ID {
+		if toolMessage.Type == types.MessageTypeToolCall && toolMessage.ToolCall.ID == msg.ToolCall.ID {
 			toolMessage.Content = strings.ReplaceAll(msg.Response, "\t", "    ")
 			toolMessage.ToolStatus = status
 			toolMessage.ToolResult = msg.Result
@@ -898,7 +1373,7 @@ func (m *model) AddToolResult(msg *runtime.ToolCallResponseEvent, status types.T
 	return nil
 }
 
-func (m *model) AppendToLastMessage(agentName string, messageType types.MessageType, content string) tea.Cmd {
+func (m *model) AppendToLastMessage(agentName, content string) tea.Cmd {
 	m.removeSpinner()
 
 	if len(m.messages) == 0 {
@@ -908,14 +1383,92 @@ func (m *model) AppendToLastMessage(agentName string, messageType types.MessageT
 	lastIdx := len(m.messages) - 1
 	lastMsg := m.messages[lastIdx]
 
-	if lastMsg.Type == messageType && lastMsg.Sender == agentName {
+	// Append to existing assistant message from same agent
+	if lastMsg.Type == types.MessageTypeAssistant && lastMsg.Sender == agentName {
 		lastMsg.Content += content
 		m.views[lastIdx].(message.Model).SetMessage(lastMsg)
 		m.invalidateItem(lastIdx)
 		return nil
 	}
 
-	return m.addMessage(types.Agent(messageType, agentName, content))
+	return m.addMessage(types.Agent(types.MessageTypeAssistant, agentName, content))
+}
+
+func (m *model) AppendReasoning(agentName, content string) tea.Cmd {
+	m.removeSpinner()
+
+	if len(m.messages) == 0 {
+		return m.addReasoningBlock(agentName, content)
+	}
+
+	lastIdx := len(m.messages) - 1
+	lastMsg := m.messages[lastIdx]
+
+	// Append to existing reasoning block for this agent
+	if lastMsg.Type == types.MessageTypeAssistantReasoningBlock && lastMsg.Sender == agentName {
+		if block, ok := m.views[lastIdx].(*reasoningblock.Model); ok {
+			block.AppendReasoning(content)
+			lastMsg.Content += content // Keep content in sync for copying
+			m.invalidateItem(lastIdx)
+			return nil
+		}
+	}
+
+	// Create a new reasoning block
+	return m.addReasoningBlock(agentName, content)
+}
+
+// addReasoningBlock creates a new reasoning block message.
+func (m *model) addReasoningBlock(agentName, content string) tea.Cmd {
+	m.clearSelection()
+	shouldAutoScroll := !m.userHasScrolled
+
+	msg := &types.Message{
+		Type:    types.MessageTypeAssistantReasoningBlock,
+		Sender:  agentName,
+		Content: content,
+	}
+
+	block := reasoningblock.New(nextBlockID(), agentName, m.sessionState)
+	block.SetReasoning(content)
+	block.SetSize(m.contentWidth(), 0)
+
+	m.messages = append(m.messages, msg)
+	m.views = append(m.views, block)
+	m.sessionState.SetPreviousMessage(msg)
+	m.renderDirty = true
+
+	var cmds []tea.Cmd
+	if initCmd := block.Init(); initCmd != nil {
+		cmds = append(cmds, initCmd)
+	}
+	if shouldAutoScroll {
+		cmds = append(cmds, func() tea.Msg {
+			m.scrollToBottom()
+			return nil
+		})
+	}
+
+	return tea.Batch(cmds...)
+}
+
+// getActiveReasoningBlock returns the active reasoning block for the given agent,
+// or nil if the last message is not a reasoning block for that agent.
+func (m *model) getActiveReasoningBlock(agentName string) (*reasoningblock.Model, int) {
+	if len(m.messages) == 0 {
+		return nil, -1
+	}
+
+	lastIdx := len(m.messages) - 1
+	lastMsg := m.messages[lastIdx]
+
+	if lastMsg.Type == types.MessageTypeAssistantReasoningBlock && lastMsg.Sender == agentName {
+		if block, ok := m.views[lastIdx].(*reasoningblock.Model); ok {
+			return block, lastIdx
+		}
+	}
+
+	return nil, -1
 }
 
 func (m *model) ScrollToBottom() tea.Cmd {
@@ -927,10 +1480,21 @@ func (m *model) ScrollToBottom() tea.Cmd {
 	}
 }
 
+func (m *model) AdjustBottomSlack(delta int) {
+	if delta == 0 {
+		return
+	}
+	m.bottomSlack = max(0, m.bottomSlack+delta)
+}
+
 // contentWidth returns the width available for content.
 // Always reserves 2 chars for scrollbar (space + bar) to prevent layout shifts.
 func (m *model) contentWidth() int {
 	return m.width - 2
+}
+
+func (m *model) totalScrollableHeight() int {
+	return m.totalHeight + m.bottomSlack
 }
 
 // Helper methods
@@ -941,7 +1505,7 @@ func (m *model) createToolCallView(msg *types.Message) layout.Model {
 }
 
 func (m *model) createMessageView(msg *types.Message) layout.Model {
-	view := message.New(msg, m.sessionState.PreviousMessage)
+	view := message.New(msg, m.sessionState.PreviousMessage())
 	view.SetSize(m.contentWidth(), 0)
 	return view
 }
@@ -962,7 +1526,7 @@ func (m *model) removeSpinner() {
 }
 
 func (m *model) removePendingToolCallMessages() {
-	messages := make([]*types.Message, 0, len(m.messages))
+	toolCallMessages := make([]*types.Message, 0, len(m.messages))
 	views := make([]layout.Model, 0, len(m.views))
 
 	for i, msg := range m.messages {
@@ -971,17 +1535,50 @@ func (m *model) removePendingToolCallMessages() {
 			continue
 		}
 
-		messages = append(messages, msg)
+		toolCallMessages = append(toolCallMessages, msg)
 		if i < len(m.views) {
 			views = append(views, m.views[i])
 		}
 	}
 
-	if len(messages) != len(m.messages) {
-		m.messages = messages
+	if len(toolCallMessages) != len(m.messages) {
+		m.messages = toolCallMessages
 		m.views = views
 		m.invalidateAllItems()
 	}
+}
+
+func (m *model) isEditLabelClick(msgIdx, localLine, col int) (bool, *types.Message) {
+	if msgIdx < 0 || msgIdx >= len(m.messages) {
+		return false, nil
+	}
+	msg := m.messages[msgIdx]
+	if msg.Type != types.MessageTypeUser || msg.SessionPosition == nil {
+		return false, nil
+	}
+	if msgIdx >= len(m.views) {
+		return false, nil
+	}
+
+	item := m.renderItem(msgIdx, m.views[msgIdx])
+	lines := strings.Split(item.view, "\n")
+	if localLine < 0 || localLine >= len(lines) {
+		return false, nil
+	}
+
+	plainLine := ansi.Strip(lines[localLine])
+	labelIndex := strings.Index(plainLine, types.UserMessageEditLabel)
+	if labelIndex == -1 {
+		return false, nil
+	}
+
+	labelStart := ansi.StringWidth(plainLine[:labelIndex])
+	labelEnd := labelStart + ansi.StringWidth(types.UserMessageEditLabel)
+	if col >= labelStart && col < labelEnd {
+		return true, msg
+	}
+
+	return false, nil
 }
 
 func (m *model) mouseToLineCol(x, y int) (line, col int) {
@@ -1002,6 +1599,213 @@ func (m *model) isMouseOnScrollbar(x, y int) bool {
 func (m *model) handleScrollbarUpdate(msg tea.Msg) (layout.Model, tea.Cmd) {
 	sb, cmd := m.scrollbar.Update(msg)
 	m.scrollbar = sb
+	m.userHasScrolled = true
+	m.bottomSlack = 0
 	m.scrollOffset = m.scrollbar.GetScrollOffset()
 	return m, cmd
+}
+
+// hasAnimatedContent returns true if the message list contains content that
+// requires tick-driven updates (spinners, fades, etc.). Used to decide whether
+// to invalidate the render cache on animation ticks.
+func (m *model) hasAnimatedContent() bool {
+	for i, msg := range m.messages {
+		switch msg.Type {
+		case types.MessageTypeSpinner, types.MessageTypeLoading:
+			// Spinner/loading messages always need ticks
+			return true
+		case types.MessageTypeToolCall:
+			// Tool calls with pending/running status have spinners
+			if msg.ToolStatus == types.ToolStatusPending ||
+				msg.ToolStatus == types.ToolStatusRunning {
+				return true
+			}
+		case types.MessageTypeAssistantReasoningBlock:
+			// Check if reasoning block needs tick updates
+			if i < len(m.views) {
+				if block, ok := m.views[i].(*reasoningblock.Model); ok {
+					if block.NeedsTick() {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+// StartInlineEdit begins inline editing for the specified message.
+func (m *model) StartInlineEdit(msgIndex, sessionPosition int, content string) tea.Cmd {
+	if msgIndex < 0 || msgIndex >= len(m.messages) {
+		return nil
+	}
+
+	msg := m.messages[msgIndex]
+	if msg.Type != types.MessageTypeUser {
+		return nil
+	}
+
+	// Save the current selection state before entering inline edit
+	// This allows restoring when the edit is cancelled
+	m.inlineEditPrevSelection = m.selectedMessageIndex
+
+	// Set focused state but clear any message selection to prevent highlight
+	m.focused = true
+	m.selectedMessageIndex = -1
+
+	m.inlineEditMsgIndex = msgIndex
+	m.inlineEditSessionPos = sessionPosition
+	m.inlineEditOriginal = content
+
+	// Create and configure the textarea
+	ta := textarea.New()
+	ta.SetValue(content)
+	ta.Focus()
+
+	// Configure appearance - use a style similar to user message
+	innerWidth := m.contentWidth() - styles.UserMessageStyle.GetHorizontalFrameSize()
+	if innerWidth > 0 {
+		ta.SetWidth(innerWidth)
+	}
+
+	// Calculate appropriate height based on content
+	// Count lines and account for word wrapping
+	lineCount := 0
+	if innerWidth > 0 {
+		for _, line := range strings.Split(content, "\n") {
+			lineWidth := ansi.StringWidth(line)
+			if lineWidth == 0 {
+				// Empty line counts as 1 line
+				lineCount++
+			} else {
+				// Account for word wrapping: ceil(lineWidth / innerWidth)
+				lineCount += (lineWidth + innerWidth - 1) / innerWidth
+			}
+		}
+	}
+	// Set height to match content (minimum 1 line)
+	ta.SetHeight(max(1, lineCount))
+
+	// Remove the default prompt/placeholder styling for a cleaner look
+	ta.Prompt = ""
+	ta.ShowLineNumbers = false
+	ta.CharLimit = 0 // No limit
+
+	// Set custom styles with background color matching the user message style
+	inlineEditStyle := textarea.Styles{
+		Focused: textarea.StyleState{
+			Base:        styles.BaseStyle.Background(styles.BackgroundAlt),
+			Placeholder: styles.BaseStyle.Background(styles.BackgroundAlt).Foreground(styles.PlaceholderColor),
+		},
+		Blurred: textarea.StyleState{
+			Base:        styles.BaseStyle.Background(styles.BackgroundAlt),
+			Placeholder: styles.BaseStyle.Background(styles.BackgroundAlt).Foreground(styles.PlaceholderColor),
+		},
+		Cursor: textarea.CursorStyle{
+			Color: styles.Accent,
+		},
+	}
+	ta.SetStyles(inlineEditStyle)
+
+	// Configure newline keybinding - use ctrl+j as the safe default
+	// (shift+enter only works on terminals with keyboard enhancements)
+	ta.KeyMap.InsertNewline.SetKeys("shift+enter", "ctrl+j")
+	ta.KeyMap.InsertNewline.SetEnabled(true)
+
+	m.inlineEditTextarea = ta
+	m.invalidateItem(msgIndex)
+	m.renderDirty = true
+
+	// Invalidate statusbar cache since bindings have changed
+	return tea.Batch(ta.Focus(), core.CmdHandler(messages.InvalidateStatusBarMsg{}))
+}
+
+// CancelInlineEdit cancels the current inline edit and restores the original content.
+func (m *model) CancelInlineEdit() tea.Cmd {
+	if m.inlineEditMsgIndex < 0 {
+		return nil
+	}
+
+	msgIndex := m.inlineEditMsgIndex
+	prevSelection := m.inlineEditPrevSelection
+
+	m.inlineEditMsgIndex = -1
+	m.inlineEditSessionPos = -1
+	m.inlineEditOriginal = ""
+	m.inlineEditTextarea = textarea.Model{}
+	m.inlineEditPrevSelection = -1
+
+	// Restore the previous selection state if we were in keyboard selection mode
+	if prevSelection >= 0 {
+		m.selectedMessageIndex = prevSelection
+		m.focused = true
+	} else {
+		// We weren't in selection mode, blur the messages component
+		m.focused = false
+		m.selectedMessageIndex = -1
+	}
+
+	m.invalidateItem(msgIndex)
+	m.invalidateAllItems() // Invalidate all to update selection highlight
+	m.renderDirty = true
+
+	// Invalidate statusbar cache since bindings have changed
+	return tea.Batch(
+		core.CmdHandler(InlineEditCancelledMsg{WasInSelectionMode: prevSelection >= 0}),
+		core.CmdHandler(messages.InvalidateStatusBarMsg{}),
+	)
+}
+
+// IsInlineEditing returns true if inline editing is currently active.
+func (m *model) IsInlineEditing() bool {
+	return m.inlineEditMsgIndex >= 0
+}
+
+// InlineEditCancelledMsg is sent when inline editing is cancelled.
+type InlineEditCancelledMsg struct {
+	WasInSelectionMode bool // True if we were in keyboard selection mode before editing
+}
+
+// commitInlineEdit commits the inline edit and sends the message.
+func (m *model) commitInlineEdit() tea.Cmd {
+	if m.inlineEditMsgIndex < 0 {
+		return nil
+	}
+
+	content := strings.TrimSpace(m.inlineEditTextarea.Value())
+	sessionPos := m.inlineEditSessionPos
+
+	// Reset editing state
+	m.inlineEditMsgIndex = -1
+	m.inlineEditSessionPos = -1
+	m.inlineEditOriginal = ""
+	m.inlineEditTextarea = textarea.Model{}
+
+	m.invalidateAllItems()
+
+	// Invalidate statusbar cache since bindings have changed
+	invalidateCmd := core.CmdHandler(messages.InvalidateStatusBarMsg{})
+
+	if content == "" {
+		// Empty content is treated as cancellation - notify the chat page
+		return tea.Batch(
+			core.CmdHandler(InlineEditCancelledMsg{}),
+			invalidateCmd,
+		)
+	}
+
+	// Emit InlineEditCommittedMsg with the edited content - the chat page handles branching
+	return tea.Batch(
+		core.CmdHandler(InlineEditCommittedMsg{
+			SessionPosition: sessionPos,
+			Content:         content,
+		}),
+		invalidateCmd,
+	)
+}
+
+// InlineEditCommittedMsg is sent when inline editing is committed.
+type InlineEditCommittedMsg struct {
+	SessionPosition int
+	Content         string
 }

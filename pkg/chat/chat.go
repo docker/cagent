@@ -1,6 +1,11 @@
 package chat
 
-import "github.com/docker/cagent/pkg/tools"
+import (
+	"path/filepath"
+	"strings"
+
+	"github.com/docker/cagent/pkg/tools"
+)
 
 type MessageRole string
 
@@ -16,6 +21,7 @@ type MessagePartType string
 const (
 	MessagePartTypeText     MessagePartType = "text"
 	MessagePartTypeImageURL MessagePartType = "image_url"
+	MessagePartTypeFile     MessagePartType = "file"
 )
 
 type ImageURLDetail string
@@ -74,10 +80,18 @@ type Message struct {
 	CacheControl bool `json:"cache_control,omitempty"`
 }
 
+// MessageFile represents a file attachment that can be uploaded to a provider's file storage.
+type MessageFile struct {
+	Path     string `json:"path,omitempty"`      // Local file path (used for upload)
+	FileID   string `json:"file_id,omitempty"`   // Provider-specific file ID (after upload)
+	MimeType string `json:"mime_type,omitempty"` // MIME type of the file
+}
+
 type MessagePart struct {
 	Type     MessagePartType  `json:"type,omitempty"`
 	Text     string           `json:"text,omitempty"`
 	ImageURL *MessageImageURL `json:"image_url,omitempty"`
+	File     *MessageFile     `json:"file,omitempty"`
 }
 
 // FinishReason represents the reason why the model finished generating a response
@@ -114,20 +128,28 @@ type MessageStreamChoice struct {
 
 // MessageStreamResponse represents a streaming response from the model
 type MessageStreamResponse struct {
-	ID      string                `json:"id"`
-	Object  string                `json:"object"`
-	Created int64                 `json:"created"`
-	Model   string                `json:"model"`
-	Choices []MessageStreamChoice `json:"choices"`
-	Usage   *Usage                `json:"usage,omitempty"`
+	ID        string                `json:"id"`
+	Object    string                `json:"object"`
+	Created   int64                 `json:"created"`
+	Model     string                `json:"model"`
+	Choices   []MessageStreamChoice `json:"choices"`
+	Usage     *Usage                `json:"usage,omitempty"`
+	RateLimit *RateLimit            `json:"rate_limit,omitempty"`
 }
 
 type Usage struct {
 	InputTokens       int64 `json:"input_tokens"`
 	OutputTokens      int64 `json:"output_tokens"`
 	CachedInputTokens int64 `json:"cached_input_tokens"`
-	CacheWriteTokens  int64 `json:"cached_output_tokens"`
+	CacheWriteTokens  int64 `json:"cached_write_tokens"`
 	ReasoningTokens   int64 `json:"reasoning_tokens,omitempty"`
+}
+
+type RateLimit struct {
+	Limit      int64 `json:"limit,omitempty"`
+	Remaining  int64 `json:"remaining,omitempty"`
+	Reset      int64 `json:"reset,omitempty"`
+	RetryAfter int64 `json:"retry_after,omitempty"`
 }
 
 // MessageStream interface represents a stream of chat completions
@@ -136,4 +158,45 @@ type MessageStream interface {
 	Recv() (MessageStreamResponse, error)
 	// Close closes the stream
 	Close()
+}
+
+// DetectMimeType returns the MIME type for a file based on its extension.
+// This is the canonical implementation used across all packages for consistency.
+// Note: Only returns MIME types that are supported for file attachments.
+// Unsupported extensions return "application/octet-stream".
+func DetectMimeType(filePath string) string {
+	ext := strings.ToLower(filepath.Ext(filePath))
+	switch ext {
+	// Images
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".png":
+		return "image/png"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	// Documents
+	case ".pdf":
+		return "application/pdf"
+	case ".txt", ".json", ".csv":
+		return "text/plain"
+	case ".md", ".markdown":
+		return "text/markdown"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+// IsSupportedMimeType returns true if the MIME type is supported for file attachments.
+// Supported types include images (jpeg, png, gif, webp) and documents (pdf, text, markdown).
+func IsSupportedMimeType(mimeType string) bool {
+	switch mimeType {
+	case "image/jpeg", "image/png", "image/gif", "image/webp":
+		return true
+	case "application/pdf", "text/plain", "text/markdown":
+		return true
+	default:
+		return false
+	}
 }

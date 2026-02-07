@@ -14,6 +14,13 @@ import (
 	"github.com/docker/cagent/pkg/tui/styles"
 )
 
+// Layout constants for max iterations dialog.
+const (
+	maxIterDialogWidthPercent = 60 // Dialog width as percentage of screen
+	maxIterDialogMinWidth     = 36 // Minimum dialog width
+	maxIterDialogMaxWidth     = 84 // Maximum dialog width
+)
+
 type maxIterationsDialog struct {
 	BaseDialog
 	maxIterations int
@@ -51,13 +58,13 @@ func (d *maxIterationsDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 			func() (layout.Model, tea.Cmd) {
 				return d, tea.Sequence(
 					core.CmdHandler(CloseDialogMsg{}),
-					core.CmdHandler(RuntimeResumeMsg{Response: runtime.ResumeTypeApprove}),
+					core.CmdHandler(RuntimeResumeMsg{Request: runtime.ResumeApprove()}),
 				)
 			},
 			func() (layout.Model, tea.Cmd) {
 				return d, tea.Sequence(
 					core.CmdHandler(CloseDialogMsg{}),
-					core.CmdHandler(RuntimeResumeMsg{Response: runtime.ResumeTypeReject}),
+					core.CmdHandler(RuntimeResumeMsg{Request: runtime.ResumeReject("")}),
 				)
 			},
 		)
@@ -76,8 +83,8 @@ func (d *maxIterationsDialog) Position() (row, col int) {
 
 // View renders the max iterations confirmation dialog
 func (d *maxIterationsDialog) View() string {
-	dialogWidth := d.ComputeDialogWidth(60, 36, 84)
-	contentWidth := d.ContentWidth(dialogWidth, 2)
+	dialogWidth := d.ComputeDialogWidth(maxIterDialogWidthPercent, maxIterDialogMinWidth, maxIterDialogMaxWidth)
+	contentWidth := dialogWidth - styles.DialogWarningStyle.GetHorizontalFrameSize()
 
 	infoText := fmt.Sprintf("Max Iterations: %d", d.maxIterations)
 	messageText := "The agent may be stuck in a loop. This can happen with smaller or less capable models."
@@ -95,8 +102,8 @@ func (d *maxIterationsDialog) View() string {
 		AddHelpKeys("Y", "yes", "N", "no").
 		Build()
 
+	// DialogWarningStyle already includes Padding(1, 2)
 	return styles.DialogWarningStyle.
-		Padding(1, 2).
 		Width(dialogWidth).
 		Render(content)
 }

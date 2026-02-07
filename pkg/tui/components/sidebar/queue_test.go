@@ -16,7 +16,7 @@ func TestQueueSection_SingleMessage(t *testing.T) {
 	sessionState := &service.SessionState{}
 	m := New(sessionState).(*model)
 
-	m.SetQueuedMessages([]string{"Hello world"})
+	m.SetQueuedMessages("Hello world")
 
 	result := m.queueSection(40)
 
@@ -39,7 +39,7 @@ func TestQueueSection_MultipleMessages(t *testing.T) {
 	sessionState := &service.SessionState{}
 	m := New(sessionState).(*model)
 
-	m.SetQueuedMessages([]string{"First", "Second", "Third"})
+	m.SetQueuedMessages("First", "Second", "Third")
 
 	result := m.queueSection(40)
 
@@ -67,7 +67,7 @@ func TestQueueSection_LongMessageTruncation(t *testing.T) {
 
 	// Create a very long message
 	longMessage := strings.Repeat("x", 100)
-	m.SetQueuedMessages([]string{longMessage})
+	m.SetQueuedMessages(longMessage)
 
 	result := m.queueSection(30) // Narrow width to force truncation
 
@@ -91,7 +91,7 @@ func TestQueueSection_InRenderSections(t *testing.T) {
 	assert.NotContains(t, outputWithoutQueue, "Queue")
 
 	// With queued messages, queue section should appear
-	m.SetQueuedMessages([]string{"Pending task"})
+	m.SetQueuedMessages("Pending task")
 	linesWithQueue := m.renderSections(35)
 	outputWithQueue := strings.Join(linesWithQueue, "\n")
 	assert.Contains(t, outputWithQueue, "Queue (1)")

@@ -2,8 +2,11 @@ package teamloader
 
 import (
 	"context"
+	"errors"
 	"io/fs"
+	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/goccy/go-yaml"
@@ -12,7 +15,23 @@ import (
 
 	"github.com/docker/cagent/pkg/config"
 	"github.com/docker/cagent/pkg/config/latest"
+	"github.com/docker/cagent/pkg/environment"
+	"github.com/docker/cagent/pkg/model/provider/dmr"
+	"github.com/docker/cagent/pkg/modelsdev"
+	"github.com/docker/cagent/pkg/tools"
 )
+
+// TestMain sets up the test environment for all tests in this package.
+func TestMain(m *testing.M) {
+	store, err := modelsdev.NewStore()
+	if err != nil {
+		os.Exit(1)
+	}
+	store.SetDatabaseForTesting(&modelsdev.Database{
+		Providers: make(map[string]modelsdev.Provider),
+	})
+	os.Exit(m.Run())
+}
 
 // skipExamples contains example files that require cloud-specific configurations
 // (e.g., AWS profiles, GCP credentials) that can't be mocked with dummy env vars.
@@ -74,7 +93,7 @@ func TestLoadExamples(t *testing.T) {
 	// This avoids calling Load() twice for each example.
 	missingEnvs := make(map[string]bool)
 	for _, agentFilename := range examples {
-		agentSource, err := config.Resolve(agentFilename)
+		agentSource, err := config.Resolve(agentFilename, nil)
 		require.NoError(t, err)
 
 		cfg, err := config.Load(t.Context(), agentSource)
@@ -101,11 +120,11 @@ func TestLoadExamples(t *testing.T) {
 	}
 
 	// Load all the examples.
+	// Note: don't use t.Parallel() to avoid SQLite lock contention when
+	// multiple RAG examples share the same relative database paths (e.g., ./bm25.db).
 	for _, agentFilename := range examples {
 		t.Run(agentFilename, func(t *testing.T) {
-			t.Parallel()
-
-			agentSource, err := config.Resolve(agentFilename)
+			agentSource, err := config.Resolve(agentFilename, nil)
 			require.NoError(t, err)
 
 			// First make sure it doesn't define a version
@@ -119,6 +138,11 @@ func TestLoadExamples(t *testing.T) {
 
 			// Then make sure the config loads successfully
 			teams, err := Load(t.Context(), agentSource, runConfig)
+			if err != nil {
+				if errors.Is(err, dmr.ErrNotInstalled) && filepath.Base(agentFilename) == "dmr.yaml" {
+					t.Skip("Skipping DMR example: Docker Model Runner not installed")
+				}
+			}
 			require.NoError(t, err)
 			assert.NotEmpty(t, teams)
 		})
@@ -128,10 +152,16 @@ func TestLoadExamples(t *testing.T) {
 func TestLoadDefaultAgent(t *testing.T) {
 	t.Parallel()
 
-	agentSource, err := config.Resolve("../../pkg/config/default-agent.yaml")
+	agentSource, err := config.Resolve("../../pkg/config/default-agent.yaml", nil)
 	require.NoError(t, err)
 
-	teams, err := Load(t.Context(), agentSource, &config.RuntimeConfig{})
+	runConfig := &config.RuntimeConfig{
+		EnvProviderForTests: environment.NewEnvListProvider([]string{
+			"OPENAI_API_KEY=dummy",
+		}),
+	}
+
+	teams, err := Load(t.Context(), agentSource, runConfig)
 	require.NoError(t, err)
 	require.NotEmpty(t, teams)
 }
@@ -163,7 +193,7 @@ func TestOverrideModel(t *testing.T) {
 		t.Run(test.expected, func(t *testing.T) {
 			t.Parallel()
 
-			agentSource, err := config.Resolve("testdata/basic.yaml")
+			agentSource, err := config.Resolve("testdata/basic.yaml", nil)
 			require.NoError(t, err)
 
 			team, err := Load(t.Context(), agentSource, &config.RuntimeConfig{}, WithModelOverrides(test.overrides))
@@ -182,7 +212,7 @@ func TestOverrideModel(t *testing.T) {
 func TestToolsetInstructions(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "dummy")
 
-	agentSource, err := config.Resolve("testdata/tool-instruction.yaml")
+	agentSource, err := config.Resolve("testdata/tool-instruction.yaml", nil)
 	require.NoError(t, err)
 
 	team, err := Load(t.Context(), agentSource, &config.RuntimeConfig{})
@@ -194,7 +224,177 @@ func TestToolsetInstructions(t *testing.T) {
 	toolsets := agent.ToolSets()
 	require.Len(t, toolsets, 1)
 
-	instructions := toolsets[0].Instructions()
+	instructions := tools.GetInstructions(toolsets[0])
 	expected := "Dummy fetch tool instruction"
 	require.Equal(t, expected, instructions)
+}
+
+func TestAutoModelFallbackError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping docker CLI shim test on Windows")
+	}
+
+	tempDir := t.TempDir()
+	dockerPath := filepath.Join(tempDir, "docker")
+	script := "#!/bin/sh\n" +
+		"printf 'unknown flag: --json\\n\\nUsage:  docker [OPTIONS] COMMAND [ARG...]\\n\\nRun '\\''docker --help'\\'' for more information\\n' >&2\n" +
+		"exit 1\n"
+	require.NoError(t, os.WriteFile(dockerPath, []byte(script), 0o755))
+
+	t.Setenv("PATH", tempDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("MODEL_RUNNER_HOST", "")
+
+	agentSource, err := config.Resolve("testdata/auto-model.yaml", nil)
+	require.NoError(t, err)
+
+	// Use noEnvProvider to ensure no API keys are available,
+	// so DMR is the only fallback option.
+	runConfig := &config.RuntimeConfig{
+		EnvProviderForTests: &noEnvProvider{},
+	}
+
+	_, err = Load(t.Context(), agentSource, runConfig)
+	require.Error(t, err)
+
+	var autoErr *config.AutoModelFallbackError
+	require.ErrorAs(t, err, &autoErr, "expected AutoModelFallbackError when auto model selection fails")
+}
+
+func TestIsThinkingBudgetDisabled(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		budget   *latest.ThinkingBudget
+		expected bool
+	}{
+		{"nil budget", nil, false},
+		{"Tokens=0 (disabled)", &latest.ThinkingBudget{Tokens: 0}, true},
+		{"Effort=none (disabled)", &latest.ThinkingBudget{Effort: "none"}, true},
+		{"Tokens=8192 (enabled)", &latest.ThinkingBudget{Tokens: 8192}, false},
+		{"Effort=medium (enabled)", &latest.ThinkingBudget{Effort: "medium"}, false},
+		{"Effort=high (enabled)", &latest.ThinkingBudget{Effort: "high"}, false},
+		{"Effort=low (enabled)", &latest.ThinkingBudget{Effort: "low"}, false},
+		{"Tokens=-1 (dynamic)", &latest.ThinkingBudget{Tokens: -1}, false},
+		{"Tokens=0 with Effort=medium", &latest.ThinkingBudget{Tokens: 0, Effort: "medium"}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := isThinkingBudgetDisabled(tt.budget)
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
+
+func TestWithPromptFiles(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "dummy")
+
+	tests := []struct {
+		name           string
+		cliPromptFiles []string
+		expected       []string
+	}{
+		{
+			name:           "no CLI prompt files",
+			cliPromptFiles: nil,
+			expected:       []string{}, // basic.yaml has no add_prompt_files
+		},
+		{
+			name:           "single CLI prompt file",
+			cliPromptFiles: []string{"AGENTS.md"},
+			expected:       []string{"AGENTS.md"},
+		},
+		{
+			name:           "multiple CLI prompt files",
+			cliPromptFiles: []string{"AGENTS.md", "CLAUDE.md"},
+			expected:       []string{"AGENTS.md", "CLAUDE.md"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			agentSource, err := config.Resolve("testdata/basic.yaml", nil)
+			require.NoError(t, err)
+
+			var opts []Opt
+			if len(tt.cliPromptFiles) > 0 {
+				opts = append(opts, WithPromptFiles(tt.cliPromptFiles))
+			}
+
+			team, err := Load(t.Context(), agentSource, &config.RuntimeConfig{}, opts...)
+			require.NoError(t, err)
+
+			rootAgent, err := team.Agent("root")
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.expected, rootAgent.AddPromptFiles())
+		})
+	}
+}
+
+func TestWithPromptFilesMergesWithConfig(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "dummy")
+
+	// Create a temp agent file with add_prompt_files configured
+	tempDir := t.TempDir()
+	agentFile := filepath.Join(tempDir, "agent.yaml")
+	agentYAML := `version: "2"
+agents:
+  root:
+    model: openai/gpt-4o
+    instruction: test
+    add_prompt_files:
+      - config-file.md
+`
+	require.NoError(t, os.WriteFile(agentFile, []byte(agentYAML), 0o644))
+
+	agentSource, err := config.Resolve(agentFile, nil)
+	require.NoError(t, err)
+
+	// Load with CLI prompt files - should merge with config
+	team, err := Load(t.Context(), agentSource, &config.RuntimeConfig{},
+		WithPromptFiles([]string{"cli-file.md"}))
+	require.NoError(t, err)
+
+	rootAgent, err := team.Agent("root")
+	require.NoError(t, err)
+
+	// Config files come first, then CLI files
+	expected := []string{"config-file.md", "cli-file.md"}
+	assert.Equal(t, expected, rootAgent.AddPromptFiles())
+}
+
+func TestWithPromptFilesDeduplicates(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "dummy")
+
+	// Create a temp agent file with add_prompt_files configured
+	tempDir := t.TempDir()
+	agentFile := filepath.Join(tempDir, "agent.yaml")
+	agentYAML := `version: "2"
+agents:
+  root:
+    model: openai/gpt-4o
+    instruction: test
+    add_prompt_files:
+      - AGENTS.md
+      - CLAUDE.md
+`
+	require.NoError(t, os.WriteFile(agentFile, []byte(agentYAML), 0o644))
+
+	agentSource, err := config.Resolve(agentFile, nil)
+	require.NoError(t, err)
+
+	// CLI specifies a file that's already in config - should deduplicate
+	team, err := Load(t.Context(), agentSource, &config.RuntimeConfig{},
+		WithPromptFiles([]string{"AGENTS.md", "extra.md"}))
+	require.NoError(t, err)
+
+	rootAgent, err := team.Agent("root")
+	require.NoError(t, err)
+
+	// AGENTS.md should only appear once (from config), extra.md added at end
+	expected := []string{"AGENTS.md", "CLAUDE.md", "extra.md"}
+	assert.Equal(t, expected, rootAgent.AddPromptFiles())
 }

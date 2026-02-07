@@ -251,7 +251,7 @@ type RAGConfig struct {
 
 // RAGStrategyConfig represents a single retrieval strategy configuration
 // Strategy-specific fields are stored in Params (validated by strategy implementation)
-type RAGStrategyConfig struct {
+type RAGStrategyConfig struct { //nolint:recvcheck // Marshal methods must use value receiver for YAML/JSON slice encoding, Unmarshal must use pointer
 	Type     string            `json:"type"`               // Strategy type: "chunked-embeddings", "bm25", etc.
 	Docs     []string          `json:"docs,omitempty"`     // Strategy-specific documents (augments shared docs)
 	Database RAGDatabaseConfig `json:"database,omitempty"` // Database configuration

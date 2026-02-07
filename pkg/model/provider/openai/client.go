@@ -324,8 +324,20 @@ func (c *Client) CreateResponseStream(
 	}
 
 	if maxToken := c.ModelConfig.MaxTokens; maxToken != nil && *maxToken > 0 {
-		params.MaxOutputTokens = param.NewOpt(*maxToken)
-		slog.Debug("OpenAI responses request configured with max output tokens", "max_output_tokens", maxToken)
+		maxTokens := *maxToken
+
+		// Reasoning models consume output tokens on internal reasoning even when
+		// thinking is explicitly disabled. Bump a small budget so the model has
+		// headroom for both reasoning and actual text output.
+		thinkingEnabled := c.ModelOptions.Thinking() == nil || *c.ModelOptions.Thinking()
+		if isOpenAIReasoningModel(c.ModelConfig.Model) && !thinkingEnabled && maxTokens < 200 {
+			slog.Debug("Bumping max_output_tokens for reasoning model with thinking disabled",
+				"model", c.ModelConfig.Model, "original", maxTokens, "adjusted", 200)
+			maxTokens = 200
+		}
+
+		params.MaxOutputTokens = param.NewOpt(maxTokens)
+		slog.Debug("OpenAI responses request configured with max output tokens", "max_output_tokens", maxTokens)
 	}
 
 	if len(requestTools) > 0 {

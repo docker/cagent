@@ -68,7 +68,7 @@ func PackageFileAsOCIToStore(ctx context.Context, agentSource config.Source, art
 		annotations["org.opencontainers.image.revision"] = revision
 	}
 
-	layer := static.NewLayer(data, types.OCIUncompressedLayer)
+	layer := static.NewLayer(data, "application/yaml")
 	img, err := mutate.AppendLayers(empty.Image, layer)
 	if err != nil {
 		return "", fmt.Errorf("appending layer: %w", err)
@@ -76,6 +76,7 @@ func PackageFileAsOCIToStore(ctx context.Context, agentSource config.Source, art
 
 	// Convert to OCI manifest format to support annotations
 	img = mutate.MediaType(img, types.OCIManifestSchema1)
+	img = mutate.ConfigMediaType(img, "application/vnd.docker.cagent.config.v1+json")
 	img = mutate.Annotations(img, annotations).(v1.Image)
 
 	digest, err := store.StoreArtifact(img, artifactRef)

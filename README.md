@@ -34,6 +34,8 @@ experts that collaborate to solve complex problems for you.
   Runner](https://docs.docker.com/ai/model-runner/).
 - **🔀 Runtime model switching** - Change models on-the-fly during a session
   with the `/model` command, with automatic persistence across session reloads.
+- **✏️ Editable messages** - Edit any previous user message to branch the
+  conversation, preserving the original session history.
 
 ## Your First Agent
 
@@ -161,7 +163,7 @@ agents:
 models:
   claude:
     provider: anthropic
-    model: claude-sonnet-4-0
+    model: claude-sonnet-4-5
     max_tokens: 64000
 ```
 
@@ -425,7 +427,7 @@ these three providers in order based on the first api key it finds in your
 environment.
 
 ```sh
-export ANTHROPIC_API_KEY=your_api_key_here  # first choice. default model claude-sonnet-4-0
+export ANTHROPIC_API_KEY=your_api_key_here  # first choice. default model claude-sonnet-4-5
 export OPENAI_API_KEY=your_api_key_here     # if anthropic key not set. default model gpt-5-mini
 export GOOGLE_API_KEY=your_api_key_here     # if anthropic and openai keys are not set. default model gemini-2.5-flash
 ```

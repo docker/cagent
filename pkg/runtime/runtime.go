@@ -31,29 +31,13 @@ import (
 	"github.com/docker/cagent/pkg/rag"
 	ragtypes "github.com/docker/cagent/pkg/rag/types"
 	"github.com/docker/cagent/pkg/session"
+	"github.com/docker/cagent/pkg/sessiontitle"
 	"github.com/docker/cagent/pkg/team"
 	"github.com/docker/cagent/pkg/telemetry"
 	"github.com/docker/cagent/pkg/tools"
 	"github.com/docker/cagent/pkg/tools/builtin"
 	mcptools "github.com/docker/cagent/pkg/tools/mcp"
 )
-
-// UnwrapMCPToolset extracts an MCP toolset from a potentially wrapped StartableToolSet.
-// Returns the MCP toolset if found, or nil if the toolset is not an MCP toolset.
-func UnwrapMCPToolset(toolset tools.ToolSet) *mcptools.Toolset {
-	var innerToolset tools.ToolSet
-	if startableTS, ok := toolset.(*agent.StartableToolSet); ok {
-		innerToolset = startableTS.ToolSet
-	} else {
-		innerToolset = toolset
-	}
-
-	if mcpToolset, ok := innerToolset.(*mcptools.Toolset); ok {
-		return mcpToolset
-	}
-
-	return nil
-}
 
 type ResumeType string
 
@@ -76,8 +60,37 @@ func (e *ElicitationError) Error() string {
 const (
 	ResumeTypeApprove        ResumeType = "approve"
 	ResumeTypeApproveSession ResumeType = "approve-session"
+	ResumeTypeApproveTool    ResumeType = "approve-tool"
 	ResumeTypeReject         ResumeType = "reject"
 )
+
+// ResumeRequest carries the user's confirmation decision along with an optional
+// reason (used when rejecting a tool call to help the model understand why).
+type ResumeRequest struct {
+	Type     ResumeType
+	Reason   string // Optional; primarily used with ResumeTypeReject
+	ToolName string // Optional; used with ResumeTypeApproveTool to specify which tool to always allow
+}
+
+// ResumeApprove creates a ResumeRequest to approve a single tool call.
+func ResumeApprove() ResumeRequest {
+	return ResumeRequest{Type: ResumeTypeApprove}
+}
+
+// ResumeApproveSession creates a ResumeRequest to approve all tool calls for the session.
+func ResumeApproveSession() ResumeRequest {
+	return ResumeRequest{Type: ResumeTypeApproveSession}
+}
+
+// ResumeApproveTool creates a ResumeRequest to always approve a specific tool for the session.
+func ResumeApproveTool(toolName string) ResumeRequest {
+	return ResumeRequest{Type: ResumeTypeApproveTool, ToolName: toolName}
+}
+
+// ResumeReject creates a ResumeRequest to reject a tool call with an optional reason.
+func ResumeReject(reason string) ResumeRequest {
+	return ResumeRequest{Type: ResumeTypeReject, Reason: reason}
+}
 
 // ToolHandlerFunc is a function type for handling tool calls
 type ToolHandlerFunc func(ctx context.Context, sess *session.Session, toolCall tools.ToolCall, events chan Event) (*tools.ToolCallResult, error)
@@ -108,8 +121,9 @@ type Runtime interface {
 	RunStream(ctx context.Context, sess *session.Session) <-chan Event
 	// Run starts the agent's interaction loop and returns the final messages
 	Run(ctx context.Context, sess *session.Session) ([]session.Message, error)
-	// Resume allows resuming execution after user confirmation
-	Resume(ctx context.Context, confirmationType ResumeType)
+	// Resume allows resuming execution after user confirmation.
+	// The ResumeRequest carries the decision type and an optional reason (for rejections).
+	Resume(ctx context.Context, req ResumeRequest)
 	// ResumeElicitation sends an elicitation response back to a waiting elicitation request
 	ResumeElicitation(_ context.Context, action tools.ElicitationAction, content map[string]any) error
 	// SessionStore returns the session store for browsing/loading past sessions.
@@ -118,6 +132,33 @@ type Runtime interface {
 
 	// Summarize generates a summary for the session
 	Summarize(ctx context.Context, sess *session.Session, additionalPrompt string, events chan Event)
+
+	// PermissionsInfo returns the team-level permission patterns (allow/deny).
+	// Returns nil if no permissions are configured.
+	PermissionsInfo() *PermissionsInfo
+
+	// CurrentAgentSkillsEnabled returns whether skills are enabled for the current agent.
+	CurrentAgentSkillsEnabled() bool
+
+	// CurrentMCPPrompts returns MCP prompts available from the current agent's toolsets.
+	// Returns an empty map if no MCP prompts are available.
+	CurrentMCPPrompts(ctx context.Context) map[string]mcptools.PromptInfo
+
+	// ExecuteMCPPrompt executes a named MCP prompt with the given arguments.
+	ExecuteMCPPrompt(ctx context.Context, promptName string, arguments map[string]string) (string, error)
+
+	// UpdateSessionTitle persists a new title for the current session.
+	UpdateSessionTitle(ctx context.Context, sess *session.Session, title string) error
+
+	// TitleGenerator returns a generator for automatic session titles, or nil
+	// if the runtime does not support local title generation (e.g. remote runtimes).
+	TitleGenerator() *sessiontitle.Generator
+}
+
+// PermissionsInfo contains the allow and deny patterns for tool permissions.
+type PermissionsInfo struct {
+	Allow []string
+	Deny  []string
 }
 
 type CurrentAgentInfo struct {
@@ -141,7 +182,7 @@ type LocalRuntime struct {
 	toolMap                     map[string]ToolHandler
 	team                        *team.Team
 	currentAgent                string
-	resumeChan                  chan ResumeType
+	resumeChan                  chan ResumeRequest
 	tracer                      trace.Tracer
 	modelsStore                 ModelStore
 	sessionCompaction           bool
@@ -151,12 +192,15 @@ type LocalRuntime struct {
 	elicitationEventsChannel    chan Event             // Current events channel for sending elicitation requests
 	elicitationEventsChannelMux sync.RWMutex           // Protects elicitationEventsChannel
 	ragInitialized              atomic.Bool
-	titleGen                    *titleGenerator
 	sessionCompactor            *sessionCompactor
 	sessionStore                session.Store
 	workingDir                  string   // Working directory for hooks execution
 	env                         []string // Environment variables for hooks execution
 	modelSwitcherCfg            *ModelSwitcherConfig
+
+	// fallbackCooldowns tracks per-agent cooldown state for sticky fallback behavior
+	fallbackCooldowns    map[string]*fallbackCooldownState
+	fallbackCooldownsMux sync.RWMutex
 }
 
 type streamResult struct {
@@ -168,6 +212,7 @@ type streamResult struct {
 	Stopped           bool
 	ActualModel       string      // The actual model used (may differ from configured model with routing)
 	Usage             *chat.Usage // Token usage for this stream
+	RateLimit         *chat.RateLimit
 }
 
 type Opt func(*LocalRuntime)
@@ -223,13 +268,9 @@ func WithEnv(env []string) Opt {
 	}
 }
 
-// New creates a new runtime for an agent and its team
-func New(agents *team.Team, opts ...Opt) (*LocalRuntime, error) {
-	modelsStore, err := modelsdev.NewStore()
-	if err != nil {
-		return nil, err
-	}
-
+// NewLocalRuntime creates a new LocalRuntime without the persistence wrapper.
+// This is useful for testing or when persistence is handled externally.
+func NewLocalRuntime(agents *team.Team, opts ...Opt) (*LocalRuntime, error) {
 	defaultAgent, err := agents.DefaultAgent()
 	if err != nil {
 		return nil, err
@@ -239,16 +280,24 @@ func New(agents *team.Team, opts ...Opt) (*LocalRuntime, error) {
 		toolMap:              make(map[string]ToolHandler),
 		team:                 agents,
 		currentAgent:         defaultAgent.Name(),
-		resumeChan:           make(chan ResumeType),
+		resumeChan:           make(chan ResumeRequest),
 		elicitationRequestCh: make(chan ElicitationResult),
-		modelsStore:          modelsStore,
 		sessionCompaction:    true,
 		managedOAuth:         true,
 		sessionStore:         session.NewInMemorySessionStore(),
+		fallbackCooldowns:    make(map[string]*fallbackCooldownState),
 	}
 
 	for _, opt := range opts {
 		opt(r)
+	}
+
+	if r.modelsStore == nil {
+		modelsStore, err := modelsdev.NewStore()
+		if err != nil {
+			return nil, err
+		}
+		r.modelsStore = modelsStore
 	}
 
 	// Validate that the current agent exists and has a model
@@ -263,7 +312,6 @@ func New(agents *team.Team, opts ...Opt) (*LocalRuntime, error) {
 		return nil, fmt.Errorf("agent %s has no valid model", defaultAgent.Name())
 	}
 
-	r.titleGen = newTitleGenerator(model)
 	r.sessionCompactor = newSessionCompactor(model, r.sessionStore)
 
 	slog.Debug("Creating new runtime", "agent", r.currentAgent, "available_agents", agents.Size())
@@ -426,7 +474,7 @@ func (r *LocalRuntime) CurrentMCPPrompts(ctx context.Context) map[string]mcptool
 
 	// Iterate through all toolsets of the current agent
 	for _, toolset := range currentAgent.ToolSets() {
-		if mcpToolset := UnwrapMCPToolset(toolset); mcpToolset != nil {
+		if mcpToolset, ok := tools.As[*mcptools.Toolset](toolset); ok {
 			slog.Debug("Found MCP toolset", "toolset", mcpToolset)
 			// Discover prompts from this MCP toolset
 			mcpPrompts := r.discoverMCPPrompts(ctx, mcpToolset)
@@ -483,6 +531,69 @@ func (r *LocalRuntime) CurrentAgent() *agent.Agent {
 	return current
 }
 
+// CurrentAgentSkillsEnabled returns whether skills are enabled for the current agent.
+func (r *LocalRuntime) CurrentAgentSkillsEnabled() bool {
+	a := r.CurrentAgent()
+	return a != nil && a.SkillsEnabled()
+}
+
+// ExecuteMCPPrompt executes an MCP prompt with provided arguments and returns the content.
+func (r *LocalRuntime) ExecuteMCPPrompt(ctx context.Context, promptName string, arguments map[string]string) (string, error) {
+	currentAgent := r.CurrentAgent()
+	if currentAgent == nil {
+		return "", fmt.Errorf("no current agent available")
+	}
+
+	for _, toolset := range currentAgent.ToolSets() {
+		mcpToolset, ok := tools.As[*mcptools.Toolset](toolset)
+		if !ok {
+			continue
+		}
+
+		result, err := mcpToolset.GetPrompt(ctx, promptName, arguments)
+		if err != nil {
+			// If error is "prompt not found", continue to next toolset
+			if err.Error() == "prompt not found" {
+				continue
+			}
+			return "", fmt.Errorf("error executing prompt '%s': %w", promptName, err)
+		}
+
+		// Convert the MCP result to a string format
+		if len(result.Messages) == 0 {
+			return "No content returned from MCP prompt", nil
+		}
+
+		var content strings.Builder
+		for i, message := range result.Messages {
+			if i > 0 {
+				content.WriteString("\n\n")
+			}
+			if textContent, ok := message.Content.(*mcp.TextContent); ok {
+				content.WriteString(textContent.Text)
+			} else {
+				content.WriteString(fmt.Sprintf("[Non-text content: %T]", message.Content))
+			}
+		}
+		return content.String(), nil
+	}
+
+	return "", fmt.Errorf("MCP prompt '%s' not found in any active toolset", promptName)
+}
+
+// TitleGenerator returns a title generator for automatic session title generation.
+func (r *LocalRuntime) TitleGenerator() *sessiontitle.Generator {
+	a := r.CurrentAgent()
+	if a == nil {
+		return nil
+	}
+	model := a.Model()
+	if model == nil {
+		return nil
+	}
+	return sessiontitle.New(model, a.FallbackModels()...)
+}
+
 // getHooksExecutor creates a hooks executor for the given agent
 func (r *LocalRuntime) getHooksExecutor(a *agent.Agent) *hooks.Executor {
 	hooksCfg := hooks.FromConfig(a.Hooks())
@@ -500,32 +611,56 @@ func getAgentModelID(a *agent.Agent) string {
 	return ""
 }
 
-// isModelThinkingDisabled checks if the model's thinking configuration is explicitly disabled
-// (thinking_budget: 0 or thinking_budget: none).
-func isModelThinkingDisabled(model provider.Provider) bool {
-	if model == nil {
-		return false
+// getEffectiveModelID returns the currently active model ID for an agent, accounting
+// for any active fallback cooldown. During a cooldown period, this returns the fallback
+// model ID instead of the configured primary model, so the UI reflects the actual model in use.
+func (r *LocalRuntime) getEffectiveModelID(a *agent.Agent) string {
+	cooldownState := r.getCooldownState(a.Name())
+	if cooldownState != nil {
+		fallbacks := a.FallbackModels()
+		if cooldownState.fallbackIndex >= 0 && cooldownState.fallbackIndex < len(fallbacks) {
+			return fallbacks[cooldownState.fallbackIndex].ID()
+		}
 	}
-	tb := model.BaseConfig().ModelConfig.ThinkingBudget
-	if tb == nil {
-		return false
-	}
-	if tb.Effort == "none" {
-		return true
-	}
-	return tb.Tokens == 0 && tb.Effort == ""
+	return getAgentModelID(a)
 }
 
-// agentDetailsFromTeam converts team agent info to AgentDetails for events
+// agentDetailsFromTeam converts team agent info to AgentDetails for events.
+// It accounts for active fallback cooldowns, returning the effective model
+// instead of the configured model when a fallback is in effect.
 func (r *LocalRuntime) agentDetailsFromTeam() []AgentDetails {
 	agentsInfo := r.team.AgentsInfo()
 	details := make([]AgentDetails, len(agentsInfo))
 	for i, info := range agentsInfo {
+		providerName := info.Provider
+		modelName := info.Model
+
+		// Check if this agent has an active fallback cooldown
+		cooldownState := r.getCooldownState(info.Name)
+		if cooldownState != nil {
+			// Get the agent to access fallback models
+			if a, err := r.team.Agent(info.Name); err == nil && a != nil {
+				fallbacks := a.FallbackModels()
+				if cooldownState.fallbackIndex >= 0 && cooldownState.fallbackIndex < len(fallbacks) {
+					fb := fallbacks[cooldownState.fallbackIndex]
+					// Parse provider/model from the fallback model ID
+					modelID := fb.ID()
+					if p, m, found := strings.Cut(modelID, "/"); found {
+						providerName = p
+						modelName = m
+					} else {
+						modelName = modelID
+					}
+				}
+			}
+		}
+
 		details[i] = AgentDetails{
 			Name:        info.Name,
 			Description: info.Description,
-			Provider:    info.Provider,
-			Model:       info.Model,
+			Provider:    providerName,
+			Model:       modelName,
+			Commands:    info.Commands,
 		}
 	}
 	return details
@@ -534,6 +669,28 @@ func (r *LocalRuntime) agentDetailsFromTeam() []AgentDetails {
 // SessionStore returns the session store for browsing/loading past sessions.
 func (r *LocalRuntime) SessionStore() session.Store {
 	return r.sessionStore
+}
+
+// UpdateSessionTitle persists the session title via the session store.
+func (r *LocalRuntime) UpdateSessionTitle(ctx context.Context, sess *session.Session, title string) error {
+	sess.Title = title
+	if r.sessionStore != nil {
+		return r.sessionStore.UpdateSession(ctx, sess)
+	}
+	return nil
+}
+
+// PermissionsInfo returns the team-level permission patterns.
+// Returns nil if no permissions are configured.
+func (r *LocalRuntime) PermissionsInfo() *PermissionsInfo {
+	permChecker := r.team.Permissions()
+	if permChecker == nil || permChecker.IsEmpty() {
+		return nil
+	}
+	return &PermissionsInfo{
+		Allow: permChecker.AllowPatterns(),
+		Deny:  permChecker.DenyPatterns(),
+	}
 }
 
 // ResetStartupInfo resets the startup info emission flag.
@@ -553,41 +710,63 @@ func (r *LocalRuntime) EmitStartupInfo(ctx context.Context, events chan Event) {
 
 	a := r.CurrentAgent()
 
+	// Helper to send events with context check
+	send := func(event Event) bool {
+		select {
+		case events <- event:
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
+
 	// Emit agent and team information immediately for fast sidebar display
-	events <- AgentInfo(a.Name(), getAgentModelID(a), a.Description(), a.WelcomeMessage())
-	events <- TeamInfo(r.agentDetailsFromTeam(), r.currentAgent)
+	// Use getEffectiveModelID to account for active fallback cooldowns
+	if !send(AgentInfo(a.Name(), r.getEffectiveModelID(a), a.Description(), a.WelcomeMessage())) {
+		return
+	}
+	if !send(TeamInfo(r.agentDetailsFromTeam(), r.currentAgent)) {
+		return
+	}
 
 	// Emit agent warnings (if any) - these are quick
-	r.emitAgentWarnings(a, events)
+	r.emitAgentWarningsWithSend(a, send)
 
 	// Tool loading can be slow (MCP servers need to start)
 	// Emit progressive updates as each toolset loads
-	r.emitToolsProgressively(ctx, a, events)
+	r.emitToolsProgressively(ctx, a, send)
 }
 
 // emitToolsProgressively loads tools from each toolset and emits progress updates.
 // This allows the UI to show the tool count incrementally as each toolset loads,
 // with a spinner indicating that more tools may be coming.
-func (r *LocalRuntime) emitToolsProgressively(ctx context.Context, a *agent.Agent, events chan Event) {
+func (r *LocalRuntime) emitToolsProgressively(ctx context.Context, a *agent.Agent, send func(Event) bool) {
 	toolsets := a.ToolSets()
 	totalToolsets := len(toolsets)
 
 	// If no toolsets, emit final state immediately
 	if totalToolsets == 0 {
-		events <- ToolsetInfo(0, false, r.currentAgent)
+		send(ToolsetInfo(0, false, r.currentAgent))
 		return
 	}
 
 	// Emit initial loading state
-	events <- ToolsetInfo(0, true, r.currentAgent)
+	if !send(ToolsetInfo(0, true, r.currentAgent)) {
+		return
+	}
 
 	// Load tools from each toolset and emit progress
 	var totalTools int
 	for i, toolset := range toolsets {
+		// Check context before potentially slow operations
+		if ctx.Err() != nil {
+			return
+		}
+
 		isLast := i == totalToolsets-1
 
 		// Start the toolset if needed
-		if startable, ok := toolset.(*agent.StartableToolSet); ok {
+		if startable, ok := toolset.(*tools.StartableToolSet); ok {
 			if !startable.IsStarted() {
 				if err := startable.Start(ctx); err != nil {
 					slog.Warn("Toolset start failed; skipping", "agent", a.Name(), "toolset", fmt.Sprintf("%T", startable.ToolSet), "error", err)
@@ -606,11 +785,13 @@ func (r *LocalRuntime) emitToolsProgressively(ctx context.Context, a *agent.Agen
 		totalTools += len(ts)
 
 		// Emit progress update - still loading unless this is the last toolset
-		events <- ToolsetInfo(totalTools, !isLast, r.currentAgent)
+		if !send(ToolsetInfo(totalTools, !isLast, r.currentAgent)) {
+			return
+		}
 	}
 
 	// Emit final state (not loading)
-	events <- ToolsetInfo(totalTools, false, r.currentAgent)
+	send(ToolsetInfo(totalTools, false, r.currentAgent))
 }
 
 // registerDefaultTools registers the default tool handlers
@@ -645,8 +826,6 @@ func (r *LocalRuntime) finalizeEventChannel(ctx context.Context, sess *session.S
 	events <- StreamStopped(sess.ID, r.currentAgent)
 
 	telemetry.RecordSessionEnd(ctx)
-
-	r.titleGen.Wait()
 }
 
 // RunStream starts the agent's interaction loop and returns a channel of events
@@ -671,7 +850,8 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 		a := r.CurrentAgent()
 
 		// Emit agent information for sidebar display
-		events <- AgentInfo(a.Name(), getAgentModelID(a), a.Description(), a.WelcomeMessage())
+		// Use getEffectiveModelID to account for active fallback cooldowns
+		events <- AgentInfo(a.Name(), r.getEffectiveModelID(a), a.Description(), a.WelcomeMessage())
 
 		// Emit team information
 		events <- TeamInfo(r.agentDetailsFromTeam(), r.currentAgent)
@@ -692,7 +872,7 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 
 		messages := sess.GetMessages(a)
 		if sess.SendUserMessage {
-			events <- UserMessage(messages[len(messages)-1].Content)
+			events <- UserMessage(messages[len(messages)-1].Content, sess.ID, len(sess.Messages)-1)
 		}
 
 		events <- StreamStarted(sess.ID, a.Name())
@@ -700,10 +880,6 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 		defer r.finalizeEventChannel(ctx, sess, events)
 
 		r.registerDefaultTools()
-
-		if sess.Title == "" {
-			r.titleGen.Generate(ctx, sess, events)
-		}
 
 		iteration := 0
 		// Use a runtime copy of maxIterations so we don't modify the session's persistent config
@@ -724,34 +900,49 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 
 			// Check iteration limit
 			if runtimeMaxIterations > 0 && iteration >= runtimeMaxIterations {
-				slog.Debug("Maximum iterations reached", "agent", a.Name(), "iterations", iteration, "max", runtimeMaxIterations)
+				slog.Debug(
+					"Maximum iterations reached",
+					"agent", a.Name(),
+					"iterations", iteration,
+					"max", runtimeMaxIterations,
+				)
+
 				events <- MaxIterationsReached(runtimeMaxIterations)
 
-				// Wait for user decision
+				// Wait for user decision (resume / reject)
 				select {
-				case resumeType := <-r.resumeChan:
-					if resumeType == ResumeTypeApprove {
+				case req := <-r.resumeChan:
+					if req.Type == ResumeTypeApprove {
 						slog.Debug("User chose to continue after max iterations", "agent", a.Name())
 						runtimeMaxIterations = iteration + 10
 					} else {
-						slog.Debug("User chose to exit after max iterations", "agent", a.Name())
-						// Synthesize a final assistant message so callers (e.g., parent agents)
-						// receive a non-empty response and providers are not given empty tool outputs.
+						slog.Debug("User rejected continuation", "agent", a.Name())
+
 						assistantMessage := chat.Message{
-							Role:      chat.MessageRoleAssistant,
-							Content:   fmt.Sprintf("I have reached the maximum number of iterations (%d). Stopping as requested by user.", runtimeMaxIterations),
+							Role: chat.MessageRoleAssistant,
+							Content: fmt.Sprintf(
+								"Execution stopped after reaching the configured max_iterations limit (%d).",
+								runtimeMaxIterations,
+							),
 							CreatedAt: time.Now().Format(time.RFC3339),
 						}
-						sess.AddMessage(session.NewAgentMessage(a, &assistantMessage))
-						r.saveSession(ctx, sess)
+
+						addAgentMessage(sess, a, &assistantMessage, events)
 						return
 					}
+
 				case <-ctx.Done():
-					slog.Debug("Context cancelled while waiting for max iterations decision", "agent", a.Name())
+					slog.Debug(
+						"Context cancelled while waiting for resume confirmation",
+						"agent", a.Name(),
+						"session_id", sess.ID,
+					)
 					return
 				}
 			}
+
 			iteration++
+
 			// Exit immediately if the stream context has been cancelled (e.g., Ctrl+C)
 			if err := ctx.Err(); err != nil {
 				slog.Debug("Runtime stream context cancelled, stopping loop", "agent", a.Name(), "session_id", sess.ID)
@@ -766,16 +957,19 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 
 			model := a.Model()
 
-			// If thinking is disabled for this session, clone the provider with thinking disabled
+			// Apply thinking setting based on session state.
+			// When thinking is disabled: clone with thinking=false to clear any thinking config.
+			// When thinking is enabled: clone with thinking=true to ensure defaults are applied
+			// (this handles models with no thinking config, explicitly disabled thinking, or
+			// models that already have thinking configured).
 			if !sess.Thinking {
 				model = provider.CloneWithOptions(ctx, model, options.WithThinking(false))
 				slog.Debug("Cloned provider with thinking disabled", "agent", a.Name(), "model", model.ID())
-			} else if isModelThinkingDisabled(model) {
-				// If thinking is enabled for this session but the model config has it disabled
-				// (e.g., thinking_budget: 0 or thinking_budget: none), clone with explicit enable
-				// so that applyOverrides restores provider defaults.
+			} else {
+				// Always clone with thinking=true when session has thinking enabled.
+				// applyOverrides will apply provider defaults if ThinkingBudget is nil or disabled.
 				model = provider.CloneWithOptions(ctx, model, options.WithThinking(true))
-				slog.Debug("Cloned provider with thinking enabled (restoring defaults)", "agent", a.Name(), "model", model.ID())
+				slog.Debug("Cloned provider with thinking enabled", "agent", a.Name(), "model", model.ID())
 			}
 
 			modelID := model.ID()
@@ -801,21 +995,8 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 			messages := sess.GetMessages(a)
 			slog.Debug("Retrieved messages for processing", "agent", a.Name(), "message_count", len(messages))
 
-			slog.Debug("Creating chat completion stream", "agent", a.Name())
-			stream, err := model.CreateChatCompletionStream(streamCtx, messages, agentTools)
-			if err != nil {
-				streamSpan.RecordError(err)
-				streamSpan.SetStatus(codes.Error, "creating chat completion")
-				slog.Error("Failed to create chat completion stream", "agent", a.Name(), "error", err)
-				// Track error in telemetry
-				telemetry.RecordError(ctx, err.Error())
-				events <- Error(fmt.Sprintf("creating chat completion: %v", err))
-				streamSpan.End()
-				return
-			}
-
-			slog.Debug("Processing stream", "agent", a.Name())
-			res, err := r.handleStream(ctx, stream, a, agentTools, sess, m, events)
+			// Try primary model with fallback chain if configured
+			res, usedModel, err := r.tryModelWithFallback(streamCtx, a, model, messages, agentTools, sess, m, events)
 			if err != nil {
 				// Treat context cancellation as a graceful stop
 				if errors.Is(err, context.Canceled) {
@@ -825,12 +1006,18 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 				}
 				streamSpan.RecordError(err)
 				streamSpan.SetStatus(codes.Error, "error handling stream")
-				slog.Error("Error handling stream", "agent", a.Name(), "error", err)
+				slog.Error("All models failed", "agent", a.Name(), "error", err)
 				// Track error in telemetry
 				telemetry.RecordError(ctx, err.Error())
 				events <- Error(err.Error())
 				streamSpan.End()
 				return
+			}
+
+			// Update model info if we used a fallback
+			if usedModel != nil && usedModel.ID() != model.ID() {
+				slog.Info("Used fallback model", "agent", a.Name(), "primary", model.ID(), "used", usedModel.ID())
+				events <- AgentInfo(a.Name(), usedModel.ID(), a.Description(), a.WelcomeMessage())
 			}
 			streamSpan.SetAttributes(
 				attribute.Int("tool.calls", len(res.Calls)),
@@ -895,9 +1082,11 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 						Model: messageModel,
 					}
 				}
+				if res.RateLimit != nil {
+					msgUsage.RateLimit = *res.RateLimit
+				}
 
-				sess.AddMessage(session.NewAgentMessage(a, &assistantMessage))
-				r.saveSession(ctx, sess)
+				addAgentMessage(sess, a, &assistantMessage, events)
 				slog.Debug("Added assistant message to session", "agent", a.Name(), "total_messages", len(sess.GetAllMessages()))
 			} else {
 				slog.Debug("Skipping empty assistant message (no content and no tool calls)", "agent", a.Name())
@@ -945,12 +1134,23 @@ func (r *LocalRuntime) getTools(ctx context.Context, a *agent.Agent, sessionSpan
 // configureToolsetHandlers sets up elicitation and OAuth handlers for all toolsets of an agent.
 func (r *LocalRuntime) configureToolsetHandlers(a *agent.Agent, events chan Event) {
 	for _, toolset := range a.ToolSets() {
-		toolset.SetElicitationHandler(r.elicitationHandler)
-		toolset.SetOAuthSuccessHandler(func() {
-			events <- Authorization(tools.ElicitationActionAccept, r.currentAgent)
-		})
-		toolset.SetManagedOAuth(r.managedOAuth)
+		tools.ConfigureHandlers(toolset,
+			r.elicitationHandler,
+			func() { events <- Authorization(tools.ElicitationActionAccept, r.currentAgent) },
+			r.managedOAuth,
+		)
 	}
+}
+
+// emitAgentWarningsWithSend emits agent warnings using the provided send function for context-aware sending.
+func (r *LocalRuntime) emitAgentWarningsWithSend(a *agent.Agent, send func(Event) bool) {
+	warnings := a.DrainWarnings()
+	if len(warnings) == 0 {
+		return
+	}
+
+	slog.Warn("Tool setup partially failed; continuing", "agent", a.Name(), "warnings", warnings)
+	send(Warning(formatToolWarning(a, warnings), r.currentAgent))
 }
 
 func (r *LocalRuntime) emitAgentWarnings(a *agent.Agent, events chan Event) {
@@ -975,14 +1175,39 @@ func formatToolWarning(a *agent.Agent, warnings []string) string {
 	return strings.TrimSuffix(builder.String(), "\n")
 }
 
-func (r *LocalRuntime) Resume(_ context.Context, confirmationType ResumeType) {
-	slog.Debug("Resuming runtime", "agent", r.currentAgent, "confirmation_type", confirmationType)
+func (r *LocalRuntime) Resume(_ context.Context, req ResumeRequest) {
+	slog.Debug("Resuming runtime", "agent", r.currentAgent, "type", req.Type, "reason", req.Reason)
 
+	// Defensive validation:
+	//
+	// The runtime may be resumed by multiple entry points (API, CLI, TUI, tests).
+	// Even if upstream layers perform validation, the runtime must never assume
+	// the ResumeType is valid. Accepting invalid values here leads to confusing
+	// downstream behavior where tool execution fails without a clear cause.
+	if !IsValidResumeType(req.Type) {
+		slog.Warn(
+			"Invalid resume type received; ignoring resume request",
+			"agent", r.currentAgent,
+			"confirmation_type", req.Type,
+			"valid_types", ValidResumeTypes(),
+		)
+		return
+	}
+
+	// Attempt to deliver the resume signal to the execution loop.
+	//
+	// The channel is non-blocking by design to avoid deadlocks if the runtime
+	// is not currently waiting for a confirmation (e.g. already resumed,
+	// canceled, or shutting down).
 	select {
-	case r.resumeChan <- confirmationType:
+	case r.resumeChan <- req:
 		slog.Debug("Resume signal sent", "agent", r.currentAgent)
 	default:
-		slog.Debug("Resume channel not ready, ignoring", "agent", r.currentAgent)
+		slog.Debug(
+			"Resume channel not ready; resume signal dropped",
+			"agent", r.currentAgent,
+			"confirmation_type", req.Type,
+		)
 	}
 }
 
@@ -1032,9 +1257,15 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 	var actualModel string
 	var actualModelEventEmitted bool
 	var messageUsage *chat.Usage
+	var messageRateLimit *chat.RateLimit
+
 	modelID := getAgentModelID(a)
-	// Track which tool call indices we've already emitted partial events for
-	emittedPartialEvents := make(map[string]bool)
+	toolCallIndex := make(map[string]int)   // toolCallID -> index in toolCalls slice
+	emittedPartial := make(map[string]bool) // toolCallID -> whether we've emitted a partial event
+	toolDefMap := make(map[string]tools.Tool, len(agentTools))
+	for _, t := range agentTools {
+		toolDefMap[t.Name] = t
+	}
 
 	for {
 		response, err := stream.Recv()
@@ -1083,6 +1314,10 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 			)
 		}
 
+		if response.RateLimit != nil {
+			messageRateLimit = response.RateLimit
+		}
+
 		if len(response.Choices) == 0 {
 			continue
 		}
@@ -1097,8 +1332,14 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 		if actualModel == "" && response.Model != "" {
 			actualModel = response.Model
 			if !actualModelEventEmitted && actualModel != modelID {
-				slog.Debug("Detected actual model differs from configured model (streaming)", "configured", modelID, "actual", actualModel)
-				events <- AgentInfo(a.Name(), actualModel, a.Description(), a.WelcomeMessage())
+				// NOTE(krissetto):Prepend the provider from the configured modelID to maintain consistent format
+				// every other invocation in the code uses the provider/model format
+				formattedModel := actualModel
+				if idx := strings.Index(modelID, "/"); idx != -1 {
+					formattedModel = modelID[:idx+1] + actualModel
+				}
+				slog.Debug("Detected actual model differs from configured model (streaming)", "configured", modelID, "actual", formattedModel)
+				events <- AgentInfo(a.Name(), formattedModel, a.Description(), a.WelcomeMessage())
 				actualModelEventEmitted = true
 			}
 		}
@@ -1113,69 +1354,46 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 				Stopped:           true,
 				ActualModel:       actualModel,
 				Usage:             messageUsage,
+				RateLimit:         messageRateLimit,
 			}, nil
 		}
 
 		// Handle tool calls
 		if len(choice.Delta.ToolCalls) > 0 {
 			// Process each tool call delta
-			for _, deltaToolCall := range choice.Delta.ToolCalls {
-				// Find existing tool call by ID, or create a new one
-				idx := -1
-				for i, toolCall := range toolCalls {
-					if toolCall.ID == deltaToolCall.ID {
-						idx = i
-						break
-					}
-				}
-
-				// If tool call doesn't exist yet, append it
-				if idx == -1 {
+			for _, delta := range choice.Delta.ToolCalls {
+				idx, exists := toolCallIndex[delta.ID]
+				if !exists {
 					idx = len(toolCalls)
+					toolCallIndex[delta.ID] = idx
 					toolCalls = append(toolCalls, tools.ToolCall{
-						ID:   deltaToolCall.ID,
-						Type: deltaToolCall.Type,
+						ID:   delta.ID,
+						Type: delta.Type,
 					})
 				}
 
-				// Check if we should emit a partial event for this tool call
-				// We want to emit when we first get the function name
-				shouldEmitPartial := !emittedPartialEvents[deltaToolCall.ID] &&
-					deltaToolCall.Function.Name != "" &&
-					toolCalls[idx].Function.Name == "" // Don't emit if we already have the name
+				tc := &toolCalls[idx]
 
-				// Update fields based on what's in the delta
-				if deltaToolCall.ID != "" {
-					toolCalls[idx].ID = deltaToolCall.ID
+				// Track if we're learning the name for the first time
+				learningName := delta.Function.Name != "" && tc.Function.Name == ""
+
+				// Update fields from delta
+				if delta.Type != "" {
+					tc.Type = delta.Type
 				}
-				if deltaToolCall.Type != "" {
-					toolCalls[idx].Type = deltaToolCall.Type
+				if delta.Function.Name != "" {
+					tc.Function.Name = delta.Function.Name
 				}
-				if deltaToolCall.Function.Name != "" {
-					toolCalls[idx].Function.Name = deltaToolCall.Function.Name
-				}
-				if deltaToolCall.Function.Arguments != "" {
-					if toolCalls[idx].Function.Arguments == "" {
-						toolCalls[idx].Function.Arguments = deltaToolCall.Function.Arguments
-					} else {
-						toolCalls[idx].Function.Arguments += deltaToolCall.Function.Arguments
-					}
-					// Emit if we get more arguments
-					shouldEmitPartial = true
+				if delta.Function.Arguments != "" {
+					tc.Function.Arguments += delta.Function.Arguments
 				}
 
-				// Emit PartialToolCallEvent when we first get the function name
-				if shouldEmitPartial {
-					// TODO: clean this up, it's gross
-					tool := tools.Tool{}
-					for _, t := range agentTools {
-						if t.Name == toolCalls[idx].Function.Name {
-							tool = t
-							break
-						}
+				// Emit PartialToolCall once we have a name, and on subsequent argument deltas
+				if tc.Function.Name != "" && (learningName || delta.Function.Arguments != "") {
+					if !emittedPartial[delta.ID] || delta.Function.Arguments != "" {
+						events <- PartialToolCall(*tc, toolDefMap[tc.Function.Name], a.Name())
+						emittedPartial[delta.ID] = true
 					}
-					events <- PartialToolCall(toolCalls[idx], tool, a.Name())
-					emittedPartialEvents[deltaToolCall.ID] = true
 				}
 			}
 			continue
@@ -1209,6 +1427,7 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 		Stopped:           stoppedDueToNoOutput,
 		ActualModel:       actualModel,
 		Usage:             messageUsage,
+		RateLimit:         messageRateLimit,
 	}, nil
 }
 
@@ -1277,38 +1496,17 @@ func (r *LocalRuntime) processToolCalls(ctx context.Context, sess *session.Sessi
 //
 // The approval flow considers (in order):
 //
-//  1. Session-level permissions (if configured) - checked first
-//     a. Per-tool settings (Tools map) - most specific, checked first
-//     b. Pattern-based Allow/Deny - broader rules, checked as fallback
+//  1. Session-level permissions (if configured) - pattern-based Allow/Deny rules
 //  2. Team-level permissions config - checked second
 //  3. sess.ToolsApproved (--yolo flag) - auto-approve all
 //  4. tool.Annotations.ReadOnlyHint - auto-approve read-only tools
 //  5. Default: ask for user confirmation
 //
-// Example session permissions configurations:
+// Example session permissions configuration:
 //
-//	// Per-tool settings - granular control per tool
-//	sess.Permissions = &session.PermissionsConfig{
-//	    Tools: map[string]session.ToolPermission{
-//	        "shell":      {Enabled: ptr(true), Mode: "ask"},          // require confirmation
-//	        "filesystem": {Enabled: ptr(true), Mode: "always_allow"}, // auto-approve
-//	        "dangerous":  {Enabled: ptr(false)},                      // disabled
-//	    },
-//	}
-//
-//	// Pattern-based rules - apply to multiple tools at once
 //	sess.Permissions = &session.PermissionsConfig{
 //	    Allow: []string{"read_*", "think"},  // auto-approve matching tools
 //	    Deny:  []string{"shell", "exec_*"},  // block matching tools
-//	}
-//
-//	// Mixed: per-tool settings take priority over patterns
-//	sess.Permissions = &session.PermissionsConfig{
-//	    Tools: map[string]session.ToolPermission{
-//	        "shell": {Enabled: ptr(true), Mode: "ask"}, // overrides Deny pattern
-//	    },
-//	    Allow: []string{"*"},     // applies to tools not in Tools map
-//	    Deny:  []string{"shell"}, // ignored for shell since it's in Tools map
 //	}
 func (r *LocalRuntime) executeWithApproval(
 	ctx context.Context,
@@ -1331,79 +1529,48 @@ func (r *LocalRuntime) executeWithApproval(
 		}
 	}
 
-	// requiresConfirmation tracks if per-tool settings require user confirmation
-	// (skipping pattern-based rules and other auto-approve checks)
-	requiresConfirmation := false
-
 	// 1. Check session-level permissions first (if configured)
 	if sess.Permissions != nil {
-		// 1a. Check Tools map first (new per-tool settings)
-		if perm := sess.Permissions.GetToolPermission(toolName); perm != nil {
-			// Check if tool is disabled
-			if !sess.Permissions.IsToolEnabled(toolName) {
-				slog.Debug("Tool disabled by session permissions", "tool", toolName, "session_id", sess.ID)
-				r.addToolErrorResponse(ctx, sess, toolCall, tool, events, a, fmt.Sprintf("Tool '%s' is disabled by session permissions.", toolName))
-				return false
-			}
-			// Check permission mode
-			mode := sess.Permissions.GetToolMode(toolName)
-			switch mode {
-			case session.PermissionModeAlwaysAllow:
-				slog.Debug("Tool auto-approved by session per-tool permissions", "tool", toolName, "mode", mode, "session_id", sess.ID)
-				runTool()
-				return false
-			case session.PermissionModeAsk:
-			default:
-				slog.Debug("Tool requires confirmation by session per-tool permissions ", "tool", toolName, "mode", mode, "session_id", sess.ID)
-				requiresConfirmation = true
-			}
-		}
-
-		// 1b. Fall back to pattern-based Allow/Deny rules (only if not already handled by Tools map)
-		if !requiresConfirmation {
-			sessionChecker := permissions.NewChecker(&latest.PermissionsConfig{
-				Allow: sess.Permissions.Allow,
-				Deny:  sess.Permissions.Deny,
-			})
-			decision := sessionChecker.CheckWithArgs(toolName, toolArgs)
-			switch decision {
-			case permissions.Deny:
-				slog.Debug("Tool denied by session permissions", "tool", toolName, "session_id", sess.ID)
-				r.addToolErrorResponse(ctx, sess, toolCall, tool, events, a, fmt.Sprintf("Tool '%s' is denied by session permissions.", toolName))
-				return false
-			case permissions.Allow:
-				slog.Debug("Tool auto-approved by session permissions", "tool", toolName, "session_id", sess.ID)
-				runTool()
-				return false
-			case permissions.Ask:
-				// Fall through to team permissions
-			}
+		sessionChecker := permissions.NewChecker(&latest.PermissionsConfig{
+			Allow: sess.Permissions.Allow,
+			Deny:  sess.Permissions.Deny,
+		})
+		decision := sessionChecker.CheckWithArgs(toolName, toolArgs)
+		switch decision {
+		case permissions.Deny:
+			slog.Debug("Tool denied by session permissions", "tool", toolName, "session_id", sess.ID)
+			r.addToolErrorResponse(ctx, sess, toolCall, tool, events, a, fmt.Sprintf("Tool '%s' is denied by session permissions.", toolName))
+			return false
+		case permissions.Allow:
+			slog.Debug("Tool auto-approved by session permissions", "tool", toolName, "session_id", sess.ID)
+			runTool()
+			return false
+		case permissions.Ask:
+			// Fall through to team permissions
 		}
 	}
 
-	// 2. Check team-level permissions config (skip if per-tool ask mode is set)
-	if !requiresConfirmation {
-		if permChecker := r.team.Permissions(); permChecker != nil {
-			decision := permChecker.CheckWithArgs(toolName, toolArgs)
-			switch decision {
-			case permissions.Deny:
-				slog.Debug("Tool denied by team permissions config", "tool", toolName, "session_id", sess.ID)
-				r.addToolErrorResponse(ctx, sess, toolCall, tool, events, a, fmt.Sprintf("Tool '%s' is denied by permissions configuration.", toolName))
-				return false
-			case permissions.Allow:
-				slog.Debug("Tool auto-approved by team permissions config", "tool", toolName, "session_id", sess.ID)
-				runTool()
-				return false
-			case permissions.Ask:
-				// Fall through to normal approval flow
-			}
-		}
-
-		// Check --yolo flag or read-only hint (skip if per-tool ask mode is set)
-		if sess.ToolsApproved || tool.Annotations.ReadOnlyHint {
+	// 2. Check team-level permissions config
+	if permChecker := r.team.Permissions(); permChecker != nil {
+		decision := permChecker.CheckWithArgs(toolName, toolArgs)
+		switch decision {
+		case permissions.Deny:
+			slog.Debug("Tool denied by team permissions config", "tool", toolName, "session_id", sess.ID)
+			r.addToolErrorResponse(ctx, sess, toolCall, tool, events, a, fmt.Sprintf("Tool '%s' is denied by permissions configuration.", toolName))
+			return false
+		case permissions.Allow:
+			slog.Debug("Tool auto-approved by team permissions config", "tool", toolName, "session_id", sess.ID)
 			runTool()
 			return false
+		case permissions.Ask:
+			// Fall through to normal approval flow
 		}
+	}
+
+	// 3. Check --yolo flag or read-only hint
+	if sess.ToolsApproved || tool.Annotations.ReadOnlyHint {
+		runTool()
+		return false
 	}
 
 	// Ask user for confirmation
@@ -1411,8 +1578,8 @@ func (r *LocalRuntime) executeWithApproval(
 	events <- ToolCallConfirmation(toolCall, tool, a.Name())
 
 	select {
-	case cType := <-r.resumeChan:
-		switch cType {
+	case req := <-r.resumeChan:
+		switch req.Type {
 		case ResumeTypeApprove:
 			slog.Debug("Resume signal received, approving tool", "tool", toolCall.Function.Name, "session_id", sess.ID)
 			runTool()
@@ -1420,9 +1587,27 @@ func (r *LocalRuntime) executeWithApproval(
 			slog.Debug("Resume signal received, approving session", "tool", toolCall.Function.Name, "session_id", sess.ID)
 			sess.ToolsApproved = true
 			runTool()
+		case ResumeTypeApproveTool:
+			// Add the tool to session's allow list for future auto-approval
+			approvedTool := req.ToolName
+			if approvedTool == "" {
+				approvedTool = toolName
+			}
+			if sess.Permissions == nil {
+				sess.Permissions = &session.PermissionsConfig{}
+			}
+			if !slices.Contains(sess.Permissions.Allow, approvedTool) {
+				sess.Permissions.Allow = append(sess.Permissions.Allow, approvedTool)
+			}
+			slog.Debug("Resume signal received, approving tool permanently", "tool", approvedTool, "session_id", sess.ID)
+			runTool()
 		case ResumeTypeReject:
-			slog.Debug("Resume signal received, rejecting tool", "tool", toolCall.Function.Name, "session_id", sess.ID)
-			r.addToolErrorResponse(ctx, sess, toolCall, tool, events, a, "The user rejected the tool call.")
+			slog.Debug("Resume signal received, rejecting tool", "tool", toolCall.Function.Name, "session_id", sess.ID, "reason", req.Reason)
+			rejectMsg := "The user rejected the tool call."
+			if strings.TrimSpace(req.Reason) != "" {
+				rejectMsg += " Reason: " + strings.TrimSpace(req.Reason)
+			}
+			r.addToolErrorResponse(ctx, sess, toolCall, tool, events, a, rejectMsg)
 		}
 		return false
 	case <-ctx.Done():
@@ -1491,8 +1676,7 @@ func (r *LocalRuntime) executeToolWithHandler(
 		ToolCallID: toolCall.ID,
 		CreatedAt:  time.Now().Format(time.RFC3339),
 	}
-	sess.AddMessage(session.NewAgentMessage(a, &toolResponseMsg))
-	r.saveSession(ctx, sess)
+	addAgentMessage(sess, a, &toolResponseMsg, events)
 }
 
 // runTool executes agent tools from toolsets (MCP, filesystem, etc.).
@@ -1571,9 +1755,15 @@ func (r *LocalRuntime) runAgentTool(ctx context.Context, handler ToolHandlerFunc
 		})
 }
 
+func addAgentMessage(sess *session.Session, a *agent.Agent, msg *chat.Message, events chan Event) {
+	agentMsg := session.NewAgentMessage(a, msg)
+	sess.AddMessage(agentMsg)
+	events <- MessageAdded(sess.ID, agentMsg, a.Name())
+}
+
 // addToolErrorResponse adds a tool error response to the session and emits the event.
 // This consolidates the common pattern used by validation, rejection, and cancellation responses.
-func (r *LocalRuntime) addToolErrorResponse(ctx context.Context, sess *session.Session, toolCall tools.ToolCall, tool tools.Tool, events chan Event, a *agent.Agent, errorMsg string) {
+func (r *LocalRuntime) addToolErrorResponse(_ context.Context, sess *session.Session, toolCall tools.ToolCall, tool tools.Tool, events chan Event, a *agent.Agent, errorMsg string) {
 	events <- ToolCallResponse(toolCall, tool, tools.ResultError(errorMsg), errorMsg, a.Name())
 
 	toolResponseMsg := chat.Message{
@@ -1582,18 +1772,7 @@ func (r *LocalRuntime) addToolErrorResponse(ctx context.Context, sess *session.S
 		ToolCallID: toolCall.ID,
 		CreatedAt:  time.Now().Format(time.RFC3339),
 	}
-	sess.AddMessage(session.NewAgentMessage(a, &toolResponseMsg))
-	r.saveSession(ctx, sess)
-}
-
-// saveSession persists the session to the store, but only for root sessions.
-// Sub-sessions (those with a ParentID) are not persisted as standalone entries;
-// they are embedded within the parent session's Messages array.
-func (r *LocalRuntime) saveSession(ctx context.Context, sess *session.Session) {
-	if sess.IsSubSession() {
-		return
-	}
-	_ = r.sessionStore.UpdateSession(ctx, sess)
+	addAgentMessage(sess, a, &toolResponseMsg, events)
 }
 
 // startSpan wraps tracer.Start, returning a no-op span if the tracer is nil.
@@ -1687,6 +1866,7 @@ func (r *LocalRuntime) handleTaskTransfer(ctx context.Context, sess *session.Ses
 	sess.Thinking = s.Thinking
 
 	sess.AddSubSession(s)
+	evts <- SubSessionCompleted(sess.ID, s, a.Name())
 
 	slog.Debug("Task transfer completed", "agent", params.Agent, "task", params.Task)
 

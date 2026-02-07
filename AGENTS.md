@@ -674,6 +674,27 @@ return events
 - `AssistantMessage` - Agent response (text + tool calls)
 - `ToolMessage` - Tool execution result
 
+### TUI Animation Coordination
+
+All animated TUI components share a single tick stream via `pkg/tui/animation/`.
+
+```go
+// Init: register and maybe start tick
+func (m *MyComponent) Init() tea.Cmd {
+    return animation.StartTickIfFirst()
+}
+
+// Update: handle tick
+if tick, ok := msg.(animation.TickMsg); ok {
+    m.frame = tick.Frame
+}
+
+// When done: unregister
+animation.Unregister()
+```
+
+**Rules:** Only call from `Init()`/`Update()`, never from `Cmd` goroutines. Always `Unregister()` when animation stops.
+
 ## File Locations and Patterns
 
 ### Key Package Structure

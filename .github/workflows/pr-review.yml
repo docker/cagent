@@ -1,8 +1,12 @@
-name: PR Review on Command
+name: PR Review
 
 on:
   issue_comment:
     types: [created]
+  pull_request_review_comment:
+    types: [created]
+  pull_request_target:
+    types: [ready_for_review, opened]
 
 permissions:
   contents: read
@@ -10,19 +14,6 @@ permissions:
   issues: write
 
 jobs:
-  run-review:
-    if: github.event.issue.pull_request && contains(github.event.comment.body, '/review')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Run PR Reviewer Agent
-        uses: docker/cagent-action@1f7ec0445e138a587639fc9c046076e22d184349
-        with:
-          cagent-version: "v1.19.1"
-          agent: ${{ github.workspace }}/.github/workflows/agents/pr-review.yaml
-          prompt: "Please review this GitHub Pull Request: https://github.com/${{ github.repository }}/pull/${{ github.event.issue.number }}"
-          mcp-gateway: true
-          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+  review:
+    uses: docker/cagent-action/.github/workflows/review-pr.yml@latest
+    secrets: inherit

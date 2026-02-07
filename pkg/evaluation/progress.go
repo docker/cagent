@@ -13,8 +13,9 @@ import (
 
 // progressBar provides a live-updating progress display for evaluation runs.
 type progressBar struct {
-	out       io.Writer
-	fd        int // file descriptor for terminal size queries
+	ttyOut    io.Writer // output for progress bar rendering (TTY only)
+	resultOut io.Writer // output for results (can be tee'd to log)
+	fd        int       // file descriptor for terminal size queries
 	total     int
 	completed atomic.Int32
 	passed    atomic.Int32
@@ -27,14 +28,15 @@ type progressBar struct {
 	mu        sync.Mutex // protects output
 }
 
-func newProgressBar(out io.Writer, fd, total int, isTTY bool) *progressBar {
+func newProgressBar(ttyOut, resultOut io.Writer, fd, total int, isTTY bool) *progressBar {
 	return &progressBar{
-		out:     out,
-		fd:      fd,
-		total:   total,
-		done:    make(chan struct{}),
-		stopped: make(chan struct{}),
-		isTTY:   isTTY,
+		ttyOut:    ttyOut,
+		resultOut: resultOut,
+		fd:        fd,
+		total:     total,
+		done:      make(chan struct{}),
+		stopped:   make(chan struct{}),
+		isTTY:     isTTY,
 	}
 }
 
@@ -79,27 +81,27 @@ func (p *progressBar) printResult(result Result) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// Clear current line
+	// Clear current line on TTY
 	if p.isTTY {
-		fmt.Fprint(p.out, "\r\x1b[K")
+		fmt.Fprint(p.ttyOut, "\r\x1b[K")
 	}
 
 	successes, failures := result.checkResults()
 	success := len(failures) == 0
 
-	// Print session title with icon
+	// Print session title with icon (to result output, which may be tee'd to log)
 	if success {
-		fmt.Fprintf(p.out, "%s %s ($%.6f)\n", p.green("✓"), result.Title, result.Cost)
+		fmt.Fprintf(p.resultOut, "%s %s ($%.6f)\n", p.green("✓"), result.Title, result.Cost)
 	} else {
-		fmt.Fprintf(p.out, "%s %s ($%.6f)\n", p.red("✗"), result.Title, result.Cost)
+		fmt.Fprintf(p.resultOut, "%s %s ($%.6f)\n", p.red("✗"), result.Title, result.Cost)
 	}
 
 	// Print successes and failures
 	for _, s := range successes {
-		fmt.Fprintf(p.out, "  %s %s\n", p.green("✓"), s)
+		fmt.Fprintf(p.resultOut, "  %s %s\n", p.green("✓"), s)
 	}
 	for _, f := range failures {
-		fmt.Fprintf(p.out, "  %s %s\n", p.red("✗"), f)
+		fmt.Fprintf(p.resultOut, "  %s %s\n", p.red("✗"), f)
 	}
 }
 
@@ -142,16 +144,7 @@ func (p *progressBar) render(final bool) {
 
 	// Calculate bar width based on terminal size
 	// Reserve space for: "[" + "]" + " 100% (999/999) " + counts (~20) + running info (~30)
-	minBarWidth := 10
-	maxBarWidth := 50
-	reservedSpace := 60
-	barWidth := termWidth - reservedSpace
-	if barWidth < minBarWidth {
-		barWidth = minBarWidth
-	}
-	if barWidth > maxBarWidth {
-		barWidth = maxBarWidth
-	}
+	barWidth := min(max(termWidth-60, 10), 50)
 
 	filledWidth := 0
 	if p.total > 0 {
@@ -194,12 +187,12 @@ func (p *progressBar) render(final bool) {
 	}
 
 	if p.isTTY {
-		// Clear entire line and write status
-		fmt.Fprintf(p.out, "\r\x1b[K%s", status)
+		// Clear entire line and write status (to TTY only)
+		fmt.Fprintf(p.ttyOut, "\r\x1b[K%s", status)
 		if final {
-			fmt.Fprintln(p.out)
+			fmt.Fprintln(p.ttyOut)
 		}
 	} else if final {
-		fmt.Fprintln(p.out, status)
+		fmt.Fprintln(p.resultOut, status)
 	}
 }

@@ -8,7 +8,7 @@ import (
 
 const Version = "0"
 
-// Toolset represents a tool configuration
+// Toolset represents a tool configuration.
 type Toolset struct {
 	Type     string             `json:"type,omitempty" yaml:"type,omitempty"`
 	Command  string             `json:"command,omitempty" yaml:"command,omitempty"`
@@ -25,7 +25,7 @@ type Remote struct {
 	Headers       map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
 }
 
-// Ensure that either Command or Remote is set, but not both empty
+// Ensure that either Command or Remote is set, but not both empty.
 func (t *Toolset) validate() error {
 	if t.Type != "mcp" {
 		return nil

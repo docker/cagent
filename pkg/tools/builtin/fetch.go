@@ -23,11 +23,14 @@ const (
 )
 
 type FetchTool struct {
-	tools.BaseToolSet
 	handler *fetchHandler
 }
 
-var _ tools.ToolSet = (*FetchTool)(nil)
+// Verify interface compliance
+var (
+	_ tools.ToolSet      = (*FetchTool)(nil)
+	_ tools.Instructable = (*FetchTool)(nil)
+)
 
 type fetchHandler struct {
 	timeout time.Duration

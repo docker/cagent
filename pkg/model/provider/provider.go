@@ -369,15 +369,18 @@ func applyOverrides(cfg *latest.ModelConfig, opts *options.ModelOptions) *latest
 		return &enhancedCfg
 	}
 
-	// If thinking is explicitly enabled (e.g., via /think command) but the config has it
-	// disabled (Tokens == 0 or Effort == "none"), clear ThinkingBudget and re-apply defaults
-	// so the provider gets its standard thinking configuration.
-	if enhancedCfg.ThinkingBudget != nil && isThinkingBudgetDisabled(enhancedCfg.ThinkingBudget) {
+	// If thinking is explicitly enabled (e.g., via /think command), ensure thinking is configured.
+	// This handles two cases:
+	// 1. ThinkingBudget is nil (not configured) - apply defaults to enable thinking
+	// 2. ThinkingBudget is explicitly disabled (Tokens == 0 or Effort == "none") - clear and re-apply defaults
+	// This allows /think to enable thinking with provider defaults even when config had thinking_budget: 0
+	if enhancedCfg.ThinkingBudget == nil || isThinkingBudgetDisabled(enhancedCfg.ThinkingBudget) {
 		enhancedCfg.ThinkingBudget = nil
 		applyModelDefaults(&enhancedCfg)
-		slog.Debug("Override: thinking enabled - restored default thinking configuration",
+		slog.Debug("Override: thinking enabled - applied default thinking configuration",
 			"provider", cfg.Provider,
 			"model", cfg.Model,
+			"thinking_budget", enhancedCfg.ThinkingBudget,
 		)
 	}
 
@@ -415,6 +418,18 @@ func isThinkingBudgetDisabled(tb *latest.ThinkingBudget) bool {
 // - Google: Gemini 2.5 → thinking_budget = -1 (dynamic), Gemini 3 Pro → "high", Gemini 3 Flash → "medium"
 // - Amazon Bedrock (Claude models only): thinking_budget = 8192, interleaved_thinking = true
 func applyModelDefaults(cfg *latest.ModelConfig) {
+	// If thinking is explicitly disabled (thinking_budget: 0 or thinking_budget: none),
+	// set ThinkingBudget to nil to completely disable thinking.
+	// This ensures no thinking config is sent to the provider.
+	if isThinkingBudgetDisabled(cfg.ThinkingBudget) {
+		cfg.ThinkingBudget = nil
+		slog.Debug("Thinking explicitly disabled via thinking_budget: 0 or none",
+			"provider", cfg.Provider,
+			"model", cfg.Model,
+		)
+		return // Don't apply any provider defaults for thinking
+	}
+
 	// Resolve the actual provider type (handling aliases like mistral -> openai)
 	providerType := cfg.Provider
 	if alias, exists := Aliases[cfg.Provider]; exists && alias.APIType != "" {

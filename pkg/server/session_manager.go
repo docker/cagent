@@ -16,14 +16,17 @@ import (
 	"github.com/docker/cagent/pkg/config"
 	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/session"
+	"github.com/docker/cagent/pkg/sessiontitle"
 	"github.com/docker/cagent/pkg/team"
 	"github.com/docker/cagent/pkg/teamloader"
 	"github.com/docker/cagent/pkg/tools"
 )
 
 type activeRuntimes struct {
-	runtime runtime.Runtime
-	cancel  context.CancelFunc
+	runtime  runtime.Runtime
+	cancel   context.CancelFunc
+	session  *session.Session        // The actual session object used by the runtime
+	titleGen *sessiontitle.Generator // Title generator (includes fallback models)
 }
 
 // SessionManager manages sessions for HTTP and Connect-RPC servers.
@@ -140,8 +143,14 @@ func (sm *SessionManager) RunSession(ctx context.Context, sessionID, agentFilena
 
 	rc := sm.runConfig.Clone()
 	rc.WorkingDir = sess.WorkingDir
+
+	// Collect user messages for potential title generation
+	var userMessages []string
 	for _, msg := range messages {
 		sess.AddMessage(session.UserMessage(msg.Content, msg.MultiContent...))
+		if msg.Content != "" {
+			userMessages = append(userMessages, msg.Content)
+		}
 	}
 
 	if err := sm.sessionStore.UpdateSession(ctx, sess); err != nil {
@@ -150,22 +159,38 @@ func (sm *SessionManager) RunSession(ctx context.Context, sessionID, agentFilena
 
 	runtimeSession, exists := sm.runtimeSessions.Load(sessionID)
 	streamCtx, cancel := context.WithCancel(ctx)
+	var titleGen *sessiontitle.Generator
 	if !exists {
-		rt, err := sm.runtimeForSession(ctx, sess, agentFilename, currentAgent, rc)
+		var rt runtime.Runtime
+		rt, titleGen, err = sm.runtimeForSession(ctx, sess, agentFilename, currentAgent, rc)
 		if err != nil {
 			cancel()
 			return nil, err
 		}
 		runtimeSession = &activeRuntimes{
-			runtime: rt,
-			cancel:  cancel,
+			runtime:  rt,
+			cancel:   cancel,
+			session:  sess,
+			titleGen: titleGen,
 		}
 		sm.runtimeSessions.Store(sessionID, runtimeSession)
+	} else {
+		// Update the session pointer in case it was reloaded
+		runtimeSession.session = sess
+		titleGen = runtimeSession.titleGen
 	}
 
 	streamChan := make(chan runtime.Event)
 
+	// Check if we need to generate a title
+	needsTitle := sess.Title == "" && len(userMessages) > 0 && titleGen != nil
+
 	go func() {
+		// Start title generation in parallel if needed
+		if needsTitle {
+			go sm.generateTitle(ctx, sess, titleGen, userMessages, streamChan)
+		}
+
 		stream := runtimeSession.runtime.RunStream(streamCtx, sess)
 		defer cancel()
 		defer close(streamChan)
@@ -184,16 +209,22 @@ func (sm *SessionManager) RunSession(ctx context.Context, sessionID, agentFilena
 	return streamChan, nil
 }
 
-// ResumeSession resumes a paused session.
-func (sm *SessionManager) ResumeSession(ctx context.Context, sessionID, confirmation string) error {
+// ResumeSession resumes a paused session with an optional rejection reason or tool name.
+func (sm *SessionManager) ResumeSession(ctx context.Context, sessionID, confirmation, reason, toolName string) error {
 	sm.mux.Lock()
 	defer sm.mux.Unlock()
+
+	// Ensure the session runtime exists
 	rt, exists := sm.runtimeSessions.Load(sessionID)
 	if !exists {
 		return errors.New("session not found")
 	}
 
-	rt.runtime.Resume(ctx, runtime.ResumeType(confirmation))
+	rt.runtime.Resume(ctx, runtime.ResumeRequest{
+		Type:     runtime.ResumeType(confirmation),
+		Reason:   reason,
+		ToolName: toolName,
+	})
 	return nil
 }
 
@@ -251,22 +282,86 @@ func (sm *SessionManager) UpdateSessionPermissions(ctx context.Context, sessionI
 	return sm.sessionStore.UpdateSession(ctx, sess)
 }
 
-func (sm *SessionManager) runtimeForSession(ctx context.Context, sess *session.Session, agentFilename, currentAgent string, rc *config.RuntimeConfig) (runtime.Runtime, error) {
+// UpdateSessionTitle updates the title for a session.
+// If the session is actively running, it also updates the in-memory session
+// object to prevent subsequent runtime saves from overwriting the title.
+func (sm *SessionManager) UpdateSessionTitle(ctx context.Context, sessionID, title string) error {
+	sm.mux.Lock()
+	defer sm.mux.Unlock()
+
+	// If session is actively running, update the in-memory session object directly.
+	// This ensures the runtime's saveSession won't overwrite our manual edit.
+	if rt, ok := sm.runtimeSessions.Load(sessionID); ok && rt.session != nil {
+		rt.session.Title = title
+		slog.Debug("Updated title for active session", "session_id", sessionID, "title", title)
+		return sm.sessionStore.UpdateSession(ctx, rt.session)
+	}
+
+	// Session is not actively running, load from store and update
+	sess, err := sm.sessionStore.GetSession(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+
+	sess.Title = title
+	return sm.sessionStore.UpdateSession(ctx, sess)
+}
+
+// generateTitle generates a title for a session using the sessiontitle package.
+// The generated title is stored in the session and persisted to the store.
+// A SessionTitleEvent is emitted to notify clients.
+func (sm *SessionManager) generateTitle(ctx context.Context, sess *session.Session, gen *sessiontitle.Generator, userMessages []string, events chan<- runtime.Event) {
+	if gen == nil || len(userMessages) == 0 {
+		return
+	}
+
+	title, err := gen.Generate(ctx, sess.ID, userMessages)
+	if err != nil {
+		slog.Error("Failed to generate session title", "session_id", sess.ID, "error", err)
+		return
+	}
+
+	if title == "" {
+		return
+	}
+
+	// Update the in-memory session
+	sess.Title = title
+
+	// Persist the title
+	if err := sm.sessionStore.UpdateSession(ctx, sess); err != nil {
+		slog.Error("Failed to persist generated title", "session_id", sess.ID, "error", err)
+		return
+	}
+
+	// Emit the title event
+	select {
+	case events <- runtime.SessionTitle(sess.ID, title):
+		slog.Debug("Generated and emitted session title", "session_id", sess.ID, "title", title)
+	case <-ctx.Done():
+		slog.Debug("Context cancelled while emitting title event", "session_id", sess.ID)
+	}
+}
+
+func (sm *SessionManager) runtimeForSession(ctx context.Context, sess *session.Session, agentFilename, currentAgent string, rc *config.RuntimeConfig) (runtime.Runtime, *sessiontitle.Generator, error) {
 	rt, exists := sm.runtimeSessions.Load(sess.ID)
 	if exists && rt.runtime != nil {
-		return rt.runtime, nil
+		return rt.runtime, rt.titleGen, nil
 	}
 
 	t, err := sm.loadTeam(ctx, agentFilename, rc)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	agent, err := t.Agent(currentAgent)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	sess.MaxIterations = agent.MaxIterations()
+	// Initialize thinking state based on whether thinking_budget was explicitly configured
+	// in the agent's YAML config. Only enable thinking by default when explicitly configured.
+	sess.Thinking = agent.ThinkingConfigured()
 
 	opts := []runtime.Opt{
 		runtime.WithCurrentAgent(currentAgent),
@@ -275,16 +370,20 @@ func (sm *SessionManager) runtimeForSession(ctx context.Context, sess *session.S
 	}
 	run, err := runtime.New(t, opts...)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
+	titleGen := sessiontitle.New(agent.Model(), agent.FallbackModels()...)
+
 	sm.runtimeSessions.Store(sess.ID, &activeRuntimes{
-		runtime: run,
+		runtime:  run,
+		session:  sess,
+		titleGen: titleGen,
 	})
 
 	slog.Debug("Runtime created for session", "session_id", sess.ID)
 
-	return run, nil
+	return run, titleGen, nil
 }
 
 func (sm *SessionManager) loadTeam(ctx context.Context, agentFilename string, runConfig *config.RuntimeConfig) (*team.Team, error) {

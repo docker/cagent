@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	goruntime "runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -21,59 +20,62 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/docker/cagent/pkg/config"
+	"github.com/docker/cagent/pkg/config/latest"
 	"github.com/docker/cagent/pkg/environment"
 	"github.com/docker/cagent/pkg/model/provider"
+	"github.com/docker/cagent/pkg/model/provider/options"
+	"github.com/docker/cagent/pkg/session"
 )
 
 // Runner runs evaluations against an agent.
 type Runner struct {
-	agentSource   config.Source
-	evalsDir      string
-	judgeModel    provider.Provider
-	concurrency   int
-	modelsGateway string
-	envProvider   environment.Provider
-	ttyFd         int
-	only          []string
+	Config
+	agentSource config.Source
+	judge       *Judge
+	runConfig   *config.RuntimeConfig
+
+	// imageCache caches built Docker images by working directory.
+	// Key is the working directory (empty string for no working dir).
+	imageCache   map[string]string
+	imageCacheMu sync.Mutex
 }
 
-// NewRunner creates a new evaluation runner.
-func NewRunner(agentSource config.Source, runConfig *config.RuntimeConfig, evalsDir string, cfg Config) *Runner {
+// newRunner creates a new evaluation runner.
+func newRunner(agentSource config.Source, runConfig *config.RuntimeConfig, judgeModel provider.Provider, cfg Config) *Runner {
+	var judge *Judge
+	if judgeModel != nil {
+		judge = NewJudge(judgeModel, runConfig, cfg.Concurrency)
+	}
 	return &Runner{
-		agentSource:   agentSource,
-		evalsDir:      evalsDir,
-		judgeModel:    cfg.JudgeModel,
-		concurrency:   cmp.Or(cfg.Concurrency, goruntime.NumCPU()),
-		modelsGateway: runConfig.ModelsGateway,
-		envProvider:   runConfig.EnvProvider(),
-		ttyFd:         cfg.TTYFd,
-		only:          cfg.Only,
+		Config:      cfg,
+		agentSource: agentSource,
+		judge:       judge,
+		runConfig:   runConfig,
+		imageCache:  make(map[string]string),
 	}
 }
 
-// Evaluate is the main entry point for running evaluations.
-func Evaluate(ctx context.Context, out io.Writer, isTTY bool, ttyFd int, agentFilename, evalsDir string, runConfig *config.RuntimeConfig, concurrency int, judgeModel provider.Provider, only []string) (*EvalRun, error) {
-	return EvaluateWithName(ctx, out, isTTY, ttyFd, GenerateRunName(), agentFilename, evalsDir, runConfig, concurrency, judgeModel, only)
-}
-
-// EvaluateWithName runs evaluations with a specified run name.
-func EvaluateWithName(ctx context.Context, out io.Writer, isTTY bool, ttyFd int, runName, agentFilename, evalsDir string, runConfig *config.RuntimeConfig, concurrency int, judgeModel provider.Provider, only []string) (*EvalRun, error) {
-	agentSource, err := config.Resolve(agentFilename)
+// Evaluate runs evaluations with a specified run name.
+// ttyOut is used for progress bar rendering (should be the console/TTY).
+// out is used for results and status messages (can be tee'd to a log file).
+func Evaluate(ctx context.Context, ttyOut, out io.Writer, isTTY bool, runName string, runConfig *config.RuntimeConfig, cfg Config) (*EvalRun, error) {
+	agentSource, err := config.Resolve(cfg.AgentFilename, nil)
 	if err != nil {
 		return nil, fmt.Errorf("resolving agent: %w", err)
 	}
 
-	runner := NewRunner(agentSource, runConfig, evalsDir, Config{
-		Concurrency: concurrency,
-		JudgeModel:  judgeModel,
-		TTYFd:       ttyFd,
-		Only:        only,
-	})
+	// Create judge model provider for relevance checking
+	judgeModel, err := createJudgeModel(ctx, cfg.JudgeModel, runConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	runner := newRunner(agentSource, runConfig, judgeModel, cfg)
 
 	fmt.Fprintf(out, "Evaluation run: %s\n", runName)
 
 	startTime := time.Now()
-	results, err := runner.Run(ctx, out, isTTY)
+	results, err := runner.Run(ctx, ttyOut, out, isTTY)
 	duration := time.Since(startTime)
 
 	summary := computeSummary(results)
@@ -97,19 +99,28 @@ func EvaluateWithName(ctx context.Context, out io.Writer, isTTY bool, ttyFd int,
 // workItem represents a single evaluation to be processed.
 type workItem struct {
 	index int
-	eval  *EvalSession
+	eval  *InputSession
 }
 
 // Run executes all evaluations concurrently and returns results.
-func (r *Runner) Run(ctx context.Context, out io.Writer, isTTY bool) ([]Result, error) {
+// ttyOut is used for progress bar rendering (should be the console/TTY).
+// out is used for results and status messages (can be tee'd to a log file).
+func (r *Runner) Run(ctx context.Context, ttyOut, out io.Writer, isTTY bool) ([]Result, error) {
 	fmt.Fprintln(out, "Loading evaluation sessions...")
 	evals, err := r.loadEvalSessions(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("loading evaluations: %w", err)
 	}
-	fmt.Fprintf(out, "Running %d evaluations with concurrency %d\n\n", len(evals), r.concurrency)
 
-	progress := newProgressBar(out, r.ttyFd, len(evals), isTTY)
+	// Pre-build all unique Docker images in parallel before running evaluations.
+	// This avoids serialized builds when multiple workers need the same image.
+	if err := r.preBuildImages(ctx, out, evals); err != nil {
+		return nil, fmt.Errorf("pre-building images: %w", err)
+	}
+
+	fmt.Fprintf(out, "Running %d evaluations with concurrency %d\n\n", len(evals), r.Concurrency)
+
+	progress := newProgressBar(ttyOut, out, r.TTYFd, len(evals), isTTY)
 	progress.start()
 	defer progress.stop()
 
@@ -122,7 +133,7 @@ func (r *Runner) Run(ctx context.Context, out io.Writer, isTTY bool) ([]Result, 
 	close(work)
 
 	var wg sync.WaitGroup
-	for range r.concurrency {
+	for range r.Concurrency {
 		wg.Go(func() {
 			for item := range work {
 				if ctx.Err() != nil {
@@ -153,13 +164,13 @@ func (r *Runner) Run(ctx context.Context, out io.Writer, isTTY bool) ([]Result, 
 	return results, nil
 }
 
-func (r *Runner) loadEvalSessions(ctx context.Context) ([]EvalSession, error) {
-	entries, err := os.ReadDir(r.evalsDir)
+func (r *Runner) loadEvalSessions(ctx context.Context) ([]InputSession, error) {
+	entries, err := os.ReadDir(r.EvalsDir)
 	if err != nil {
 		return nil, err
 	}
 
-	var evals []EvalSession
+	var evals []InputSession
 	for _, entry := range entries {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -167,7 +178,7 @@ func (r *Runner) loadEvalSessions(ctx context.Context) ([]EvalSession, error) {
 
 		// Filter by --only patterns against file name if specified
 		fileName := entry.Name()
-		if len(r.only) > 0 && !matchesAnyPattern(fileName, r.only) {
+		if len(r.Only) > 0 && !matchesAnyPattern(fileName, r.Only) {
 			continue
 		}
 
@@ -175,58 +186,125 @@ func (r *Runner) loadEvalSessions(ctx context.Context) ([]EvalSession, error) {
 			continue
 		}
 
-		data, err := os.ReadFile(filepath.Join(r.evalsDir, fileName))
+		data, err := os.ReadFile(filepath.Join(r.EvalsDir, fileName))
 		if err != nil {
 			return nil, err
 		}
 
-		var evalSess EvalSession
+		var evalSess session.Session
 		if err := json.Unmarshal(data, &evalSess); err != nil {
 			return nil, err
 		}
 
-		if evalSess.Title == "" {
-			evalSess.Title = strings.TrimSuffix(fileName, ".json")
-		}
-
-		evals = append(evals, evalSess)
+		evals = append(evals, InputSession{
+			Session:    &evalSess,
+			SourcePath: filepath.Join(r.EvalsDir, fileName),
+		})
 	}
 
 	// Sort by duration (longest first) to avoid long tail
-	slices.SortFunc(evals, func(a, b EvalSession) int {
-		durA := a.Duration()
-		durB := b.Duration()
-		if durA > durB {
-			return -1
-		}
-		if durA < durB {
-			return 1
-		}
-		return 0
+	slices.SortFunc(evals, func(a, b InputSession) int {
+		return cmp.Compare(b.Duration(), a.Duration())
 	})
 
 	return evals, nil
 }
 
-func (r *Runner) runSingleEval(ctx context.Context, evalSess *EvalSession) (Result, error) {
+// preBuildImages pre-builds all unique Docker images needed for the evaluations.
+// This is done in parallel to avoid serialized builds during evaluation.
+func (r *Runner) preBuildImages(ctx context.Context, out io.Writer, evals []InputSession) error {
+	// Collect unique working directories
+	workingDirs := make(map[string]struct{})
+	for _, eval := range evals {
+		if eval.Evals != nil {
+			workingDirs[eval.Evals.WorkingDir] = struct{}{}
+		}
+	}
+
+	if len(workingDirs) == 0 {
+		return nil
+	}
+
+	fmt.Fprintf(out, "Pre-building %d Docker image(s)...\n", len(workingDirs))
+
+	// Build images in parallel with limited concurrency
+	type buildResult struct {
+		workingDir string
+		err        error
+	}
+
+	work := make(chan string, len(workingDirs))
+	for wd := range workingDirs {
+		work <- wd
+	}
+	close(work)
+
+	results := make(chan buildResult, len(workingDirs))
+
+	// Use same concurrency as evaluation runs for image builds
+	buildWorkers := min(r.Concurrency, len(workingDirs))
+	var wg sync.WaitGroup
+	for range buildWorkers {
+		wg.Go(func() {
+			for wd := range work {
+				if ctx.Err() != nil {
+					results <- buildResult{workingDir: wd, err: ctx.Err()}
+					continue
+				}
+				_, err := r.getOrBuildImage(ctx, wd)
+				results <- buildResult{workingDir: wd, err: err}
+			}
+		})
+	}
+
+	// Wait for all builds to complete
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect errors
+	var errs []error
+	for result := range results {
+		if result.err != nil {
+			errs = append(errs, fmt.Errorf("building image for %q: %w", result.workingDir, result.err))
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("failed to build %d image(s): %w", len(errs), errs[0])
+	}
+
+	return nil
+}
+
+func (r *Runner) runSingleEval(ctx context.Context, evalSess *InputSession) (Result, error) {
 	startTime := time.Now()
 	slog.Debug("Starting evaluation", "title", evalSess.Title)
 
-	result := Result{
-		Title:             evalSess.Title,
-		Question:          getFirstUserMessage(&evalSess.Session),
-		SizeExpected:      evalSess.Evals.Size,
-		RelevanceExpected: float64(len(evalSess.Evals.Relevance)),
+	var evals *session.EvalCriteria
+	if evalSess.Evals != nil {
+		evals = evalSess.Evals
+	} else {
+		evals = &session.EvalCriteria{}
 	}
 
-	expectedToolCalls := extractToolCalls(&evalSess.Session)
+	result := Result{
+		InputPath:         evalSess.SourcePath,
+		Title:             evalSess.Title,
+		Question:          getFirstUserMessage(evalSess.Session),
+		SizeExpected:      evals.Size,
+		RelevanceExpected: float64(len(evals.Relevance)),
+	}
+
+	expectedToolCalls := extractToolCalls(evalSess.Messages)
 	if len(expectedToolCalls) > 0 {
 		result.ToolCallsExpected = 1.0
 	}
 
-	workingDir := evalSess.Evals.WorkingDir
+	workingDir := evals.WorkingDir
 
-	imageID, err := r.buildEvalImage(ctx, workingDir)
+	imageID, err := r.getOrBuildImage(ctx, workingDir)
 	if err != nil {
 		return result, fmt.Errorf("building eval image: %w", err)
 	}
@@ -243,14 +321,20 @@ func (r *Runner) runSingleEval(ctx context.Context, evalSess *EvalSession) (Resu
 	result.OutputTokens = outputTokens
 	result.Size = getResponseSize(result.Response)
 
+	// Build session from events for database storage
+	result.Session = SessionFromEvents(events, evalSess.Title, result.Question)
+	result.Session.Evals = evals
+
 	if len(expectedToolCalls) > 0 || len(actualToolCalls) > 0 {
 		result.ToolCallsScore = toolCallF1Score(expectedToolCalls, actualToolCalls)
 	}
 
 	result.HandoffsMatch = countHandoffs(expectedToolCalls) == countHandoffs(actualToolCalls)
 
-	if r.judgeModel != nil && len(evalSess.Evals.Relevance) > 0 {
-		passed, failed, errs := r.checkRelevance(ctx, result.Response, evalSess.Evals.Relevance)
+	if r.judge != nil && len(evals.Relevance) > 0 {
+		// Use transcript for relevance checking to preserve temporal ordering
+		transcript := buildTranscript(events)
+		passed, failed, errs := r.judge.CheckRelevance(ctx, transcript, evals.Relevance)
 		result.RelevancePassed = float64(passed)
 		result.FailedRelevance = failed
 		for _, e := range errs {
@@ -272,27 +356,43 @@ func (r *Runner) runCagentInContainer(ctx context.Context, imageID, question str
 		"--name", containerName,
 		"--privileged",
 		"--init",
-		"--rm",
-		"-i",
-		"-v", agentDir + ":/configs:ro",
 	}
+	if !r.KeepContainers {
+		args = append(args, "--rm")
+	}
+	args = append(args,
+		"-i",
+		"-v", agentDir+":/configs:ro",
+	)
 
 	var env []string
 
 	for _, name := range []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "MISTRAL_API_KEY", "XAI_API_KEY", "NEBIUS_API_KEY"} {
-		if val, ok := r.envProvider.Get(ctx, name); ok && val != "" {
+		if val, ok := r.runConfig.EnvProvider().Get(ctx, name); ok && val != "" {
 			args = append(args, "-e", name)
 			env = append(env, name+"="+val)
 		}
 	}
 
-	if r.modelsGateway != "" {
+	if r.runConfig.ModelsGateway != "" {
 		args = append(args, "-e", "CAGENT_MODELS_GATEWAY")
-		env = append(env, "CAGENT_MODELS_GATEWAY="+r.modelsGateway)
+		env = append(env, "CAGENT_MODELS_GATEWAY="+r.runConfig.ModelsGateway)
 
-		if token, ok := r.envProvider.Get(ctx, environment.DockerDesktopTokenEnv); ok && token != "" {
+		if token, ok := r.runConfig.EnvProvider().Get(ctx, environment.DockerDesktopTokenEnv); ok && token != "" {
 			args = append(args, "-e", environment.DockerDesktopTokenEnv)
 			env = append(env, environment.DockerDesktopTokenEnv+"="+token)
+		}
+	}
+
+	// Pass additional environment variables specified via -e flag
+	// Format: KEY or KEY=VALUE
+	for _, entry := range r.EnvVars {
+		if key, val, hasValue := strings.Cut(entry, "="); hasValue && key != "" {
+			args = append(args, "-e", key)
+			env = append(env, key+"="+val)
+		} else if val, ok := r.runConfig.EnvProvider().Get(ctx, entry); ok && entry != "" {
+			args = append(args, "-e", entry)
+			env = append(env, entry+"="+val)
 		}
 	}
 
@@ -313,18 +413,9 @@ func (r *Runner) runCagentInContainer(ctx context.Context, imageID, question str
 		return nil, fmt.Errorf("starting docker run: %w", err)
 	}
 
-	var stderrBuf strings.Builder
+	var stderrData []byte
 	go func() {
-		buf := make([]byte, 4096)
-		for {
-			n, err := stderr.Read(buf)
-			if n > 0 {
-				stderrBuf.Write(buf[:n])
-			}
-			if err != nil {
-				break
-			}
-		}
+		stderrData, _ = io.ReadAll(stderr)
 	}()
 
 	var events []map[string]any
@@ -351,11 +442,11 @@ func (r *Runner) runCagentInContainer(ctx context.Context, imageID, question str
 
 	waitErr := cmd.Wait()
 	if waitErr != nil {
-		slog.Debug("Container exited with error", "stderr", stderrBuf.String(), "error", waitErr)
+		slog.Debug("Container exited with error", "stderr", string(stderrData), "error", waitErr)
 	}
 
 	if len(events) == 0 {
-		stderrStr := strings.TrimSpace(stderrBuf.String())
+		stderrStr := strings.TrimSpace(string(stderrData))
 		if waitErr != nil {
 			return nil, fmt.Errorf("container failed: %w (stderr: %s)", waitErr, stderrStr)
 		}
@@ -369,13 +460,14 @@ func (r *Runner) runCagentInContainer(ctx context.Context, imageID, question str
 }
 
 func parseContainerEvents(events []map[string]any) (response string, cost float64, outputTokens int64, toolCalls []string) {
+	var responseBuf strings.Builder
 	for _, event := range events {
 		eventType, _ := event["type"].(string)
 
 		switch eventType {
 		case "agent_choice":
 			if content, ok := event["content"].(string); ok {
-				response += content
+				responseBuf.WriteString(content)
 			}
 		case "tool_call":
 			if tc, ok := event["tool_call"].(map[string]any); ok {
@@ -397,16 +489,101 @@ func parseContainerEvents(events []map[string]any) (response string, cost float6
 		}
 	}
 
-	return response, cost, outputTokens, toolCalls
+	return responseBuf.String(), cost, outputTokens, toolCalls
+}
+
+// buildTranscript creates a chronological transcript of agent interactions.
+// Unlike parseContainerEvents which only extracts text, this preserves the
+// temporal sequence of events, enabling evaluation of criteria like
+// "explains before executing" or "announces tool usage beforehand".
+func buildTranscript(events []map[string]any) string {
+	var transcript strings.Builder
+	var pendingText strings.Builder
+	var currentAgent string
+
+	flushText := func() {
+		if pendingText.Len() == 0 {
+			return
+		}
+		fmt.Fprintf(&transcript, "[Agent %s says]:\n%s\n\n", cmp.Or(currentAgent, "unknown"), pendingText.String())
+		pendingText.Reset()
+	}
+
+	for _, event := range events {
+		switch event["type"] {
+		case "agent_choice":
+			if agentName, _ := event["agent_name"].(string); agentName != "" {
+				currentAgent = agentName
+			}
+			if content, _ := event["content"].(string); content != "" {
+				pendingText.WriteString(content)
+			}
+
+		case "tool_call":
+			flushText()
+			name, args := getToolCallInfo(event)
+			if agentName, _ := event["agent_name"].(string); agentName != "" {
+				currentAgent = agentName
+			}
+			fmt.Fprintf(&transcript, "[Agent %s calls tool %q with arguments: %s]\n\n", cmp.Or(currentAgent, "unknown"), name, args)
+
+		case "tool_call_response":
+			name, _ := getToolCallInfo(event)
+			response, _ := event["response"].(string)
+			if len(response) > 500 {
+				response = response[:500] + "...(truncated)"
+			}
+			fmt.Fprintf(&transcript, "[Tool %q returns: %s]\n\n", name, response)
+		}
+	}
+
+	flushText()
+	return transcript.String()
+}
+
+// getToolCallInfo extracts the tool name and arguments from an event.
+func getToolCallInfo(event map[string]any) (name, args string) {
+	tc, _ := event["tool_call"].(map[string]any)
+	fn, _ := tc["function"].(map[string]any)
+	name, _ = fn["name"].(string)
+	args, _ = fn["arguments"].(string)
+	return name, args
 }
 
 // matchesAnyPattern returns true if the name contains any of the patterns (case-insensitive).
 func matchesAnyPattern(name string, patterns []string) bool {
 	nameLower := strings.ToLower(name)
-	for _, pattern := range patterns {
-		if strings.Contains(nameLower, strings.ToLower(pattern)) {
-			return true
-		}
+	return slices.ContainsFunc(patterns, func(pattern string) bool {
+		return strings.Contains(nameLower, strings.ToLower(pattern))
+	})
+}
+
+// createJudgeModel creates a provider.Provider from a model string (format: provider/model).
+// Returns nil if judgeModel is empty.
+func createJudgeModel(ctx context.Context, judgeModel string, runConfig *config.RuntimeConfig) (provider.Provider, error) {
+	if judgeModel == "" {
+		return nil, nil
 	}
-	return false
+
+	providerName, model, ok := strings.Cut(judgeModel, "/")
+	if !ok {
+		return nil, fmt.Errorf("invalid judge model format %q: expected 'provider/model'", judgeModel)
+	}
+
+	cfg := &latest.ModelConfig{
+		Provider: providerName,
+		Model:    model,
+	}
+
+	var opts []options.Opt
+	if runConfig.ModelsGateway != "" {
+		opts = append(opts, options.WithGateway(runConfig.ModelsGateway))
+	}
+
+	judge, err := provider.New(ctx, cfg, runConfig.EnvProvider(), opts...)
+	if err != nil {
+		return nil, fmt.Errorf("creating judge model: %w", err)
+	}
+
+	return judge, nil
 }

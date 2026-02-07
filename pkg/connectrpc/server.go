@@ -225,7 +225,7 @@ func (s *Server) DeleteSession(ctx context.Context, req *connect.Request[cagentv
 
 // ResumeSession resumes a paused session.
 func (s *Server) ResumeSession(ctx context.Context, req *connect.Request[cagentv1.ResumeSessionRequest]) (*connect.Response[cagentv1.ResumeSessionResponse], error) {
-	if err := s.sm.ResumeSession(ctx, req.Msg.Id, req.Msg.Confirmation); err != nil {
+	if err := s.sm.ResumeSession(ctx, req.Msg.Id, req.Msg.Confirmation, req.Msg.Reason, req.Msg.ToolName); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to resume session: %w", err))
 	}
 	return connect.NewResponse(&cagentv1.ResumeSessionResponse{}), nil
@@ -237,6 +237,17 @@ func (s *Server) ToggleToolApproval(ctx context.Context, req *connect.Request[ca
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to toggle tool approval: %w", err))
 	}
 	return connect.NewResponse(&cagentv1.ToggleToolApprovalResponse{}), nil
+}
+
+// UpdateSessionTitle updates the title of a session.
+func (s *Server) UpdateSessionTitle(ctx context.Context, req *connect.Request[cagentv1.UpdateSessionTitleRequest]) (*connect.Response[cagentv1.UpdateSessionTitleResponse], error) {
+	if err := s.sm.UpdateSessionTitle(ctx, req.Msg.SessionId, req.Msg.Title); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to update session title: %w", err))
+	}
+	return connect.NewResponse(&cagentv1.UpdateSessionTitleResponse{
+		SessionId: req.Msg.SessionId,
+		Title:     req.Msg.Title,
+	}), nil
 }
 
 // ResumeElicitation resumes an elicitation request.

@@ -1,7 +1,6 @@
 package root
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -26,11 +25,7 @@ func TestSetupRecordingProxy_EmptyPath(t *testing.T) {
 }
 
 func TestSetupRecordingProxy_AutoGeneratesFilename(t *testing.T) {
-	tmpDir := t.TempDir()
-	originalWd, err := os.Getwd()
-	require.NoError(t, err)
-	require.NoError(t, os.Chdir(tmpDir))
-	t.Cleanup(func() { _ = os.Chdir(originalWd) })
+	t.Chdir(t.TempDir())
 
 	var runConfig config.RuntimeConfig
 

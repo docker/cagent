@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -154,11 +155,13 @@ func (c *ConnectRPCClient) DeleteSession(ctx context.Context, id string) error {
 	return err
 }
 
-// ResumeSession resumes a session by ID
-func (c *ConnectRPCClient) ResumeSession(ctx context.Context, id, confirmation string) error {
+// ResumeSession resumes a session by ID with optional rejection reason or tool name
+func (c *ConnectRPCClient) ResumeSession(ctx context.Context, id, confirmation, reason, toolName string) error {
 	_, err := c.client.ResumeSession(ctx, connect.NewRequest(&cagentv1.ResumeSessionRequest{
 		Id:           id,
 		Confirmation: confirmation,
+		Reason:       reason,
+		ToolName:     toolName,
 	}))
 	return err
 }
@@ -167,6 +170,15 @@ func (c *ConnectRPCClient) ResumeSession(ctx context.Context, id, confirmation s
 func (c *ConnectRPCClient) ToggleToolApproval(ctx context.Context, sessionID string) error {
 	_, err := c.client.ToggleToolApproval(ctx, connect.NewRequest(&cagentv1.ToggleToolApprovalRequest{
 		SessionId: sessionID,
+	}))
+	return err
+}
+
+// UpdateSessionTitle updates the title of a session
+func (c *ConnectRPCClient) UpdateSessionTitle(ctx context.Context, sessionID, title string) error {
+	_, err := c.client.UpdateSessionTitle(ctx, connect.NewRequest(&cagentv1.UpdateSessionTitleRequest{
+		SessionId: sessionID,
+		Title:     title,
 	}))
 	return err
 }
@@ -230,7 +242,7 @@ func (c *ConnectRPCClient) runAgentWithAgentName(ctx context.Context, sessionID,
 			}
 		}
 
-		if err := stream.Err(); err != nil && err != io.EOF {
+		if err := stream.Err(); err != nil && !errors.Is(err, io.EOF) {
 			slog.Error("Stream error", "error", err)
 			eventChan <- Error(fmt.Sprintf("stream error: %v", err))
 		}

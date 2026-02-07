@@ -8,6 +8,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/docker/cagent/pkg/paths"
+	"github.com/docker/cagent/pkg/tools"
 	"github.com/docker/cagent/pkg/tui/components/spinner"
 	"github.com/docker/cagent/pkg/tui/styles"
 	"github.com/docker/cagent/pkg/tui/types"
@@ -101,11 +102,12 @@ func ExtractField[T any](field func(T) string) func(string) string {
 }
 
 func Icon(msg *types.Message, inProgress spinner.Spinner) string {
-	if msg.ToolStatus == types.ToolStatusPending || msg.ToolStatus == types.ToolStatusRunning {
-		return styles.NoStyle.MarginLeft(2).Render(inProgress.View())
-	}
-
 	switch msg.ToolStatus {
+	case types.ToolStatusRunning, types.ToolStatusPending:
+		// Animated spinner for both executing and streaming tool calls.
+		// With centralized animation ticks, all spinners share a single tick
+		// so there's no performance penalty for multiple animated spinners.
+		return styles.NoStyle.MarginLeft(2).Render(inProgress.View())
 	case types.ToolStatusCompleted:
 		return styles.ToolCompletedIcon.Render("✓")
 	case types.ToolStatusError:
@@ -150,6 +152,30 @@ func RenderTool(msg *types.Message, inProgress spinner.Spinner, args, result str
 
 	icon := Icon(msg, inProgress)
 	name := nameStyle.Render(msg.ToolDefinition.DisplayName())
+
+	if header, ok := RenderFriendlyHeader(msg, inProgress); ok {
+		content := header
+		if args != "" {
+			firstLineWidth := width - lipgloss.Width(content) - 1
+			subsequentLineWidth := width - styles.ToolCompletedIcon.GetMarginLeft()
+			wrappedArgs := wrapTextWithIndent(args, firstLineWidth, subsequentLineWidth)
+			content += " " + wrappedArgs
+		}
+		if result != "" && !hideToolResults {
+			if strings.Count(content, "\n") > 0 || strings.Count(result, "\n") > 0 {
+				content += "\n" + resultStyle.MarginLeft(styles.ToolCompletedIcon.GetMarginLeft()).Render(result)
+			} else {
+				remainingWidth := max(width-lipgloss.Width(content)-1, 1)
+				renderedResult := resultStyle.Render(result)
+				if lipgloss.Width(renderedResult) > remainingWidth {
+					renderedResult = resultStyle.Render(TruncateText(result, remainingWidth))
+				}
+				content += " " + renderedResult
+			}
+		}
+		return styles.RenderComposite(styles.ToolMessageStyle.Width(width), content)
+	}
+
 	content := fmt.Sprintf("%s%s", icon, name)
 
 	if args != "" {
@@ -187,4 +213,19 @@ func ShortenPath(path string) string {
 		return "~" + strings.TrimPrefix(path, homeDir)
 	}
 	return path
+}
+
+// RenderFriendlyHeader renders a friendly description header if present in the tool call arguments.
+// Returns the rendered header string and true if a friendly description was found, empty string and false otherwise.
+// Custom renderers can use this to show the friendly description before their custom content.
+func RenderFriendlyHeader(msg *types.Message, s spinner.Spinner) (string, bool) {
+	friendlyDesc := tools.ExtractDescription(msg.ToolCall.Function.Arguments)
+	if friendlyDesc == "" {
+		return "", false
+	}
+
+	icon := Icon(msg, s)
+	content := fmt.Sprintf("%s %s", icon, styles.ToolDescription.Render(friendlyDesc))
+	content += " " + styles.ToolNameDim.Render("("+msg.ToolDefinition.DisplayName()+")")
+	return content, true
 }

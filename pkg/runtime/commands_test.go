@@ -8,7 +8,9 @@ import (
 
 	"github.com/docker/cagent/pkg/config/types"
 	"github.com/docker/cagent/pkg/session"
+	"github.com/docker/cagent/pkg/sessiontitle"
 	"github.com/docker/cagent/pkg/tools"
+	mcptools "github.com/docker/cagent/pkg/tools/mcp"
 )
 
 // mockRuntime implements Runtime interface for testing
@@ -41,12 +43,29 @@ func (m *mockRuntime) RunStream(context.Context, *session.Session) <-chan Event 
 func (m *mockRuntime) Run(context.Context, *session.Session) ([]session.Message, error) {
 	return nil, nil
 }
-func (m *mockRuntime) Resume(context.Context, ResumeType) {}
+func (m *mockRuntime) Resume(context.Context, ResumeRequest) {}
 func (m *mockRuntime) ResumeElicitation(context.Context, tools.ElicitationAction, map[string]any) error {
 	return nil
 }
 func (m *mockRuntime) SessionStore() session.Store { return nil }
 func (m *mockRuntime) Summarize(context.Context, *session.Session, string, chan Event) {
+}
+func (m *mockRuntime) PermissionsInfo() *PermissionsInfo { return nil }
+func (m *mockRuntime) CurrentAgentSkillsEnabled() bool   { return false }
+func (m *mockRuntime) CurrentMCPPrompts(context.Context) map[string]mcptools.PromptInfo {
+	return make(map[string]mcptools.PromptInfo)
+}
+
+func (m *mockRuntime) ExecuteMCPPrompt(context.Context, string, map[string]string) (string, error) {
+	return "", nil
+}
+
+func (m *mockRuntime) UpdateSessionTitle(context.Context, *session.Session, string) error {
+	return nil
+}
+func (m *mockRuntime) TitleGenerator() *sessiontitle.Generator { return nil }
+
+func (m *mockRuntime) RegenerateTitle(context.Context, *session.Session, chan Event) {
 }
 
 func TestResolveCommand_SimpleCommand(t *testing.T) {

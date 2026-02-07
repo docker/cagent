@@ -18,8 +18,8 @@ type RemoteClient interface {
 	// CreateSession creates a new session
 	CreateSession(ctx context.Context, sessTemplate *session.Session) (*session.Session, error)
 
-	// ResumeSession resumes a paused session
-	ResumeSession(ctx context.Context, id, confirmation string) error
+	// ResumeSession resumes a paused session with optional rejection reason or tool name
+	ResumeSession(ctx context.Context, id, confirmation, reason, toolName string) error
 
 	// ResumeElicitation sends an elicitation response
 	ResumeElicitation(ctx context.Context, sessionID string, action tools.ElicitationAction, content map[string]any) error
@@ -29,6 +29,9 @@ type RemoteClient interface {
 
 	// RunAgentWithAgentName executes an agent with a specific agent name
 	RunAgentWithAgentName(ctx context.Context, sessionID, agent, agentName string, messages []api.Message) (<-chan Event, error)
+
+	// UpdateSessionTitle updates the title of a session
+	UpdateSessionTitle(ctx context.Context, sessionID, title string) error
 }
 
 // Verify that both clients implement RemoteClient

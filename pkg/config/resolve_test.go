@@ -271,7 +271,7 @@ func TestResolveAgentFile_EmptyDirectory(t *testing.T) {
 func TestResolveSources(t *testing.T) {
 	t.Parallel()
 
-	sources, err := ResolveSources("./testdata/v1.yaml")
+	sources, err := ResolveSources("./testdata/v1.yaml", nil)
 	require.NoError(t, err)
 
 	assert.Len(t, sources, 1)
@@ -297,7 +297,7 @@ func TestResolve_DefaultAliasOverride(t *testing.T) {
 	require.NoError(t, cfg.Save())
 
 	// Resolve with "default" should return the aliased file
-	source, err := Resolve("default")
+	source, err := Resolve("default", nil)
 	require.NoError(t, err)
 	assert.Equal(t, agentFile, source.Name())
 
@@ -318,7 +318,7 @@ func TestResolve_DefaultAliasToOCIReference(t *testing.T) {
 	require.NoError(t, cfg.Save())
 
 	// Resolve with "default" should return an OCI source with the aliased reference
-	source, err := Resolve("default")
+	source, err := Resolve("default", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "docker/gordon", source.Name())
 }
@@ -334,7 +334,7 @@ func TestResolveSources_DefaultAliasToOCIReference(t *testing.T) {
 	require.NoError(t, cfg.Save())
 
 	// ResolveSources with "default" should return an OCI source with the aliased reference
-	sources, err := ResolveSources("default")
+	sources, err := ResolveSources("default", nil)
 	require.NoError(t, err)
 	require.Len(t, sources, 1)
 
@@ -363,7 +363,7 @@ func TestResolve_EmptyWithDefaultAliasOverride(t *testing.T) {
 	require.NoError(t, cfg.Save())
 
 	// Resolve with empty string should also use the "default" alias
-	source, err := Resolve("")
+	source, err := Resolve("", nil)
 	require.NoError(t, err)
 	assert.Equal(t, agentFile, source.Name())
 
@@ -392,7 +392,7 @@ func TestResolveSources_DefaultAliasOverride(t *testing.T) {
 	require.NoError(t, cfg.Save())
 
 	// ResolveSources with "default" should return the aliased file
-	sources, err := ResolveSources("default")
+	sources, err := ResolveSources("default", nil)
 	require.NoError(t, err)
 	require.Len(t, sources, 1)
 
@@ -425,7 +425,7 @@ func TestResolveSources_EmptyWithDefaultAliasOverride(t *testing.T) {
 	require.NoError(t, cfg.Save())
 
 	// ResolveSources with empty string should also use the "default" alias
-	sources, err := ResolveSources("")
+	sources, err := ResolveSources("", nil)
 	require.NoError(t, err)
 	require.Len(t, sources, 1)
 
@@ -543,4 +543,76 @@ func TestResolveAlias_EmptyUsesDefault(t *testing.T) {
 	alias := ResolveAlias("")
 	require.NotNil(t, alias)
 	assert.True(t, alias.Yolo)
+}
+
+func TestResolveAlias_WithHideToolResultsOption(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Set up alias with hide_tool_results option
+	cfg, err := userconfig.Load()
+	require.NoError(t, err)
+	require.NoError(t, cfg.SetAlias("hidden-tools", &userconfig.Alias{
+		Path:            "agentcatalog/coder",
+		HideToolResults: true,
+	}))
+	require.NoError(t, cfg.Save())
+
+	// Resolve alias options
+	alias := ResolveAlias("hidden-tools")
+	require.NotNil(t, alias)
+	assert.True(t, alias.HideToolResults)
+	assert.False(t, alias.Yolo)
+	assert.Empty(t, alias.Model)
+}
+
+func TestResolveAlias_WithAllOptions(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Set up alias with all options
+	cfg, err := userconfig.Load()
+	require.NoError(t, err)
+	require.NoError(t, cfg.SetAlias("full", &userconfig.Alias{
+		Path:            "agentcatalog/coder",
+		Yolo:            true,
+		Model:           "anthropic/claude-sonnet-4-0",
+		HideToolResults: true,
+	}))
+	require.NoError(t, cfg.Save())
+
+	// Resolve alias options
+	alias := ResolveAlias("full")
+	require.NotNil(t, alias)
+	assert.True(t, alias.Yolo)
+	assert.Equal(t, "anthropic/claude-sonnet-4-0", alias.Model)
+	assert.True(t, alias.HideToolResults)
+}
+
+func TestGetUserSettings_Empty(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// No config file exists
+	settings := GetUserSettings()
+	require.NotNil(t, settings)
+	assert.False(t, settings.HideToolResults)
+}
+
+func TestGetUserSettings_WithHideToolResults(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Set up config with settings
+	cfg, err := userconfig.Load()
+	require.NoError(t, err)
+	cfg.Settings = &userconfig.Settings{
+		HideToolResults: true,
+	}
+	require.NoError(t, cfg.Save())
+
+	// Get settings
+	settings := GetUserSettings()
+	require.NotNil(t, settings)
+	assert.True(t, settings.HideToolResults)
 }

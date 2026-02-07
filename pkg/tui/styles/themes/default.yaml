@@ -1,0 +1,92 @@
+version: 1
+name: "Default"
+colors:
+  # Text colors
+  text_bright: "#E5F2FC"
+  text_primary: "#C0C0C0"
+  text_secondary: "#808080"
+  text_muted: "#808080"
+  text_faint: "#404550"
+
+  # Accent colors
+  accent: "#7AA2F7"
+  accent_muted: "#8B95C1"
+
+  # Background colors
+  background: "#1C1C22"
+  background_alt: "#24283B"
+
+  # Border colors
+  border_secondary: "#6B75A8"
+
+  # Status colors
+  success: "#9ECE6A"
+  error: "#F7768E"
+  warning: "#E0AF68"
+  info: "#7DCFFF"
+  highlight: "#98C379"
+
+  # Brand colors
+  brand: "#1D63ED"
+  brand_bg: "#202a4b"
+
+  # Error colors
+  error_strong: "#d74532"
+  error_dark: "#4a2523"
+
+  # Spinner colors
+  spinner_dim: "#9AB8F9"
+  spinner_bright: "#B8CFFB"
+  spinner_brightest: "#D6E5FC"
+
+  # Diff colors
+  diff_add_bg: "#20303B"
+  diff_remove_bg: "#3C2A2A"
+
+  # UI element colors
+  line_number: "#565F89"
+  separator: "#414868"
+  selected: "#364A82"
+  selected_fg: "#ffffff"
+  suggestion_ghost: "#6B6B6B"
+  tab_bg: "#25252c"
+  placeholder: "#808080"
+
+  # Badge colors
+  badge_accent: "#B083EA"
+  badge_info: "#7DCFFF"
+  badge_success: "#9ECE6A"
+
+chroma:
+  # Syntax highlighting colors (Monokai-inspired)
+  error_fg: "#F1F1F1"
+  error_bg: "#F05B5B"
+  success: "#00D787"
+  comment: "#676767"
+  comment_preproc: "#FF875F"
+  keyword: "#00AAFF"
+  keyword_reserved: "#FF5FD2"
+  keyword_namespace: "#FF5F87"
+  keyword_type: "#6E6ED8"
+  operator: "#EF8080"
+  punctuation: "#E8E8A8"
+  name_builtin: "#FF8EC7"
+  name_tag: "#B083EA"
+  name_attribute: "#7A7AE6"
+  name_decorator: "#FFFF87"
+  literal_number: "#6EEFC0"
+  literal_string: "#C69669"
+  literal_string_escape: "#AFFFD7"
+  generic_deleted: "#FD5B5B"
+  generic_subheading: "#777777"
+  background: "#373737"
+
+markdown:
+  heading: "#7AA2F7"
+  link: "#7AA2F7"
+  strong: "#C0C0C0"
+  code: "#C0C0C0"
+  code_bg: "#24283B"
+  blockquote: "#808080"
+  list: "#C0C0C0"
+  hr: "#6B75A8"

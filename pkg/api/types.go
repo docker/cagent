@@ -146,6 +146,8 @@ type UpdateSessionPermissionsRequest struct {
 // ResumeSessionRequest represents a request to resume a session
 type ResumeSessionRequest struct {
 	Confirmation string `json:"confirmation"`
+	Reason       string `json:"reason,omitempty"`    // e.g reason for tool call rejection
+	ToolName     string `json:"tool_name,omitempty"` // tool name for approve-tool confirmation
 }
 
 // DesktopTokenResponse represents the response from getting a desktop token
@@ -157,4 +159,15 @@ type DesktopTokenResponse struct {
 type ResumeElicitationRequest struct {
 	Action  string         `json:"action"`  // "accept", "decline", or "cancel"
 	Content map[string]any `json:"content"` // The submitted form data (only present when action is "accept")
+}
+
+// UpdateSessionTitleRequest represents a request to update a session's title
+type UpdateSessionTitleRequest struct {
+	Title string `json:"title"`
+}
+
+// UpdateSessionTitleResponse represents the response from updating a session's title
+type UpdateSessionTitleResponse struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
 }

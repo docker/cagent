@@ -251,9 +251,9 @@ func (c *Client) CreateSession(ctx context.Context, sessTemplate *session.Sessio
 	return &sess, err
 }
 
-// ResumeSession resumes a session by ID
-func (c *Client) ResumeSession(ctx context.Context, id, confirmation string) error {
-	req := api.ResumeSessionRequest{Confirmation: confirmation}
+// ResumeSession resumes a session by ID with optional rejection reason or tool name
+func (c *Client) ResumeSession(ctx context.Context, id, confirmation, reason, toolName string) error {
+	req := api.ResumeSessionRequest{Confirmation: confirmation, Reason: reason, ToolName: toolName}
 	return c.doRequest(ctx, http.MethodPost, "/api/sessions/"+id+"/resume", req, nil)
 }
 
@@ -377,4 +377,10 @@ func (c *Client) runAgentWithAgentName(ctx context.Context, sessionID, agent, ag
 func (c *Client) ResumeElicitation(ctx context.Context, sessionID string, action tools.ElicitationAction, content map[string]any) error {
 	req := api.ResumeElicitationRequest{Action: string(action), Content: content}
 	return c.doRequest(ctx, http.MethodPost, "/api/sessions/"+sessionID+"/elicitation", req, nil)
+}
+
+// UpdateSessionTitle updates the title of a session
+func (c *Client) UpdateSessionTitle(ctx context.Context, sessionID, title string) error {
+	req := api.UpdateSessionTitleRequest{Title: title}
+	return c.doRequest(ctx, http.MethodPatch, "/api/sessions/"+sessionID+"/title", req, nil)
 }

@@ -1,6 +1,7 @@
 package root
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -23,6 +24,7 @@ type apiFlags struct {
 	fakeResponses    string
 	recordPath       string
 	connectRPC       bool
+	exitOnStdinEOF   bool
 	runConfig        config.RuntimeConfig
 }
 
@@ -44,24 +46,63 @@ func newAPICmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&flags.fakeResponses, "fake", "", "Replay AI responses from cassette file (for testing)")
 	cmd.PersistentFlags().StringVar(&flags.recordPath, "record", "", "Record AI API interactions to cassette file")
 	cmd.PersistentFlags().BoolVar(&flags.connectRPC, "connect-rpc", false, "Use Connect-RPC protocol instead of HTTP/JSON API")
+	cmd.PersistentFlags().BoolVar(&flags.exitOnStdinEOF, "exit-on-stdin-eof", false, "Exit when stdin is closed (for integration with parent processes)")
+	_ = cmd.PersistentFlags().MarkHidden("exit-on-stdin-eof")
 	cmd.MarkFlagsMutuallyExclusive("fake", "record")
 	addRuntimeConfigFlags(cmd, &flags.runConfig)
 
 	return cmd
 }
 
+// monitorStdin monitors stdin for EOF, which indicates the parent process has died.
+// When spawned with piped stdio, stdin closes when the parent process dies.
+func monitorStdin(ctx context.Context, cancel context.CancelFunc, stdin *os.File) {
+	// Close stdin when context is cancelled to unblock the read
+	go func() {
+		<-ctx.Done()
+		stdin.Close()
+	}()
+
+	buf := make([]byte, 1)
+	for {
+		n, err := stdin.Read(buf)
+		if err != nil || n == 0 {
+			// Only log and cancel if context isn't already done (parent died)
+			if ctx.Err() == nil {
+				slog.Info("stdin closed, parent process likely died, shutting down")
+				cancel()
+			}
+			return
+		}
+	}
+}
+
 func (f *apiFlags) runAPICommand(cmd *cobra.Command, args []string) error {
 	telemetry.TrackCommand("api", args)
 
 	ctx := cmd.Context()
+
+	// Save stdin before clearing it, so we can optionally monitor for parent process death
+	stdin := os.Stdin
+
 	out := cli.NewPrinter(cmd.OutOrStdout())
 	agentsPath := args[0]
 
 	// Make sure no question is ever asked to the user in api mode.
 	os.Stdin = nil
 
+	// Monitor stdin for EOF to detect parent process death.
+	// Only enabled when --exit-on-stdin-eof flag is passed.
+	// When spawned with piped stdio, stdin closes when the parent process dies.
+	if f.exitOnStdinEOF && stdin != nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithCancel(ctx)
+		defer cancel()
+		go monitorStdin(ctx, cancel, stdin)
+	}
+
 	// Start fake proxy if --fake is specified
-	cleanup, err := setupFakeProxy(f.fakeResponses, &f.runConfig)
+	cleanup, err := setupFakeProxy(f.fakeResponses, 0, &f.runConfig)
 	if err != nil {
 		return err
 	}
@@ -95,12 +136,18 @@ func (f *apiFlags) runAPICommand(cmd *cobra.Command, args []string) error {
 
 	slog.Debug("Starting server", "agents", agentsPath, "addr", ln.Addr().String())
 
-	sessionStore, err := session.NewSQLiteSessionStore(f.sessionDB)
+	// Expand tilde in session database path
+	sessionDB, err := expandTilde(f.sessionDB)
+	if err != nil {
+		return err
+	}
+
+	sessionStore, err := session.NewSQLiteSessionStore(sessionDB)
 	if err != nil {
 		return fmt.Errorf("creating session store: %w", err)
 	}
 
-	sources, err := config.ResolveSources(agentsPath)
+	sources, err := config.ResolveSources(agentsPath, f.runConfig.EnvProvider())
 	if err != nil {
 		return fmt.Errorf("resolving agent sources: %w", err)
 	}

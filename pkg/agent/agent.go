@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"math/rand"
 	"sync/atomic"
+	"time"
 
 	"github.com/docker/cagent/pkg/config/latest"
 	"github.com/docker/cagent/pkg/config/types"
@@ -15,26 +16,31 @@ import (
 
 // Agent represents an AI agent
 type Agent struct {
-	name               string
-	description        string
-	welcomeMessage     string
-	instruction        string
-	toolsets           []*StartableToolSet
-	models             []provider.Provider
-	modelOverrides     atomic.Pointer[[]provider.Provider] // Optional model override(s) set at runtime (supports alloy)
-	subAgents          []*Agent
-	handoffs           []*Agent
-	parents            []*Agent
-	addDate            bool
-	addEnvironmentInfo bool
-	maxIterations      int
-	numHistoryItems    int
-	addPromptFiles     []string
-	tools              []tools.Tool
-	commands           types.Commands
-	pendingWarnings    []string
-	skillsEnabled      bool
-	hooks              *latest.HooksConfig
+	name                    string
+	description             string
+	welcomeMessage          string
+	instruction             string
+	toolsets                []*tools.StartableToolSet
+	models                  []provider.Provider
+	fallbackModels          []provider.Provider                 // Fallback models to try if primary fails
+	fallbackRetries         int                                 // Number of retries per fallback model with exponential backoff
+	fallbackCooldown        time.Duration                       // Duration to stick with fallback after non-retryable error
+	modelOverrides          atomic.Pointer[[]provider.Provider] // Optional model override(s) set at runtime (supports alloy)
+	subAgents               []*Agent
+	handoffs                []*Agent
+	parents                 []*Agent
+	addDate                 bool
+	addEnvironmentInfo      bool
+	addDescriptionParameter bool
+	maxIterations           int
+	numHistoryItems         int
+	addPromptFiles          []string
+	tools                   []tools.Tool
+	commands                types.Commands
+	pendingWarnings         []string
+	skillsEnabled           bool
+	hooks                   *latest.HooksConfig
+	thinkingConfigured      bool // true if thinking_budget was explicitly set in config
 }
 
 // New creates a new agent
@@ -78,6 +84,13 @@ func (a *Agent) NumHistoryItems() int {
 
 func (a *Agent) AddPromptFiles() []string {
 	return a.addPromptFiles
+}
+
+// ThinkingConfigured returns true if thinking_budget was explicitly set in the agent's config.
+// This is used to initialize session thinking state - thinking is only enabled by default
+// when the user explicitly configured it in their YAML.
+func (a *Agent) ThinkingConfigured() bool {
+	return a.thinkingConfigured
 }
 
 // Description returns the agent's description
@@ -159,6 +172,22 @@ func (a *Agent) ConfiguredModels() []provider.Provider {
 	return a.models
 }
 
+// FallbackModels returns the fallback models to try if the primary model fails.
+func (a *Agent) FallbackModels() []provider.Provider {
+	return a.fallbackModels
+}
+
+// FallbackRetries returns the number of retries per fallback model.
+func (a *Agent) FallbackRetries() int {
+	return a.fallbackRetries
+}
+
+// FallbackCooldown returns the duration to stick with a successful fallback
+// model before retrying the primary. Returns 0 if not configured.
+func (a *Agent) FallbackCooldown() time.Duration {
+	return a.fallbackCooldown
+}
+
 // Commands returns the named commands configured for this agent.
 func (a *Agent) Commands() types.Commands {
 	return a.commands
@@ -194,6 +223,10 @@ func (a *Agent) Tools(ctx context.Context) ([]tools.Tool, error) {
 	}
 
 	agentTools = append(agentTools, a.tools...)
+
+	if a.addDescriptionParameter {
+		agentTools = tools.AddDescriptionParameter(agentTools)
+	}
 
 	return agentTools, nil
 }

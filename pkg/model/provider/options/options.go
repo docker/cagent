@@ -94,5 +94,8 @@ func FromModelOptions(m ModelOptions) []Opt {
 	if len(m.providers) > 0 {
 		out = append(out, WithProviders(m.providers))
 	}
+	if m.thinking != nil {
+		out = append(out, WithThinking(*m.thinking))
+	}
 	return out
 }

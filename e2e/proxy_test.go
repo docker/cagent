@@ -29,6 +29,7 @@ func startRecordingAIProxy(t *testing.T) (*httptest.Server, *config.RuntimeConfi
 		recorder.ModeRecordOnce,
 		matcher,
 		fake.APIKeyHeaderUpdater,
+		nil,
 	)
 	require.NoError(t, err)
 

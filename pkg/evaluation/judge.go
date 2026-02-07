@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/docker/cagent/pkg/chat"
+	"github.com/docker/cagent/pkg/config"
 	"github.com/docker/cagent/pkg/config/latest"
 	"github.com/docker/cagent/pkg/model/provider"
 	"github.com/docker/cagent/pkg/model/provider/options"
@@ -50,48 +52,114 @@ var judgeResponseSchema = &latest.StructuredOutput{
 	Strict: true,
 }
 
-func (r *Runner) checkRelevance(ctx context.Context, response string, criteria []string) (passed int, failed, errs []string) {
-	for _, criterion := range criteria {
-		if ctx.Err() != nil {
-			errs = append(errs, fmt.Sprintf("context cancelled checking: %s", criterion))
+// Judge runs LLM-as-a-judge relevance checks concurrently.
+type Judge struct {
+	model       provider.Provider
+	runConfig   *config.RuntimeConfig
+	concurrency int
+}
+
+// NewJudge creates a new Judge that runs relevance checks with the given concurrency.
+// Concurrency defaults to 1 if n < 1.
+func NewJudge(model provider.Provider, runConfig *config.RuntimeConfig, concurrency int) *Judge {
+	if concurrency < 1 {
+		concurrency = 1
+	}
+	return &Judge{
+		model:       model,
+		runConfig:   runConfig,
+		concurrency: concurrency,
+	}
+}
+
+// RelevanceResult contains the result of a single relevance check.
+type RelevanceResult struct {
+	Criterion string `json:"criterion"`
+	Reason    string `json:"reason"`
+}
+
+// CheckRelevance runs all relevance checks concurrently with the configured concurrency.
+// It returns the number of passed checks, a slice of failed results with reasons, and any errors encountered.
+func (j *Judge) CheckRelevance(ctx context.Context, response string, criteria []string) (passed int, failed []RelevanceResult, errs []string) {
+	if len(criteria) == 0 {
+		return 0, nil, nil
+	}
+
+	// Create work channel
+	type workItem struct {
+		index     int
+		criterion string
+	}
+	work := make(chan workItem, len(criteria))
+	for i, c := range criteria {
+		work <- workItem{index: i, criterion: c}
+	}
+	close(work)
+
+	// Results slice preserves order
+	type result struct {
+		passed bool
+		reason string
+		err    error
+	}
+	results := make([]result, len(criteria))
+
+	var wg sync.WaitGroup
+	for range j.concurrency {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for item := range work {
+				if ctx.Err() != nil {
+					results[item.index] = result{err: fmt.Errorf("context cancelled: %w", ctx.Err())}
+					continue
+				}
+				pass, reason, err := j.checkSingle(ctx, response, item.criterion)
+				results[item.index] = result{passed: pass, reason: reason, err: err}
+			}
+		}()
+	}
+	wg.Wait()
+
+	// Aggregate results
+	for i, r := range results {
+		if r.err != nil {
+			errs = append(errs, fmt.Sprintf("error checking %q: %v", criteria[i], r.err))
 			continue
 		}
-
-		pass, err := r.checkSingleRelevance(ctx, response, criterion)
-		if err != nil {
-			errs = append(errs, fmt.Sprintf("error checking %q: %v", criterion, err))
-			continue
-		}
-
-		if pass {
+		if r.passed {
 			passed++
 		} else {
-			failed = append(failed, criterion)
+			failed = append(failed, RelevanceResult{
+				Criterion: criteria[i],
+				Reason:    r.reason,
+			})
 		}
 	}
 
 	return passed, failed, errs
 }
 
-func (r *Runner) checkSingleRelevance(ctx context.Context, response, criterion string) (bool, error) {
-	// Create a provider with structured output for this specific call
-	modelCfg := r.judgeModel.BaseConfig().ModelConfig
+// checkSingle checks a single relevance criterion against the response.
+// It returns whether the check passed, the reason provided by the judge, and any error.
+func (j *Judge) checkSingle(ctx context.Context, response, criterion string) (passed bool, reason string, err error) {
+	modelCfg := j.model.BaseConfig().ModelConfig
 	judgeWithSchema, err := provider.New(
 		ctx,
 		&modelCfg,
-		r.envProvider,
+		j.runConfig.EnvProvider(),
 		options.WithStructuredOutput(judgeResponseSchema),
 	)
 	if err != nil {
-		return false, fmt.Errorf("creating judge provider with structured output: %w", err)
+		return false, "", fmt.Errorf("creating judge provider with structured output: %w", err)
 	}
 
 	prompt := fmt.Sprintf(relevancePrompt, response, criterion)
-
 	messages := []chat.Message{{Role: chat.MessageRoleUser, Content: prompt}}
+
 	stream, err := judgeWithSchema.CreateChatCompletionStream(ctx, messages, nil)
 	if err != nil {
-		return false, fmt.Errorf("creating chat completion: %w", err)
+		return false, "", fmt.Errorf("creating chat completion: %w", err)
 	}
 	defer stream.Close()
 
@@ -106,23 +174,33 @@ func (r *Runner) checkSingleRelevance(ctx context.Context, response, criterion s
 		}
 	}
 
-	return parseJudgeResponse(fullResponse.String()), nil
+	result := parseJudgeResponse(fullResponse.String())
+	return result.passed, result.reason, nil
 }
 
-// judgeResult represents the structured response from the judge model.
-type judgeResult struct {
+// judgeResponse represents the structured response from the judge model.
+type judgeResponse struct {
 	Result string `json:"result"`
 	Reason string `json:"reason"`
 }
 
-func parseJudgeResponse(text string) bool {
+// parsedJudgeResult contains the parsed result from the judge.
+type parsedJudgeResult struct {
+	passed bool
+	reason string
+}
+
+func parseJudgeResponse(text string) parsedJudgeResult {
 	text = strings.TrimSpace(text)
 
-	var result judgeResult
-	if err := json.Unmarshal([]byte(text), &result); err != nil {
+	var resp judgeResponse
+	if err := json.Unmarshal([]byte(text), &resp); err != nil {
 		// With structured output this should not happen, but handle gracefully
-		return false
+		return parsedJudgeResult{passed: false, reason: "failed to parse judge response"}
 	}
 
-	return strings.EqualFold(result.Result, "pass")
+	return parsedJudgeResult{
+		passed: strings.EqualFold(resp.Result, "pass"),
+		reason: resp.Reason,
+	}
 }

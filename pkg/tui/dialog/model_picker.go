@@ -104,6 +104,14 @@ func (d *modelPickerDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		cmd := d.SetSize(msg.Width, msg.Height)
 		return d, cmd
 
+	case tea.PasteMsg:
+		// Forward paste to text input
+		var cmd tea.Cmd
+		d.textInput, cmd = d.textInput.Update(msg)
+		d.filterModels()
+		d.errMsg = "" // Clear error when user types
+		return d, cmd
+
 	case tea.MouseClickMsg:
 		return d.handleMouseClick(msg)
 
@@ -171,9 +179,6 @@ func (d *modelPickerDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	return d, nil
 }
 
-// doubleClickThreshold is the maximum time between clicks to count as a double-click
-const doubleClickThreshold = 400 * time.Millisecond
-
 // handleMouseClick handles mouse click events on the dialog
 func (d *modelPickerDialog) handleMouseClick(msg tea.MouseClickMsg) (layout.Model, tea.Cmd) {
 	// Check if click is on the scrollbar
@@ -189,7 +194,7 @@ func (d *modelPickerDialog) handleMouseClick(msg tea.MouseClickMsg) (layout.Mode
 			now := time.Now()
 
 			// Check for double-click: same index within threshold
-			if modelIdx == d.lastClickIndex && now.Sub(d.lastClickTime) < doubleClickThreshold {
+			if modelIdx == d.lastClickIndex && now.Sub(d.lastClickTime) < styles.DoubleClickThreshold {
 				// Double-click: confirm selection
 				d.selected = modelIdx
 				d.lastClickTime = time.Time{} // Reset to prevent triple-click
@@ -644,8 +649,7 @@ func (d *modelPickerDialog) View() string {
 
 	// Show error message if present
 	if d.errMsg != "" {
-		errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6B6B"))
-		contentBuilder.AddContent(errorStyle.Render("⚠ " + d.errMsg))
+		contentBuilder.AddContent(styles.ErrorStyle.Render("⚠ " + d.errMsg))
 	}
 
 	content := contentBuilder.

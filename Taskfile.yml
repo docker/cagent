@@ -29,6 +29,7 @@ tasks:
       - "{{.GO_SOURCES}}"
       - "**/*.template"
       - "**/*.txt"
+      - "**/*.y{a,}ml"
       - "go.mod"
       - "go.sum"
     generates:

@@ -5,7 +5,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/goccy/go-yaml"
@@ -13,15 +12,7 @@ import (
 	"github.com/docker/cagent/pkg/paths"
 )
 
-const (
-	skillFile = "SKILL.md"
-
-	maxNameLength        = 64
-	maxDescriptionLength = 1024
-	maxCompatLength      = 500
-)
-
-var namePattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+const skillFile = "SKILL.md"
 
 // Skill represents a loaded skill with its metadata and content location.
 type Skill struct {
@@ -37,9 +28,15 @@ type Skill struct {
 
 // Load discovers and loads all skills from standard locations.
 // Skills are loaded from (in order, later overrides earlier):
+//
+// Global locations (from home directory):
 //   - ~/.codex/skills/ (recursive)
 //   - ~/.claude/skills/ (flat)
-//   - ./.claude/skills/ (flat, project-local)
+//   - ~/.agents/skills/ (recursive)
+//
+// Project locations (from git root up to cwd, closest wins):
+//   - .claude/skills/ (flat, only at cwd)
+//   - .agents/skills/ (flat, scanned from git root to cwd)
 func Load() []Skill {
 	skillMap := make(map[string]Skill)
 
@@ -53,12 +50,25 @@ func Load() []Skill {
 		for _, skill := range loadSkillsFromDir(filepath.Join(homeDir, ".claude", "skills"), false) {
 			skillMap[skill.Name] = skill
 		}
+		// Load from agents user directory (recursive)
+		for _, skill := range loadSkillsFromDir(filepath.Join(homeDir, ".agents", "skills"), true) {
+			skillMap[skill.Name] = skill
+		}
 	}
 
-	// Load from project directory (flat)
+	// Load from project directories
 	if cwd, err := os.Getwd(); err == nil {
+		// Load .claude/skills from cwd only (backward compatibility)
 		for _, skill := range loadSkillsFromDir(filepath.Join(cwd, ".claude", "skills"), false) {
 			skillMap[skill.Name] = skill
+		}
+
+		// Load .agents/skills from git root up to cwd (closest wins)
+		// We iterate from root to cwd so that later (closer) directories override earlier ones
+		for _, dir := range projectSearchDirs(cwd) {
+			for _, skill := range loadSkillsFromDir(filepath.Join(dir, ".agents", "skills"), false) {
+				skillMap[skill.Name] = skill
+			}
 		}
 	}
 
@@ -67,6 +77,69 @@ func Load() []Skill {
 		result = append(result, skill)
 	}
 	return result
+}
+
+// projectSearchDirs returns directories from git root to cwd (inclusive).
+// If not in a git repo, returns only cwd.
+// The returned slice is ordered from root to cwd so that closer directories
+// can override skills from parent directories.
+func projectSearchDirs(cwd string) []string {
+	absPath, err := filepath.Abs(cwd)
+	if err != nil {
+		return []string{cwd}
+	}
+
+	// Find git root by walking up
+	gitRoot := findGitRoot(absPath)
+	if gitRoot == "" {
+		// Not in a git repo, just return cwd
+		return []string{absPath}
+	}
+
+	// Build list of directories from git root to cwd
+	var dirs []string
+	current := absPath
+	for {
+		dirs = append(dirs, current)
+		if current == gitRoot {
+			break
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			// Reached filesystem root without finding git root (shouldn't happen)
+			break
+		}
+		current = parent
+	}
+
+	// Reverse so we go from root to cwd (earlier entries get overridden by later)
+	for i, j := 0, len(dirs)-1; i < j; i, j = i+1, j-1 {
+		dirs[i], dirs[j] = dirs[j], dirs[i]
+	}
+
+	return dirs
+}
+
+// findGitRoot finds the git repository root by looking for .git directory or file.
+// Returns empty string if not in a git repository.
+func findGitRoot(dir string) string {
+	current := dir
+	for {
+		gitPath := filepath.Join(current, ".git")
+		if info, err := os.Stat(gitPath); err == nil {
+			// .git can be a directory (normal repo) or a file (worktree/submodule)
+			if info.IsDir() || info.Mode().IsRegular() {
+				return current
+			}
+		}
+
+		parent := filepath.Dir(current)
+		if parent == current {
+			// Reached filesystem root
+			return ""
+		}
+		current = parent
+	}
 }
 
 // BuildSkillsPrompt generates a prompt section describing available skills.
@@ -171,7 +244,7 @@ func loadSkillFile(path, dirName string) (Skill, bool) {
 	}
 
 	skill, ok := parseFrontmatter(string(content))
-	if !ok || !isValidSkill(skill, dirName) {
+	if !ok || !isValidSkill(skill) {
 		return Skill{}, false
 	}
 
@@ -208,30 +281,13 @@ func parseFrontmatter(content string) (Skill, bool) {
 }
 
 // isValidSkill validates skill constraints.
-func isValidSkill(skill Skill, dirName string) bool {
-	// Description is required and has a max length
-	if skill.Description == "" || len(skill.Description) > maxDescriptionLength {
+func isValidSkill(skill Skill) bool {
+	// Description and name is required
+	if skill.Description == "" || skill.Name == "" {
 		return false
-	}
-
-	// Compatibility has a max length
-	if len(skill.Compatibility) > maxCompatLength {
-		return false
-	}
-
-	// If name is set, it must be valid and match the directory name
-	if skill.Name != "" {
-		if !isValidName(skill.Name) || skill.Name != dirName {
-			return false
-		}
 	}
 
 	return true
-}
-
-// isValidName checks if a skill name follows the naming convention.
-func isValidName(name string) bool {
-	return name != "" && len(name) <= maxNameLength && namePattern.MatchString(name)
 }
 
 // isHiddenOrSymlink returns true for hidden files/dirs or symlinks.

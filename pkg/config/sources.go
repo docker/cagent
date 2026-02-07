@@ -4,15 +4,18 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/docker/cagent/pkg/content"
+	"github.com/docker/cagent/pkg/environment"
 	"github.com/docker/cagent/pkg/httpclient"
 	"github.com/docker/cagent/pkg/paths"
 	"github.com/docker/cagent/pkg/remote"
@@ -105,42 +108,84 @@ func (a ociSource) ParentDir() string {
 	return ""
 }
 
+// Read loads an agent configuration from an OCI artifact
+//
+// The OCI registry remains the source of truth
+// The local content store is used as a cache and fallback only
+// A forced re-pull is triggered exclusively when store corruption is detected
 func (a ociSource) Read(ctx context.Context) ([]byte, error) {
-	// Check if we have a local copy (without loading content)
 	store, err := content.NewStore()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create content store: %w", err)
 	}
 
+	tryLoad := func() ([]byte, error) {
+		af, err := store.GetArtifact(a.reference)
+		if err != nil {
+			return nil, err
+		}
+		return []byte(af), nil
+	}
+
+	// Check if we have any local metadata (same as before)
 	_, metaErr := store.GetArtifactMetadata(a.reference)
 	hasLocal := metaErr == nil
 
-	// Try to pull from remote (only pulls if digest changed)
+	// Always try normal pull first (preserves pull-interval behavior)
 	if _, pullErr := remote.Pull(ctx, a.reference, false); pullErr != nil {
 		if !hasLocal {
-			// No local copy and can't pull, error out
 			return nil, fmt.Errorf("failed to pull OCI image %s: %w", a.reference, pullErr)
 		}
-		slog.Debug("Failed to check for OCI reference updates, using cached version", "ref", a.reference, "error", pullErr)
+
+		slog.Debug(
+			"Failed to check for OCI reference updates, using cached version",
+			"ref", a.reference,
+			"error", pullErr,
+		)
 	}
 
-	// Load the agent contents from the store
-	af, err := store.GetArtifact(a.reference)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load agent from store: %w", err)
+	// Try loading from store
+	data, err := tryLoad()
+	if err == nil {
+		return data, nil
 	}
 
-	return []byte(af), nil
+	// If loading failed due to corruption, force re-pull
+	if errors.Is(err, content.ErrStoreCorrupted) {
+		slog.Warn(
+			"Local OCI store corrupted, forcing re-pull",
+			"ref", a.reference,
+		)
+
+		if _, pullErr := remote.Pull(ctx, a.reference, true); pullErr != nil {
+			return nil, fmt.Errorf("failed to force re-pull OCI image %s: %w", a.reference, pullErr)
+		}
+
+		data, err = tryLoad()
+		if err == nil {
+			return data, nil
+		}
+	}
+
+	return nil, fmt.Errorf(
+		"failed to load agent from OCI source %s: %w",
+		a.reference,
+		err,
+	)
 }
 
 // urlSource is used to load an agent configuration from an HTTP/HTTPS URL.
 type urlSource struct {
-	url string
+	url         string
+	envProvider environment.Provider
 }
 
-func NewURLSource(url string) Source {
-	return urlSource{
-		url: url,
+// NewURLSource creates a new URL source. If envProvider is non-nil, it will be used
+// to look up GITHUB_TOKEN for authentication when fetching from GitHub URLs.
+func NewURLSource(rawURL string, envProvider environment.Provider) Source {
+	return &urlSource{
+		url:         rawURL,
+		envProvider: envProvider,
 	}
 }
 
@@ -178,6 +223,9 @@ func (a urlSource) Read(ctx context.Context) ([]byte, error) {
 	if cachedETag != "" {
 		req.Header.Set("If-None-Match", cachedETag)
 	}
+
+	// Add GitHub token authorization for GitHub URLs
+	a.addGitHubAuth(ctx, req)
 
 	resp, err := httpclient.NewHTTPClient().Do(req)
 	if err != nil {
@@ -233,9 +281,53 @@ func (a urlSource) Read(ctx context.Context) ([]byte, error) {
 	return data, nil
 }
 
+// githubHosts lists the hostnames that support GitHub token authentication.
+var githubHosts = []string{
+	"github.com",
+	"raw.githubusercontent.com",
+	"gist.githubusercontent.com",
+}
+
+// isGitHubURL checks if the URL is a GitHub URL that can use token authentication.
+// It performs strict hostname validation to prevent token leakage to malicious domains.
+func isGitHubURL(urlStr string) bool {
+	u, err := url.Parse(urlStr)
+	if err != nil {
+		return false
+	}
+	for _, host := range githubHosts {
+		if u.Host == host {
+			return true
+		}
+	}
+	return false
+}
+
+// addGitHubAuth adds GitHub token authorization to the request if:
+// - The URL is a GitHub URL
+// - An environment provider is configured
+// - GITHUB_TOKEN is available in the environment
+func (a urlSource) addGitHubAuth(ctx context.Context, req *http.Request) {
+	if a.envProvider == nil {
+		return
+	}
+
+	if !isGitHubURL(a.url) {
+		return
+	}
+
+	token, ok := a.envProvider.Get(ctx, "GITHUB_TOKEN")
+	if !ok || token == "" {
+		return
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token)
+	slog.Debug("Added GitHub token authorization to request", "url", a.url)
+}
+
 // hashURL creates a safe filename from a URL.
-func hashURL(url string) string {
-	h := sha256.Sum256([]byte(url))
+func hashURL(rawURL string) string {
+	h := sha256.Sum256([]byte(rawURL))
 	return hex.EncodeToString(h[:])
 }
 

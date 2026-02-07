@@ -16,6 +16,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/docker/cagent/pkg/app"
+	"github.com/docker/cagent/pkg/chat"
 	"github.com/docker/cagent/pkg/history"
 	"github.com/docker/cagent/pkg/tui/commands"
 	"github.com/docker/cagent/pkg/tui/components/editor"
@@ -38,16 +39,72 @@ const (
 	PanelChat   FocusedPanel = "chat"
 	PanelEditor FocusedPanel = "editor"
 
-	sidebarWidth = 40
-	// Hide sidebar if window width is less than this
+	// minWindowWidth is the threshold below which sidebar switches to horizontal mode
 	minWindowWidth = 120
-	// Width of the draggable center portion of the resize handle
+	// resizeHandleWidth is the width of the draggable center portion of the resize handle
 	resizeHandleWidth = 8
+	// dragThreshold is pixels of movement needed to distinguish click from drag
+	dragThreshold = 3
+	// toggleColumnWidth is the width of the sidebar toggle/resize handle column
+	toggleColumnWidth = 1
+	// appPaddingHorizontal is total horizontal padding from AppStyle (left + right)
+	appPaddingHorizontal = 2
+	// reservedVerticalLines accounts for resize handle (1) + status bar spacing (1)
+	reservedVerticalLines = 2
 )
+
+// sidebarLayoutMode represents how the sidebar is displayed
+type sidebarLayoutMode int
+
+const (
+	// sidebarVertical: wide window, sidebar on right side
+	sidebarVertical sidebarLayoutMode = iota
+	// sidebarCollapsed: wide window but user collapsed sidebar, shown at top with toggle
+	sidebarCollapsed
+	// sidebarCollapsedNarrow: narrow window, shown at top without toggle
+	sidebarCollapsedNarrow
+)
+
+// sidebarLayout holds computed layout values for the current frame.
+// Computing this once per update avoids repeating calculations across View, SetSize, and input handlers.
+type sidebarLayout struct {
+	mode          sidebarLayoutMode
+	innerWidth    int // window width minus app padding
+	chatWidth     int // width available for chat/messages
+	sidebarWidth  int // actual sidebar width (varies by mode)
+	sidebarStartX int // X coordinate where sidebar content starts (relative to innerWidth)
+	handleX       int // X coordinate of resize handle column (only valid in vertical mode)
+	chatHeight    int // height available for chat area
+	sidebarHeight int // height of sidebar
+}
+
+// isOnHandle returns true if adjustedX (already adjusted for app padding) is on the resize handle.
+func (l sidebarLayout) isOnHandle(adjustedX int) bool {
+	return l.mode == sidebarVertical && adjustedX == l.handleX
+}
+
+// isInSidebar returns true if adjustedX is within the sidebar area.
+func (l sidebarLayout) isInSidebar(adjustedX int) bool {
+	if l.mode != sidebarVertical {
+		return false
+	}
+	return adjustedX >= l.sidebarStartX
+}
+
+// showToggle returns true if a toggle glyph should be shown.
+func (l sidebarLayout) showToggle() bool {
+	return l.mode == sidebarVertical || l.mode == sidebarCollapsed
+}
 
 // EditorHeightChangedMsg is emitted when the editor height changes (e.g., during resize)
 type EditorHeightChangedMsg struct {
 	Height int
+}
+
+// SidebarSettings holds the sidebar display settings that should persist across session changes.
+type SidebarSettings struct {
+	Collapsed      bool
+	PreferredWidth int
 }
 
 // Page represents the main chat page
@@ -61,12 +118,18 @@ type Page interface {
 	GetInputHeight() int
 	// SetSessionStarred updates the sidebar star indicator
 	SetSessionStarred(starred bool)
+	// SetTitleRegenerating sets the title regenerating state on the sidebar
+	SetTitleRegenerating(regenerating bool) tea.Cmd
 	// InsertText inserts text at the current cursor position in the editor
 	InsertText(text string)
 	// SetRecording sets the recording mode on the editor
 	SetRecording(recording bool) tea.Cmd
 	// SendEditorContent sends the current editor content as a message
 	SendEditorContent() tea.Cmd
+	// GetSidebarSettings returns the current sidebar display settings
+	GetSidebarSettings() SidebarSettings
+	// SetSidebarSettings applies sidebar display settings
+	SetSidebarSettings(settings SidebarSettings)
 }
 
 // queuedMessage represents a message waiting to be sent to the agent
@@ -97,8 +160,25 @@ type chatPage struct {
 	msgCancel       context.CancelFunc
 	streamCancelled bool
 
+	// Track whether we've received content from an assistant response
+	// Used by --exit-after-response to ensure we don't exit before receiving content
+	hasReceivedAssistantContent bool
+
+	// pendingResponse indicates we're waiting for the first chunk from the model.
+	// When true, a spinner is rendered below the messages (outside the message list)
+	// to avoid list-wide invalidation on each tick.
+	pendingResponse bool
+	// pendingSpinner is a dedicated spinner for the pending response indicator.
+	// Uses ModeBoth with funny phrases to match the original message spinner style.
+	pendingSpinner spinner.Spinner
+
 	// Message queue for enqueuing messages while agent is working
 	messageQueue []queuedMessage
+
+	// Editing state for branching sessions
+	editing          bool
+	branchAtPosition int
+	editAttachments  map[string]string // Preserved attachments from original message
 
 	// Key map
 	keyMap KeyMap
@@ -118,6 +198,56 @@ type chatPage struct {
 	isDragging       bool
 	isHoveringHandle bool
 	editorLines      int
+
+	// Sidebar drag state
+	isDraggingSidebar     bool // True while dragging the sidebar resize handle
+	sidebarDragStartX     int  // X position when drag started
+	sidebarDragStartWidth int  // Sidebar preferred width when drag started
+	sidebarDragMoved      bool // True if mouse moved beyond threshold during drag
+}
+
+// computeSidebarLayout calculates the layout based on current state.
+func (p *chatPage) computeSidebarLayout() sidebarLayout {
+	innerWidth := p.width - appPaddingHorizontal
+
+	var mode sidebarLayoutMode
+	switch {
+	case p.width >= minWindowWidth && !p.sidebar.IsCollapsed():
+		mode = sidebarVertical
+	case p.width >= minWindowWidth:
+		mode = sidebarCollapsed
+	default:
+		mode = sidebarCollapsedNarrow
+	}
+
+	l := sidebarLayout{
+		mode:       mode,
+		innerWidth: innerWidth,
+	}
+
+	switch mode {
+	case sidebarVertical:
+		l.sidebarWidth = p.sidebar.ClampWidth(p.sidebar.GetPreferredWidth(), innerWidth)
+		l.chatWidth = max(1, innerWidth-l.sidebarWidth)
+		l.handleX = l.chatWidth
+		l.sidebarStartX = l.chatWidth + toggleColumnWidth
+		l.chatHeight = max(1, p.height-p.inputHeight-reservedVerticalLines)
+		l.sidebarHeight = l.chatHeight
+
+	case sidebarCollapsed:
+		l.sidebarWidth = innerWidth - toggleColumnWidth
+		l.chatWidth = innerWidth
+		l.sidebarHeight = p.sidebar.CollapsedHeight(l.sidebarWidth)
+		l.chatHeight = max(1, p.height-p.inputHeight-l.sidebarHeight-reservedVerticalLines)
+
+	case sidebarCollapsedNarrow:
+		l.sidebarWidth = innerWidth
+		l.chatWidth = innerWidth
+		l.sidebarHeight = p.sidebar.CollapsedHeight(l.sidebarWidth)
+		l.chatHeight = max(1, p.height-p.inputHeight-l.sidebarHeight-reservedVerticalLines)
+	}
+
+	return l
 }
 
 // KeyMap defines key bindings for the chat page
@@ -128,6 +258,7 @@ type KeyMap struct {
 	CtrlJ           key.Binding
 	ExternalEditor  key.Binding
 	ToggleSplitDiff key.Binding
+	ToggleSidebar   key.Binding
 }
 
 // getEditorDisplayNameFromEnv returns a friendly display name for the configured editor.
@@ -205,10 +336,11 @@ func defaultKeyMap() KeyMap {
 	return KeyMap{
 		Tab: key.NewBinding(
 			key.WithKeys("tab"),
-			key.WithHelp("TAB", "switch focus"),
+			key.WithHelp("Tab", "switch focus"),
 		),
 		Cancel: key.NewBinding(
 			key.WithKeys("esc"),
+			key.WithHelp("Esc", "interrupt"),
 		),
 		// Show newline help in footer. Terminals that support Shift+Enter will use it.
 		// Ctrl+J acts as a fallback on terminals that don't distinguish Shift+Enter.
@@ -224,6 +356,10 @@ func defaultKeyMap() KeyMap {
 			key.WithKeys("ctrl+t"),
 			key.WithHelp("Ctrl+t", "toggle split diff mode"),
 		),
+		ToggleSidebar: key.NewBinding(
+			key.WithKeys("ctrl+b"),
+			key.WithHelp("Ctrl+b", "toggle sidebar"),
+		),
 	}
 }
 
@@ -235,16 +371,16 @@ func New(a *app.App, sessionState *service.SessionState) Page {
 	}
 
 	p := &chatPage{
-		sidebar:      sidebar.New(sessionState),
-		messages:     messages.New(sessionState),
-		editor:       editor.New(a, historyStore),
-		spinner:      spinner.New(spinner.ModeSpinnerOnly, styles.SpinnerDotsHighlightStyle),
-		focusedPanel: PanelEditor,
-		app:          a,
-		keyMap:       defaultKeyMap(),
-		history:      historyStore,
-		sessionState: sessionState,
-		// Default to no keyboard enhancements (will be updated if msg is received)
+		sidebar:                       sidebar.New(sessionState),
+		messages:                      messages.New(sessionState),
+		editor:                        editor.New(a, historyStore),
+		spinner:                       spinner.New(spinner.ModeSpinnerOnly, styles.SpinnerDotsHighlightStyle),
+		pendingSpinner:                spinner.New(spinner.ModeBoth, styles.SpinnerDotsAccentStyle),
+		focusedPanel:                  PanelEditor,
+		app:                           a,
+		keyMap:                        defaultKeyMap(),
+		history:                       historyStore,
+		sessionState:                  sessionState,
 		keyboardEnhancementsSupported: false,
 		editorLines:                   3,
 	}
@@ -266,10 +402,12 @@ func (p *chatPage) Init() tea.Cmd {
 		p.editor.Focus(),
 	)
 
-	// Load messages from existing session (for session restore)
-	if sess := p.app.Session(); sess != nil && len(sess.Messages) > 0 {
-		cmds = append(cmds, p.messages.LoadFromSession(sess))
+	// Load state from existing session (for session restore and branching)
+	if sess := p.app.Session(); sess != nil {
 		p.sidebar.LoadFromSession(sess)
+		if len(sess.Messages) > 0 {
+			cmds = append(cmds, p.messages.LoadFromSession(sess))
+		}
 	}
 
 	return tea.Batch(cmds...)
@@ -320,11 +458,10 @@ func (p *chatPage) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	case tea.MouseWheelMsg:
 		return p.handleMouseWheel(msg)
 
-	case editor.SendMsg:
-		slog.Debug(msg.Content)
-		return p.handleSendMsg(msg)
+	case msgtypes.WheelCoalescedMsg:
+		return p.handleWheelCoalesced(msg)
 
-	case messages.StreamCancelledMsg:
+	case msgtypes.StreamCancelledMsg:
 		model, cmd := p.messages.Update(msg)
 		p.messages = model.(messages.Model)
 
@@ -347,6 +484,19 @@ func (p *chatPage) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 
 		return p, tea.Batch(cmds...)
 
+	case msgtypes.EditUserMessageMsg:
+		return p.handleEditUserMessage(msg)
+
+	case messages.InlineEditCommittedMsg:
+		return p.handleInlineEditCommitted(msg)
+
+	case messages.InlineEditCancelledMsg:
+		return p.handleInlineEditCancelled(msg)
+
+	case msgtypes.SendMsg:
+		slog.Debug(msg.Content)
+		return p.handleSendMsg(msg)
+
 	case msgtypes.InsertFileRefMsg:
 		// Attach file using editor's AttachFile method which registers the attachment
 		p.editor.AttachFile(msg.FilePath)
@@ -360,6 +510,43 @@ func (p *chatPage) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 
 	case msgtypes.ClearQueueMsg:
 		return p.handleClearQueue()
+
+	case msgtypes.ThemeChangedMsg:
+		// Theme changed - forward to all child components to invalidate caches
+		var cmds []tea.Cmd
+
+		model, cmd := p.messages.Update(msg)
+		p.messages = model.(messages.Model)
+		cmds = append(cmds, cmd)
+
+		editorModel, editorCmd := p.editor.Update(msg)
+		p.editor = editorModel.(editor.Editor)
+		cmds = append(cmds, editorCmd)
+
+		// Forward to sidebar to ensure it picks up new theme colors
+		sidebarModel, sidebarCmd := p.sidebar.Update(msg)
+		p.sidebar = sidebarModel.(sidebar.Model)
+		cmds = append(cmds, sidebarCmd)
+
+		// Recreate spinners with new colors (they pre-render frames)
+		if p.working {
+			p.spinner.Stop()
+			p.spinner = spinner.New(spinner.ModeSpinnerOnly, styles.SpinnerDotsHighlightStyle)
+			cmds = append(cmds, p.spinner.Init())
+		} else {
+			// Just recreate without reinitializing
+			p.spinner = spinner.New(spinner.ModeSpinnerOnly, styles.SpinnerDotsHighlightStyle)
+		}
+
+		if p.pendingResponse {
+			p.pendingSpinner.Stop()
+			p.pendingSpinner = spinner.New(spinner.ModeBoth, styles.SpinnerDotsAccentStyle)
+			cmds = append(cmds, p.pendingSpinner.Init())
+		} else {
+			p.pendingSpinner = spinner.New(spinner.ModeBoth, styles.SpinnerDotsAccentStyle)
+		}
+
+		return p, tea.Batch(cmds...)
 
 	default:
 		// Try to handle as a runtime event
@@ -384,87 +571,175 @@ func (p *chatPage) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		p.spinner = model.(spinner.Spinner)
 	}
 
-	return p, tea.Batch(sidebarCmd, chatCmd, editorCmd, cmdSpinner)
+	var cmdPendingSpinner tea.Cmd
+	if p.pendingResponse {
+		var model layout.Model
+		model, cmdPendingSpinner = p.pendingSpinner.Update(msg)
+		p.pendingSpinner = model.(spinner.Spinner)
+	}
+
+	return p, tea.Batch(sidebarCmd, chatCmd, editorCmd, cmdSpinner, cmdPendingSpinner)
 }
 
 func (p *chatPage) setWorking(working bool) tea.Cmd {
+	wasWorking := p.working
 	p.working = working
 
 	cmd := []tea.Cmd{p.editor.SetWorking(working)}
-	if working {
+	if working && !wasWorking {
+		// Starting work - register spinner
 		cmd = append(cmd, p.spinner.Init())
+	} else if !working && wasWorking {
+		// Stopping work - unregister spinner
+		p.spinner.Stop()
 	}
 
 	return tea.Batch(cmd...)
 }
 
+// setPendingResponse sets the pending response state.
+// When true, a spinner is shown below the messages while waiting for the first chunk.
+// Resizes messages to leave room for the spinner; bottomSlack smooths the transition.
+func (p *chatPage) setPendingResponse(pending bool) tea.Cmd {
+	wasPending := p.pendingResponse
+	p.pendingResponse = pending
+
+	if pending && !wasPending {
+		// Starting to wait - register spinner and resize messages to account for spinner space
+		sl := p.computeSidebarLayout()
+		messagesHeight := sl.chatHeight - pendingSpinnerHeight
+		resizeCmd := p.messages.SetSize(sl.chatWidth, max(1, messagesHeight))
+
+		p.pendingSpinner = p.pendingSpinner.Reset()
+		return tea.Batch(resizeCmd, p.pendingSpinner.Init())
+	} else if !pending && wasPending {
+		// Done waiting - unregister spinner, resize messages to reclaim space, and add slack
+		p.pendingSpinner.Stop()
+
+		sl := p.computeSidebarLayout()
+		resizeCmd := p.messages.SetSize(sl.chatWidth, sl.chatHeight)
+		p.messages.AdjustBottomSlack(pendingSpinnerHeight)
+
+		return resizeCmd
+	}
+
+	return nil
+}
+
+// pendingSpinnerHeight is the space taken by the pending spinner (2 newlines + 1 line)
+const pendingSpinnerHeight = 3
+
+// renderCollapsedSidebar renders the sidebar in collapsed mode (at top of screen).
+func (p *chatPage) renderCollapsedSidebar(sl sidebarLayout) string {
+	// Guard against unset/invalid layout (can happen before WindowSizeMsg is received).
+	width := max(0, sl.innerWidth)
+	height := max(0, sl.sidebarHeight)
+	if width == 0 || height == 0 {
+		return ""
+	}
+
+	sidebarView := p.sidebar.View()
+	sidebarLines := strings.Split(sidebarView, "\n")
+
+	// Add toggle glyph at right edge of first line if in collapsed mode on wide terminal
+	if sl.showToggle() && sl.mode != sidebarVertical && len(sidebarLines) > 0 {
+		toggleGlyph := styles.MutedStyle.Render("«")
+		sidebarLines[0] += toggleGlyph
+	}
+
+	// Replace the last line with a subtle divider
+	divider := styles.FadingStyle.Render(strings.Repeat("─", width))
+	if len(sidebarLines) >= height {
+		sidebarLines[height-1] = divider
+	} else {
+		sidebarLines = append(sidebarLines, divider)
+	}
+
+	sidebarWithDivider := strings.Join(sidebarLines, "\n")
+
+	return lipgloss.NewStyle().
+		Width(width).
+		Height(height).
+		Align(lipgloss.Left, lipgloss.Top).
+		Render(sidebarWithDivider)
+}
+
 // View renders the chat page
 func (p *chatPage) View() string {
-	// Main chat content area (without input)
-	// Account for app padding to match SetSize calculations
-	// AppStyle adds 2 characters of padding (left=1, right=1)
-	innerWidth := p.width - 2 // subtract left/right padding
+	sl := p.computeSidebarLayout()
+
+	// Build messages view with optional pending response spinner
+	messagesView := p.messages.View()
+	if p.pendingResponse {
+		pendingIndicator := p.pendingSpinner.View()
+		if messagesView != "" {
+			messagesView = messagesView + "\n\n" + pendingIndicator
+		} else {
+			messagesView = pendingIndicator
+		}
+	}
 
 	var bodyContent string
 
-	if p.width >= minWindowWidth {
-		// Ensure we don't exceed available space
-		chatWidth := max(1, innerWidth-sidebarWidth)
-
+	switch sl.mode {
+	case sidebarVertical:
 		chatView := styles.ChatStyle.
-			Height(p.chatHeight).
-			Width(chatWidth).
-			Render(p.messages.View())
+			Height(sl.chatHeight).
+			Width(sl.chatWidth).
+			Render(messagesView)
+
+		toggleCol := p.renderSidebarHandle(sl.chatHeight)
 
 		sidebarView := lipgloss.NewStyle().
-			Width(sidebarWidth).
-			Height(p.chatHeight).
+			Width(sl.sidebarWidth-toggleColumnWidth).
+			Height(sl.chatHeight).
 			Align(lipgloss.Left, lipgloss.Top).
 			Render(p.sidebar.View())
 
-		bodyContent = lipgloss.JoinHorizontal(
-			lipgloss.Left,
-			chatView,
-			sidebarView,
-		)
-	} else {
-		sidebarWidth, sidebarHeight := p.sidebar.GetSize()
+		bodyContent = lipgloss.JoinHorizontal(lipgloss.Left, chatView, toggleCol, sidebarView)
+
+	case sidebarCollapsed, sidebarCollapsedNarrow:
+		sidebarRendered := p.renderCollapsedSidebar(sl)
 
 		chatView := styles.ChatStyle.
-			Height(p.chatHeight).
-			Width(innerWidth).
-			Render(p.messages.View())
+			Height(sl.chatHeight).
+			Width(sl.innerWidth).
+			Render(messagesView)
 
-		sidebarView := lipgloss.NewStyle().
-			Width(sidebarWidth).
-			Height(sidebarHeight).
-			Align(lipgloss.Left, lipgloss.Top).
-			Render(p.sidebar.View())
-
-		bodyContent = lipgloss.JoinVertical(
-			lipgloss.Top,
-			sidebarView,
-			chatView,
-		)
+		bodyContent = lipgloss.JoinVertical(lipgloss.Top, sidebarRendered, chatView)
 	}
 
-	// Resize handle between messages and editor
-	resizeHandle := p.renderResizeHandle(innerWidth)
-
-	// Input field spans full width below everything
+	resizeHandle := p.renderResizeHandle(sl.innerWidth)
 	input := p.editor.View()
 
-	// Create a full-height layout with header, body, resize handle, and input
-	content := lipgloss.JoinVertical(
-		lipgloss.Left,
-		bodyContent,
-		resizeHandle,
-		input,
-	)
+	content := lipgloss.JoinVertical(lipgloss.Left, bodyContent, resizeHandle, input)
 
 	return styles.AppStyle.
 		Height(p.height).
 		Render(content)
+}
+
+// renderSidebarHandle renders the sidebar toggle/resize handle.
+// When collapsed: shows just « at top.
+// When expanded: shows » at top, rest is empty space (draggable for resize).
+func (p *chatPage) renderSidebarHandle(height int) string {
+	lines := make([]string, height)
+
+	if p.sidebar.IsCollapsed() {
+		// Collapsed: just the toggle glyph, no vertical line
+		lines[0] = styles.MutedStyle.Render("«")
+		for i := 1; i < height; i++ {
+			lines[i] = " "
+		}
+	} else {
+		// Expanded: just the toggle at top, rest is empty space (still draggable)
+		lines[0] = styles.MutedStyle.Render("»")
+		for i := 1; i < height; i++ {
+			lines[i] = " "
+		}
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 func (p *chatPage) SetSize(width, height int) tea.Cmd {
@@ -474,13 +749,11 @@ func (p *chatPage) SetSize(width, height int) tea.Cmd {
 	var cmds []tea.Cmd
 
 	// Calculate heights accounting for padding
-	// Clamp editor lines between 4 (min) and half screen (max)
 	minLines := 4
-	maxLines := max(minLines, (height-6)/2) // Leave room for messages
+	maxLines := max(minLines, (height-6)/2)
 	p.editorLines = max(minLines, min(p.editorLines, maxLines))
 
-	// Account for horizontal padding in width
-	innerWidth := width - 2 // subtract left/right padding
+	innerWidth := width - appPaddingHorizontal
 
 	targetEditorHeight := p.editorLines - 1
 	editorCmd := p.editor.SetSize(innerWidth, targetEditorHeight)
@@ -489,36 +762,30 @@ func (p *chatPage) SetSize(width, height int) tea.Cmd {
 	_, actualEditorHeight := p.editor.GetSize()
 	p.inputHeight = actualEditorHeight
 
-	// Emit height change message so completion popup can adjust position
 	cmds = append(cmds, core.CmdHandler(EditorHeightChangedMsg{Height: actualEditorHeight}))
 
-	var mainWidth int
-	if width >= minWindowWidth {
-		// Ensure we don't exceed available space after accounting for sidebar
-		mainWidth = max(1, innerWidth-sidebarWidth)
-		p.chatHeight = max(1, height-actualEditorHeight-2) // -1 for resize handle, -1 for empty line before status bar
+	// Compute layout once and use it for all sizing
+	sl := p.computeSidebarLayout()
+	p.chatHeight = sl.chatHeight
+
+	switch sl.mode {
+	case sidebarVertical:
 		p.sidebar.SetMode(sidebar.ModeVertical)
 		cmds = append(cmds,
-			p.sidebar.SetSize(sidebarWidth, p.chatHeight),
-			p.sidebar.SetPosition(styles.AppPaddingLeft+mainWidth, 0),
+			p.sidebar.SetSize(sl.sidebarWidth-toggleColumnWidth, sl.chatHeight),
+			p.sidebar.SetPosition(styles.AppPaddingLeft+sl.sidebarStartX, 0),
 			p.messages.SetPosition(0, 0),
 		)
-	} else {
-		const horizontalSidebarHeight = 3
-		mainWidth = max(innerWidth, 1)
-		p.chatHeight = max(1, height-actualEditorHeight-horizontalSidebarHeight-2) // -1 for resize handle, -1 for empty line before status bar
-		p.sidebar.SetMode(sidebar.ModeHorizontal)
+	case sidebarCollapsed, sidebarCollapsedNarrow:
+		p.sidebar.SetMode(sidebar.ModeCollapsed)
 		cmds = append(cmds,
-			p.sidebar.SetSize(width, horizontalSidebarHeight),
+			p.sidebar.SetSize(sl.sidebarWidth, sl.sidebarHeight),
 			p.sidebar.SetPosition(styles.AppPaddingLeft, 0),
-			p.messages.SetPosition(0, horizontalSidebarHeight),
+			p.messages.SetPosition(0, sl.sidebarHeight),
 		)
 	}
 
-	// Set component sizes
-	cmds = append(cmds,
-		p.messages.SetSize(mainWidth, p.chatHeight),
-	)
+	cmds = append(cmds, p.messages.SetSize(sl.chatWidth, sl.chatHeight))
 
 	return tea.Batch(cmds...)
 }
@@ -535,9 +802,13 @@ func (p *chatPage) GetInputHeight() int {
 
 // Bindings returns key bindings for the chat page
 func (p *chatPage) Bindings() []key.Binding {
+	// When inline editing, show only the inline edit bindings (no Tab switch)
+	if p.messages.IsInlineEditing() {
+		return p.messages.Bindings()
+	}
+
 	bindings := []key.Binding{
 		p.keyMap.Tab,
-		p.keyMap.Cancel,
 	}
 
 	if p.focusedPanel == PanelChat {
@@ -584,7 +855,7 @@ func (p *chatPage) updateNewlineHelp() {
 	} else {
 		p.keyMap.ShiftNewline = key.NewBinding(
 			key.WithKeys("ctrl+j"),
-			key.WithHelp("ctrl+j", "newline"),
+			key.WithHelp("Ctrl+j", "newline"),
 		)
 	}
 }
@@ -598,18 +869,27 @@ func (p *chatPage) cancelStream(showCancelMessage bool) tea.Cmd {
 	p.msgCancel()
 	p.msgCancel = nil
 	p.streamCancelled = true
+	p.setPendingResponse(false)
 	p.stopProgressBar()
 
 	// Send StreamCancelledMsg to all components to handle cleanup
 	return tea.Batch(
-		core.CmdHandler(messages.StreamCancelledMsg{ShowMessage: showCancelMessage}),
+		core.CmdHandler(msgtypes.StreamCancelledMsg{ShowMessage: showCancelMessage}),
 		p.setWorking(false),
 	)
 }
 
 // handleSendMsg handles incoming messages from the editor, either processing
 // them immediately or queuing them if the agent is busy.
-func (p *chatPage) handleSendMsg(msg editor.SendMsg) (layout.Model, tea.Cmd) {
+func (p *chatPage) handleSendMsg(msg msgtypes.SendMsg) (layout.Model, tea.Cmd) {
+	// Predefined slash commands (e.g., /yolo, /exit, /compact) execute immediately
+	// even while the agent is working - they're UI commands that don't interrupt the stream.
+	// Custom agent commands (defined in config) should still be queued.
+	if commands.ParseSlashCommand(msg.Content) != nil {
+		cmd := p.processMessage(msg)
+		return p, cmd
+	}
+
 	// If not working, process immediately
 	if !p.working {
 		cmd := p.processMessage(msg)
@@ -634,6 +914,136 @@ func (p *chatPage) handleSendMsg(msg editor.SendMsg) (layout.Model, tea.Cmd) {
 	return p, notification.InfoCmd(notifyMsg)
 }
 
+func (p *chatPage) handleEditUserMessage(msg msgtypes.EditUserMessageMsg) (layout.Model, tea.Cmd) {
+	if msg.SessionPosition < 0 || msg.MsgIndex < 0 {
+		return p, nil
+	}
+
+	p.editing = true
+	p.branchAtPosition = msg.SessionPosition
+
+	// Extract any attachments from the original session message
+	p.editAttachments = p.extractAttachmentsFromSession(msg.SessionPosition)
+
+	// Start inline editing in the messages component
+	// Use the MsgIndex directly - it was already computed correctly at click time
+	// Note: We don't call Focus() here because it would select/scroll to the last
+	// assistant message. StartInlineEdit handles focus for the inline textarea.
+	p.focusedPanel = PanelChat
+	p.editor.Blur()
+	cmd := p.messages.StartInlineEdit(msg.MsgIndex, msg.SessionPosition, msg.OriginalContent)
+
+	return p, cmd
+}
+
+// handleInlineEditCommitted handles the commit of an inline edit, triggering a branch.
+func (p *chatPage) handleInlineEditCommitted(msg messages.InlineEditCommittedMsg) (layout.Model, tea.Cmd) {
+	if !p.editing {
+		return p, nil
+	}
+
+	p.editing = false
+	branchPosition := p.branchAtPosition
+	p.branchAtPosition = 0
+	attachments := p.editAttachments
+	p.editAttachments = nil
+
+	var cancelCmd tea.Cmd
+	if p.msgCancel != nil {
+		cancelCmd = p.cancelStream(false)
+	}
+
+	p.messageQueue = nil
+	p.syncQueueToSidebar()
+
+	parentID := ""
+	if sess := p.app.Session(); sess != nil {
+		parentID = sess.ID
+	}
+
+	branchCmd := core.CmdHandler(msgtypes.BranchFromEditMsg{
+		ParentSessionID:  parentID,
+		BranchAtPosition: branchPosition,
+		Content:          msg.Content,
+		Attachments:      attachments,
+	})
+
+	return p, tea.Batch(cancelCmd, branchCmd)
+}
+
+// handleInlineEditCancelled handles cancellation of an inline edit.
+func (p *chatPage) handleInlineEditCancelled(msg messages.InlineEditCancelledMsg) (layout.Model, tea.Cmd) {
+	p.editing = false
+	p.branchAtPosition = 0
+	p.editAttachments = nil
+
+	if msg.WasInSelectionMode {
+		// We were in keyboard selection mode before editing, stay in the messages panel
+		p.focusedPanel = PanelChat
+		p.editor.Blur()
+		// The messages component already restored its selection state
+	} else {
+		// We weren't in selection mode, return focus to the editor
+		p.focusedPanel = PanelEditor
+		p.messages.Blur()
+		p.editor.Focus()
+	}
+
+	return p, nil
+}
+
+// extractAttachmentsFromSession extracts attachments from a session message at the given position.
+// Attachments are stored as text parts in MultiContent with format "Contents of <filename>: <dataURL>".
+// TODO(krisetto): meh we can store and retrieve attachments better in the session itself
+func (p *chatPage) extractAttachmentsFromSession(position int) map[string]string {
+	sess := p.app.Session()
+	if sess == nil || position < 0 || position >= len(sess.Messages) {
+		return nil
+	}
+
+	item := sess.Messages[position]
+	if !item.IsMessage() || item.Message == nil {
+		return nil
+	}
+
+	msg := item.Message.Message
+	if len(msg.MultiContent) <= 1 {
+		// No attachments - only the main text content or nothing
+		return nil
+	}
+
+	attachments := make(map[string]string)
+	const prefix = "Contents of "
+
+	// Skip the first part (main text content), look for attachment parts
+	for i := 1; i < len(msg.MultiContent); i++ {
+		part := msg.MultiContent[i]
+		if part.Type != chat.MessagePartTypeText {
+			continue
+		}
+		text := part.Text
+		if !strings.HasPrefix(text, prefix) {
+			continue
+		}
+		// Parse "Contents of <filename>: <dataURL>"
+		rest := text[len(prefix):]
+		colonIdx := strings.Index(rest, ": ")
+		if colonIdx == -1 {
+			continue
+		}
+		filename := rest[:colonIdx]
+		dataURL := rest[colonIdx+2:]
+		if filename != "" && dataURL != "" {
+			attachments[filename] = dataURL
+		}
+	}
+
+	if len(attachments) == 0 {
+		return nil
+	}
+	return attachments
+}
+
 // processNextQueuedMessage pops the next message from the queue and processes it.
 // Returns nil if the queue is empty.
 func (p *chatPage) processNextQueuedMessage() tea.Cmd {
@@ -647,7 +1057,7 @@ func (p *chatPage) processNextQueuedMessage() tea.Cmd {
 	p.messageQueue = p.messageQueue[1:]
 	p.syncQueueToSidebar()
 
-	msg := editor.SendMsg{
+	msg := msgtypes.SendMsg{
 		Content:     queued.content,
 		Attachments: queued.attachments,
 	}
@@ -685,11 +1095,17 @@ func (p *chatPage) syncQueueToSidebar() {
 		}
 		previews[i] = content
 	}
-	p.sidebar.SetQueuedMessages(previews)
+	p.sidebar.SetQueuedMessages(previews...)
 }
 
 // processMessage processes a message with the runtime
-func (p *chatPage) processMessage(msg editor.SendMsg) tea.Cmd {
+func (p *chatPage) processMessage(msg msgtypes.SendMsg) tea.Cmd {
+	// Handle slash commands (e.g., /eval, /compact, /exit) BEFORE cancelling any ongoing stream.
+	// These are UI commands that shouldn't interrupt the running agent.
+	if cmd := commands.ParseSlashCommand(msg.Content); cmd != nil {
+		return cmd
+	}
+
 	if p.msgCancel != nil {
 		p.msgCancel()
 	}
@@ -702,11 +1118,6 @@ func (p *chatPage) processMessage(msg editor.SendMsg) tea.Cmd {
 	if strings.HasPrefix(msg.Content, "!") {
 		p.app.RunBangCommand(ctx, msg.Content[1:])
 		return p.messages.ScrollToBottom()
-	}
-
-	// Handle slash commands (e.g., /eval, /compact, /exit)
-	if cmd := commands.ParseSlashCommand(msg.Content); cmd != nil {
-		return cmd
 	}
 
 	// Start working state immediately to show the user something is happening.
@@ -727,13 +1138,9 @@ func (p *chatPage) processMessage(msg editor.SendMsg) tea.Cmd {
 	}
 
 	// Run command resolution and agent execution in a goroutine
-	// so the UI can update with the spinner before any blocking operations.
+	// so the UI stays responsive while skill/agent commands are resolved.
 	go func() {
-		// Resolve agent commands (e.g., /fix-lint -> prompt text)
-		// This can execute tools and take time, but the spinner is already showing.
-		resolvedContent := p.app.ResolveCommand(ctx, msg.Content)
-
-		p.app.Run(ctx, p.msgCancel, resolvedContent, msg.Attachments)
+		p.app.Run(ctx, p.msgCancel, p.app.ResolveInput(ctx, msg.Content), msg.Attachments)
 	}()
 
 	return tea.Batch(p.messages.ScrollToBottom(), spinnerCmd, loadingCmd)
@@ -759,39 +1166,49 @@ func (p *chatPage) SetSessionStarred(starred bool) {
 	p.sidebar.SetSessionStarred(starred)
 }
 
-// handleSidebarClick checks if a click in the sidebar area should toggle the star
-// Returns true if the click was handled (star was toggled)
-func (p *chatPage) handleSidebarClick(x, y int) bool {
-	// Account for AppStyle padding (left padding = 1)
-	adjustedX := x - styles.AppPaddingLeft
-
-	if p.width < minWindowWidth {
-		// Horizontal mode - sidebar is at the top (y=0 to sidebarHeight)
-		// The sidebar view is rendered directly without additional offsets
-		return p.sidebar.HandleClick(adjustedX, y)
-	}
-
-	// Vertical mode - sidebar is on the right side
-	innerWidth := p.width - 2 // subtract left/right padding from AppStyle
-	chatWidth := max(1, innerWidth-sidebarWidth)
-
-	// Check if click is in the sidebar area (right side)
-	// Sidebar now owns its own left padding via layoutCfg
-	if adjustedX >= chatWidth {
-		// Calculate x relative to sidebar's outer boundary
-		sidebarX := adjustedX - chatWidth
-		return p.sidebar.HandleClick(sidebarX, y)
-	}
-	return false
+func (p *chatPage) SetTitleRegenerating(regenerating bool) tea.Cmd {
+	return p.sidebar.SetTitleRegenerating(regenerating)
 }
 
-// routeMouseEvent routes mouse events to editor (bottom), sidebar (right), or messages (top-left) based on coordinates.
+// GetSidebarSettings returns the current sidebar display settings.
+func (p *chatPage) GetSidebarSettings() SidebarSettings {
+	return SidebarSettings{
+		Collapsed:      p.sidebar.IsCollapsed(),
+		PreferredWidth: p.sidebar.GetPreferredWidth(),
+	}
+}
+
+// SetSidebarSettings applies sidebar display settings.
+func (p *chatPage) SetSidebarSettings(settings SidebarSettings) {
+	p.sidebar.SetCollapsed(settings.Collapsed)
+	p.sidebar.SetPreferredWidth(settings.PreferredWidth)
+}
+
+// handleSidebarClickType checks what was clicked in the sidebar area.
+// Returns the type of click (star, title, or none).
+func (p *chatPage) handleSidebarClickType(x, y int) sidebar.ClickResult {
+	adjustedX := x - styles.AppPaddingLeft
+	sl := p.computeSidebarLayout()
+
+	switch sl.mode {
+	case sidebarCollapsedNarrow, sidebarCollapsed:
+		return p.sidebar.HandleClickType(adjustedX, y)
+	case sidebarVertical:
+		if sl.isInSidebar(adjustedX) {
+			return p.sidebar.HandleClickType(adjustedX-sl.sidebarStartX, y)
+		}
+	}
+
+	return sidebar.ClickNone
+}
+
+// routeMouseEvent routes mouse events to the appropriate component based on coordinates.
 func (p *chatPage) routeMouseEvent(msg tea.Msg, y int) tea.Cmd {
 	editorTop := p.height - p.inputHeight
 	if y < editorTop {
-		// Check if event is in sidebar area (vertical mode only)
-		if p.width >= minWindowWidth {
-			// Get x coordinate from the message
+		sl := p.computeSidebarLayout()
+
+		if sl.mode == sidebarVertical && !p.sidebar.IsCollapsed() {
 			var x int
 			switch m := msg.(type) {
 			case tea.MouseClickMsg:
@@ -803,11 +1220,7 @@ func (p *chatPage) routeMouseEvent(msg tea.Msg, y int) tea.Cmd {
 			}
 
 			adjustedX := x - styles.AppPaddingLeft
-			innerWidth := p.width - 2
-			chatWidth := max(1, innerWidth-sidebarWidth)
-
-			// Route to sidebar if in sidebar area
-			if adjustedX >= chatWidth {
+			if sl.isInSidebar(adjustedX) {
 				model, cmd := p.sidebar.Update(msg)
 				p.sidebar = model.(sidebar.Model)
 				return cmd
@@ -836,23 +1249,6 @@ func (p *chatPage) routeMouseEvent(msg tea.Msg, y int) tea.Cmd {
 	return cmd
 }
 
-// isOnResizeLine checks if y is on the resize handle line.
-func (p *chatPage) isOnResizeLine(y int) bool {
-	// Use current editor height (includes dynamic banner) rather than cached value
-	_, editorHeight := p.editor.GetSize()
-	return y == p.height-editorHeight-2
-}
-
-// isOnResizeHandle checks if (x, y) is on the draggable center of the resize handle.
-func (p *chatPage) isOnResizeHandle(x, y int) bool {
-	if !p.isOnResizeLine(y) {
-		return false
-	}
-	// Only the center portion is draggable
-	center := p.width / 2
-	return x >= center-resizeHandleWidth/2 && x < center+resizeHandleWidth/2
-}
-
 // handleResize adjusts editor height based on drag position.
 func (p *chatPage) handleResize(y int) tea.Cmd {
 	// Subtract EditorStyle padding to get internal content lines
@@ -868,6 +1264,11 @@ func (p *chatPage) handleResize(y int) tea.Cmd {
 
 // renderResizeHandle renders the draggable separator between messages and editor.
 func (p *chatPage) renderResizeHandle(width int) string {
+	// Guard against zero or negative width (can happen before WindowSizeMsg is received)
+	if width <= 0 {
+		return ""
+	}
+
 	// Use brighter style when actively dragging
 	centerStyle := styles.ResizeHandleHoverStyle
 	if p.isDragging {
@@ -880,7 +1281,7 @@ func (p *chatPage) renderResizeHandle(width int) string {
 
 	// Always center handle on full width
 	fullLine := lipgloss.PlaceHorizontal(
-		width-2, lipgloss.Center, handle,
+		max(0, width-appPaddingHorizontal), lipgloss.Center, handle,
 		lipgloss.WithWhitespaceChars("─"),
 		lipgloss.WithWhitespaceStyle(styles.ResizeHandleStyle),
 	)
@@ -892,8 +1293,10 @@ func (p *chatPage) renderResizeHandle(width int) string {
 			workingText = fmt.Sprintf("Working… (%d queued)", queueLen)
 		}
 		suffix := " " + p.spinner.View() + " " + styles.SpinnerDotsHighlightStyle.Render(workingText)
+		cancelKeyPart := styles.HighlightWhiteStyle.Render(p.keyMap.Cancel.Help().Key)
+		suffix += " (" + cancelKeyPart + " to interrupt)"
 		suffixWidth := lipgloss.Width(suffix)
-		truncated := lipgloss.NewStyle().MaxWidth(width - 2 - suffixWidth).Render(fullLine)
+		truncated := lipgloss.NewStyle().MaxWidth(width - appPaddingHorizontal - suffixWidth).Render(fullLine)
 		return truncated + suffix
 	}
 
@@ -902,7 +1305,7 @@ func (p *chatPage) renderResizeHandle(width int) string {
 		queueText := fmt.Sprintf("%d queued", queueLen)
 		suffix := " " + styles.WarningStyle.Render(queueText) + " "
 		suffixWidth := lipgloss.Width(suffix)
-		truncated := lipgloss.NewStyle().MaxWidth(width - 2 - suffixWidth).Render(fullLine)
+		truncated := lipgloss.NewStyle().MaxWidth(width - appPaddingHorizontal - suffixWidth).Render(fullLine)
 		return truncated + suffix
 	}
 

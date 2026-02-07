@@ -55,6 +55,10 @@ func (m *MemoryDatabase) GetMemories(ctx context.Context) ([]database.UserMemory
 		memories = append(memories, memory)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
 	return memories, nil
 }
 

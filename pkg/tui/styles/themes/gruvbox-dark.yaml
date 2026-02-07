@@ -1,0 +1,93 @@
+version: 1
+name: "Gruvbox Dark"
+colors:
+  # Text colors
+  text_bright: "#ebdbb2"
+  text_primary: "#ebdbb2"
+  text_secondary: "#a89984"
+  text_muted: "#928374"
+  text_faint: "#504945"
+  
+  # Accent colors
+  accent: "#83a598"
+  accent_muted: "#458588"
+  
+  # Background colors
+  background: "#282828"
+  background_alt: "#3c3836"
+  
+  # Border colors
+  border_secondary: "#504945"
+  
+  # Status colors
+  success: "#b8bb26"
+  error: "#fb4934"
+  warning: "#fabd2f"
+  info: "#8ec07c"
+  highlight: "#d3869b"
+  
+  # Brand colors
+  # NOTE: Used as selection background in dialogs - must be dark for white text
+  brand: "#2a5a5c"
+  brand_bg: "#282828"
+  
+  # Error colors
+  error_strong: "#cc241d"
+  error_dark: "#3c1f1e"
+  
+  # Spinner colors
+  spinner_dim: "#83a598"
+  spinner_bright: "#8fbcbb"
+  spinner_brightest: "#9bc5c8"
+  
+  # Diff colors
+  diff_add_bg: "#2d3319"
+  diff_remove_bg: "#3c1f1e"
+  
+  # UI element colors
+  line_number: "#7c6f64"
+  separator: "#504945"
+  selected: "#504945"
+  selected_fg: "#ffffff"
+  suggestion_ghost: "#665c54"
+  tab_bg: "#3c3836"
+  placeholder: "#928374"
+  
+  # Badge colors
+  badge_accent: "#d3869b"
+  badge_info: "#8ec07c"
+  badge_success: "#b8bb26"
+
+chroma:
+  # Syntax highlighting colors - Gruvbox style
+  comment: "#928374"
+  comment_preproc: "#fe8019"
+  keyword: "#fb4934"
+  keyword_reserved: "#d3869b"
+  keyword_namespace: "#8ec07c"
+  keyword_type: "#fabd2f"
+  operator: "#fe8019"
+  punctuation: "#ebdbb2"
+  name_builtin: "#d3869b"
+  name_tag: "#fb4934"
+  name_attribute: "#fabd2f"
+  name_decorator: "#fe8019"
+  literal_number: "#d3869b"
+  literal_string: "#b8bb26"
+  literal_string_escape: "#8ec07c"
+  generic_deleted: "#fb4934"
+  generic_subheading: "#928374"
+  background: "#282828"
+  error_fg: "#fb4934"
+  error_bg: "#3c1f1e"
+  success: "#b8bb26"
+
+markdown:
+  heading: "#83a598"
+  link: "#8ec07c"
+  strong: "#ebdbb2"
+  code: "#fabd2f"
+  code_bg: "#3c3836"
+  blockquote: "#a89984"
+  list: "#ebdbb2"
+  hr: "#504945"
