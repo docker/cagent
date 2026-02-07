@@ -64,6 +64,7 @@ func newRunCmd() *cobra.Command {
 		Example: `  cagent run ./agent.yaml
   cagent run ./team.yaml --agent root
   cagent run # built-in default agent
+  cagent run coder # built-in coding agent
   cagent run ./echo.yaml "INSTRUCTIONS"
   echo "INSTRUCTIONS" | cagent run ./echo.yaml -
   cagent run ./agent.yaml --record  # Records session to auto-generated file`,

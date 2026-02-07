@@ -8,4 +8,5 @@
 !./**/*.go
 !./**/*.txt
 !/pkg/config/default-agent.yaml
+!/pkg/config/coder-agent.yaml
 !/pkg/tui/styles/themes/*.yaml

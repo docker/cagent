@@ -285,10 +285,6 @@
           "type": "boolean",
           "description": "Whether to add a 'description' parameter to tool calls, allowing the LLM to provide context about why it is calling a tool"
         },
-        "skills": {
-          "type": "boolean",
-          "description": "Enable skills discovery for this agent. When enabled, the agent loads skill definitions from well-known directories (~/.codex/skills, ~/.claude/skills, ~/.agents/skills, .claude/skills, .agents/skills) and includes them in the system prompt."
-        },
         "hooks": {
           "$ref": "#/definitions/HooksConfig",
           "description": "Lifecycle hooks for executing shell commands at various points in the agent's execution"

@@ -19,6 +19,24 @@ import (
 //go:embed default-agent.yaml
 var defaultAgent []byte
 
+//go:embed coder-agent.yaml
+var coderAgent []byte
+
+// builtinAgents maps built-in agent names to their embedded YAML configurations.
+var builtinAgents = map[string][]byte{
+	"default": defaultAgent,
+	"coder":   coderAgent,
+}
+
+// BuiltinAgentNames returns the names of all built-in agents.
+func BuiltinAgentNames() []string {
+	names := make([]string, 0, len(builtinAgents))
+	for name := range builtinAgents {
+		names = append(names, name)
+	}
+	return names
+}
+
 // ResolveAlias resolves an agent reference and returns the alias if it exists and has options.
 // Returns nil if the reference is not an alias or doesn't have options.
 func ResolveAlias(agentFilename string) *userconfig.Alias {
@@ -69,9 +87,9 @@ func ResolveSources(agentsPath string, envProvider environment.Provider) (Source
 		return nil, err
 	}
 
-	if resolvedPath == "default" {
+	if data, ok := builtinAgents[resolvedPath]; ok {
 		return map[string]Source{
-			"default": NewBytesSource("default", defaultAgent),
+			resolvedPath: NewBytesSource(resolvedPath, data),
 		}, nil
 	}
 
@@ -122,8 +140,8 @@ func Resolve(agentFilename string, envProvider environment.Provider) (Source, er
 		return nil, err
 	}
 
-	if resolvedPath == "default" {
-		return NewBytesSource(resolvedPath, defaultAgent), nil
+	if data, ok := builtinAgents[resolvedPath]; ok {
+		return NewBytesSource(resolvedPath, data), nil
 	}
 
 	if IsURLReference(resolvedPath) {
@@ -149,9 +167,9 @@ func resolve(agentFilename string) (string, error) {
 		}
 	}
 
-	// "default" is either a user defined alias or the default (embedded) agent
-	if agentFilename == "default" {
-		return "default", nil
+	// Built-in agent names (e.g. "default", "coder") are either user defined aliases or embedded agents
+	if _, ok := builtinAgents[agentFilename]; ok {
+		return agentFilename, nil
 	}
 
 	// Don't convert OCI references or URLs to absolute paths
