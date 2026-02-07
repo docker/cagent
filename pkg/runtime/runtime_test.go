@@ -1421,3 +1421,42 @@ func TestSessionPermissions_FallbackToPatternRules(t *testing.T) {
 
 	require.True(t, executed, "expected tool to fall through to pattern-based Allow rules")
 }
+
+func TestStream_CapturesUsageOnlyOnce(t *testing.T) {
+	stream := newStreamBuilder().
+		AddContent("Hello").
+		AddStopWithUsage(10, 5). // first usage
+		AddStopWithUsage(0, 0).  // provider emits usage again
+		Build()
+
+	sess := session.New(session.WithUserMessage("Hi"))
+
+	events := runSession(t, sess, stream)
+
+	var usageEvents []Event
+	for _, ev := range events {
+		if reflect.DeepEqual(
+			ev,
+			TokenUsageWithMessage(
+				sess.ID,
+				"root",
+				10,
+				5,
+				15,
+				0,
+				0,
+				&MessageUsage{
+					Usage: chat.Usage{
+						InputTokens:  10,
+						OutputTokens: 5,
+					},
+					Model: "test/mock-model",
+				},
+			),
+		) {
+			usageEvents = append(usageEvents, ev)
+		}
+	}
+
+	require.Len(t, usageEvents, 1, "expected token usage to be emitted only once")
+}
