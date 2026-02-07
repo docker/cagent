@@ -243,6 +243,7 @@ type KeyMap struct {
 	ExternalEditor  key.Binding
 	ToggleSplitDiff key.Binding
 	ToggleSidebar   key.Binding
+	HistorySearch   key.Binding
 }
 
 // getEditorDisplayNameFromEnv returns a friendly display name for the configured editor.
@@ -343,6 +344,10 @@ func defaultKeyMap() KeyMap {
 		ToggleSidebar: key.NewBinding(
 			key.WithKeys("ctrl+b"),
 			key.WithHelp("Ctrl+b", "toggle sidebar"),
+		),
+		HistorySearch: key.NewBinding(
+			key.WithKeys("ctrl+r"),
+			key.WithHelp("Ctrl+r", "history search"),
 		),
 	}
 }
@@ -785,6 +790,7 @@ func (p *chatPage) Bindings() []key.Binding {
 		bindings = append(bindings,
 			p.keyMap.ShiftNewline,
 			p.keyMap.ExternalEditor,
+			p.keyMap.HistorySearch,
 		)
 	}
 

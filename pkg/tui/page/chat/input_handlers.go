@@ -38,6 +38,13 @@ func (p *chatPage) handleKeyPress(msg tea.KeyPressMsg) (layout.Model, tea.Cmd, b
 		}
 	}
 
+	// Prioritize editor handling if in reverse search mode
+	if p.focusedPanel == PanelEditor && p.editor.IsReverseSearchActive() {
+		model, cmd := p.editor.Update(msg)
+		p.editor = model.(editor.Editor)
+		return p, cmd, true
+	}
+
 	switch {
 	case key.Matches(msg, p.keyMap.Tab):
 		if p.focusedPanel == PanelEditor {

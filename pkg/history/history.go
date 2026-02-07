@@ -142,6 +142,34 @@ func (h *History) LatestMatch(prefix string) string {
 	return ""
 }
 
+// FindPrevContains searches backward through history for a message containing query.
+// from is an exclusive upper bound index. Pass len(Messages) to start from the most recent.
+// Returns the matched message, its index, and whether a match was found.
+// An empty query matches any entry.
+func (h *History) FindPrevContains(query string, from int) (msg string, idx int, ok bool) {
+	if len(h.Messages) == 0 {
+		return "", -1, false
+	}
+
+	start := from - 1
+	if start >= len(h.Messages) {
+		start = len(h.Messages) - 1
+	}
+
+	query = strings.ToLower(query)
+	for i := start; i >= 0; i-- {
+		if query == "" || strings.Contains(strings.ToLower(h.Messages[i]), query) {
+			return h.Messages[i], i, true
+		}
+	}
+
+	return "", -1, false
+}
+
+func (h *History) SetCurrent(i int) {
+	h.current = i
+}
+
 func (h *History) append(message string) error {
 	if err := os.MkdirAll(filepath.Dir(h.path), 0o755); err != nil {
 		return err

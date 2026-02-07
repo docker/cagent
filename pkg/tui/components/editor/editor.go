@@ -81,6 +81,8 @@ type Editor interface {
 	SetRecording(recording bool) tea.Cmd
 	// IsRecording returns true if the editor is in recording mode
 	IsRecording() bool
+	// IsReverseSearchActive returns true if the editor is in reverse search mode
+	IsReverseSearchActive() bool
 	// SendContent triggers sending the current editor content
 	SendContent() tea.Cmd
 }
@@ -134,6 +136,14 @@ type editor struct {
 	fileFullLoadStarted bool
 	// fileLoadCancel cancels any in-progress file loading
 	fileLoadCancel context.CancelFunc
+
+	// reverse history search state
+	revSearchActive     bool
+	revSearchQuery      string
+	revSearchOrigValue  string
+	revSearchMatch      string
+	revSearchMatchIndex int
+	revSearchFailing    bool
 }
 
 // New creates a new editor component
@@ -700,6 +710,14 @@ func (e *editor) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		}
 		return e, nil
 	case tea.KeyPressMsg:
+		if e.revSearchActive {
+			return e.handleRevSearchKey(msg)
+		}
+
+		if msg.String() == "ctrl+r" && !e.working && !e.recording {
+			return e.enterRevSearch()
+		}
+
 		if key.Matches(msg, e.textarea.KeyMap.Paste) {
 			return e.handleClipboardPaste()
 		}
@@ -1120,11 +1138,25 @@ func (e *editor) View() string {
 
 	bannerView := e.banner.View()
 	if bannerView != "" {
-		// Banner is shown - no extra top padding needed
 		view = lipgloss.JoinVertical(lipgloss.Left, bannerView, view)
 	}
 
+	if e.revSearchActive {
+		statusLine := e.revSearchStatusLine()
+		view = lipgloss.JoinVertical(lipgloss.Left, view, statusLine)
+	}
+
 	return styles.RenderComposite(styles.EditorStyle.MarginBottom(1), view)
+}
+
+func (e *editor) revSearchStatusLine() string {
+	label := "(search)"
+	if e.revSearchFailing {
+		label = "(no matches)"
+	}
+
+	status := fmt.Sprintf("%s '%s'", label, e.revSearchQuery)
+	return styles.MutedStyle.Render(status)
 }
 
 // SetSize sets the dimensions of the component
@@ -1142,6 +1174,9 @@ func (e *editor) updateTextareaHeight() {
 	available := e.height
 	if e.banner != nil {
 		available -= e.banner.Height()
+	}
+	if e.revSearchActive {
+		available--
 	}
 
 	available = max(available, 1)
@@ -1362,6 +1397,11 @@ func (e *editor) IsRecording() bool {
 	return e.recording
 }
 
+// IsReverseSearchActive returns true if the editor is in reverse search mode
+func (e *editor) IsReverseSearchActive() bool {
+	return e.revSearchActive
+}
+
 // SendContent triggers sending the current editor content
 func (e *editor) SendContent() tea.Cmd {
 	value := e.textarea.Value()
@@ -1443,4 +1483,108 @@ func createPasteAttachment(content string, num int) (attachment, error) {
 		sizeBytes:   len(content),
 		isTemp:      true,
 	}, nil
+}
+
+func (e *editor) enterRevSearch() (layout.Model, tea.Cmd) {
+	e.revSearchActive = true
+	e.revSearchQuery = ""
+	e.revSearchOrigValue = e.textarea.Value()
+	e.revSearchFailing = false
+
+	msg, idx, ok := e.hist.FindPrevContains("", len(e.hist.Messages))
+	if ok {
+		e.revSearchMatch = msg
+		e.revSearchMatchIndex = idx
+		e.textarea.SetValue(msg)
+		e.textarea.MoveToEnd()
+	} else {
+		e.revSearchMatch = ""
+		e.revSearchMatchIndex = -1
+		e.revSearchFailing = true
+	}
+
+	e.clearSuggestion()
+	return e, core.CmdHandler(completion.CloseMsg{})
+}
+
+func (e *editor) handleRevSearchKey(msg tea.KeyPressMsg) (layout.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+r":
+		if e.revSearchMatchIndex >= 0 {
+			m, idx, ok := e.hist.FindPrevContains(e.revSearchQuery, e.revSearchMatchIndex)
+			if ok {
+				e.revSearchMatch = m
+				e.revSearchMatchIndex = idx
+				e.revSearchFailing = false
+				e.textarea.SetValue(m)
+				e.textarea.MoveToEnd()
+			} else {
+				e.revSearchFailing = true
+			}
+		}
+		return e, nil
+
+	case "enter":
+		value := e.textarea.Value()
+		matchIdx := e.revSearchMatchIndex
+		e.exitRevSearch()
+		if value != "" {
+			e.textarea.SetValue(value)
+			e.textarea.MoveToEnd()
+			if matchIdx >= 0 {
+				e.hist.SetCurrent(matchIdx)
+			}
+			e.userTyped = false
+		}
+		e.refreshSuggestion()
+		return e, core.CmdHandler(completion.CloseMsg{})
+
+	case "esc", "ctrl+g":
+		e.textarea.SetValue(e.revSearchOrigValue)
+		e.textarea.MoveToEnd()
+		e.exitRevSearch()
+		e.refreshSuggestion()
+		return e, core.CmdHandler(completion.CloseMsg{})
+
+	case "backspace":
+		if e.revSearchQuery != "" {
+			runes := []rune(e.revSearchQuery)
+			e.revSearchQuery = string(runes[:len(runes)-1])
+			e.revSearchComputeMatch()
+		}
+		return e, nil
+
+	default:
+		if msg.Text != "" && !msg.Mod.Contains(tea.ModCtrl) && !msg.Mod.Contains(tea.ModAlt) {
+			e.revSearchQuery += msg.Text
+			e.revSearchComputeMatch()
+		}
+		return e, nil
+	}
+}
+
+func (e *editor) revSearchComputeMatch() {
+	m, idx, ok := e.hist.FindPrevContains(e.revSearchQuery, len(e.hist.Messages))
+	if ok {
+		e.revSearchMatch = m
+		e.revSearchMatchIndex = idx
+		e.revSearchFailing = false
+		e.textarea.SetValue(m)
+		e.textarea.MoveToEnd()
+	} else {
+		e.revSearchMatch = ""
+		e.revSearchMatchIndex = -1
+		e.revSearchFailing = true
+		e.textarea.SetValue(e.revSearchOrigValue)
+		e.textarea.MoveToEnd()
+	}
+}
+
+func (e *editor) exitRevSearch() {
+	e.revSearchActive = false
+	e.revSearchQuery = ""
+	e.revSearchOrigValue = ""
+	e.revSearchMatch = ""
+	e.revSearchMatchIndex = -1
+	e.revSearchFailing = false
 }
