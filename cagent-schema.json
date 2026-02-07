@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/cagent/cagent/blob/main/cagent-schema.json",
   "title": "Cagent Configuration",
-  "description": "Configuration schema for Cagent v4",
+  "description": "Configuration schema for Cagent v5",
   "type": "object",
   "properties": {
     "version": {
@@ -13,14 +13,16 @@
         "1",
         "2",
         "3",
-        "4"
+        "4",
+        "5"
       ],
       "examples": [
         "0",
         "1",
         "2",
         "3",
-        "4"
+        "4",
+        "5"
       ]
     },
     "providers": {

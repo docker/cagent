@@ -1,4 +1,4 @@
-package latest
+package v4
 
 import (
 	"encoding/json"
@@ -11,7 +11,7 @@ import (
 	"github.com/docker/cagent/pkg/config/types"
 )
 
-const Version = "5"
+const Version = "4"
 
 // Config represents the entire configuration file
 type Config struct {
