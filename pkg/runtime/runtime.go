@@ -1779,6 +1779,22 @@ func (r *LocalRuntime) handleTaskTransfer(ctx context.Context, sess *session.Ses
 
 	a := r.CurrentAgent()
 
+	// Validate that the target agent is in the current agent's sub-agents list
+	subAgents := a.SubAgents()
+	if !slices.ContainsFunc(subAgents, func(sa *agent.Agent) bool { return sa.Name() == params.Agent }) {
+		var subAgentNames []string
+		for _, sa := range subAgents {
+			subAgentNames = append(subAgentNames, sa.Name())
+		}
+		var errorMsg string
+		if len(subAgentNames) > 0 {
+			errorMsg = fmt.Sprintf("Agent %s cannot transfer task to %s: target agent not in sub-agents list. Available sub-agent IDs are: %s", a.Name(), params.Agent, strings.Join(subAgentNames, ", "))
+		} else {
+			errorMsg = fmt.Sprintf("Agent %s cannot transfer task to %s: target agent not in sub-agents list. This agent has no sub-agents configured.", a.Name(), params.Agent)
+		}
+		return tools.ResultError(errorMsg), nil
+	}
+
 	// Span for task transfer (optional)
 	ctx, span := r.startSpan(ctx, "runtime.task_transfer", trace.WithAttributes(
 		attribute.String("from.agent", a.Name()),

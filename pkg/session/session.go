@@ -449,7 +449,7 @@ func buildInvariantSystemMessages(a *agent.Agent) []chat.Message {
 	var messages []chat.Message
 
 	if a.HasSubAgents() {
-		subAgents := append(a.SubAgents(), a.Parents()...)
+		subAgents := a.SubAgents()
 
 		var text strings.Builder
 		var validAgentIDs []string

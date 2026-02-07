@@ -1,9 +1,11 @@
 package session
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/docker/cagent/pkg/agent"
 	"github.com/docker/cagent/pkg/chat"
@@ -393,4 +395,43 @@ func TestGetLastUserMessages(t *testing.T) {
 		assert.Equal(t, "First", msgs[0])
 		assert.Equal(t, "Third", msgs[1])
 	})
+}
+
+func TestTransferTaskPromptExcludesParents(t *testing.T) {
+	t.Parallel()
+
+	// Build hierarchy: planner -> root -> librarian
+	// root's sub-agents: [librarian]
+	// root's parents: [planner] (set by planner listing root as a sub-agent)
+	librarian := agent.New("librarian", "", agent.WithDescription("Library agent"))
+	root := agent.New("root", "You are the root agent",
+		agent.WithDescription("Root agent"),
+	)
+	planner := agent.New("planner", "",
+		agent.WithDescription("Planner agent"),
+	)
+	// Connect: root -> librarian (root has librarian as sub-agent)
+	agent.WithSubAgents(librarian)(root)
+	// Connect: planner -> root (planner has root as sub-agent, making root's parent = planner)
+	agent.WithSubAgents(root)(planner)
+
+	// Verify parent relationship was established
+	require.Len(t, root.Parents(), 1)
+	assert.Equal(t, "planner", root.Parents()[0].Name())
+
+	s := New()
+	messages := s.GetMessages(root)
+
+	// Find the system message about sub-agents
+	var subAgentMsg string
+	for _, msg := range messages {
+		if msg.Role == chat.MessageRoleSystem && strings.Contains(msg.Content, "transfer_task") {
+			subAgentMsg = msg.Content
+			break
+		}
+	}
+
+	require.NotEmpty(t, subAgentMsg, "should have a sub-agent system message")
+	assert.Contains(t, subAgentMsg, "librarian", "should list librarian as a valid sub-agent")
+	assert.NotContains(t, subAgentMsg, "planner", "should NOT list parent agent planner as a valid transfer target")
 }

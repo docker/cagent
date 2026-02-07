@@ -1364,3 +1364,75 @@ func TestToolRejectionWithoutReason(t *testing.T) {
 	require.Equal(t, "The user rejected the tool call.", toolResponse.Response)
 	require.NotContains(t, toolResponse.Response, "Reason:")
 }
+
+func TestTransferTaskRejectsNonSubAgent(t *testing.T) {
+	// root has librarian as sub-agent but NOT planner.
+	// planner exists in the team. transfer_task to planner should be rejected.
+	prov := &mockProvider{id: "test/mock-model", stream: &mockStream{}}
+
+	librarian := agent.New("librarian", "Library agent", agent.WithModel(prov))
+	root := agent.New("root", "Root agent", agent.WithModel(prov))
+	planner := agent.New("planner", "Planner agent", agent.WithModel(prov))
+
+	agent.WithSubAgents(librarian)(root)
+
+	tm := team.New(team.WithAgents(root, planner, librarian))
+
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	require.NoError(t, err)
+
+	sess := session.New(session.WithUserMessage("Test"))
+	evts := make(chan Event, 128)
+
+	toolCall := tools.ToolCall{
+		ID:   "call_1",
+		Type: "function",
+		Function: tools.FunctionCall{
+			Name:      "transfer_task",
+			Arguments: `{"agent":"planner","task":"do something","expected_output":""}`,
+		},
+	}
+
+	result, err := rt.handleTaskTransfer(t.Context(), sess, toolCall, evts)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.IsError, "transfer to non-sub-agent should return an error result")
+	assert.Contains(t, result.Output, "cannot transfer task to planner")
+	assert.Contains(t, result.Output, "librarian")
+	assert.Equal(t, "root", rt.currentAgent, "current agent should remain root")
+}
+
+func TestTransferTaskAllowsSubAgent(t *testing.T) {
+	// Verify that transfer_task to a valid sub-agent is NOT rejected by the validation.
+	// We can't fully run the child session without a real model, so we just confirm
+	// it gets past validation (it will fail later due to mock stream being empty,
+	// which is fine — we only care that it's not blocked by the sub-agent check).
+	prov := &mockProvider{id: "test/mock-model", stream: newStreamBuilder().AddContent("done").AddStopWithUsage(10, 5).Build()}
+
+	librarian := agent.New("librarian", "Library agent", agent.WithModel(prov))
+	root := agent.New("root", "Root agent", agent.WithModel(prov))
+
+	agent.WithSubAgents(librarian)(root)
+
+	tm := team.New(team.WithAgents(root, librarian))
+
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	require.NoError(t, err)
+
+	sess := session.New(session.WithUserMessage("Test"), session.WithToolsApproved(true))
+	evts := make(chan Event, 128)
+
+	toolCall := tools.ToolCall{
+		ID:   "call_1",
+		Type: "function",
+		Function: tools.FunctionCall{
+			Name:      "transfer_task",
+			Arguments: `{"agent":"librarian","task":"find a book","expected_output":"book title"}`,
+		},
+	}
+
+	result, err := rt.handleTaskTransfer(t.Context(), sess, toolCall, evts)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.IsError, "transfer to valid sub-agent should succeed")
+}
