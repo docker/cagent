@@ -14,6 +14,7 @@ import (
 	"github.com/docker/cagent/pkg/js"
 	"github.com/docker/cagent/pkg/memory/database/sqlite"
 	"github.com/docker/cagent/pkg/path"
+	"github.com/docker/cagent/pkg/sandbox"
 	"github.com/docker/cagent/pkg/tools"
 	"github.com/docker/cagent/pkg/tools/a2a"
 	"github.com/docker/cagent/pkg/tools/builtin"
@@ -145,28 +146,32 @@ func createShellTool(ctx context.Context, toolset latest.Toolset, _ string, runC
 	}
 	env = append(env, os.Environ()...)
 
-	// Expand sandbox paths with JS interpolation (e.g., ${env.HOME}:ro)
+	// Create Docker sandbox runner from toolset config
 	sandboxConfig := expandSandboxPaths(ctx, toolset.Sandbox, runConfig.EnvProvider())
+	var runner sandbox.Runner
+	if sandboxConfig != nil {
+		runner = sandbox.NewDockerRunner(sandboxConfig, runConfig.WorkingDir, env)
+	}
 
-	return builtin.NewShellTool(env, runConfig, sandboxConfig), nil
+	return builtin.NewShellTool(env, runConfig, runner), nil
 }
 
 // expandSandboxPaths expands environment variable references in sandbox paths.
 // Supports JS template literal syntax like ${env.HOME} or ${env.HOME || '/default'}.
-func expandSandboxPaths(ctx context.Context, sandbox *latest.SandboxConfig, envProvider environment.Provider) *latest.SandboxConfig {
-	if sandbox == nil {
+func expandSandboxPaths(ctx context.Context, sandboxCfg *latest.SandboxConfig, envProvider environment.Provider) *latest.SandboxConfig {
+	if sandboxCfg == nil {
 		return nil
 	}
 
 	expander := js.NewJsExpander(envProvider)
 
-	expandedPaths := make([]string, len(sandbox.Paths))
-	for i, p := range sandbox.Paths {
+	expandedPaths := make([]string, len(sandboxCfg.Paths))
+	for i, p := range sandboxCfg.Paths {
 		expandedPaths[i] = expander.Expand(ctx, p)
 	}
 
 	return &latest.SandboxConfig{
-		Image: sandbox.Image,
+		Image: sandboxCfg.Image,
 		Paths: expandedPaths,
 	}
 }

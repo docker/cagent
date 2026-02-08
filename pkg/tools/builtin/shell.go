@@ -18,7 +18,7 @@ import (
 
 	"github.com/docker/cagent/pkg/concurrent"
 	"github.com/docker/cagent/pkg/config"
-	"github.com/docker/cagent/pkg/config/latest"
+	"github.com/docker/cagent/pkg/sandbox"
 	"github.com/docker/cagent/pkg/tools"
 )
 
@@ -50,7 +50,7 @@ type shellHandler struct {
 	workingDir      string
 	jobs            *concurrent.Map[string, *backgroundJob]
 	jobCounter      atomic.Int64
-	sandbox         *sandboxRunner
+	sandbox         sandbox.Runner
 }
 
 // Job status constants
@@ -155,7 +155,7 @@ func (h *shellHandler) RunShell(ctx context.Context, params RunShellArgs) (*tool
 
 	// Delegate to sandbox runner if configured
 	if h.sandbox != nil {
-		return h.sandbox.runCommand(timeoutCtx, ctx, params.Cmd, cwd, timeout), nil
+		return h.sandbox.RunCommand(timeoutCtx, ctx, params.Cmd, cwd, timeout), nil
 	}
 
 	slog.Debug("Executing native shell command", "command", params.Cmd, "cwd", cwd)
@@ -346,9 +346,10 @@ func (h *shellHandler) StopBackgroundJob(_ context.Context, params StopBackgroun
 	return tools.ResultSuccess(fmt.Sprintf("Job %s stopped successfully", params.JobID)), nil
 }
 
-// NewShellTool creates a new shell tool with optional sandbox configuration.
-func NewShellTool(env []string, runConfig *config.RuntimeConfig, sandboxConfig *latest.SandboxConfig) *ShellTool {
-	shell, argsPrefix := detectShell(sandboxConfig != nil)
+// NewShellTool creates a new shell tool with an optional sandbox runner.
+// When runner is non-nil, shell commands are delegated to it.
+func NewShellTool(env []string, runConfig *config.RuntimeConfig, runner sandbox.Runner) *ShellTool {
+	shell, argsPrefix := detectShell(runner != nil)
 
 	handler := &shellHandler{
 		shell:           shell,
@@ -357,10 +358,7 @@ func NewShellTool(env []string, runConfig *config.RuntimeConfig, sandboxConfig *
 		timeout:         30 * time.Second,
 		jobs:            concurrent.NewMap[string, *backgroundJob](),
 		workingDir:      runConfig.WorkingDir,
-	}
-
-	if sandboxConfig != nil {
-		handler.sandbox = newSandboxRunner(sandboxConfig, runConfig.WorkingDir, env)
+		sandbox:         runner,
 	}
 
 	return &ShellTool{handler: handler}
@@ -493,7 +491,7 @@ func (t *ShellTool) Start(context.Context) error {
 	return nil
 }
 
-func (t *ShellTool) Stop(context.Context) error {
+func (t *ShellTool) Stop(ctx context.Context) error {
 	// Terminate all running background jobs
 	t.handler.jobs.Range(func(_ string, job *backgroundJob) bool {
 		if job.status.CompareAndSwap(statusRunning, statusStopped) {
@@ -502,9 +500,9 @@ func (t *ShellTool) Stop(context.Context) error {
 		return true
 	})
 
-	// Stop sandbox container if running
+	// Stop sandbox runner if configured
 	if t.handler.sandbox != nil {
-		t.handler.sandbox.stop()
+		_ = t.handler.sandbox.Stop(ctx)
 	}
 
 	return nil
