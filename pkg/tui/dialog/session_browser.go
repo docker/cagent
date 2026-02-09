@@ -42,9 +42,9 @@ func defaultSessionBrowserKeyMap() sessionBrowserKeyMap {
 		PageDown:   base.PageDown,
 		Enter:      base.Enter,
 		Escape:     base.Escape,
-		Star:       key.NewBinding(key.WithKeys("s")),
-		FilterStar: key.NewBinding(key.WithKeys("f")),
-		CopyID:     key.NewBinding(key.WithKeys("c")),
+		Star:       key.NewBinding(key.WithKeys("alt+s")),
+		FilterStar: key.NewBinding(key.WithKeys("alt+f")),
+		CopyID:     key.NewBinding(key.WithKeys("alt+c")),
 	}
 }
 
@@ -306,7 +306,7 @@ func (d *sessionBrowserDialog) View() string {
 		AddSeparator().
 		AddContent(idFooter).
 		AddSpace().
-		AddHelpKeys("↑/↓", "navigate", "s", "star", "f", filterDesc, "c", "copy id", "enter", "load", "esc", "close").
+		AddHelpKeys("↑/↓", "navigate", "alt+s", "star", "alt+f", filterDesc, "alt+c", "copy id", "enter", "load", "esc", "close").
 		Build()
 
 	return styles.DialogStyle.Width(dialogWidth).Render(content)
