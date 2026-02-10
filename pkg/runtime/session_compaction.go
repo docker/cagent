@@ -88,6 +88,14 @@ func (c *sessionCompactor) Compact(ctx context.Context, sess *session.Session, a
 	}
 
 	sess.Messages = append(sess.Messages, session.Item{Summary: summary})
+
+	// After compaction, the summary is the last item. GetMessages starts
+	// collecting conversation messages after the last summary, so there
+	// would be zero conversation messages. Providers (e.g. Anthropic)
+	// reject requests with no non-system messages, so we add a
+	// continuation message to bridge the gap.
+	sess.AddMessage(session.ImplicitUserMessage("The conversation was automatically compacted. Please continue where you left off."))
+
 	_ = c.sessionStore.UpdateSession(ctx, sess)
 
 	slog.Debug("Generated session summary", "session_id", sess.ID, "summary_length", len(summary))

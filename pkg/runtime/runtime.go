@@ -988,8 +988,17 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 
 			if m != nil && r.sessionCompaction {
 				if sess.InputTokens+sess.OutputTokens > int64(float64(contextLimit)*0.9) {
+					messageCountBefore := len(sess.Messages)
 					r.Summarize(ctx, sess, "", events)
 					events <- TokenUsage(sess.ID, r.currentAgent, sess.InputTokens, sess.OutputTokens, sess.InputTokens+sess.OutputTokens, contextLimit, sess.Cost)
+
+					// Reset token counters after successful compaction so the check
+					// doesn't trigger again on the next iteration. Compact appends
+					// items on success, so a changed message count indicates success.
+					if len(sess.Messages) > messageCountBefore {
+						sess.InputTokens = 0
+						sess.OutputTokens = 0
+					}
 				}
 			}
 
