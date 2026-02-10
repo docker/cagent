@@ -503,9 +503,11 @@ func (p *chatPage) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		return p.handleSendMsg(msg)
 
 	case msgtypes.InsertFileRefMsg:
-		// Attach file using editor's AttachFile method which registers the attachment
-		p.editor.AttachFile(msg.FilePath)
-		return p, nil
+		if err := p.editor.AttachFile(msg.FilePath); err != nil {
+			slog.Warn("failed to attach file", "path", msg.FilePath, "error", err)
+			return p, nil
+		}
+		return p, notification.SuccessCmd("File attached: " + msg.FilePath)
 
 	case msgtypes.ToggleHideToolResultsMsg:
 		// Forward to messages component to invalidate cache and trigger redraw

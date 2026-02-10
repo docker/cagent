@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -417,18 +416,23 @@ func (a *appModel) handleAgentCommand(command string) (tea.Model, tea.Cmd) {
 // File attachment handler
 
 func (a *appModel) handleAttachFile(filePath string) (tea.Model, tea.Cmd) {
-	// If a file path is provided and it's an existing file, attach it directly
 	if filePath != "" {
-		info, err := os.Stat(filePath)
-		if err == nil && !info.IsDir() {
-			// Insert the file reference into the editor using @filepath syntax
-			updated, cmd := a.chatPage.Update(messages.InsertFileRefMsg{FilePath: filePath})
-			a.chatPage = updated.(chat.Page)
-			return a, tea.Batch(cmd, notification.SuccessCmd("File attached: "+filePath))
+		updated, cmd := a.chatPage.Update(messages.InsertFileRefMsg{FilePath: filePath})
+		a.chatPage = updated.(chat.Page)
+		if cmd != nil {
+			// Attachment succeeded
+			return a, cmd
 		}
+		// Attachment failed — fall through to open the file picker with an error notification
+		return a, tea.Batch(
+			notification.ErrorCmd(fmt.Sprintf("Failed to attach %s", filePath)),
+			core.CmdHandler(dialog.OpenDialogMsg{
+				Model: dialog.NewFilePickerDialog(filePath),
+			}),
+		)
 	}
 
-	// Otherwise, open the file picker dialog
+	// No path provided — open the file picker dialog
 	return a, core.CmdHandler(dialog.OpenDialogMsg{
 		Model: dialog.NewFilePickerDialog(filePath),
 	})
