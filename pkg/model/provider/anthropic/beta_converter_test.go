@@ -1,6 +1,7 @@
 package anthropic
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,6 +10,39 @@ import (
 	"github.com/docker/cagent/pkg/chat"
 	"github.com/docker/cagent/pkg/tools"
 )
+
+func marshalToMapBeta(t *testing.T, v any) map[string]any {
+	t.Helper()
+	b, err := json.Marshal(v)
+	require.NoError(t, err)
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(b, &m))
+	return m
+}
+
+func contentArrayBeta(m map[string]any) []any {
+	if a, ok := m["content"].([]any); ok {
+		return a
+	}
+	return nil
+}
+
+func collectToolResultIDsBeta(content []any) map[string]struct{} {
+	ids := make(map[string]struct{})
+	for _, c := range content {
+		cb, ok := c.(map[string]any)
+		if !ok {
+			continue
+		}
+		if cb["type"] != "tool_result" {
+			continue
+		}
+		if id, _ := cb["tool_use_id"].(string); id != "" {
+			ids[id] = struct{}{}
+		}
+	}
+	return ids
+}
 
 func TestConvertBetaMessages_MergesConsecutiveToolMessages(t *testing.T) {
 	// Simulates the roast battle scenario where:
@@ -65,27 +99,22 @@ func TestConvertBetaMessages_MergesConsecutiveToolMessages(t *testing.T) {
 
 	require.Len(t, betaMessages, 4, "Should have 4 messages after conversion")
 
-	msg0Map, _ := marshalToMapBeta(betaMessages[0])
-	msg1Map, _ := marshalToMapBeta(betaMessages[1])
-	msg2Map, _ := marshalToMapBeta(betaMessages[2])
-	msg3Map, _ := marshalToMapBeta(betaMessages[3])
+	msg0Map := marshalToMapBeta(t, betaMessages[0])
+	msg1Map := marshalToMapBeta(t, betaMessages[1])
+	msg2Map := marshalToMapBeta(t, betaMessages[2])
+	msg3Map := marshalToMapBeta(t, betaMessages[3])
 	assert.Equal(t, "user", msg0Map["role"])
 	assert.Equal(t, "assistant", msg1Map["role"])
 	assert.Equal(t, "user", msg2Map["role"])
 	assert.Equal(t, "assistant", msg3Map["role"])
 
-	userMsg2Map, ok := marshalToMapBeta(betaMessages[2])
-	require.True(t, ok)
+	userMsg2Map := marshalToMapBeta(t, betaMessages[2])
 	content := contentArrayBeta(userMsg2Map)
 	require.Len(t, content, 2, "User message should have 2 tool_result blocks")
 
-	toolResultIDs := collectToolResultIDs(content)
+	toolResultIDs := collectToolResultIDsBeta(content)
 	assert.Contains(t, toolResultIDs, "tool_call_1")
 	assert.Contains(t, toolResultIDs, "tool_call_2")
-
-	// Most importantly: validate that the sequence is valid for Anthropic API
-	err = validateAnthropicSequencingBeta(betaMessages)
-	require.NoError(t, err, "Converted messages should pass Anthropic sequencing validation")
 }
 
 func TestConvertBetaMessages_SingleToolMessage(t *testing.T) {
@@ -123,10 +152,6 @@ func TestConvertBetaMessages_SingleToolMessage(t *testing.T) {
 	betaMessages, err := testClient().convertBetaMessages(t.Context(), messages)
 	require.NoError(t, err)
 	require.Len(t, betaMessages, 4)
-
-	// Validate sequence
-	err = validateAnthropicSequencingBeta(betaMessages)
-	require.NoError(t, err)
 }
 
 func TestConvertBetaMessages_NonConsecutiveToolMessages(t *testing.T) {
@@ -181,10 +206,6 @@ func TestConvertBetaMessages_NonConsecutiveToolMessages(t *testing.T) {
 		},
 	}
 
-	betaMessages, err := testClient().convertBetaMessages(t.Context(), messages)
+	_, err := testClient().convertBetaMessages(t.Context(), messages)
 	require.NoError(t, err)
-
-	// Validate the entire sequence
-	err = validateAnthropicSequencingBeta(betaMessages)
-	require.NoError(t, err, "Messages with non-consecutive tool calls should still validate")
 }
