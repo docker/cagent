@@ -22,17 +22,17 @@ func TestSessionNumHistoryItems(t *testing.T) {
 			name:            "limit to 3 conversation messages — user messages protected",
 			numHistoryItems: 3,
 			messageCount:    10,
-			// 10 user (all protected) + 10 assistant. Need to remove 17, but only 10 removable.
-			// Result: 10 users + 0 assistants = 10
-			expectedConversationMsgs: 10,
+			// 10 user (all protected, don't count against budget) + budget allows 3 assistants.
+			// Result: 10 users + 3 assistants = 13
+			expectedConversationMsgs: 13,
 		},
 		{
 			name:            "limit to 5 conversation messages — user messages protected",
 			numHistoryItems: 5,
 			messageCount:    8,
-			// 8 user (all protected) + 8 assistant. Need to remove 11, but only 8 removable.
-			// Result: 8 users + 0 assistants = 8
-			expectedConversationMsgs: 8,
+			// 8 user (all protected, don't count against budget) + budget allows 5 assistants.
+			// Result: 8 users + 5 assistants = 13
+			expectedConversationMsgs: 13,
 		},
 		{
 			name:                     "fewer messages than limit",
@@ -135,10 +135,12 @@ func TestTrimMessagesConversationLimit(t *testing.T) {
 		expectedUser         int
 		expectedConversation int // total non-system
 	}{
-		// limit=2: need to remove 6 of 8, but 4 are protected users → only 4 assistants removable → remove 4
-		{limit: 2, expectedSystem: 1, expectedUser: 4, expectedConversation: 4},
-		// limit=4: need to remove 4 of 8, 4 are protected → remove all 4 assistants
-		{limit: 4, expectedSystem: 1, expectedUser: 4, expectedConversation: 4},
+		// limit=2: 4 user messages always protected (free), budget=2 → 2 most recent assistants kept
+		// Total: 4 user + 2 assistant = 6
+		{limit: 2, expectedSystem: 1, expectedUser: 4, expectedConversation: 6},
+		// limit=4: 4 user messages always protected (free), budget=4 → all 4 assistants kept
+		// Total: 4 user + 4 assistant = 8
+		{limit: 4, expectedSystem: 1, expectedUser: 4, expectedConversation: 8},
 		// limit=8: no trimming needed (8 <= 8)
 		{limit: 8, expectedSystem: 1, expectedUser: 4, expectedConversation: 8},
 		// limit=100: no trimming needed
