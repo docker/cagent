@@ -18,6 +18,9 @@ func NewDefaultProvider() Provider {
 	// Docker Desktop provider comes after credential helper
 	providers = append(providers, NewDockerDesktopProvider())
 
+	// OCA token provider for Oracle Code Assist
+	providers = append(providers, NewOCATokenProvider())
+
 	// Append pass provider at the end if available
 	if passProvider, err := NewPassProvider(); err == nil {
 		providers = append(providers, passProvider)

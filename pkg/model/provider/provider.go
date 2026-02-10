@@ -14,6 +14,7 @@ import (
 	"github.com/docker/cagent/pkg/model/provider/bedrock"
 	"github.com/docker/cagent/pkg/model/provider/dmr"
 	"github.com/docker/cagent/pkg/model/provider/gemini"
+	"github.com/docker/cagent/pkg/model/provider/oca"
 	"github.com/docker/cagent/pkg/model/provider/openai"
 	"github.com/docker/cagent/pkg/model/provider/options"
 	"github.com/docker/cagent/pkg/model/provider/rulebased"
@@ -36,6 +37,7 @@ var CoreProviders = []string{
 	"google",
 	"dmr",
 	"amazon-bedrock",
+	"oca",
 }
 
 // CatalogProviders returns the list of provider names that should be shown in the model catalog.
@@ -250,6 +252,9 @@ func createDirectProvider(ctx context.Context, cfg *latest.ModelConfig, env envi
 
 	case "amazon-bedrock":
 		return bedrock.NewClient(ctx, enhancedCfg, env, opts...)
+
+	case "oca":
+		return oca.NewClient(ctx, enhancedCfg, env, opts...)
 
 	default:
 		slog.Error("Unknown provider type", "type", providerType)

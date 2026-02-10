@@ -22,6 +22,7 @@ Some of these agents use [built-in tools](../docs/USAGE.md#tool-configuration) l
 | [fetch_docker.yaml](fetch_docker.yaml) | Web content fetcher and summarizer     |            |       |      |       |        | fetch (builtin) |        |
 | [alloy.yaml](alloy.yaml)               | Learning assistant                     |            |       |      |       |        |             |            |
 | [dmr.yaml](dmr.yaml)                   | Pirate-themed AI assistant             |            |       |      |       |        |             |            |
+| [oca_test.yaml](oca_test.yaml)         | OCA (Oracle Code Assist) test agent    |            |       |      |       |        |             |            |
 
 ## **Advanced Configurations**
 

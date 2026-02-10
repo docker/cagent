@@ -30,7 +30,7 @@ experts that collaborate to solve complex problems for you.
 - **🔍 RAG (Retrieval-Augmented Generation)** - Pluggable retrieval strategies
   (BM25, chunked-embeddings, semantic-embeddings) with hybrid retrieval, result fusion and reranking support.
 - **🌐 AI provider agnostic** - Support for OpenAI, Anthropic, Gemini, AWS
-  Bedrock, xAI, Mistral, Nebius and [Docker Model
+  Bedrock, Oracle Code Assist (OCA), xAI, Mistral, Nebius and [Docker Model
   Runner](https://docs.docker.com/ai/model-runner/).
 - **🔀 Runtime model switching** - Change models on-the-fly during a session
   with the `/model` command, with automatic persistence across session reloads.
@@ -110,6 +110,8 @@ export XAI_API_KEY=your_api_key_here                 # For xAI models
 export NEBIUS_API_KEY=your_api_key_here              # For Nebius models
 export MISTRAL_API_KEY=your_api_key_here             # For Mistral models
 ```
+
+**Oracle Code Assist (OCA):** OCA uses OAuth2 authentication instead of API keys. Run `cagent login oca` to authenticate via browser. See the [OCA provider documentation](docs/USAGE.md#oracle-code-assist-oca-provider-usage) for details.
 
 **Note:** For the different AWS Bedrock authentication options, take a look [here](docs/USAGE.md#aws-bedrock-provider-usage).
 

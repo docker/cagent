@@ -1,0 +1,9 @@
+#!/usr/bin/env cagent run
+
+agents:
+  root:
+    model: oca/gpt-4.1
+    description: OCA test agent
+    instruction: |
+      You are a helpful assistant running on Oracle Code Assist.
+      Respond concisely.

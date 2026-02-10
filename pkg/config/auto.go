@@ -30,6 +30,7 @@ var cloudProviders = []providerConfig{
 		"AWS_PROFILE",
 		"AWS_ROLE_ARN",
 	}, "AWS_ACCESS_KEY_ID (or AWS_PROFILE, AWS_ROLE_ARN, AWS_BEARER_TOKEN_BEDROCK)"},
+	{"oca", []string{"OCA_ACCESS_TOKEN"}, "OCA_ACCESS_TOKEN (run 'cagent login oca')"},
 }
 
 // AutoModelFallbackError is returned when auto model selection fails because
@@ -47,7 +48,8 @@ func (e *AutoModelFallbackError) Error() string {
 To fix this, you can:
   - Install Docker Model Runner: https://docs.docker.com/ai/model-runner/get-started/
   - Configure an API key for a cloud provider:
-%s`, strings.Join(hints, "\n"))
+%s
+  - Authenticate with Oracle Code Assist: cagent login oca`, strings.Join(hints, "\n"))
 }
 
 var DefaultModels = map[string]string{
@@ -57,6 +59,7 @@ var DefaultModels = map[string]string{
 	"dmr":            "ai/qwen3:latest",
 	"mistral":        "mistral-small-latest",
 	"amazon-bedrock": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+	"oca":            "", // dynamic: resolved at runtime from litellm endpoint
 }
 
 func AvailableProviders(ctx context.Context, modelsGateway string, env environment.Provider) []string {

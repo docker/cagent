@@ -126,6 +126,30 @@ switch cfg.Provider { //nolint:gocritic
    }
 ```
 
+## OCA (Oracle Code Assist) Provider
+
+OCA is a built-in core provider that connects to Oracle's AI models through a litellm-compatible endpoint. Unlike other providers, OCA uses OAuth2 authentication instead of API keys.
+
+**Quick start:**
+
+```bash
+# 1. Authenticate (one-time)
+cagent login oca
+
+# 2. Use in your agent
+```
+
+```yaml
+agents:
+  root:
+    model: oca/gpt-4.1
+    instruction: You are a helpful assistant.
+```
+
+OCA authentication is managed through `cagent login oca` / `cagent logout oca` commands. For CI/CD environments, set the `OCA_ACCESS_TOKEN` environment variable with a pre-obtained token.
+
+See [USAGE.md](USAGE.md#oracle-code-assist-oca-provider-usage) for full configuration options, enterprise setup, and environment variables.
+
 ## DMR Provider Specific Options
 
 The DMR provider supports speculative decoding for faster inference. Configure it using `provider_opts`:

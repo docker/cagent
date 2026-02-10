@@ -871,6 +871,76 @@ These options work alongside `max_tokens` (which sets `context-size`) and `runti
 - Endpoint empty in status: ensure the Model Runner is running, or set `base_url` manually
 - Flag parsing: if using a single string, quote properly in YAML; you can also use a list
 
+#### Oracle Code Assist (OCA) provider usage
+
+Oracle Code Assist (OCA) provides access to a variety of AI models through Oracle's infrastructure. Unlike other providers that use API keys, OCA uses OAuth2 authentication against Oracle IDCS.
+
+**Authentication:**
+
+OCA requires an interactive login step (once) before use:
+
+```bash
+# Browser-based authentication (default, recommended)
+cagent login oca
+
+# Headless authentication for SSH/remote environments
+cagent login oca --method=headless
+```
+
+The browser flow opens your default browser to Oracle IDCS for sign-in. The headless flow displays a code and URL to enter manually.
+
+Tokens are stored locally in `~/.cagent/oca_tokens.json` and refreshed automatically. To log out:
+
+```bash
+cagent logout oca
+```
+
+**Basic usage:**
+
+After authentication, the available models are displayed. Use them in your agent configurations:
+
+```yaml
+agents:
+  root:
+    model: oca/gpt-4.1
+    description: A helpful assistant powered by OCA
+    instruction: |
+      You are a helpful assistant.
+```
+
+**Available models** depend on your OCA subscription and are fetched dynamically from the OCA endpoint. Run `cagent login oca` to see the full list.
+
+**Environment variables:**
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `OCA_ACCESS_TOKEN` | Pre-obtained access token (for CI/CD) | — |
+| `OCA_AUTH_FLOW` | Set to `headless` to force device code flow | `pc` (browser) |
+| `OCA_ENDPOINT` | Override the litellm endpoint URL | — |
+
+**Enterprise configuration:**
+
+For custom IDCS deployments, use `provider_opts` to override defaults:
+
+```yaml
+models:
+  my-oca-model:
+    provider: oca
+    model: oca/gpt-4.1
+    base_url: https://my-custom-endpoint.oraclecloud.com/20250206/app/litellm/
+    provider_opts:
+      client_id: my-custom-client-id
+      idcs_base_url: https://idcs-my-tenancy.identity.oraclecloud.com
+```
+
+**CLI flags for login:**
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--method` | Authentication method: `browser` or `headless` | `browser` |
+| `--client-id` | Override IDCS client ID | (default) |
+| `--idcs-url` | Override IDCS base URL | (default) |
+
 
 ### Alloy models
 
