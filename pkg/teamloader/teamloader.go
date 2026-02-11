@@ -21,6 +21,7 @@ import (
 	"github.com/docker/cagent/pkg/tools"
 	"github.com/docker/cagent/pkg/tools/builtin"
 	"github.com/docker/cagent/pkg/tools/codemode"
+	"github.com/docker/cagent/pkg/workflow"
 )
 
 var defaultMaxTokens int64 = 32000
@@ -69,6 +70,8 @@ type LoadResult struct {
 	Providers map[string]latest.ProviderConfig
 	// AgentDefaultModels maps agent names to their configured default model references
 	AgentDefaultModels map[string]string
+	// Workflow is set when the config defines a workflow; used by run/exec to run the workflow executor.
+	Workflow *workflow.Config
 }
 
 // Load loads an agent team from the given source
@@ -229,6 +232,7 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 		Models:             cfg.Models,
 		Providers:          cfg.Providers,
 		AgentDefaultModels: agentDefaultModels,
+		Workflow:           cfg.Workflow,
 	}, nil
 }
 

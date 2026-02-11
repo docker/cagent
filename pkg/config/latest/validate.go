@@ -2,7 +2,10 @@ package latest
 
 import (
 	"errors"
+	"fmt"
 	"strings"
+
+	"github.com/docker/cagent/pkg/workflow"
 )
 
 func (t *Config) UnmarshalYAML(unmarshal func(any) error) error {
@@ -30,7 +33,57 @@ func (t *Config) validate() error {
 		}
 	}
 
+	if t.Workflow != nil {
+		if err := validateWorkflow(t.Workflow, t.Agents); err != nil {
+			return err
+		}
+	}
+
 	return nil
+}
+
+// validateWorkflow ensures workflow step agent names exist in Agents and step types are valid.
+func validateWorkflow(cfg *workflow.Config, agents Agents) error {
+	if cfg == nil {
+		return nil
+	}
+	agentSet := make(map[string]bool)
+	for _, a := range agents {
+		agentSet[a.Name] = true
+	}
+	var validateSteps func(steps []workflow.Step) error
+	validateSteps = func(steps []workflow.Step) error {
+		for i := range steps {
+			s := &steps[i]
+			switch s.Type {
+			case workflow.StepTypeAgent:
+				if s.Name == "" {
+					return fmt.Errorf("workflow step[%d]: agent step requires name", i)
+				}
+				if !agentSet[s.Name] {
+					return fmt.Errorf("workflow step[%d]: agent %q not found in agents", i, s.Name)
+				}
+			case workflow.StepTypeCondition:
+				if s.Condition == "" {
+					return fmt.Errorf("workflow step[%d]: condition step requires condition", i)
+				}
+				if err := validateSteps(s.TrueSteps); err != nil {
+					return err
+				}
+				if err := validateSteps(s.FalseSteps); err != nil {
+					return err
+				}
+			case workflow.StepTypeParallel:
+				if err := validateSteps(s.Steps); err != nil {
+					return err
+				}
+			default:
+				return fmt.Errorf("workflow step[%d]: unknown type %q", i, s.Type)
+			}
+		}
+		return nil
+	}
+	return validateSteps(cfg.Steps)
 }
 
 func (t *Toolset) validate() error {

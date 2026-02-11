@@ -30,6 +30,25 @@
         "$ref": "#/definitions/ProviderConfig"
       }
     },
+    "workflow": {
+      "type": "object",
+      "properties": {
+        "steps": {
+          "type": "array",
+          "description": "List of workflow steps",
+          "items": {
+            "$ref": "#/definitions/StepConfig"
+          }
+        },
+        "max_loop_iterations": {
+          "type": "integer",
+          "description": "Maximum number of times a step can be re-executed due to a conditional back-edge (loop). Default: 100",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "description": "Workflow configuration for sequential, conditional, and parallel step execution"
+    },
     "agents": {
       "type": "object",
       "description": "Map of agent configurations",

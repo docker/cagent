@@ -189,3 +189,57 @@ agents:
 		})
 	}
 }
+
+func TestValidateWorkflow(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		config  string
+		wantErr string
+	}{
+		{
+			name: "valid workflow sequential",
+			config: `
+version: "4"
+agents:
+  generator:
+    model: openai/gpt-4
+  translator:
+    model: openai/gpt-4
+workflow:
+  - type: agent
+    name: generator
+  - type: agent
+    name: translator
+`,
+			wantErr: "",
+		},
+		{
+			name: "workflow agent not found",
+			config: `
+version: "4"
+agents:
+  generator:
+    model: openai/gpt-4
+workflow:
+  - type: agent
+    name: translator
+`,
+			wantErr: "not found in agents",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var cfg Config
+			err := yaml.Unmarshal([]byte(tt.config), &cfg)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}

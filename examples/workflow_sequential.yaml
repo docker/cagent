@@ -1,0 +1,45 @@
+# Sample workflow: sequential step execution
+# Run with: cagent exec ./examples/workflow_sequential.yaml "Your prompt"
+# Or:       cagent exec ./examples/workflow_sequential.yaml
+
+version: "4"
+
+models:
+  default:
+    provider: google
+    model: gemini-2.5-pro
+    max_tokens: 4096
+
+agents:
+  root:
+    model: default
+    description: Generates initial content
+    instruction: |
+      You are the first step in a content pipeline.
+      Generate clear, structured content based on the user's request.
+      Output only the generated content; the next agent will process it.
+
+  translator:
+    model: default
+    description: Translates or transforms content
+    instruction: |
+      You receive content from the previous step.
+      Translate, summarize, or transform it as requested.
+      Output only the result; the next agent will use it.
+
+  publisher:
+    model: default
+    description: Finalizes and formats output
+    instruction: |
+      You receive content from the previous step.
+      Finalize it: format for publication, add a brief conclusion, and output the final result.
+
+# Sequential workflow: generator → translator → publisher
+# Each agent's output becomes input context for the next.
+workflow:
+  - type: agent
+    name: root
+  - type: agent
+    name: translator
+  - type: agent
+    name: publisher

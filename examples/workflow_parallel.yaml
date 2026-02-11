@@ -1,0 +1,43 @@
+# Sample workflow: parallel step execution
+# Run with: cagent exec ./examples/workflow_parallel.yaml "Your prompt"
+#
+# Two generators run concurrently; translator receives both outputs.
+
+version: "4"
+
+models:
+  default:
+    provider: google
+    model: gemini-2.5-pro
+    max_tokens: 4096
+
+agents:
+  root:
+    model: default
+    description: Generates content
+    instruction: |
+      Generate content based on the user's request.
+      Output only the generated content.
+
+  translator:
+    model: default
+    description: Combines and refines content from multiple sources
+    instruction: |
+      You receive outputs from multiple generator steps (in order).
+      Combine, deduplicate, or synthesize them into one coherent result.
+      Output the final result only.
+
+# Map form: steps + optional max_loop_iterations
+# Parallel block: two generators run at once; translator runs after both complete.
+workflow:
+  max_loop_iterations: 100
+  steps:
+    - type: parallel
+      id: generators
+      steps:
+        - type: agent
+          name: root
+        - type: agent
+          name: root
+    - type: agent
+      name: translator

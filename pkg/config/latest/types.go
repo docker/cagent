@@ -7,6 +7,7 @@ import (
 	"github.com/goccy/go-yaml"
 
 	"github.com/docker/cagent/pkg/config/types"
+	"github.com/docker/cagent/pkg/workflow"
 )
 
 const Version = "4"
@@ -20,6 +21,8 @@ type Config struct {
 	RAG         map[string]RAGConfig      `json:"rag,omitempty"`
 	Metadata    Metadata                  `json:"metadata,omitempty"`
 	Permissions *PermissionsConfig        `json:"permissions,omitempty"`
+	// Workflow defines optional sequential, conditional, and parallel step execution.
+	Workflow *workflow.Config `json:"workflow,omitempty" yaml:"workflow,omitempty"`
 }
 
 type Agents []AgentConfig

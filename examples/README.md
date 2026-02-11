@@ -56,3 +56,12 @@ These examples are groups of agents working together. Each of them is specialize
 | [finance.yaml](finance.yaml)         | Financial research and analysis         |            |       |      | ✓     |        | [duckduckgo](https://hub.docker.com/mcp/server/duckduckgo/overview) | ✓          |
 | [shared-todo.yaml](shared-todo.yaml) | Shared todo item manager                |            |       | ✓    |       |        |                                                                                | ✓          |
 | [pr-reviewer-bedrock.yaml](pr-reviewer-bedrock.yaml) | PR review toolkit (Bedrock) | ✓          | ✓     |      |       |        |                                                                                | ✓          |
+
+## **Workflow Configurations**
+
+These examples use the workflow feature: declarative pipelines of agents (sequential, conditional, or parallel). Run with **`cagent exec`** (workflow runs in exec mode only).
+
+| Name | Description |
+|------|-------------|
+| [workflow_sequential.yaml](workflow_sequential.yaml) | Sequential pipeline: generator → translator → publisher. Each agent's output is passed to the next. |
+| [workflow_parallel.yaml](workflow_parallel.yaml) | Parallel step: two generators run at once; translator receives both outputs. |

@@ -23,6 +23,8 @@ import (
 	"github.com/docker/cagent/pkg/teamloader"
 	"github.com/docker/cagent/pkg/telemetry"
 	"github.com/docker/cagent/pkg/tui/styles"
+	"github.com/docker/cagent/pkg/workflow"
+	"github.com/docker/cagent/pkg/workflowrun"
 )
 
 type runExecFlags struct {
@@ -50,6 +52,9 @@ type runExecFlags struct {
 
 	// Run only
 	hideToolResults bool
+
+	// Workflow: set when config has workflow; exec mode runs workflow instead of single agent
+	workflowConfig *workflow.Config
 }
 
 func newRunCmd() *cobra.Command {
@@ -218,6 +223,8 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 		if err != nil {
 			return err
 		}
+
+		f.workflowConfig = loadResult.Workflow
 
 		rt, sess, err = f.createLocalRuntimeAndSession(ctx, loadResult)
 		if err != nil {
@@ -399,6 +406,10 @@ func (f *runExecFlags) handleExecMode(ctx context.Context, out *cli.Printer, rt 
 		execArgs = append(execArgs, "Please proceed.")
 	}
 
+	if f.workflowConfig != nil {
+		return f.runExecWorkflow(ctx, out, rt, sess, execArgs[1])
+	}
+
 	err := cli.Run(ctx, out, cli.Config{
 		AppName:        AppName,
 		AttachmentPath: f.attachmentPath,
@@ -410,6 +421,72 @@ func (f *runExecFlags) handleExecMode(ctx context.Context, out *cli.Printer, rt 
 		return RuntimeError{Err: cliErr.Err}
 	}
 	return err
+}
+
+// runExecWorkflow runs the workflow executor and prints events to out (exec mode only).
+func (f *runExecFlags) runExecWorkflow(ctx context.Context, out *cli.Printer, rt runtime.Runtime, sess *session.Session, userMessage string) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	sess.AddMessage(cli.PrepareUserMessage(ctx, rt, userMessage, f.attachmentPath))
+	sess.SendUserMessage = true
+
+	exec := workflowrun.NewLocalExecutor(rt)
+	events := make(chan workflowrun.Event, 128)
+	go func() {
+		defer close(events)
+		if err := exec.Run(ctx, f.workflowConfig, sess, events); err != nil {
+			events <- runtime.Error(err.Error())
+		}
+	}()
+
+	var lastErr error
+	firstAgent := true
+	lastAgentName := ""
+	for event := range events {
+		if errEvent, ok := event.(*runtime.ErrorEvent); ok {
+			lastErr = fmt.Errorf("%s", errEvent.Error)
+			out.PrintError(lastErr)
+			continue
+		}
+		var agentName string
+		if re, ok := event.(runtime.Event); ok {
+			agentName = re.GetAgentName()
+		}
+		if agentName != "" && (firstAgent || agentName != lastAgentName) {
+			if !firstAgent {
+				out.Println()
+			}
+			out.PrintAgentName(agentName)
+			firstAgent = false
+			lastAgentName = agentName
+		}
+		switch e := event.(type) {
+		case *runtime.AgentChoiceEvent:
+			out.Print(e.Content)
+		case *runtime.AgentChoiceReasoningEvent:
+			out.Print(e.Content)
+		case *runtime.ToolCallConfirmationEvent:
+			if !f.autoApprove {
+				rt.Resume(ctx, runtime.ResumeReject(""))
+			} else {
+				rt.Resume(ctx, runtime.ResumeApprove())
+			}
+		case *runtime.ToolCallEvent:
+			if !f.hideToolCalls {
+				out.PrintToolCall(e.ToolCall)
+			}
+		case *runtime.ToolCallResponseEvent:
+			if !f.hideToolCalls {
+				out.PrintToolCallResponse(e.ToolCall, e.Response)
+			}
+		}
+	}
+
+	if lastErr != nil {
+		return RuntimeError{Err: lastErr}
+	}
+	return nil
 }
 
 func readInitialMessage(args []string) (*string, error) {
