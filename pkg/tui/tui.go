@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	goruntime "runtime"
+	"strings"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
@@ -75,45 +76,42 @@ type KeyMap struct {
 	ClearQueue            key.Binding
 }
 
+// newBinding constructs a key.Binding using the provided keys and description.
+//
+// This helper centralizes the creation of key bindings so that:
+//  1. Default bindings are defined in a single consistent way.
+//  2. Future customization (e.g., user-defined key overrides) can be
+//     introduced without modifying every call site.
+//  3. Help labels remain automatically synchronized with the active keys.
+//
+// The help label is derived from the keys slice to avoid duplication
+// between key.WithKeys and key.WithHelp definitions.
+func newBinding(keys []string, description string) key.Binding {
+	if len(keys) == 0 {
+		// Defensive safeguard: bindings must have at least one key.
+		panic("newBinding requires at least one key")
+	}
+
+	helpLabel := strings.Join(keys, "/")
+
+	return key.NewBinding(
+		key.WithKeys(keys...),
+		key.WithHelp(helpLabel, description),
+	)
+}
+
 // DefaultKeyMap returns the default global key bindings
 func DefaultKeyMap() KeyMap {
 	return KeyMap{
-		Quit: key.NewBinding(
-			key.WithKeys("ctrl+c"),
-			key.WithHelp("Ctrl+c", "quit"),
-		),
-		Suspend: key.NewBinding(
-			key.WithKeys("ctrl+z"),
-			key.WithHelp("Ctrl+z", "suspend"),
-		),
-		CommandPalette: key.NewBinding(
-			key.WithKeys("ctrl+p"),
-			key.WithHelp("Ctrl+p", "commands"),
-		),
-		ToggleYolo: key.NewBinding(
-			key.WithKeys("ctrl+y"),
-			key.WithHelp("Ctrl+y", "toggle yolo mode"),
-		),
-		ToggleHideToolResults: key.NewBinding(
-			key.WithKeys("ctrl+o"),
-			key.WithHelp("Ctrl+o", "toggle tool output"),
-		),
-		CycleAgent: key.NewBinding(
-			key.WithKeys("ctrl+s"),
-			key.WithHelp("Ctrl+s", "cycle agent"),
-		),
-		ModelPicker: key.NewBinding(
-			key.WithKeys("ctrl+m"),
-			key.WithHelp("Ctrl+m", "models"),
-		),
-		Speak: key.NewBinding(
-			key.WithKeys("ctrl+l"),
-			key.WithHelp("Ctrl+l", "speak"),
-		),
-		ClearQueue: key.NewBinding(
-			key.WithKeys("ctrl+x"),
-			key.WithHelp("Ctrl+x", "clear queue"),
-		),
+		Quit:                  newBinding([]string{"ctrl+c"}, "quit"),
+		Suspend:               newBinding([]string{"ctrl+z"}, "suspend"),
+		CommandPalette:        newBinding([]string{"ctrl+p"}, "commands"),
+		ToggleYolo:            newBinding([]string{"ctrl+y"}, "toggle yolo mode"),
+		ToggleHideToolResults: newBinding([]string{"ctrl+o"}, "toggle tool output"),
+		CycleAgent:            newBinding([]string{"ctrl+s"}, "cycle agent"),
+		ModelPicker:           newBinding([]string{"ctrl+m"}, "models"),
+		Speak:                 newBinding([]string{"ctrl+l"}, "speak"),
+		ClearQueue:            newBinding([]string{"ctrl+x"}, "clear queue"),
 	}
 }
 
