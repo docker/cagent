@@ -54,24 +54,25 @@ func newAPICmd() *cobra.Command {
 	return cmd
 }
 
-// monitorStdin monitors stdin for EOF, which indicates the parent process has died.
-// When spawned with piped stdio, stdin closes when the parent process dies.
-func monitorStdin(ctx context.Context, cancel context.CancelFunc, stdin *os.File) {
-	// Close stdin when context is cancelled to unblock the read
+// monitorStdin blocks on stdin and returns when it is closed (EOF or error),
+// which typically indicates that the parent process has exited when stdio is piped.
+//
+// Context cancellation is handled by a helper goroutine that closes stdin to
+// unblock the Read call. This function itself does not call cancel(), leaving
+// lifecycle management to the caller (e.g. runAPICommand).
+func monitorStdin(ctx context.Context, _ context.CancelFunc, stdin *os.File) {
+	// Close stdin on context cancellation to unblock the blocking Read.
 	go func() {
 		<-ctx.Done()
-		stdin.Close()
+		_ = stdin.Close()
 	}()
 
 	buf := make([]byte, 1)
 	for {
 		n, err := stdin.Read(buf)
 		if err != nil || n == 0 {
-			// Only log and cancel if context isn't already done (parent died)
-			if ctx.Err() == nil {
-				slog.Info("stdin closed, parent process likely died, shutting down")
-				cancel()
-			}
+			// Stdin closed or errored; exit and allow the caller's context
+			// management logic to handle shutdown.
 			return
 		}
 	}
