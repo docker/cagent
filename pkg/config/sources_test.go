@@ -474,3 +474,144 @@ func TestResolveSources_URLReference_WithEnvProvider(t *testing.T) {
 	require.True(t, ok)
 	assert.NotNil(t, urlSrc.envProvider)
 }
+
+func TestIsGitReference(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input    string
+		expected bool
+	}{
+		// Valid SSH git references
+		{"git@github.com:user/repo.git", true},
+		{"git@github.com:user/repo.git#main", true},
+		{"git@github.com:user/repo.git#v1.0.0", true},
+		{"git@github.com:org/project.git#feature/branch", true},
+		{"git@gitlab.com:user/repo.git", true},
+		{"git@bitbucket.org:user/repo.git#develop", true},
+
+		// Valid HTTPS git references
+		{"https://github.com/user/repo.git", true},
+		{"https://github.com/user/repo.git#main", true},
+		{"https://github.com/user/repo.git#v1.0.0", true},
+		{"https://gitlab.com/org/project.git#feature/branch", true},
+
+		// Invalid references (not git)
+		{"", false},
+		{"./agent.yaml", false},
+		{"/path/to/agent.yaml", false},
+		{"https://github.com/user/repo", false},    // missing ".git" suffix
+		{"https://example.com/agent.yaml", false},  // not a git URL
+		{"docker.io/myorg/agent:v1", false},        // OCI reference
+		{"http://github.com/user/repo.git", false}, // http not supported for git
+		{"git://github.com/user/repo.git", false},  // git protocol not supported
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.expected, IsGitReference(tt.input))
+		})
+	}
+}
+
+func TestParseGitReference(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input       string
+		wantRepoURL string
+		wantRef     string
+		wantOK      bool
+	}{
+		// SSH format
+		{"git@github.com:user/repo.git", "git@github.com:user/repo.git", "", true},
+		{"git@github.com:user/repo.git#main", "git@github.com:user/repo.git", "main", true},
+		{"git@github.com:user/repo.git#v1.0.0", "git@github.com:user/repo.git", "v1.0.0", true},
+		{"git@gitlab.com:org/project.git#feature/test", "git@gitlab.com:org/project.git", "feature/test", true},
+
+		// HTTPS format
+		{"https://github.com/user/repo.git", "https://github.com/user/repo.git", "", true},
+		{"https://github.com/user/repo.git#develop", "https://github.com/user/repo.git", "develop", true},
+		{"https://github.com/org/name.git#refs/tags/v2.0", "https://github.com/org/name.git", "refs/tags/v2.0", true},
+
+		// Invalid
+		{"", "", "", false},
+		{"https://github.com/user/repo", "", "", false},
+		{"./local/path", "", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			t.Parallel()
+			repoURL, ref, ok := ParseGitReference(tt.input)
+			assert.Equal(t, tt.wantOK, ok)
+			if ok {
+				assert.Equal(t, tt.wantRepoURL, repoURL)
+				assert.Equal(t, tt.wantRef, ref)
+			}
+		})
+	}
+}
+
+func TestGitSource_Name(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input    string
+		wantName string
+	}{
+		{"git@github.com:user/repo.git", "git@github.com:user/repo.git"},
+		{"git@github.com:user/repo.git#main", "git@github.com:user/repo.git#main"},
+		{"https://github.com/user/repo.git", "https://github.com/user/repo.git"},
+		{"https://github.com/user/repo.git#v1.0", "https://github.com/user/repo.git#v1.0"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			t.Parallel()
+			source := NewGitSource(tt.input)
+			assert.Equal(t, tt.wantName, source.Name())
+		})
+	}
+}
+
+func TestResolve_GitReference(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input string
+	}{
+		{"git@github.com:user/repo.git"},
+		{"git@github.com:user/repo.git#main"},
+		{"https://github.com/user/repo.git"},
+		{"https://github.com/user/repo.git#v1.0.0"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			t.Parallel()
+			source, err := Resolve(tt.input, nil)
+			require.NoError(t, err)
+			assert.Equal(t, tt.input, source.Name())
+			_, ok := source.(*gitSource)
+			assert.True(t, ok, "should return gitSource")
+		})
+	}
+}
+
+func TestResolveSources_GitReference(t *testing.T) {
+	t.Parallel()
+
+	gitRef := "git@github.com:user/repo.git#main"
+	sources, err := ResolveSources(gitRef, nil)
+	require.NoError(t, err)
+	require.Len(t, sources, 1)
+
+	source, ok := sources[gitRef]
+	require.True(t, ok)
+	assert.Equal(t, gitRef, source.Name())
+
+	_, ok = source.(*gitSource)
+	assert.True(t, ok, "should return gitSource")
+}
