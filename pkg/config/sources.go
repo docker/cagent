@@ -406,19 +406,30 @@ func getGitCacheDir() string {
 }
 
 func (g *gitSource) getCacheDir() string {
-	// Create a unique directory name based on repo URL
-	h := sha256.Sum256([]byte(g.repoURL))
+	// Create a unique directory name based on repo URL and ref
+	// Include ref in the cache key to prevent race conditions when
+	// multiple refs of the same repo are accessed concurrently
+	cacheKey := g.repoURL
+	if g.ref != "" {
+		cacheKey = g.repoURL + "#" + g.ref
+	}
+	h := sha256.Sum256([]byte(cacheKey))
 	return filepath.Join(getGitCacheDir(), hex.EncodeToString(h[:16]))
 }
 
 func (g *gitSource) Read(ctx context.Context) ([]byte, error) {
 	cacheDir := g.getCacheDir()
 	// Check if repo is already cloned
-	if _, err := os.Stat(filepath.Join(cacheDir, ".git")); err == nil {
+	gitPath := filepath.Join(cacheDir, ".git")
+	info, err := os.Stat(gitPath)
+	if err == nil && info.IsDir() {
 		if err := g.fetchAndCheckout(ctx, cacheDir); err != nil {
 			slog.Debug("Failed to fetch git repo, using cached version", "repo", g.repoURL, "error", err)
 		}
 	} else {
+		if err != nil && !os.IsNotExist(err) {
+			return nil, fmt.Errorf("checking git repository cache %s: %w", gitPath, err)
+		}
 		if err := g.clone(ctx, cacheDir); err != nil {
 			return nil, fmt.Errorf("cloning git repository %s: %w", g.repoURL, err)
 		}
@@ -452,19 +463,23 @@ func (g *gitSource) clone(ctx context.Context, targetDir string) error {
 }
 
 func (g *gitSource) fetchAndCheckout(ctx context.Context, repoDir string) error {
-	// Fetch latest changes
-	fetchCmd := exec.CommandContext(ctx, "git", "fetch", "--depth", "1", "origin")
+	// Fetch latest changes - specify the ref for shallow clones
+	fetchArgs := []string{"fetch", "--depth", "1", "origin"}
+	if g.ref != "" {
+		fetchArgs = append(fetchArgs, g.ref)
+	}
+	fetchCmd := exec.CommandContext(ctx, "git", fetchArgs...)
 	fetchCmd.Dir = repoDir
 	fetchCmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	if output, err := fetchCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git fetch failed: %w\noutput: %s", err, string(output))
 	}
-	// Determine target ref
-	targetRef := g.ref
-	if targetRef == "" {
+	// Determine target ref - use FETCH_HEAD for explicit refs since we fetched it directly
+	var targetRef string
+	if g.ref == "" {
 		targetRef = "origin/HEAD"
 	} else {
-		targetRef = "origin/" + targetRef
+		targetRef = "FETCH_HEAD"
 	}
 	// Reset to the target ref
 	resetCmd := exec.CommandContext(ctx, "git", "reset", "--hard", targetRef)
