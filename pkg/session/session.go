@@ -665,14 +665,19 @@ func (s *Session) GetMessages(a *agent.Agent) []chat.Message {
 	return messages
 }
 
-// trimMessages ensures we don't exceed the maximum number of messages while maintaining
-// consistency between assistant messages and their tool call results.
+// trimMessages ensures we don't exceed the maximum number of *conversation* messages
+// while preserving valid tool sequencing.
+//
+// Many providers require that tool result messages are adjacent to (and correspond to)
+// the immediately preceding assistant tool call message. When trimming history, we may
+// otherwise keep a tool result without its assistant tool call, which later causes
+// provider request validation errors.
+//
 // System messages are always preserved and not counted against the limit.
 func trimMessages(messages []chat.Message, maxItems int) []chat.Message {
 	// Separate system messages from conversation messages
 	var systemMessages []chat.Message
 	var conversationMessages []chat.Message
-
 	for i := range messages {
 		if messages[i].Role == chat.MessageRoleSystem {
 			systemMessages = append(systemMessages, messages[i])
@@ -681,45 +686,92 @@ func trimMessages(messages []chat.Message, maxItems int) []chat.Message {
 		}
 	}
 
-	// If conversation messages fit within limit, return all messages
-	if len(conversationMessages) <= maxItems {
+	if maxItems <= 0 || len(conversationMessages) <= maxItems {
 		return messages
 	}
 
-	// Keep track of tool call IDs that need to be removed
-	toolCallsToRemove := make(map[string]bool)
-
-	// Calculate how many conversation messages we need to remove
-	toRemove := len(conversationMessages) - maxItems
-
-	// Start from the beginning (oldest messages)
-	for i := range toRemove {
-		// If this is an assistant message with tool calls, mark them for removal
-		if conversationMessages[i].Role == chat.MessageRoleAssistant {
-			for _, toolCall := range conversationMessages[i].ToolCalls {
-				toolCallsToRemove[toolCall.ID] = true
-			}
-		}
-	}
-
-	// Combine system messages with trimmed conversation messages
-	result := make([]chat.Message, 0, len(systemMessages)+maxItems)
-
-	// Add all system messages first
-	result = append(result, systemMessages...)
-
-	// Add the most recent conversation messages
-	for i := toRemove; i < len(conversationMessages); i++ {
+	// Keep most recent messages first, but treat tool blocks as an atomic unit:
+	// [assistant(tool_calls)] + [one or more tool result messages].
+	keptReversed := make([]chat.Message, 0, maxItems)
+	for i := len(conversationMessages) - 1; i >= 0 && len(keptReversed) < maxItems; {
 		msg := conversationMessages[i]
-
-		// Skip tool messages that correspond to removed assistant messages
-		if msg.Role == chat.MessageRoleTool && toolCallsToRemove[msg.ToolCallID] {
+		if msg.Role != chat.MessageRoleTool {
+			keptReversed = append(keptReversed, msg)
+			i--
 			continue
 		}
 
-		result = append(result, msg)
+		// Collect consecutive tool result messages ending at i.
+		end := i
+		start := i
+		for start >= 0 && conversationMessages[start].Role == chat.MessageRoleTool {
+			start--
+		}
+
+		// Tool messages must be immediately preceded by an assistant message with matching tool calls.
+		assistantIdx := start
+		if assistantIdx < 0 || conversationMessages[assistantIdx].Role != chat.MessageRoleAssistant {
+			// Orphan tool results: drop them.
+			i = start
+			continue
+		}
+
+		assistantMsg := conversationMessages[assistantIdx]
+		assistantToolIDs := make(map[string]struct{}, len(assistantMsg.ToolCalls))
+		for _, tc := range assistantMsg.ToolCalls {
+			if tc.ID != "" {
+				assistantToolIDs[tc.ID] = struct{}{}
+			}
+		}
+		if len(assistantToolIDs) == 0 {
+			// Assistant didn't actually record tool calls; treat these as orphans.
+			i = start
+			continue
+		}
+
+		valid := true
+		for k := assistantIdx + 1; k <= end; k++ {
+			id := conversationMessages[k].ToolCallID
+			if id == "" {
+				valid = false
+				break
+			}
+			if _, ok := assistantToolIDs[id]; !ok {
+				valid = false
+				break
+			}
+		}
+		if !valid {
+			// Tool results don't correspond to the immediately preceding assistant tool calls.
+			// Drop them; keeping them would create invalid sequencing for some providers.
+			i = start
+			continue
+		}
+
+		blockLen := (end - assistantIdx) + 1
+		if len(keptReversed)+blockLen > maxItems {
+			// Not enough room to include this tool interaction coherently; drop the whole block.
+			i = assistantIdx - 1
+			continue
+		}
+
+		// Append tool results (newest to oldest), then assistant (so after reversing
+		// the final order is assistant -> tool results).
+		for k := end; k > assistantIdx; k-- {
+			keptReversed = append(keptReversed, conversationMessages[k])
+		}
+		keptReversed = append(keptReversed, assistantMsg)
+		i = assistantIdx - 1
 	}
 
+	// Reverse back into chronological order
+	for i, j := 0, len(keptReversed)-1; i < j; i, j = i+1, j-1 {
+		keptReversed[i], keptReversed[j] = keptReversed[j], keptReversed[i]
+	}
+
+	result := make([]chat.Message, 0, len(systemMessages)+len(keptReversed))
+	result = append(result, systemMessages...)
+	result = append(result, keptReversed...)
 	return result
 }
 

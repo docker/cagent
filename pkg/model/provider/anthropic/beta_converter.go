@@ -22,6 +22,7 @@ import (
 // blocks from the same assistant message MUST be grouped into a single user message.
 func (c *Client) convertBetaMessages(ctx context.Context, messages []chat.Message) ([]anthropic.BetaMessageParam, error) {
 	var betaMessages []anthropic.BetaMessageParam
+	var pendingToolUseIDs map[string]struct{}
 
 	for i := 0; i < len(messages); i++ {
 		msg := &messages[i]
@@ -75,10 +76,14 @@ func (c *Client) convertBetaMessages(ctx context.Context, messages []chat.Messag
 
 			// Add tool calls
 			if len(msg.ToolCalls) > 0 {
+				pendingToolUseIDs = make(map[string]struct{}, len(msg.ToolCalls))
 				for _, toolCall := range msg.ToolCalls {
 					var inpts map[string]any
 					if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &inpts); err != nil {
 						inpts = map[string]any{}
+					}
+					if toolCall.ID != "" {
+						pendingToolUseIDs[toolCall.ID] = struct{}{}
 					}
 					contentBlocks = append(contentBlocks, anthropic.BetaContentBlockParamUnion{
 						OfToolUse: &anthropic.BetaToolUseBlockParam{
@@ -88,6 +93,8 @@ func (c *Client) convertBetaMessages(ctx context.Context, messages []chat.Messag
 						},
 					})
 				}
+			} else {
+				pendingToolUseIDs = nil
 			}
 
 			if len(contentBlocks) > 0 {
@@ -102,38 +109,54 @@ func (c *Client) convertBetaMessages(ctx context.Context, messages []chat.Messag
 			// Collect consecutive tool messages and merge them into a single user message
 			// This is required by Anthropic API: all tool_result blocks for tool_use blocks
 			// from the same assistant message must be in the same user message
-			toolResultBlocks := []anthropic.BetaContentBlockParamUnion{
-				{
-					OfToolResult: &anthropic.BetaToolResultBlockParam{
-						ToolUseID: msg.ToolCallID,
-						Content: []anthropic.BetaToolResultBlockParamContentUnion{
-							{OfText: &anthropic.BetaTextBlockParam{Text: strings.TrimSpace(msg.Content)}},
-						},
-					},
-				},
+			if pendingToolUseIDs == nil {
+				// Orphan tool results (no preceding assistant tool_use in this window): drop them.
+				j := i
+				for j < len(messages) && messages[j].Role == chat.MessageRoleTool {
+					j++
+				}
+				i = j - 1
+				continue
 			}
 
-			// Look ahead for consecutive tool messages and merge them
-			j := i + 1
+			toolResultBlocks := make([]anthropic.BetaContentBlockParamUnion, 0)
+			hadToolMessages := false
+			j := i
 			for j < len(messages) && messages[j].Role == chat.MessageRoleTool {
-				toolResultBlocks = append(toolResultBlocks, anthropic.BetaContentBlockParamUnion{
-					OfToolResult: &anthropic.BetaToolResultBlockParam{
-						ToolUseID: messages[j].ToolCallID,
-						Content: []anthropic.BetaToolResultBlockParamContentUnion{
-							{OfText: &anthropic.BetaTextBlockParam{Text: strings.TrimSpace(messages[j].Content)}},
-						},
-					},
-				})
+				hadToolMessages = true
+				id := messages[j].ToolCallID
+				if id != "" {
+					if _, ok := pendingToolUseIDs[id]; ok {
+						toolResultBlocks = append(toolResultBlocks, anthropic.BetaContentBlockParamUnion{
+							OfToolResult: &anthropic.BetaToolResultBlockParam{
+								ToolUseID: id,
+								Content: []anthropic.BetaToolResultBlockParamContentUnion{
+									{OfText: &anthropic.BetaTextBlockParam{Text: strings.TrimSpace(messages[j].Content)}},
+								},
+							},
+						})
+						delete(pendingToolUseIDs, id)
+					}
+				}
 				j++
 			}
 
-			// Add the merged user message with all tool results
-			betaMessages = append(betaMessages, anthropic.BetaMessageParam{
-				Role:    anthropic.BetaMessageParamRoleUser,
-				Content: toolResultBlocks,
-			})
+			if hadToolMessages && len(toolResultBlocks) == 0 {
+				return nil, fmt.Errorf("tool_result messages present but none match pending tool_use ids (beta converter)")
+			}
+			if len(pendingToolUseIDs) > 0 {
+				for id := range pendingToolUseIDs {
+					return nil, fmt.Errorf("missing tool_result for tool_use id %s (beta converter)", id)
+				}
+			}
 
-			// Skip the messages we've already processed
+			if len(toolResultBlocks) > 0 {
+				betaMessages = append(betaMessages, anthropic.BetaMessageParam{
+					Role:    anthropic.BetaMessageParamRoleUser,
+					Content: toolResultBlocks,
+				})
+			}
+			pendingToolUseIDs = nil
 			i = j - 1
 			continue
 		}
