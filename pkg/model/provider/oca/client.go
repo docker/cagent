@@ -14,10 +14,8 @@ import (
 	"github.com/docker/cagent/pkg/model/provider/options"
 )
 
-const (
-	// OCAAccessTokenEnv is the environment variable for a pre-obtained OCA token.
-	OCAAccessTokenEnv = "OCA_ACCESS_TOKEN"
-)
+// OCAAccessTokenEnv is the environment variable for a pre-obtained OCA token.
+const OCAAccessTokenEnv = oca.EnvAccessToken
 
 // NewClient creates a new OCA provider client that wraps the OpenAI client
 // pointing at the OCA litellm endpoint.

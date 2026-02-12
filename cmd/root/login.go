@@ -15,6 +15,8 @@ type loginFlags struct {
 	method   string
 	clientID string
 	idcsURL  string
+	endpoint string
+	scope    string
 }
 
 func newLoginCmd() *cobra.Command {
@@ -40,26 +42,34 @@ func newLoginOCACmd() *cobra.Command {
 By default, opens a browser for PKCE authentication.
 Use --method=headless for environments without a browser (SSH, containers).
 
-Environment variables:
-  OCA_AUTH_FLOW=headless    Force device code flow
-  OCA_ENDPOINT              Override the litellm endpoint URL`,
+All configuration values can also be set via environment variables:
+  OCA_AUTH_FLOW    Authentication method (headless for device code)
+  OCA_CLIENT_ID    IDCS client ID
+  OCA_IDCS_URL     IDCS base URL
+  OCA_ENDPOINT     LiteLLM endpoint URL
+  OCA_SCOPE        OAuth2 scope
+
+Precedence: flags > env vars > defaults`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			telemetry.TrackCommand("login oca", args)
 			return runLoginOCA(cmd.Context(), cmd, flags)
 		},
 	}
 
-	cmd.Flags().StringVar(&flags.method, "method", "browser", "Authentication method: browser (PKCE) or headless (device code)")
-	cmd.Flags().StringVar(&flags.clientID, "client-id", "", "Override IDCS client ID")
-	cmd.Flags().StringVar(&flags.idcsURL, "idcs-url", "", "Override IDCS base URL")
+	cmd.Flags().StringVar(&flags.method, "method", "", "Authentication method: browser (PKCE) or headless (device code)")
+	cmd.Flags().StringVar(&flags.clientID, "client-id", "", "IDCS client ID (env: OCA_CLIENT_ID)")
+	cmd.Flags().StringVar(&flags.idcsURL, "idcs-url", "", "IDCS base URL (env: OCA_IDCS_URL)")
+	cmd.Flags().StringVar(&flags.endpoint, "endpoint", "", "LiteLLM endpoint URL (env: OCA_ENDPOINT)")
+	cmd.Flags().StringVar(&flags.scope, "scope", "", "OAuth2 scope (env: OCA_SCOPE)")
 
 	return cmd
 }
 
 func runLoginOCA(ctx context.Context, cmd *cobra.Command, flags loginFlags) error {
+	// Start from defaults (which already include env var overrides)
 	cfg := oca.DefaultIDCSConfig()
 
-	// Apply flag overrides
+	// CLI flags override env vars and defaults
 	if flags.clientID != "" {
 		cfg.ClientID = flags.clientID
 	}
@@ -69,16 +79,26 @@ func runLoginOCA(ctx context.Context, cmd *cobra.Command, flags loginFlags) erro
 		cfg.TokenEndpoint = flags.idcsURL + "/oauth2/v1/token"
 		cfg.DeviceEndpoint = flags.idcsURL + "/oauth2/v1/device"
 	}
-
-	// Check env var override for auth flow
-	method := flags.method
-	if envFlow := os.Getenv("OCA_AUTH_FLOW"); envFlow == "headless" {
-		method = "headless"
+	if flags.endpoint != "" {
+		cfg.LiteLLMBaseURL = flags.endpoint
+	}
+	if flags.scope != "" {
+		cfg.Scope = flags.scope
 	}
 
-	// Check env var override for endpoint
-	if envEndpoint := os.Getenv("OCA_ENDPOINT"); envEndpoint != "" {
-		cfg.LiteLLMBaseURL = envEndpoint
+	// Resolve auth method: flag > env var > default ("browser")
+	method := "browser"
+	if envFlow := os.Getenv(oca.EnvAuthFlow); envFlow != "" {
+		if envFlow == "headless" || envFlow == "pc" || envFlow == "browser" {
+			method = envFlow
+		}
+	}
+	if flags.method != "" {
+		method = flags.method
+	}
+	// Normalize "pc" to "browser" (ocaider compat)
+	if method == "pc" {
+		method = "browser"
 	}
 
 	output := cmd.OutOrStdout()

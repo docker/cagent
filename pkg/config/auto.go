@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	ocaauth "github.com/docker/cagent/pkg/auth/oca"
 	"github.com/docker/cagent/pkg/config/latest"
 	"github.com/docker/cagent/pkg/environment"
 )
@@ -30,7 +31,7 @@ var cloudProviders = []providerConfig{
 		"AWS_PROFILE",
 		"AWS_ROLE_ARN",
 	}, "AWS_ACCESS_KEY_ID (or AWS_PROFILE, AWS_ROLE_ARN, AWS_BEARER_TOKEN_BEDROCK)"},
-	{"oca", []string{"OCA_ACCESS_TOKEN"}, "OCA_ACCESS_TOKEN (run 'cagent login oca')"},
+	{"oca", []string{ocaauth.EnvAccessToken}, ocaauth.EnvAccessToken + " (run 'cagent login oca')"},
 }
 
 // AutoModelFallbackError is returned when auto model selection fails because

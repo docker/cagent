@@ -7,8 +7,6 @@ import (
 	"github.com/docker/cagent/pkg/auth/oca"
 )
 
-const ocaAccessTokenEnv = "OCA_ACCESS_TOKEN"
-
 // OCATokenProvider provides OCA access tokens from the local token store,
 // with automatic refresh when expired.
 type OCATokenProvider struct {
@@ -24,10 +22,11 @@ func NewOCATokenProvider() *OCATokenProvider {
 
 // Get returns the OCA access token if the requested name matches.
 func (p *OCATokenProvider) Get(ctx context.Context, name string) (string, bool) {
-	if name != ocaAccessTokenEnv {
+	if name != oca.EnvAccessToken {
 		return "", false
 	}
 
+	// DefaultIDCSConfig already resolves env var overrides for IDCS endpoints
 	cfg := oca.DefaultIDCSConfig()
 	token, err := oca.GetValidToken(ctx, cfg, p.store)
 	if err != nil {

@@ -912,34 +912,56 @@ agents:
 
 **Environment variables:**
 
+All OCA configuration can be set via environment variables. Precedence: CLI flags > env vars > hardcoded defaults.
+
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `OCA_ACCESS_TOKEN` | Pre-obtained access token (for CI/CD) | — |
-| `OCA_AUTH_FLOW` | Set to `headless` to force device code flow | `pc` (browser) |
-| `OCA_ENDPOINT` | Override the litellm endpoint URL | — |
+| `OCA_ACCESS_TOKEN` | Pre-obtained access token (for CI/CD, skips login) | — |
+| `OCA_AUTH_FLOW` | Authentication method: `headless` for device code, `pc`/`browser` for PKCE | `browser` |
+| `OCA_CLIENT_ID` | IDCS client ID | (built-in default) |
+| `OCA_IDCS_URL` | IDCS base URL (all OAuth endpoints derived from this) | (built-in default) |
+| `OCA_ENDPOINT` | LiteLLM endpoint URL | (built-in default) |
+| `OCA_SCOPE` | OAuth2 scope | `openid offline_access` |
 
 **Enterprise configuration:**
 
-For custom IDCS deployments, use `provider_opts` to override defaults:
+For custom IDCS deployments, use environment variables, CLI flags, or `provider_opts` in YAML:
+
+```bash
+# Via environment variables
+export OCA_CLIENT_ID=my-custom-client-id
+export OCA_IDCS_URL=https://idcs-my-tenancy.identity.oraclecloud.com
+export OCA_ENDPOINT=https://my-endpoint.oraclecloud.com/20250206/app/litellm/
+cagent login oca
+```
+
+```bash
+# Via CLI flags
+cagent login oca --client-id=my-custom-client-id --idcs-url=https://idcs-my-tenancy.identity.oraclecloud.com --endpoint=https://my-endpoint.oraclecloud.com/20250206/app/litellm/
+```
 
 ```yaml
+# Via provider_opts in agent YAML (for runtime config)
 models:
   my-oca-model:
     provider: oca
     model: oca/gpt-4.1
-    base_url: https://my-custom-endpoint.oraclecloud.com/20250206/app/litellm/
+    base_url: https://my-endpoint.oraclecloud.com/20250206/app/litellm/
     provider_opts:
       client_id: my-custom-client-id
       idcs_base_url: https://idcs-my-tenancy.identity.oraclecloud.com
+      scope: openid offline_access
 ```
 
 **CLI flags for login:**
 
-| Flag | Description | Default |
+| Flag | Description | Env Var |
 |------|-------------|---------|
-| `--method` | Authentication method: `browser` or `headless` | `browser` |
-| `--client-id` | Override IDCS client ID | (default) |
-| `--idcs-url` | Override IDCS base URL | (default) |
+| `--method` | Authentication method: `browser` or `headless` | `OCA_AUTH_FLOW` |
+| `--client-id` | IDCS client ID | `OCA_CLIENT_ID` |
+| `--idcs-url` | IDCS base URL | `OCA_IDCS_URL` |
+| `--endpoint` | LiteLLM endpoint URL | `OCA_ENDPOINT` |
+| `--scope` | OAuth2 scope | `OCA_SCOPE` |
 
 
 ### Alloy models
