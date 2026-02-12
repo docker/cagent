@@ -1,0 +1,136 @@
+<h1>Oracle Code Assist (OCA)</h1>
+<p class="subtitle">Access a variety of AI models through Oracle's infrastructure using OAuth2 authentication.</p>
+
+<h2>Prerequisites</h2>
+
+<ul>
+  <li>An Oracle account with access to Oracle Code Assist</li>
+  <li>A browser for initial authentication (or a terminal for headless device-code flow)</li>
+</ul>
+
+<h2>Quick Start</h2>
+
+<pre><code class="language-bash"># 1. Authenticate (one-time, opens browser)
+cagent login oca
+
+# 2. Run an agent with an OCA model
+cagent run --model oca/gpt-4.1 my-agent.yaml</code></pre>
+
+<h2>Authentication</h2>
+
+<p>Unlike other providers that use API keys, OCA uses OAuth2 against Oracle IDCS. Run the login command once — tokens are stored locally and refreshed automatically.</p>
+
+<h3>Browser Flow (Default)</h3>
+
+<p>Opens your default browser to Oracle IDCS for sign-in:</p>
+
+<pre><code class="language-bash">cagent login oca</code></pre>
+
+<h3>Headless / Device Code Flow</h3>
+
+<p>For SSH sessions, containers, or environments without a browser. Displays a code and URL to enter manually:</p>
+
+<pre><code class="language-bash">cagent login oca --method=headless</code></pre>
+
+<h3>CI/CD (Pre-obtained Token)</h3>
+
+<p>Skip the interactive login entirely by providing a token via environment variable:</p>
+
+<pre><code class="language-bash">export OCA_ACCESS_TOKEN="eyJ..."
+cagent run my-agent.yaml</code></pre>
+
+<h3>Logout</h3>
+
+<pre><code class="language-bash">cagent logout oca</code></pre>
+
+<h2>Configuration</h2>
+
+<pre><code class="language-yaml">agents:
+  root:
+    model: oca/gpt-4.1
+    description: A helpful assistant
+    instruction: |
+      You are a helpful assistant running on Oracle Code Assist.</code></pre>
+
+<p>Available models are fetched dynamically from the OCA endpoint. Run <code>cagent login oca</code> to see the full list.</p>
+
+<h2>Environment Variables</h2>
+
+<p>All OCA settings can be configured via environment variables. Precedence: CLI flags &gt; env vars &gt; hardcoded defaults.</p>
+
+<table>
+  <thead><tr><th>Variable</th><th>Description</th><th>Default</th></tr></thead>
+  <tbody>
+    <tr><td><code>OCA_ACCESS_TOKEN</code></td><td>Pre-obtained access token (skips login)</td><td>—</td></tr>
+    <tr><td><code>OCA_AUTH_FLOW</code></td><td>Auth method: <code>headless</code> or <code>browser</code></td><td><code>browser</code></td></tr>
+    <tr><td><code>OCA_CLIENT_ID</code></td><td>IDCS client ID</td><td>(built-in)</td></tr>
+    <tr><td><code>OCA_IDCS_URL</code></td><td>IDCS base URL</td><td>(built-in)</td></tr>
+    <tr><td><code>OCA_ENDPOINT</code></td><td>LiteLLM endpoint URL</td><td>(built-in)</td></tr>
+    <tr><td><code>OCA_SCOPE</code></td><td>OAuth2 scope</td><td><code>openid offline_access</code></td></tr>
+  </tbody>
+</table>
+
+<h2>CLI Flags for Login</h2>
+
+<table>
+  <thead><tr><th>Flag</th><th>Description</th><th>Env Var</th></tr></thead>
+  <tbody>
+    <tr><td><code>--method</code></td><td>Auth method: <code>browser</code> or <code>headless</code></td><td><code>OCA_AUTH_FLOW</code></td></tr>
+    <tr><td><code>--client-id</code></td><td>IDCS client ID</td><td><code>OCA_CLIENT_ID</code></td></tr>
+    <tr><td><code>--idcs-url</code></td><td>IDCS base URL</td><td><code>OCA_IDCS_URL</code></td></tr>
+    <tr><td><code>--endpoint</code></td><td>LiteLLM endpoint URL</td><td><code>OCA_ENDPOINT</code></td></tr>
+    <tr><td><code>--scope</code></td><td>OAuth2 scope</td><td><code>OCA_SCOPE</code></td></tr>
+  </tbody>
+</table>
+
+<h2>Enterprise Configuration</h2>
+
+<p>For organizations with a custom IDCS deployment, override defaults via env vars, CLI flags, or <code>provider_opts</code>:</p>
+
+<h3>Via Environment Variables</h3>
+
+<pre><code class="language-bash">export OCA_CLIENT_ID="my-custom-client-id"
+export OCA_IDCS_URL="https://idcs-my-tenancy.identity.oraclecloud.com"
+export OCA_ENDPOINT="https://my-endpoint.oraclecloud.com/20250206/app/litellm/"
+cagent login oca</code></pre>
+
+<h3>Via CLI Flags</h3>
+
+<pre><code class="language-bash">cagent login oca \
+  --client-id=my-custom-client-id \
+  --idcs-url=https://idcs-my-tenancy.identity.oraclecloud.com \
+  --endpoint=https://my-endpoint.oraclecloud.com/20250206/app/litellm/</code></pre>
+
+<h3>Via provider_opts in YAML</h3>
+
+<pre><code class="language-yaml">models:
+  my-oca-model:
+    provider: oca
+    model: oca/gpt-4.1
+    base_url: https://my-endpoint.oraclecloud.com/20250206/app/litellm/
+    provider_opts:
+      client_id: my-custom-client-id
+      idcs_base_url: https://idcs-my-tenancy.identity.oraclecloud.com
+      scope: openid offline_access</code></pre>
+
+<h2>Provider Options</h2>
+
+<table>
+  <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>client_id</code></td><td>string</td><td>(built-in)</td><td>IDCS client ID</td></tr>
+    <tr><td><code>idcs_base_url</code></td><td>string</td><td>(built-in)</td><td>IDCS base URL (all OAuth endpoints derived from this)</td></tr>
+    <tr><td><code>litellm_base_url</code></td><td>string</td><td>(built-in)</td><td>LiteLLM endpoint URL</td></tr>
+    <tr><td><code>scope</code></td><td>string</td><td><code>openid offline_access</code></td><td>OAuth2 scope</td></tr>
+  </tbody>
+</table>
+
+<div class="callout callout-tip">
+  <div class="callout-title">💡 No configuration needed for most users</div>
+  <p>The built-in defaults work out of the box. Just run <code>cagent login oca</code> and you're ready to go. The environment variables and provider_opts are only needed for custom enterprise IDCS deployments.</p>
+</div>
+
+<div class="callout callout-info">
+  <div class="callout-title">ℹ️ Token management</div>
+  <p>Tokens are stored in <code>~/.cagent/oca_tokens.json</code> and refreshed automatically. Access tokens expire after ~1 hour and are renewed transparently using the refresh token (~8 hours). After that, run <code>cagent login oca</code> again.</p>
+</div>

@@ -67,6 +67,7 @@ const NAV = [
       { title: 'Anthropic',    page: 'providers/anthropic' },
       { title: 'Google Gemini', page: 'providers/google' },
       { title: 'AWS Bedrock',  page: 'providers/bedrock' },
+      { title: 'Oracle Code Assist', page: 'providers/oca' },
       { title: 'Docker Model Runner', page: 'providers/dmr' },
       { title: 'Mistral',      page: 'providers/mistral' },
       { title: 'xAI (Grok)',   page: 'providers/xai' },

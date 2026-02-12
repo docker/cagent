@@ -4,7 +4,7 @@
 <h2>Prerequisites</h2>
 
 <ul>
-  <li>An API key for at least one AI provider (OpenAI, Anthropic, Google, etc.)</li>
+  <li>An API key for at least one AI provider (OpenAI, Anthropic, Google, etc.) or OAuth2 credentials (Oracle Code Assist)</li>
   <li><strong>Optional:</strong> <a href="https://www.docker.com/products/docker-desktop/" target="_blank" rel="noopener noreferrer">Docker Desktop</a> — for running containerized MCP tools and Docker Model Runner</li>
 </ul>
 
@@ -81,9 +81,15 @@ export ANTHROPIC_API_KEY="sk-ant-..."    # Anthropic
 export GOOGLE_API_KEY="AI..."           # Google Gemini
 export MISTRAL_API_KEY="..."            # Mistral</code></pre>
 
+<p><strong>Oracle Code Assist (OCA)</strong> uses OAuth2 instead of API keys. Authenticate once with:</p>
+
+<pre><code class="language-bash">cagent login oca</code></pre>
+
+<p>See the <a href="#providers/oca" onclick="event.preventDefault(); navigate('providers/oca')">OCA provider page</a> for all configuration options.</p>
+
 <div class="callout callout-info">
   <div class="callout-title">ℹ️ Note</div>
-  <p>You only need the key(s) for the provider(s) you configure in your agent YAML. If you use Docker Model Runner (DMR), no API key is needed — models run locally.</p>
+  <p>You only need the key(s) for the provider(s) you configure in your agent YAML. If you use Docker Model Runner (DMR), no API key is needed — models run locally. For Oracle Code Assist (OCA), use <code>cagent login oca</code> instead of an API key.</p>
 </div>
 
 <h2>Verify Installation</h2>
