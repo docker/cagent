@@ -70,6 +70,13 @@ func GetUserSettings() *userconfig.Settings {
 // when fetching from GitHub URLs.
 // For OCI references, always checks remote for updates but falls back to local cache if offline.
 func ResolveSources(agentsPath string, envProvider environment.Provider) (Sources, error) {
+	// Handle Git references first (before resolve() which converts to absolute path)
+	if IsGitReference(agentsPath) {
+		return map[string]Source{
+			agentsPath: NewGitSource(agentsPath),
+		}, nil
+	}
+
 	// Handle URL references first (before resolve() which converts to absolute path)
 	if IsURLReference(agentsPath) {
 		return map[string]Source{
@@ -127,11 +134,16 @@ func ResolveSources(agentsPath string, envProvider environment.Provider) (Source
 	}, nil
 }
 
-// Resolve resolves an agent file reference (local file, URL, or OCI image) to a source.
+// Resolve resolves an agent file reference (local file, URL, Git repository, or OCI image) to a source.
 // If envProvider is non-nil, it will be used to look up GITHUB_TOKEN for authentication
 // when fetching from GitHub URLs.
 // For OCI references, always checks remote for updates but falls back to local cache if offline.
 func Resolve(agentFilename string, envProvider environment.Provider) (Source, error) {
+	// Handle Git references first (before resolve() which converts to absolute path)
+	if IsGitReference(agentFilename) {
+		return NewGitSource(agentFilename), nil
+	}
+
 	resolvedPath, err := resolve(agentFilename)
 	if err != nil {
 		if IsOCIReference(agentFilename) {
@@ -172,8 +184,8 @@ func resolve(agentFilename string) (string, error) {
 		return agentFilename, nil
 	}
 
-	// Don't convert OCI references or URLs to absolute paths
-	if IsOCIReference(agentFilename) || IsURLReference(agentFilename) {
+	// Don't convert OCI references, URLs, or Git references to absolute paths
+	if IsOCIReference(agentFilename) || IsURLReference(agentFilename) || IsGitReference(agentFilename) {
 		return agentFilename, nil
 	}
 

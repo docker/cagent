@@ -11,7 +11,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/docker/cagent/pkg/content"
@@ -334,4 +336,157 @@ func hashURL(rawURL string) string {
 // IsURLReference checks if the input is a valid HTTP/HTTPS URL.
 func IsURLReference(input string) bool {
 	return strings.HasPrefix(input, "http://") || strings.HasPrefix(input, "https://")
+}
+
+// gitSource is used to load an agent configuration from a Git repository.
+type gitSource struct {
+	repoURL string
+	ref     string // branch, tag, or commit (empty means default branch)
+}
+
+// sshGitPattern matches SSH git URLs like git@github.com:user/repo.git
+var sshGitPattern = regexp.MustCompile(`^git@([^:]+):(.+?)(\.git)?$`)
+
+// httpsGitPattern matches HTTPS git URLs like https://github.com/user/repo.git
+var httpsGitPattern = regexp.MustCompile(`^https://([^/]+)/(.+?)(\.git)?$`)
+
+// ParseGitReference parses a git reference string and returns the repo URL and ref.
+// Supported formats:
+// - git@github.com:user/repo.git (SSH)
+// - git@github.com:user/repo.git#branch (SSH with ref)
+// - https://github.com/user/repo.git (HTTPS)
+// - https://github.com/user/repo.git#tag (HTTPS with ref)
+func ParseGitReference(input string) (repoURL, ref string, ok bool) {
+	// Split off the ref if present
+	parts := strings.SplitN(input, "#", 2)
+	mainPart := parts[0]
+	if len(parts) == 2 {
+		ref = parts[1]
+	}
+	// Check SSH format
+	if sshGitPattern.MatchString(mainPart) {
+		return mainPart, ref, true
+	}
+	// Check HTTPS format with .git suffix
+	if httpsGitPattern.MatchString(mainPart) && strings.HasSuffix(mainPart, ".git") {
+		return mainPart, ref, true
+	}
+	return "", "", false
+}
+
+// IsGitReference checks if the input is a valid Git repository reference.
+func IsGitReference(input string) bool {
+	_, _, ok := ParseGitReference(input)
+	return ok
+}
+
+// NewGitSource creates a new Git source from a git reference string.
+func NewGitSource(input string) Source {
+	repoURL, ref, _ := ParseGitReference(input)
+	return &gitSource{
+		repoURL: repoURL,
+		ref:     ref,
+	}
+}
+
+func (g *gitSource) Name() string {
+	if g.ref != "" {
+		return g.repoURL + "#" + g.ref
+	}
+	return g.repoURL
+}
+
+func (g *gitSource) ParentDir() string {
+	return g.getCacheDir()
+}
+
+// getGitCacheDir returns the base directory used to cache Git repositories.
+func getGitCacheDir() string {
+	return filepath.Join(paths.GetDataDir(), "git_cache")
+}
+
+func (g *gitSource) getCacheDir() string {
+	// Create a unique directory name based on repo URL and ref
+	// Include ref in the cache key to prevent race conditions when
+	// multiple refs of the same repo are accessed concurrently
+	cacheKey := g.repoURL
+	if g.ref != "" {
+		cacheKey = g.repoURL + "#" + g.ref
+	}
+	h := sha256.Sum256([]byte(cacheKey))
+	return filepath.Join(getGitCacheDir(), hex.EncodeToString(h[:16]))
+}
+
+func (g *gitSource) Read(ctx context.Context) ([]byte, error) {
+	cacheDir := g.getCacheDir()
+	// Check if repo is already cloned
+	gitPath := filepath.Join(cacheDir, ".git")
+	info, err := os.Stat(gitPath)
+	if err == nil && info.IsDir() {
+		if err := g.fetchAndCheckout(ctx, cacheDir); err != nil {
+			slog.Debug("Failed to fetch git repo, using cached version", "repo", g.repoURL, "error", err)
+		}
+	} else {
+		if err != nil && !os.IsNotExist(err) {
+			return nil, fmt.Errorf("checking git repository cache %s: %w", gitPath, err)
+		}
+		if err := g.clone(ctx, cacheDir); err != nil {
+			return nil, fmt.Errorf("cloning git repository %s: %w", g.repoURL, err)
+		}
+	}
+	// Read agent.yaml from the repo root
+	configPath := filepath.Join(cacheDir, "agent.yaml")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("reading agent.yaml from %s: %w", g.repoURL, err)
+	}
+	return data, nil
+}
+
+func (g *gitSource) clone(ctx context.Context, targetDir string) error {
+	if err := os.MkdirAll(filepath.Dir(targetDir), 0o755); err != nil {
+		return fmt.Errorf("creating cache directory: %w", err)
+	}
+	args := []string{"clone", "--depth", "1"}
+	if g.ref != "" {
+		args = append(args, "--branch", g.ref)
+	}
+	args = append(args, g.repoURL, targetDir)
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git clone failed: %w\noutput: %s", err, string(output))
+	}
+	slog.Debug("Cloned git repository", "repo", g.repoURL, "ref", g.ref, "dir", targetDir)
+	return nil
+}
+
+func (g *gitSource) fetchAndCheckout(ctx context.Context, repoDir string) error {
+	// Fetch latest changes - specify the ref for shallow clones
+	fetchArgs := []string{"fetch", "--depth", "1", "origin"}
+	if g.ref != "" {
+		fetchArgs = append(fetchArgs, g.ref)
+	}
+	fetchCmd := exec.CommandContext(ctx, "git", fetchArgs...)
+	fetchCmd.Dir = repoDir
+	fetchCmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	if output, err := fetchCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git fetch failed: %w\noutput: %s", err, string(output))
+	}
+	// Determine target ref - use FETCH_HEAD for explicit refs since we fetched it directly
+	var targetRef string
+	if g.ref == "" {
+		targetRef = "origin/HEAD"
+	} else {
+		targetRef = "FETCH_HEAD"
+	}
+	// Reset to the target ref
+	resetCmd := exec.CommandContext(ctx, "git", "reset", "--hard", targetRef)
+	resetCmd.Dir = repoDir
+	if output, err := resetCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git reset failed: %w\noutput: %s", err, string(output))
+	}
+	slog.Debug("Updated git repository", "repo", g.repoURL, "ref", g.ref, "dir", repoDir)
+	return nil
 }
