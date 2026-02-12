@@ -651,7 +651,8 @@
             "api",
             "a2a",
             "lsp",
-            "user_prompt"
+            "user_prompt",
+            "openapi"
           ]
         },
         "instruction": {
@@ -760,8 +761,15 @@
         },
         "url": {
           "type": "string",
-          "description": "URL for the a2a tool",
+          "description": "URL for the a2a or openapi tool",
           "format": "uri"
+        },
+        "headers": {
+          "type": "object",
+          "description": "HTTP headers for API requests (supports ${env.VAR} interpolation)",
+          "additionalProperties": {
+            "type": "string"
+          }
         },
         "name": {
           "type": "string",
@@ -858,6 +866,22 @@
               "properties": {
                 "type": {
                   "const": "a2a"
+                }
+              }
+            },
+            {
+              "required": [
+                "url"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "properties": {
+                "type": {
+                  "const": "openapi"
                 }
               }
             },

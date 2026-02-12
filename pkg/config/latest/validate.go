@@ -92,13 +92,16 @@ func (t *Toolset) validate() error {
 		return errors.New("remote can only be used with type 'mcp'")
 	}
 	if (len(t.Remote.Headers) > 0) && (t.Type != "mcp" && t.Type != "a2a") {
-		return errors.New("headers can only be used with type 'mcp' or 'a2a'")
+		return errors.New("remote headers can only be used with type 'mcp' or 'a2a'")
+	}
+	if len(t.Headers) > 0 && t.Type != "openapi" && t.Type != "a2a" {
+		return errors.New("headers can only be used with type 'openapi' or 'a2a'")
 	}
 	if t.Config != nil && t.Type != "mcp" {
 		return errors.New("config can only be used with type 'mcp'")
 	}
-	if t.URL != "" && t.Type != "a2a" {
-		return errors.New("url can only be used with type 'a2a'")
+	if t.URL != "" && t.Type != "a2a" && t.Type != "openapi" {
+		return errors.New("url can only be used with type 'a2a' or 'openapi'")
 	}
 	if t.Name != "" && (t.Type != "mcp" && t.Type != "a2a") {
 		return errors.New("name can only be used with type 'mcp' or 'a2a'")
@@ -141,6 +144,10 @@ func (t *Toolset) validate() error {
 	case "lsp":
 		if t.Command == "" {
 			return errors.New("lsp toolset requires a command to be set")
+		}
+	case "openapi":
+		if t.URL == "" {
+			return errors.New("openapi toolset requires a url to be set")
 		}
 	}
 
