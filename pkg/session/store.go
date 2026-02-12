@@ -108,6 +108,9 @@ type Store interface {
 
 	// UpdateSessionTitle updates only the title
 	UpdateSessionTitle(ctx context.Context, sessionID, title string) error
+
+	// Close releases any resources held by the store (e.g., database connections).
+	Close() error
 }
 
 type InMemorySessionStore struct {
@@ -347,6 +350,11 @@ func (s *InMemorySessionStore) UpdateSessionTitle(_ context.Context, sessionID, 
 		return ErrNotFound
 	}
 	session.Title = title
+	return nil
+}
+
+// Close is a no-op for in-memory stores.
+func (s *InMemorySessionStore) Close() error {
 	return nil
 }
 

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Redirecting – cagent docs</title>
+  <script>
+    // GitHub Pages serves this page for any URL that doesn't match a real file.
+    // We redirect path-based URLs to the hash-based SPA router.
+    //
+    // Examples:
+    //   /concepts/agents        → /#concepts/agents
+    //   /features/rag.html      → /#features/rag
+    //   /getting-started/       → /#getting-started/
+    //   /                       → /#home
+    (function () {
+      var path = window.location.pathname
+        .replace(/^\//, '')   // strip leading slash
+        .replace(/\.html$/, '') // strip .html extension
+        .replace(/\/$/, '');    // strip trailing slash
+
+      var hash = path || 'home';
+      var search = window.location.search || '';
+      window.location.replace('/' + search + '#' + hash);
+    })();
+  </script>
+  <noscript>
+    <meta http-equiv="refresh" content="0;url=/">
+  </noscript>
+</head>
+<body>
+  <p>Redirecting to <a href="/">cagent documentation</a>…</p>
+</body>
+</html>

@@ -862,20 +862,16 @@ func TestSummarize_EmptySession(t *testing.T) {
 	require.Contains(t, warningMsg, "empty", "warning message should mention empty session")
 }
 
-func TestProcessToolCalls_UnknownTool_NoToolResultMessage(t *testing.T) {
-	// Build a runtime with a simple agent but no tools registered matching the call
+func TestProcessToolCalls_UnknownTool_ReturnsErrorResponse(t *testing.T) {
 	root := agent.New("root", "You are a test agent", agent.WithModel(&mockProvider{}))
 	tm := team.New(team.WithAgents(root))
 
 	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
-
-	// Register default tools (contains only transfer_task) to ensure unknown tool isn't matched
 	rt.registerDefaultTools()
 
 	sess := session.New(session.WithUserMessage("Start"))
 
-	// Simulate a model-issued tool call to a non-existent tool
 	calls := []tools.ToolCall{{
 		ID:       "tool-unknown-1",
 		Type:     "function",
@@ -883,23 +879,20 @@ func TestProcessToolCalls_UnknownTool_NoToolResultMessage(t *testing.T) {
 	}}
 
 	events := make(chan Event, 10)
-
-	// No agentTools provided and runtime toolMap doesn't have this tool name
 	rt.processToolCalls(t.Context(), sess, calls, nil, events)
-
-	// Drain events channel
 	close(events)
 	for range events {
 	}
 
-	var sawToolMsg bool
+	// The model must receive an error tool response so it can self-correct.
+	var toolContent string
 	for _, it := range sess.Messages {
 		if it.IsMessage() && it.Message.Message.Role == chat.MessageRoleTool && it.Message.Message.ToolCallID == "tool-unknown-1" {
-			sawToolMsg = true
-			break
+			toolContent = it.Message.Message.Content
 		}
 	}
-	require.False(t, sawToolMsg, "no tool result should be added for unknown tool; this reproduces invalid sequencing state")
+	require.NotEmpty(t, toolContent, "expected an error tool response for unknown tools")
+	assert.Contains(t, toolContent, "not available")
 }
 
 func TestEmitStartupInfo(t *testing.T) {

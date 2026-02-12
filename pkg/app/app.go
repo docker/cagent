@@ -717,15 +717,25 @@ func (a *App) ShouldExitAfterFirstResponse() bool {
 	return a.exitAfterFirstResponse
 }
 
-func (a *App) CompactSession(additionalPrompt string) {
-	if a.session != nil {
-		events := make(chan runtime.Event, 100)
-		a.runtime.Summarize(context.Background(), a.session, additionalPrompt, events)
-		close(events)
-		for event := range events {
-			a.events <- event
-		}
+func (a *App) CompactSession(ctx context.Context, additionalPrompt string) {
+	sess := a.session
+	if sess == nil {
+		return
 	}
+
+	go func() {
+		events := make(chan runtime.Event, 100)
+		go func() {
+			defer close(events)
+			a.runtime.Summarize(ctx, sess, additionalPrompt, events)
+		}()
+		for event := range events {
+			if ctx.Err() != nil {
+				return
+			}
+			a.sendEvent(ctx, event)
+		}
+	}()
 }
 
 func (a *App) PlainTextTranscript() string {

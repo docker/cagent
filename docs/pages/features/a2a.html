@@ -1,0 +1,45 @@
+<h1>A2A Protocol</h1>
+<p class="subtitle">Expose cagent agents via Google's Agent-to-Agent (A2A) protocol for interoperability with other agent frameworks.</p>
+
+<h2>Overview</h2>
+
+<p>The <code>cagent a2a</code> command starts an A2A server that exposes your agents using the <a href="https://google.github.io/A2A/" target="_blank" rel="noopener noreferrer">A2A protocol</a>. This enables communication between cagent and other agent frameworks that support A2A.</p>
+
+<div class="callout callout-warning">
+  <div class="callout-title">⚠️ Early support</div>
+  <p>A2A support is functional but still evolving. Tool calls, artifacts, and memory features have limited A2A integration. See limitations below.</p>
+</div>
+
+<h2>Usage</h2>
+
+<pre><code class="language-bash"># Start A2A server for an agent
+$ cagent a2a ./agent.yaml
+
+# Specify a custom address
+$ cagent a2a ./agent.yaml --listen 127.0.0.1:9000
+
+# Use an agent from the catalog
+$ cagent a2a agentcatalog/pirate</code></pre>
+
+<h2>Features</h2>
+
+<ul>
+  <li><strong>Auto port selection</strong> — Picks an available port if not specified</li>
+  <li><strong>Agent card</strong> — Provides standard A2A agent metadata</li>
+  <li><strong>Full cagent features</strong> — Supports all tools, models, and gateway features</li>
+  <li><strong>Multiple sources</strong> — Load agents from files or the agent catalog</li>
+</ul>
+
+<div class="callout callout-tip">
+  <div class="callout-title">💡 See also</div>
+  <p>For exposing agents via MCP instead, see <a href="#features/mcp-mode" onclick="event.preventDefault(); navigate('features/mcp-mode')">MCP Mode</a>. For stdio-based integration, see <a href="#features/acp" onclick="event.preventDefault(); navigate('features/acp')">ACP</a>. For the HTTP API, see <a href="#features/api-server" onclick="event.preventDefault(); navigate('features/api-server')">API Server</a>.</p>
+</div>
+
+<h2>Current Limitations</h2>
+
+<ul>
+  <li>Tool calls are handled internally, not exposed as separate A2A events</li>
+  <li>A2A artifact support not yet integrated</li>
+  <li>A2A memory features not yet integrated</li>
+  <li>Multi-agent (sub-agent) scenarios need further work</li>
+</ul>

@@ -45,7 +45,7 @@ func (c *Agents) UnmarshalYAML(unmarshal func(any) error) error {
 		}
 
 		var agent AgentConfig
-		if err := yaml.Unmarshal(valueBytes, &agent); err != nil {
+		if err := yaml.UnmarshalWithOptions(valueBytes, &agent, yaml.DisallowUnknownField()); err != nil {
 			return fmt.Errorf("failed to unmarshal agent config for %s: %w", name, err)
 		}
 

@@ -59,6 +59,7 @@ func (m *mockRuntime) UpdateSessionTitle(_ context.Context, sess *session.Sessio
 	return nil
 }
 func (m *mockRuntime) TitleGenerator() *sessiontitle.Generator { return nil }
+func (m *mockRuntime) Close() error                            { return nil }
 func (m *mockRuntime) Stop()                                   {}
 
 // Verify mockRuntime implements runtime.Runtime

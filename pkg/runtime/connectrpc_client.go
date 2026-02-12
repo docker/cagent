@@ -183,6 +183,19 @@ func (c *ConnectRPCClient) UpdateSessionTitle(ctx context.Context, sessionID, ti
 	return err
 }
 
+// GetAgentToolCount returns the number of tools available for an agent.
+func (c *ConnectRPCClient) GetAgentToolCount(ctx context.Context, agentFilename, agentName string) (int, error) {
+	resp, err := c.client.GetAgentToolCount(ctx, connect.NewRequest(&cagentv1.GetAgentToolCountRequest{
+		Id:        agentFilename,
+		AgentName: agentName,
+	}))
+	if err != nil {
+		return 0, err
+	}
+
+	return int(resp.Msg.AvailableTools), nil
+}
+
 // ResumeElicitation sends an elicitation response
 func (c *ConnectRPCClient) ResumeElicitation(ctx context.Context, sessionID string, action tools.ElicitationAction, content map[string]any) error {
 	contentJSON, err := json.Marshal(content)

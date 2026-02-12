@@ -306,6 +306,23 @@ func (s *Server) Ping(_ context.Context, _ *connect.Request[cagentv1.PingRequest
 	}), nil
 }
 
+// GetAgentToolCount returns the number of tools available for an agent.
+func (s *Server) GetAgentToolCount(ctx context.Context, req *connect.Request[cagentv1.GetAgentToolCountRequest]) (*connect.Response[cagentv1.GetAgentToolCountResponse], error) {
+	agentName := req.Msg.AgentName
+	if agentName == "" {
+		agentName = "root"
+	}
+
+	count, err := s.sm.GetAgentToolCount(ctx, req.Msg.Id, agentName)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to get agent tool count: %w", err))
+	}
+
+	return connect.NewResponse(&cagentv1.GetAgentToolCountResponse{
+		AvailableTools: int32(count),
+	}), nil
+}
+
 // Helper functions for converting between types
 
 func sessionMessageToProto(msg session.Message) *cagentv1.Message {

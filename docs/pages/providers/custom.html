@@ -1,0 +1,109 @@
+<h1>Custom Providers</h1>
+<p class="subtitle">Connect cagent to any OpenAI-compatible API endpoint — without modifying cagent's source code.</p>
+
+<h2>Overview</h2>
+
+<p>The <code>providers</code> section in your agent YAML lets you define custom providers that work with any OpenAI-compatible API. This is useful for:</p>
+
+<ul>
+  <li>Self-hosted models (vLLM, Ollama, LocalAI, etc.)</li>
+  <li>API proxies and routers (Requesty, LiteLLM, etc.)</li>
+  <li>Enterprise deployments with custom endpoints</li>
+  <li>Any service with an OpenAI-compatible chat completions API</li>
+</ul>
+
+<div class="callout callout-info">
+  <div class="callout-title">ℹ️ Works with any OpenAI-compatible API</div>
+  <p>If a service supports the <code>/v1/chat/completions</code> endpoint, you can use it with cagent. No source code changes needed.</p>
+</div>
+
+<h2>Configuration</h2>
+
+<pre><code class="language-yaml">providers:
+  my_provider:
+    api_type: openai_chatcompletions  # or openai_responses
+    base_url: https://api.example.com/v1
+    token_key: MY_API_KEY              # env var name
+
+models:
+  my_model:
+    provider: my_provider
+    model: gpt-4o
+    max_tokens: 32768
+
+agents:
+  root:
+    model: my_model
+    instruction: You are a helpful assistant.</code></pre>
+
+<h2>Provider Properties</h2>
+
+<table>
+  <thead><tr><th>Property</th><th>Description</th><th>Default</th></tr></thead>
+  <tbody>
+    <tr><td><code>api_type</code></td><td>API schema: <code>openai_chatcompletions</code> or <code>openai_responses</code></td><td><code>openai_chatcompletions</code></td></tr>
+    <tr><td><code>base_url</code></td><td>Base URL for the API endpoint</td><td>—</td></tr>
+    <tr><td><code>token_key</code></td><td>Name of the environment variable containing the API token</td><td>—</td></tr>
+  </tbody>
+</table>
+
+<h2>Shorthand Syntax</h2>
+
+<p>Once a custom provider is defined, you can use the shorthand <code>provider/model</code> syntax:</p>
+
+<pre><code class="language-yaml">agents:
+  root:
+    model: my_provider/gpt-4o-mini  # uses the provider's base_url and token</code></pre>
+
+<h2>API Types</h2>
+
+<ul>
+  <li><strong><code>openai_chatcompletions</code></strong> — Standard OpenAI Chat Completions API. Works with most OpenAI-compatible endpoints.</li>
+  <li><strong><code>openai_responses</code></strong> — OpenAI Responses API. For newer models that require the Responses API format.</li>
+</ul>
+
+<h2>Examples</h2>
+
+<h3>vLLM / Ollama</h3>
+
+<pre><code class="language-yaml">providers:
+  local_llm:
+    api_type: openai_chatcompletions
+    base_url: http://localhost:8000/v1
+
+agents:
+  root:
+    model: local_llm/llama-3.1-8b</code></pre>
+
+<h3>API Router (Requesty, LiteLLM)</h3>
+
+<pre><code class="language-yaml">providers:
+  router:
+    api_type: openai_chatcompletions
+    base_url: https://router.requesty.ai/v1
+    token_key: REQUESTY_API_KEY
+
+agents:
+  root:
+    model: router/anthropic/claude-sonnet-4-0</code></pre>
+
+<h3>Azure OpenAI</h3>
+
+<pre><code class="language-yaml">models:
+  azure_model:
+    provider: azure
+    model: gpt-4o
+    base_url: https://your-llm.openai.azure.com
+    provider_opts:
+      api_version: 2024-12-01-preview</code></pre>
+
+<h2>How It Works</h2>
+
+<p>When you reference a custom provider:</p>
+
+<ol>
+  <li>The provider's <code>base_url</code> is applied to the model (if not already set)</li>
+  <li>The provider's <code>token_key</code> is applied to the model (if not already set)</li>
+  <li>The provider's <code>api_type</code> is stored in <code>provider_opts.api_type</code></li>
+  <li>The model is used with the appropriate API client</li>
+</ol>

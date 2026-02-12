@@ -1111,7 +1111,9 @@ func (m *model) toolsetInfo(contentWidth int) string {
 	var lines []string
 
 	// Tools status line
-	lines = append(lines, m.renderToolsStatus())
+	if toolsStatus := m.renderToolsStatus(); toolsStatus != "" {
+		lines = append(lines, toolsStatus)
+	}
 
 	// Skills status line
 	if m.availableSkills > 0 {

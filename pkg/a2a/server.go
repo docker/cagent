@@ -23,6 +23,19 @@ import (
 	"github.com/docker/cagent/pkg/version"
 )
 
+// routableAddr replaces wildcard listen addresses (like "0.0.0.0" or "::") with
+// "localhost" so the agent card URL is actually usable by clients.
+func routableAddr(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		return net.JoinHostPort("localhost", port)
+	}
+	return addr
+}
+
 func Run(ctx context.Context, agentFilename, agentName string, runConfig *config.RuntimeConfig, ln net.Listener) error {
 	slog.Debug("Starting A2A server", "agent", agentName, "addr", ln.Addr().String())
 
@@ -46,7 +59,7 @@ func Run(ctx context.Context, agentFilename, agentName string, runConfig *config
 		return fmt.Errorf("failed to create ADK agent adapter: %w", err)
 	}
 
-	baseURL := &url.URL{Scheme: "http", Host: ln.Addr().String()}
+	baseURL := &url.URL{Scheme: "http", Host: routableAddr(ln.Addr().String())}
 
 	slog.Debug("A2A server listening", "url", baseURL.String())
 

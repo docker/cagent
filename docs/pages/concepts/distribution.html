@@ -1,0 +1,83 @@
+<h1>Agent Distribution</h1>
+<p class="subtitle">Package, share, and run agents via OCI-compatible registries — just like container images.</p>
+
+<h2>Overview</h2>
+
+<p>cagent agents can be pushed to any OCI-compatible registry (Docker Hub, GitHub Container Registry, etc.) and pulled/run anywhere. This makes sharing agents as easy as sharing Docker images.</p>
+
+<div class="callout callout-tip">
+  <div class="callout-title">💡 Tip</div>
+  <p>For CLI commands related to distribution, see <a href="#features/cli" onclick="event.preventDefault(); navigate('features/cli')">CLI Reference</a> (<code>cagent push</code>, <code>cagent pull</code>, <code>cagent alias</code>).</p>
+</div>
+
+<h2>Pushing Agents</h2>
+
+<pre><code class="language-bash"># Push to Docker Hub
+$ cagent push ./agent.yaml docker.io/username/my-agent:latest
+
+# Push to GitHub Container Registry
+$ cagent push ./agent.yaml ghcr.io/username/my-agent:v1.0</code></pre>
+
+<h2>Pulling Agents</h2>
+
+<pre><code class="language-bash"># Pull an agent
+$ cagent pull docker.io/username/my-agent:latest
+
+# Pull from the agent catalog
+$ cagent pull agentcatalog/pirate</code></pre>
+
+<h2>Running from a Registry</h2>
+
+<p>Run agents directly from a registry without pulling first:</p>
+
+<pre><code class="language-bash"># Run directly from Docker Hub
+$ cagent run docker.io/username/my-agent:latest
+
+# Run from the agent catalog
+$ cagent run agentcatalog/pirate
+
+# Run with a specific agent from a multi-agent config
+$ cagent run docker.io/username/dev-team:latest -a developer</code></pre>
+
+<h2>Agent Catalog</h2>
+
+<p>The <code>agentcatalog</code> namespace on Docker Hub hosts pre-built agents you can try:</p>
+
+<pre><code class="language-bash"># Try the pirate-themed assistant
+$ cagent run agentcatalog/pirate
+
+# Try the coding agent
+$ cagent run agentcatalog/coder</code></pre>
+
+<h2>Using with Aliases</h2>
+
+<p>Combine OCI references with aliases for convenient access:</p>
+
+<pre><code class="language-bash"># Create an alias for a registry agent
+$ cagent alias add coder agentcatalog/coder --yolo
+
+# Now just run
+$ cagent run coder</code></pre>
+
+<h2>Using with API Server</h2>
+
+<p>The API server supports OCI references with auto-refresh:</p>
+
+<pre><code class="language-bash"># Start API from registry, auto-pull every 10 minutes
+$ cagent api docker.io/username/agent:latest --pull-interval 10</code></pre>
+
+<h2>Private Repositories</h2>
+
+<p>cagent supports pulling from private GitHub repositories and registries that require authentication. Use standard Docker login or GitHub authentication:</p>
+
+<pre><code class="language-bash"># Login to a registry
+$ docker login docker.io
+
+# Now push/pull works with private repos
+$ cagent push ./agent.yaml docker.io/myorg/private-agent:latest
+$ cagent run docker.io/myorg/private-agent:latest</code></pre>
+
+<div class="callout callout-info">
+  <div class="callout-title">ℹ️ Troubleshooting</div>
+  <p>Having issues with push/pull? See <a href="#community/troubleshooting" onclick="event.preventDefault(); navigate('community/troubleshooting')">Troubleshooting</a> for common registry issues.</p>
+</div>

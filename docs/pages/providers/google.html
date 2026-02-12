@@ -1,0 +1,71 @@
+<h1>Google Gemini</h1>
+<p class="subtitle">Use Gemini 2.5 Flash, Gemini 3 Pro, and other Google models with cagent.</p>
+
+<h2>Setup</h2>
+
+<pre><code class="language-bash"># Set your API key
+export GOOGLE_API_KEY="AI..."</code></pre>
+
+<h2>Configuration</h2>
+
+<h3>Inline</h3>
+<pre><code class="language-yaml">agents:
+  root:
+    model: google/gemini-2.5-flash</code></pre>
+
+<h3>Named Model</h3>
+<pre><code class="language-yaml">models:
+  gemini:
+    provider: google
+    model: gemini-2.5-flash
+    temperature: 0.5</code></pre>
+
+<h2>Available Models</h2>
+
+<table>
+  <thead><tr><th>Model</th><th>Best For</th></tr></thead>
+  <tbody>
+    <tr><td><code>gemini-3-pro</code></td><td>Most capable Gemini model</td></tr>
+    <tr><td><code>gemini-3-flash</code></td><td>Fast, efficient, good balance</td></tr>
+    <tr><td><code>gemini-2.5-flash</code></td><td>Fast inference, cost-effective</td></tr>
+    <tr><td><code>gemini-2.5-pro</code></td><td>Strong reasoning, large context</td></tr>
+  </tbody>
+</table>
+
+<h2>Thinking Budget</h2>
+
+<p>Gemini supports two approaches depending on the model version:</p>
+
+<div class="callout callout-warning">
+  <div class="callout-title">⚠️ Different thinking formats</div>
+  <p>Gemini 2.5 uses <strong>token-based</strong> budgets (integers). Gemini 3 uses <strong>level-based</strong> budgets (strings like <code>low</code>, <code>high</code>). Make sure you use the right format for your model version.</p>
+</div>
+
+<h3>Gemini 2.5 (Token-based)</h3>
+<pre><code class="language-yaml">models:
+  gemini-no-thinking:
+    provider: google
+    model: gemini-2.5-flash
+    thinking_budget: 0     # disable thinking
+
+  gemini-dynamic:
+    provider: google
+    model: gemini-2.5-flash
+    thinking_budget: -1    # dynamic (model decides) — default
+
+  gemini-fixed:
+    provider: google
+    model: gemini-2.5-flash
+    thinking_budget: 8192  # fixed token budget</code></pre>
+
+<h3>Gemini 3 (Level-based)</h3>
+<pre><code class="language-yaml">models:
+  gemini-3-pro:
+    provider: google
+    model: gemini-3-pro
+    thinking_budget: high    # default for Pro: low | high
+
+  gemini-3-flash:
+    provider: google
+    model: gemini-3-flash
+    thinking_budget: medium  # default for Flash: minimal | low | medium | high</code></pre>

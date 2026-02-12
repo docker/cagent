@@ -63,6 +63,9 @@ func New(ctx context.Context, sessionStore session.Store, runConfig *config.Runt
 	group.POST("/sessions/:id/agent/:agent/:agent_name", s.runAgent)
 	group.POST("/sessions/:id/elicitation", s.elicitation)
 
+	// Agent tool count
+	group.GET("/agents/:id/:agent_name/tools/count", s.getAgentToolCount)
+
 	// Health check endpoint
 	group.GET("/ping", func(c echo.Context) error {
 		return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
@@ -217,6 +220,15 @@ func (s *Server) toggleSessionYolo(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("failed to toggle session tool approval mode: %v", err))
 	}
 	return c.JSON(http.StatusOK, nil)
+}
+
+func (s *Server) getAgentToolCount(c echo.Context) error {
+	count, err := s.sm.GetAgentToolCount(c.Request().Context(), c.Param("id"), c.Param("agent_name"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("failed to get agent tool count: %v", err))
+	}
+
+	return c.JSON(http.StatusOK, map[string]int{"available_tools": count})
 }
 
 func (s *Server) toggleSessionThinking(c echo.Context) error {

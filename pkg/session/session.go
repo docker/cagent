@@ -599,7 +599,7 @@ func buildSessionSummaryMessages(s *Session) ([]chat.Message, int) {
 
 	if lastSummaryIndex >= 0 && lastSummaryIndex < len(s.Messages) {
 		messages = append(messages, chat.Message{
-			Role:      chat.MessageRoleSystem,
+			Role:      chat.MessageRoleUser,
 			Content:   "Session Summary: " + s.Messages[lastSummaryIndex].Summary,
 			CreatedAt: time.Now().Format(time.RFC3339),
 		})

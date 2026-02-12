@@ -65,7 +65,9 @@ func NewRootCmd() *cobra.Command {
 		},
 		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
 			if flags.logFile != nil {
-				_ = flags.logFile.Close()
+				if err := flags.logFile.Close(); err != nil {
+					slog.Error("Failed to close log file", "error", err)
+				}
 			}
 			return nil
 		},

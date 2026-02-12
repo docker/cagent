@@ -1155,11 +1155,18 @@ func (p *chatPage) processMessage(msg msgtypes.SendMsg) tea.Cmd {
 // CompactSession generates a summary and compacts the session history
 func (p *chatPage) CompactSession(additionalPrompt string) tea.Cmd {
 	// Cancel any active stream without showing cancellation message
-	p.cancelStream(false)
+	cancelCmd := p.cancelStream(false)
 
-	p.app.CompactSession(additionalPrompt)
+	var ctx context.Context
+	ctx, p.msgCancel = context.WithCancel(context.Background())
+	p.app.CompactSession(ctx, additionalPrompt)
 
-	return p.messages.ScrollToBottom()
+	return tea.Batch(
+		cancelCmd,
+		p.setWorking(true),
+		p.setPendingResponse(true),
+		p.messages.ScrollToBottom(),
+	)
 }
 
 func (p *chatPage) Cleanup() {

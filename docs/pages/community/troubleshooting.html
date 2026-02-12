@@ -1,0 +1,251 @@
+<h1>Troubleshooting</h1>
+<p class="subtitle">Common issues and how to resolve them when working with cagent.</p>
+
+<h2>Common Errors</h2>
+
+<h3>Context Window Exceeded</h3>
+
+<p>Error message: <code>context_length_exceeded</code> or similar.</p>
+
+<ul>
+  <li>Use <code>/compact</code> in the TUI to summarize and reduce conversation history</li>
+  <li>Set <code>num_history_items</code> in agent config to limit messages sent to the model</li>
+  <li>Switch to a model with larger context (e.g., Claude 200K, Gemini 2M)</li>
+  <li>Break large tasks into smaller conversations</li>
+</ul>
+
+<h3>Max Iterations Reached</h3>
+
+<p>The agent hit its <code>max_iterations</code> limit without completing the task.</p>
+
+<ul>
+  <li>Increase <code>max_iterations</code> in agent config (default is unlimited, but many agents set 20-50)</li>
+  <li>Check if the agent is stuck in a loop (enable <code>--debug</code> to see tool calls)</li>
+  <li>Break complex tasks into smaller steps</li>
+</ul>
+
+<h3>Model Fallback Triggered</h3>
+
+<p>When the primary model fails, cagent automatically switches to fallback models. Look for log messages like <code>"Switching to fallback model"</code>.</p>
+
+<ul>
+  <li><strong>429 errors:</strong> Rate limited — the cooldown period keeps using the fallback</li>
+  <li><strong>5xx errors:</strong> Server issues — retries with exponential backoff first, then falls back</li>
+  <li><strong>4xx errors:</strong> Client errors — skips directly to next model</li>
+</ul>
+
+<p>Configure fallback behavior in your agent config:</p>
+
+<pre><code class="language-yaml">agents:
+  root:
+    model: anthropic/claude-sonnet-4-0
+    fallback:
+      models: [openai/gpt-4o, openai/gpt-4o-mini]
+      retries: 2      # retries per model for 5xx errors
+      cooldown: 1m    # how long to stick with fallback after 429</code></pre>
+
+<h2>Debug Mode</h2>
+
+<p>The first step for any issue is enabling debug logging. This provides detailed information about what cagent is doing internally.</p>
+
+<pre><code class="language-bash"># Enable debug logging (writes to ~/.cagent/cagent.debug.log)
+$ cagent run config.yaml --debug
+
+# Write debug logs to a custom file
+$ cagent run config.yaml --debug --log-file ./debug.log
+
+# Enable OpenTelemetry tracing for deeper analysis
+$ cagent run config.yaml --otel</code></pre>
+
+<div class="callout callout-tip">
+  <div class="callout-title">💡 Tip</div>
+  <p>Always enable <code>--debug</code> when reporting issues. The log file contains detailed traces of API calls, tool executions, and agent interactions.</p>
+</div>
+
+<h2>Agent Not Responding</h2>
+
+<h3>API keys not set</h3>
+
+<p>Each model provider requires its own API key as an environment variable:</p>
+
+<table>
+  <thead><tr><th>Provider</th><th>Environment Variable</th></tr></thead>
+  <tbody>
+    <tr><td>OpenAI</td><td><code>OPENAI_API_KEY</code></td></tr>
+    <tr><td>Anthropic</td><td><code>ANTHROPIC_API_KEY</code></td></tr>
+    <tr><td>Google Gemini</td><td><code>GOOGLE_API_KEY</code></td></tr>
+    <tr><td>Mistral</td><td><code>MISTRAL_API_KEY</code></td></tr>
+    <tr><td>xAI</td><td><code>XAI_API_KEY</code></td></tr>
+    <tr><td>AWS Bedrock</td><td><code>AWS_BEARER_TOKEN_BEDROCK</code> or AWS credentials chain</td></tr>
+  </tbody>
+</table>
+
+<pre><code class="language-bash"># Verify your keys are set
+$ env | grep API_KEY</code></pre>
+
+<h3>Incorrect model name</h3>
+
+<p>Model names must match the provider's naming exactly. Common mistakes:</p>
+
+<ul>
+  <li>Using <code>gpt-4</code> instead of <code>gpt-4o</code></li>
+  <li>Using a deprecated model name</li>
+  <li>Model references are case-sensitive: <code>openai/gpt-4o</code> ≠ <code>openai/GPT-4o</code></li>
+</ul>
+
+<h3>Network connectivity</h3>
+
+<p>If the agent hangs or times out, check that you can reach the provider's API endpoint. Firewalls, VPNs, or proxy settings may block requests.</p>
+
+<h2>Tool Execution Failures</h2>
+
+<h3>MCP tools not found or failing</h3>
+
+<ul>
+  <li>Ensure the MCP tool command is installed and on your <code>PATH</code></li>
+  <li>Check file permissions — tools need to be executable</li>
+  <li>Test MCP tools independently before integrating with cagent</li>
+  <li>For Docker-based MCP tools (<code>ref: docker:*</code>), ensure Docker Desktop is running</li>
+</ul>
+
+<h3>Filesystem / shell tool errors</h3>
+
+<ul>
+  <li>Verify the agent has the correct toolset configured (<code>type: filesystem</code>, <code>type: shell</code>)</li>
+  <li>Check that the working directory exists and is accessible</li>
+  <li>On macOS, ensure terminal has the necessary permissions (e.g., Full Disk Access)</li>
+</ul>
+
+<h3>Tool lifecycle issues</h3>
+
+<p>MCP tools using stdio transport must complete the initialization handshake before becoming available. If tools fail silently:</p>
+
+<ol>
+  <li>Enable <code>--debug</code> and look for MCP protocol messages in the log</li>
+  <li>Check that the MCP server process starts and responds to <code>initialize</code></li>
+  <li>Verify environment variables required by the tool are set (check <code>env</code> and <code>env_file</code> in the toolset config)</li>
+</ol>
+
+<h2>Configuration Errors</h2>
+
+<h3>YAML syntax issues</h3>
+
+<p>cagent validates config at startup and reports errors with line numbers. Common problems:</p>
+
+<ul>
+  <li>Incorrect indentation (YAML is whitespace-sensitive)</li>
+  <li>Missing quotes around values containing special characters (<code>:</code>, <code>#</code>, <code>{</code>, <code>}</code>)</li>
+  <li>Using tabs instead of spaces</li>
+</ul>
+
+<h3>Missing references</h3>
+
+<ul>
+  <li>All agents in <code>sub_agents</code> must be defined in the <code>agents</code> section</li>
+  <li>Named model references must exist in the <code>models</code> section (or use inline format like <code>openai/gpt-4o</code>)</li>
+  <li>RAG source names referenced by agents must be defined in the <code>rag</code> section</li>
+</ul>
+
+<h3>Toolset validation</h3>
+
+<ul>
+  <li>The <code>path</code> field is only valid for <code>memory</code> toolsets</li>
+  <li>MCP toolsets need either <code>command</code> (stdio), <code>remote</code> (SSE/HTTP), or <code>ref</code> (Docker)</li>
+  <li>Provider names must be one of: <code>openai</code>, <code>anthropic</code>, <code>google</code>, <code>amazon-bedrock</code>, <code>dmr</code>, etc.</li>
+</ul>
+
+<div class="callout callout-info">
+  <div class="callout-title">ℹ️ Schema Validation</div>
+  <p>Use the <a href="https://github.com/docker/cagent/blob/main/cagent-schema.json" target="_blank" rel="noopener noreferrer">JSON schema</a> in your editor for real-time config validation and autocompletion.</p>
+</div>
+
+<h2>Session &amp; Connectivity Issues</h2>
+
+<h3>Port conflicts</h3>
+
+<p>When running cagent as an API server or MCP server, ensure the port is not already in use:</p>
+
+<pre><code class="language-bash"># Check if port 8080 is in use
+$ lsof -i :8080
+
+# Use a different port
+$ cagent api config.yaml --listen :9090</code></pre>
+
+<h3>MCP endpoint accessibility</h3>
+
+<p>For remote MCP servers, verify the endpoint is reachable:</p>
+
+<pre><code class="language-bash"># Test SSE endpoint
+$ curl -v https://mcp-server.example.com/sse</code></pre>
+
+<h3>Multi-tenant isolation</h3>
+
+<p>In API server mode, each client gets isolated sessions. If sessions are mixing up:</p>
+
+<ul>
+  <li>Verify client IDs are unique per connection</li>
+  <li>Check session timeouts and cleanup in debug logs</li>
+</ul>
+
+<h2>Performance Issues</h2>
+
+<h3>High memory usage</h3>
+
+<ul>
+  <li>Large context windows (64K+ tokens) consume significant memory — consider reducing <code>max_tokens</code></li>
+  <li>Use <code>num_history_items</code> in agent config to limit conversation history</li>
+  <li>For DMR (local models), tune <code>runtime_flags</code> for your hardware (e.g., <code>--ngl</code> for GPU layers)</li>
+</ul>
+
+<h3>Slow responses</h3>
+
+<ul>
+  <li>Check if MCP tools are adding latency (visible in debug logs)</li>
+  <li>Use the <code>/cost</code> command in TUI to see token usage and identify expensive interactions</li>
+  <li>For DMR, consider enabling <a href="#providers/dmr" onclick="event.preventDefault(); navigate('providers/dmr')">speculative decoding</a> for faster inference</li>
+</ul>
+
+<h3>Tool resource leaks</h3>
+
+<p>Monitor for tools that don't clean up properly — check debug logs for MCP server start/stop lifecycle events. Orphaned tool processes can consume system resources.</p>
+
+<h2>Agent Store Issues</h2>
+
+<h3>Pull / push failures</h3>
+
+<pre><code class="language-bash"># Test registry connectivity
+$ docker pull docker.io/username/agent:latest
+
+# Verify pulled agent content
+$ cagent pull docker.io/username/agent:latest</code></pre>
+
+<h3>Agent content issues</h3>
+
+<ul>
+  <li>Ensure the pushed YAML is valid — run <code>cagent run</code> locally before pushing</li>
+  <li>Check that referenced resources (MCP tools, files) are available on the target machine</li>
+  <li>For auto-refresh (<code>--pull-interval</code>), verify the registry is accessible from the server</li>
+</ul>
+
+<h2>Log Analysis</h2>
+
+<p>When reviewing debug logs, search for these key patterns:</p>
+
+<table>
+  <thead><tr><th>Log Pattern</th><th>What It Indicates</th></tr></thead>
+  <tbody>
+    <tr><td><code>"Starting runtime stream"</code></td><td>Agent execution beginning</td></tr>
+    <tr><td><code>"Tool call"</code></td><td>A tool is being executed</td></tr>
+    <tr><td><code>"Tool call result"</code></td><td>Tool execution completed</td></tr>
+    <tr><td><code>"Stream stopped"</code></td><td>Agent finished processing</td></tr>
+    <tr><td><code>HTTP 429</code></td><td>Rate limiting — consider adding a <a href="#configuration/agents" onclick="event.preventDefault(); navigate('configuration/agents')">fallback model</a></td></tr>
+    <tr><td><code>context canceled</code></td><td>Operation was interrupted (timeout or user cancel)</td></tr>
+    <tr><td><code>[RAG Manager]</code></td><td>RAG retrieval operations</td></tr>
+    <tr><td><code>[Reranker]</code></td><td>Reranking operations</td></tr>
+  </tbody>
+</table>
+
+<div class="callout callout-warning">
+  <div class="callout-title">⚠️ Still stuck?</div>
+  <p>If these steps don't resolve your issue, file a bug on the <a href="https://github.com/docker/cagent/issues" target="_blank" rel="noopener noreferrer">GitHub issue tracker</a> with your debug log attached, or ask on <a href="https://dockercommunity.slack.com/archives/C09DASHHRU4" target="_blank" rel="noopener noreferrer">Slack</a>.</p>
+</div>

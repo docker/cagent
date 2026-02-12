@@ -278,7 +278,7 @@ agents:
 
       Before analyzing anything, read ALL existing markdown files in the repository:
       1. Use `directory_tree` to find all `.md` files
-      2. Read each markdown file (README.md, CONTRIBUTING.md, docs/*.md, etc.)
+      2. Read each markdown file (README.md, CONTRIBUTING.md, etc.)
       3. Understand what documentation already exists
 
       This context is essential - you need to know what's already documented before

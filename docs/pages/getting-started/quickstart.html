@@ -1,0 +1,138 @@
+<h1>Quick Start</h1>
+<p class="subtitle">Get up and running with cagent in under 5 minutes. Pick whichever path suits you best.</p>
+
+<h2>Option A: Run the Default Agent</h2>
+
+<p>The fastest way to try cagent — no config file needed:</p>
+
+<pre><code class="language-bash"># Launch the default agent with the interactive TUI
+$ cagent run</code></pre>
+
+<p>This starts a general-purpose assistant with sensible defaults. Just start chatting.</p>
+
+<h2>Option B: Run a Pre-Built Agent from the Registry</h2>
+
+<p>Try a ready-made agent from the <a href="https://hub.docker.com/u/agentcatalog" target="_blank" rel="noopener noreferrer">agent catalog</a> — no YAML needed:</p>
+
+<pre><code class="language-bash"># Run a pirate-themed assistant
+$ cagent run agentcatalog/pirate
+
+# Run a coding agent
+$ cagent run agentcatalog/coder</code></pre>
+
+<h2>Option C: Generate a Config Interactively</h2>
+
+<p>Use the <code>cagent new</code> command to scaffold a config file through prompts:</p>
+
+<pre><code class="language-bash"># Interactive wizard
+$ cagent new
+
+# Or specify options directly
+$ cagent new --model openai/gpt-4o
+
+# Override context size and iteration limits
+$ cagent new --model dmr/ai/gemma3-qat:12B --max-tokens 32000 --max-iterations 15</code></pre>
+
+<p>This generates an <code>agent.yaml</code> in the current directory. Then run it:</p>
+
+<pre><code class="language-bash">$ cagent run agent.yaml</code></pre>
+
+<h2>Option D: Write Your Own Config</h2>
+
+<p>Create an <code>agent.yaml</code> by hand for full control. Here's a minimal example:</p>
+
+<pre><code class="language-yaml">agents:
+  root:
+    model: anthropic/claude-sonnet-4-0
+    description: A helpful coding assistant
+    instruction: |
+      You are an expert software developer. Help users write
+      clean, efficient code. Explain your reasoning.
+    toolsets:
+      - type: filesystem
+      - type: shell
+      - type: think</code></pre>
+
+<p>This gives your agent:</p>
+<ul>
+  <li><strong>Claude Sonnet 4</strong> as the underlying model</li>
+  <li><strong>Filesystem access</strong> to read and write files</li>
+  <li><strong>Shell access</strong> to run commands</li>
+  <li><strong>Think tool</strong> for step-by-step reasoning</li>
+</ul>
+
+<pre><code class="language-bash"># Launch the interactive terminal UI
+$ cagent run agent.yaml</code></pre>
+
+<h2>Try It Out</h2>
+
+<p>Once your agent is running, try asking it to:</p>
+
+<ul>
+  <li><em>"List the files in the current directory"</em></li>
+  <li><em>"Create a Python script that fetches weather data"</em></li>
+  <li><em>"Explain what the code in main.go does"</em></li>
+</ul>
+
+<div class="callout callout-tip">
+  <div class="callout-title">💡 Tip</div>
+  <p>Add <code>--yolo</code> to auto-approve all tool calls: <code>cagent run agent.yaml --yolo</code></p>
+</div>
+
+<h2>Non-Interactive Mode</h2>
+
+<p>Use <code>cagent exec</code> for one-shot tasks:</p>
+
+<pre><code class="language-bash"># Ask a single question
+$ cagent exec agent.yaml "Create a Dockerfile for a Node.js app"
+
+# Pipe input
+$ cat error.log | cagent exec agent.yaml "What's wrong in this log?"</code></pre>
+
+<h2>Add More Power</h2>
+
+<p>Give your agent persistent memory and web search:</p>
+
+<pre><code class="language-yaml">agents:
+  root:
+    model: anthropic/claude-sonnet-4-0
+    description: Research assistant with memory
+    instruction: |
+      You are a research assistant. Search the web for information,
+      remember important findings, and provide thorough analysis.
+    toolsets:
+      - type: think
+      - type: memory
+        path: ./research.db
+      - type: mcp
+        ref: docker:duckduckgo</code></pre>
+
+<div class="callout callout-info">
+  <div class="callout-title">ℹ️ Docker MCP Tools</div>
+  <p>The <code>ref: docker:duckduckgo</code> syntax runs the DuckDuckGo MCP server in a Docker container. This is the recommended way to use MCP tools — secure, isolated, and easy to configure. Requires Docker Desktop.</p>
+</div>
+
+<h2>What's Next?</h2>
+
+<div class="cards">
+  <a class="card" href="#concepts/agents" onclick="event.preventDefault(); navigate('concepts/agents')">
+    <div class="card-icon">🤖</div>
+    <h3>Understand Agents</h3>
+    <p>Learn how agents work and what you can configure.</p>
+  </a>
+  <a class="card" href="#concepts/multi-agent" onclick="event.preventDefault(); navigate('concepts/multi-agent')">
+    <div class="card-icon">👥</div>
+    <h3>Multi-Agent Systems</h3>
+    <p>Build teams of collaborating agents.</p>
+  </a>
+  <a class="card" href="#configuration/overview" onclick="event.preventDefault(); navigate('configuration/overview')">
+    <div class="card-icon">📚</div>
+    <h3>Configuration Reference</h3>
+    <p>Full reference for all YAML options.</p>
+  </a>
+  <a class="card" href="#community/troubleshooting" onclick="event.preventDefault(); navigate('community/troubleshooting')">
+    <div class="card-icon">🔧</div>
+    <h3>Troubleshooting</h3>
+    <p>Something not working? Debug tips and common fixes.</p>
+  </a>
+</div>

@@ -103,7 +103,19 @@ func (r *RemoteRuntime) EmitStartupInfo(ctx context.Context, events chan Event) 
 
 	events <- AgentInfo(r.currentAgent, cfg.Model, cfg.Description, cfg.WelcomeMessage)
 	events <- TeamInfo(r.agentDetailsFromConfig(ctx), r.currentAgent)
-	events <- ToolsetInfo(len(cfg.Toolsets), false, r.currentAgent)
+
+	// Emit a loading indicator while we fetch the real tool count from the server.
+	if len(cfg.Toolsets) > 0 {
+		events <- ToolsetInfo(0, true, r.currentAgent)
+	}
+
+	toolCount, err := r.client.GetAgentToolCount(ctx, r.agentFilename, r.currentAgent)
+	if err != nil {
+		slog.Warn("Failed to get agent tool count", "error", err)
+		return
+	}
+
+	events <- ToolsetInfo(toolCount, false, r.currentAgent)
 }
 
 func (r *RemoteRuntime) agentDetailsFromConfig(ctx context.Context) []AgentDetails {
@@ -449,6 +461,11 @@ func (r *RemoteRuntime) ExecuteMCPPrompt(context.Context, string, map[string]str
 
 // TitleGenerator is not supported on remote runtimes (titles are generated server-side).
 func (r *RemoteRuntime) TitleGenerator() *sessiontitle.Generator {
+	return nil
+}
+
+// Close is a no-op for remote runtimes.
+func (r *RemoteRuntime) Close() error {
 	return nil
 }
 

@@ -149,17 +149,17 @@ func TestGetMessagesWithSummary(t *testing.T) {
 		if msg.Role == chat.MessageRoleUser || msg.Role == chat.MessageRoleAssistant {
 			userAssistantMessages++
 		}
-		if msg.Role == chat.MessageRoleSystem && msg.Content == "Session Summary: This is a summary of the conversation so far" {
+		if msg.Role == chat.MessageRoleUser && msg.Content == "Session Summary: This is a summary of the conversation so far" {
 			summaryFound = true
 		}
 	}
 
 	// We should have:
-	// - 1 summary system message
+	// - 1 summary user message
 	// - 2 messages after the summary (user + assistant)
 	// - Various other system messages from agent setup
-	assert.True(t, summaryFound, "should include summary as system message")
-	assert.Equal(t, 2, userAssistantMessages, "should only include messages after summary")
+	assert.True(t, summaryFound, "should include summary as user message")
+	assert.Equal(t, 3, userAssistantMessages, "should only include messages after summary")
 }
 
 func TestGetMessages_Instructions(t *testing.T) {

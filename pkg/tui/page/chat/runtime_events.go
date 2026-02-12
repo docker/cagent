@@ -124,7 +124,12 @@ func (p *chatPage) handleRuntimeEvent(msg tea.Msg) (bool, tea.Cmd) {
 
 	case *runtime.SessionCompactionEvent:
 		if msg.Status == "completed" {
-			return true, notification.SuccessCmd("Session compacted successfully.")
+			return true, tea.Batch(
+				p.setWorking(false),
+				p.setPendingResponse(false),
+				notification.SuccessCmd("Session compacted successfully."),
+				p.messages.ScrollToBottom(),
+			)
 		}
 		return true, nil
 

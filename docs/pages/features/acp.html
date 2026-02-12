@@ -1,0 +1,94 @@
+<h1>ACP (Agent Client Protocol)</h1>
+<p class="subtitle">Expose cagent agents via the Agent Client Protocol for integration with ACP-compatible hosts like VS Code, IDEs, and other developer tools.</p>
+
+<h2>Overview</h2>
+
+<p>The <code>cagent acp</code> command starts an ACP server that communicates over <strong>stdio</strong> (standard input/output). This makes it ideal for integration with editors, IDEs, and other tools that spawn agent processes — the host sends JSON-RPC messages to cagent's stdin and reads responses from stdout.</p>
+
+<p>ACP is built on the <a href="https://github.com/coder/acp-go-sdk" target="_blank" rel="noopener noreferrer">ACP Go SDK</a> and provides a standardized way for client applications to interact with AI agents.</p>
+
+<div class="callout callout-info">
+  <div class="callout-title">ℹ️ ACP vs A2A vs MCP</div>
+  <p><strong>ACP</strong> connects an agent to a <em>host application</em> (IDE, CLI tool) via stdio. <strong>A2A</strong> connects <em>agents to other agents</em> over HTTP. <strong>MCP</strong> exposes agents as <em>tools</em> for other MCP clients. Choose based on your integration target.</p>
+</div>
+
+<h2>Usage</h2>
+
+<pre><code class="language-bash"># Start ACP server on stdio
+$ cagent acp ./agent.yaml
+
+# With a multi-agent team config
+$ cagent acp ./team.yaml
+
+# From the agent catalog
+$ cagent acp agentcatalog/pirate
+
+# With a custom session database
+$ cagent acp ./agent.yaml --session-db ./my-sessions.db</code></pre>
+
+<h2>How It Works</h2>
+
+<ol>
+  <li>The host application spawns <code>cagent acp agent.yaml</code> as a child process</li>
+  <li>Communication happens over <strong>stdin/stdout</strong> using the ACP protocol</li>
+  <li>The host sends user messages, cagent processes them through the agent</li>
+  <li>Agent responses, tool calls, and events stream back to the host</li>
+  <li>Sessions are persisted in a SQLite database for continuity</li>
+</ol>
+
+<pre><code class="language-bash"># Conceptual flow:
+Host Application
+  └── spawns: cagent acp agent.yaml
+        ├── stdin  ← JSON-RPC requests from host
+        └── stdout → JSON-RPC responses to host</code></pre>
+
+<h2>Features</h2>
+
+<ul>
+  <li><strong>Stdio transport</strong> — No network ports needed; ideal for subprocess integration</li>
+  <li><strong>Session persistence</strong> — SQLite-backed sessions survive process restarts</li>
+  <li><strong>Full agent support</strong> — All cagent features work: tools, multi-agent, model fallbacks</li>
+  <li><strong>Multi-agent configs</strong> — Team configurations with sub-agents work transparently</li>
+  <li><strong>Filesystem operations</strong> — Agents can read/write files relative to the host's working directory</li>
+</ul>
+
+<h2>CLI Flags</h2>
+
+<pre><code class="language-bash">$ cagent acp &lt;agent-file&gt;|&lt;registry-ref&gt; [flags]</code></pre>
+
+<table>
+  <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>-s, --session-db</code></td><td><code>~/.cagent/session.db</code></td><td>Path to the SQLite session database</td></tr>
+  </tbody>
+</table>
+
+<h2>Integration Example</h2>
+
+<p>A host application would spawn cagent as a subprocess and communicate via the ACP protocol:</p>
+
+<pre><code class="language-javascript">// Pseudocode for an IDE extension
+const child = spawn('cagent', ['acp', './agent.yaml']);
+
+// Send a message to the agent
+child.stdin.write(JSON.stringify({
+  jsonrpc: '2.0',
+  method: 'agent/run',
+  params: { message: 'Explain this code' }
+}));
+
+// Read responses
+child.stdout.on('data', (data) => {
+  const response = JSON.parse(data);
+  // Handle agent response, tool calls, etc.
+});</code></pre>
+
+<div class="callout callout-tip">
+  <div class="callout-title">💡 When to use ACP</div>
+  <p>Use ACP when building <strong>IDE integrations</strong>, <strong>editor plugins</strong>, or any tool that wants to embed a cagent agent as a subprocess. For HTTP-based integrations, use the <a href="#features/api-server" onclick="event.preventDefault(); navigate('features/api-server')">API Server</a> instead.</p>
+</div>
+
+<div class="callout callout-info">
+  <div class="callout-title">ℹ️ See also</div>
+  <p>For HTTP-based agent access, see the <a href="#features/api-server" onclick="event.preventDefault(); navigate('features/api-server')">API Server</a>. For agent-to-agent communication, see <a href="#features/a2a" onclick="event.preventDefault(); navigate('features/a2a')">A2A Protocol</a>. For exposing agents as MCP tools, see <a href="#features/mcp-mode" onclick="event.preventDefault(); navigate('features/mcp-mode')">MCP Mode</a>.</p>
+</div>

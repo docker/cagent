@@ -1,0 +1,61 @@
+<h1>OpenAI</h1>
+<p class="subtitle">Use GPT-4o, GPT-5, GPT-5-mini, and other OpenAI models with cagent.</p>
+
+<h2>Setup</h2>
+
+<pre><code class="language-bash"># Set your API key
+export OPENAI_API_KEY="sk-..."</code></pre>
+
+<h2>Configuration</h2>
+
+<h3>Inline</h3>
+<pre><code class="language-yaml">agents:
+  root:
+    model: openai/gpt-4o</code></pre>
+
+<h3>Named Model</h3>
+<pre><code class="language-yaml">models:
+  gpt:
+    provider: openai
+    model: gpt-4o
+    temperature: 0.7
+    max_tokens: 4000</code></pre>
+
+<h2>Available Models</h2>
+
+<table>
+  <thead><tr><th>Model</th><th>Best For</th></tr></thead>
+  <tbody>
+    <tr><td><code>gpt-5</code></td><td>Most capable, complex reasoning</td></tr>
+    <tr><td><code>gpt-5-mini</code></td><td>Fast, cost-effective, good reasoning</td></tr>
+    <tr><td><code>gpt-4o</code></td><td>Multimodal, balanced performance</td></tr>
+    <tr><td><code>gpt-4o-mini</code></td><td>Cheapest, fast for simple tasks</td></tr>
+  </tbody>
+</table>
+
+<p>Find more model names at <a href="https://modelname.ai/" target="_blank" rel="noopener noreferrer">modelname.ai</a>.</p>
+
+<h2>Thinking Budget</h2>
+
+<p>OpenAI uses effort level strings:</p>
+
+<pre><code class="language-yaml">models:
+  gpt-thinking:
+    provider: openai
+    model: gpt-5-mini
+    thinking_budget: low  # minimal | low | medium (default) | high</code></pre>
+
+<div class="callout callout-tip">
+  <div class="callout-title">💡 Custom endpoints</div>
+  <p>Use <code>base_url</code> for proxies and OpenAI-compatible services. See <a href="#providers/custom" onclick="event.preventDefault(); navigate('providers/custom')">Custom Providers</a> for full setup.</p>
+</div>
+
+<h2>Custom Endpoint</h2>
+
+<p>Use <code>base_url</code> to connect to OpenAI-compatible APIs:</p>
+
+<pre><code class="language-yaml">models:
+  custom:
+    provider: openai
+    model: gpt-4o
+    base_url: https://your-proxy.example.com/v1</code></pre>

@@ -1,0 +1,98 @@
+<h1>Introduction</h1>
+<p class="subtitle">cagent is a powerful, customizable multi-agent system that lets you build, run, and share AI agents using simple YAML configuration.</p>
+
+<h2>What is cagent?</h2>
+
+<p>
+  cagent is an open-source tool by Docker that orchestrates AI agents with specialized capabilities and tools. 
+  Instead of writing code to wire up LLMs, tools, and workflows, you <strong>declare</strong> your agents in YAML — 
+  their model, personality, tools, and how they collaborate — and cagent handles the rest.
+</p>
+
+<div class="features-grid">
+  <div class="feature">
+    <div class="feature-icon">🏗️</div>
+    <h3>Multi-Agent Architecture</h3>
+    <p>Build hierarchical teams of agents that specialize in different tasks and delegate work to each other.</p>
+  </div>
+  <div class="feature">
+    <div class="feature-icon">🔧</div>
+    <h3>Rich Tool Ecosystem</h3>
+    <p>Built-in tools for files, shell, memory, and todos. Extend with any MCP server — over 1000+ available.</p>
+  </div>
+  <div class="feature">
+    <div class="feature-icon">🧠</div>
+    <h3>Multi-Model Support</h3>
+    <p>OpenAI, Anthropic, Google Gemini, AWS Bedrock, Docker Model Runner, and custom OpenAI-compatible providers.</p>
+  </div>
+  <div class="feature">
+    <div class="feature-icon">📦</div>
+    <h3>Package &amp; Share</h3>
+    <p>Push agents to OCI registries and pull them anywhere — just like Docker images.</p>
+  </div>
+  <div class="feature">
+    <div class="feature-icon">🖥️</div>
+    <h3>Multiple Interfaces</h3>
+    <p>Interactive TUI, headless CLI, HTTP API server, MCP mode, and A2A protocol support.</p>
+  </div>
+  <div class="feature">
+    <div class="feature-icon">🔒</div>
+    <h3>Security-First Design</h3>
+    <p>Tool confirmation prompts, containerized MCP tools via Docker, client isolation, and resource scoping.</p>
+  </div>
+</div>
+
+<h2>Why cagent?</h2>
+
+<p>After spending years building AI agents using various frameworks, the Docker team kept asking the same questions:</p>
+
+<ul>
+  <li><strong>How do we make building agents less of a hassle?</strong> — Most agents use the same building blocks. cagent provides them out of the box.</li>
+  <li><strong>Can we reuse those building blocks?</strong> — Declarative YAML configs mean you can mix and match agents, models, and tools without rewriting code.</li>
+  <li><strong>How can we share agents easily?</strong> — Push agents to any OCI registry and run them anywhere with a single command.</li>
+</ul>
+
+<p>cagent is built in the open so the community can make use of this work and contribute to its future.</p>
+
+<h2>How it Works</h2>
+
+<p>At its core, cagent follows a simple loop:</p>
+
+<ol>
+  <li><strong>You define agents</strong> in YAML — their model, instructions, tools, and sub-agents.</li>
+  <li><strong>You run an agent</strong> via the TUI, CLI, or API.</li>
+  <li><strong>The agent processes your request</strong> — calling tools, delegating to sub-agents, and reasoning step by step.</li>
+  <li><strong>Results stream back in real-time</strong> via an event-driven architecture.</li>
+</ol>
+
+<pre><code class="language-yaml"># A minimal agent definition
+agents:
+  root:
+    model: openai/gpt-4o
+    description: A helpful assistant
+    instruction: You are a helpful assistant.
+    toolsets:
+      - type: think</code></pre>
+
+<pre><code class="language-bash"># Run it
+$ cagent run agent.yaml</code></pre>
+
+<div class="callout callout-tip">
+  <div class="callout-title">💡 Tip</div>
+  <p>Jump straight to the <a href="#getting-started/quickstart" onclick="event.preventDefault(); navigate('getting-started/quickstart')">Quick Start</a> if you want to build your first agent right away.</p>
+</div>
+
+<h2>What's Next?</h2>
+
+<div class="cards">
+  <a class="card" href="#getting-started/installation" onclick="event.preventDefault(); navigate('getting-started/installation')">
+    <div class="card-icon">📥</div>
+    <h3>Installation</h3>
+    <p>Install cagent on macOS, Linux, or Windows.</p>
+  </a>
+  <a class="card" href="#getting-started/quickstart" onclick="event.preventDefault(); navigate('getting-started/quickstart')">
+    <div class="card-icon">⚡</div>
+    <h3>Quick Start</h3>
+    <p>Build your first agent in under 5 minutes.</p>
+  </a>
+</div>

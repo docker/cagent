@@ -119,7 +119,7 @@ func (f *runExecFlags) runRunCommand(cmd *cobra.Command, args []string) error {
 	return f.runOrExec(ctx, out, args, tui)
 }
 
-func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []string, tui bool) error {
+func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []string, tui bool) (retErr error) {
 	slog.Debug("Starting agent", "agent", f.agentName)
 
 	// Start CPU profiling if requested
@@ -193,6 +193,9 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 	defer func() {
 		if err := fakeCleanup(); err != nil {
 			slog.Error("Failed to cleanup fake proxy", "error", err)
+			if retErr == nil {
+				retErr = fmt.Errorf("failed to cleanup fake proxy: %w", err)
+			}
 		}
 	}()
 
@@ -202,7 +205,14 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 		return err
 	}
 	if cassettePath != "" {
-		defer recordCleanup()
+		defer func() {
+			if err := recordCleanup(); err != nil {
+				slog.Error("Failed to cleanup recording proxy", "error", err)
+				if retErr == nil {
+					retErr = fmt.Errorf("failed to cleanup recording proxy: %w", err)
+				}
+			}
+		}()
 		out.Println("Recording mode enabled, cassette: " + cassettePath)
 	}
 
@@ -239,6 +249,9 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 			cleanupCtx := context.WithoutCancel(ctx)
 			if err := loadResult.Team.StopToolSets(cleanupCtx); err != nil {
 				slog.Error("Failed to stop tool sets", "error", err)
+			}
+			if err := rt.Close(); err != nil {
+				slog.Error("Failed to close runtime", "error", err)
 			}
 		}
 	}

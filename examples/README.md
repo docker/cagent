@@ -4,7 +4,7 @@
 
 These examples are fairly basic and show you the YAML syntax for writing agents.
 
-Some of these agents use [built-in tools](../docs/USAGE.md#tool-configuration) like `filesystem`, which grants filesystem access, or `memory`, to allow the agent to store its findings for later use.
+Some of these agents use [built-in tools](../docs/index.html#configuration/tools) like `filesystem`, which grants filesystem access, or `memory`, to allow the agent to store its findings for later use.
 
 | Name                                   | Description/Purpose                    | Filesystem | Shell | Todo | Think | Memory | MCP Servers | Sub-agents |
 |----------------------------------------|----------------------------------------|------------|-------|------|-------|--------|-------------|------------|
