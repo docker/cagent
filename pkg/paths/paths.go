@@ -10,7 +10,9 @@ import (
 // If the home directory cannot be determined, it falls back to a directory
 // under the system temporary directory. This is a best-effort fallback and
 // not intended to be a security boundary.
-func GetConfigDir() string {
+//
+// Exposed as a variable so tests can override it.
+var GetConfigDir = func() string {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		// Fallback to temp directory
