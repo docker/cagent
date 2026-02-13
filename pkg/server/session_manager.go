@@ -14,6 +14,7 @@ import (
 	"github.com/docker/cagent/pkg/api"
 	"github.com/docker/cagent/pkg/concurrent"
 	"github.com/docker/cagent/pkg/config"
+	"github.com/docker/cagent/pkg/environment"
 	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/sessiontitle"
@@ -96,6 +97,10 @@ func (sm *SessionManager) CreateSession(ctx context.Context, sessionTemplate *se
 
 	if sessionTemplate.Permissions != nil {
 		opts = append(opts, session.WithPermissions(sessionTemplate.Permissions))
+	}
+
+	if sessionTemplate.ToolHeaderOverrides != nil {
+		opts = append(opts, session.WithToolHeaderOverrides(sessionTemplate.ToolHeaderOverrides))
 	}
 
 	sess := session.New(opts...)
@@ -349,7 +354,13 @@ func (sm *SessionManager) runtimeForSession(ctx context.Context, sess *session.S
 		return rt.runtime, rt.titleGen, nil
 	}
 
-	t, err := sm.loadTeam(ctx, agentFilename, rc)
+	// Create session-specific runtime config with tool header overrides
+	sessionRC := rc.Clone()
+	if len(sess.ToolHeaderOverrides) > 0 {
+		sessionRC = sm.applyToolHeaderOverrides(ctx, sess, sessionRC)
+	}
+
+	t, err := sm.loadTeam(ctx, agentFilename, sessionRC)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -414,4 +425,50 @@ func (sm *SessionManager) GetAgentToolCount(ctx context.Context, agentFilename, 
 	}
 
 	return len(agentTools), nil
+}
+
+// applyToolHeaderOverrides creates a RuntimeConfig with session-specific
+// tool header overrides injected via an augmented environment provider.
+func (sm *SessionManager) applyToolHeaderOverrides(ctx context.Context, sess *session.Session, rc *config.RuntimeConfig) *config.RuntimeConfig {
+	// Build flat map of environment variable overrides.
+	// Convention: For each toolset header override, create an env var with
+	// the pattern "CAGENT_TOOLSET_{TOOLSET}_{HEADER}" that will be used
+	// in the agent YAML as ${env.CAGENT_TOOLSET_GITHUB_MCP_AUTHORIZATION}
+	envOverrides := make(map[string]string)
+
+	for toolsetName, headers := range sess.ToolHeaderOverrides {
+		for headerName, headerValue := range headers {
+			// Normalize toolset and header names to valid env var format
+			// e.g., "github-mcp" + "Authorization" -> "CAGENT_TOOLSET_GITHUB_MCP_AUTHORIZATION"
+			normalizedToolset := strings.ToUpper(strings.ReplaceAll(toolsetName, "-", "_"))
+			normalizedHeader := strings.ToUpper(strings.ReplaceAll(headerName, "-", "_"))
+			envKey := fmt.Sprintf("CAGENT_TOOLSET_%s_%s", normalizedToolset, normalizedHeader)
+			envOverrides[envKey] = headerValue
+
+			slog.Debug("Applied session tool header override",
+				"session_id", sess.ID,
+				"toolset", toolsetName,
+				"header", headerName,
+				"env_key", envKey)
+		}
+	}
+
+	// Create a MapProvider with the overrides
+	overrideProvider := environment.NewMapProvider(envOverrides)
+
+	// Get the current environment provider
+	baseProvider := rc.EnvProvider()
+
+	// Chain the override provider BEFORE the base provider
+	// This ensures session overrides take precedence over team config
+	augmentedProvider := environment.NewMultiProvider(
+		overrideProvider,
+		baseProvider,
+	)
+
+	// Clone the runtime config and inject the augmented provider
+	cloned := rc.Clone()
+	cloned.SetEnvProvider(augmentedProvider)
+
+	return cloned
 }

@@ -176,14 +176,15 @@ func (s *Server) GetSession(ctx context.Context, req *connect.Request[cagentv1.G
 
 	return connect.NewResponse(&cagentv1.GetSessionResponse{
 		Session: &cagentv1.Session{
-			Id:            sess.ID,
-			Title:         sess.Title,
-			CreatedAt:     sess.CreatedAt.Format(time.RFC3339),
-			Messages:      protoMessages,
-			ToolsApproved: sess.ToolsApproved,
-			InputTokens:   sess.InputTokens,
-			OutputTokens:  sess.OutputTokens,
-			WorkingDir:    sess.WorkingDir,
+			Id:                  sess.ID,
+			Title:               sess.Title,
+			CreatedAt:           sess.CreatedAt.Format(time.RFC3339),
+			Messages:            protoMessages,
+			ToolsApproved:       sess.ToolsApproved,
+			InputTokens:         sess.InputTokens,
+			OutputTokens:        sess.OutputTokens,
+			WorkingDir:          sess.WorkingDir,
+			ToolHeaderOverrides: protoToolHeaderOverrides(sess.ToolHeaderOverrides),
 		},
 	}), nil
 }
@@ -197,6 +198,15 @@ func (s *Server) CreateSession(ctx context.Context, req *connect.Request[cagentv
 		// Note: Permissions are not yet supported in proto - would need proto schema update
 	}
 
+	// Convert proto map structure to Go map structure
+	if len(req.Msg.ToolHeaderOverrides) > 0 {
+		overrides := make(map[string]map[string]string)
+		for toolsetName, headerMap := range req.Msg.ToolHeaderOverrides {
+			overrides[toolsetName] = headerMap.Headers
+		}
+		sessionTemplate.ToolHeaderOverrides = overrides
+	}
+
 	sess, err := s.sm.CreateSession(ctx, sessionTemplate)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to create session: %w", err))
@@ -204,13 +214,14 @@ func (s *Server) CreateSession(ctx context.Context, req *connect.Request[cagentv
 
 	return connect.NewResponse(&cagentv1.CreateSessionResponse{
 		Session: &cagentv1.Session{
-			Id:            sess.ID,
-			Title:         sess.Title,
-			CreatedAt:     sess.CreatedAt.Format(time.RFC3339),
-			ToolsApproved: sess.ToolsApproved,
-			InputTokens:   sess.InputTokens,
-			OutputTokens:  sess.OutputTokens,
-			WorkingDir:    sess.WorkingDir,
+			Id:                  sess.ID,
+			Title:               sess.Title,
+			CreatedAt:           sess.CreatedAt.Format(time.RFC3339),
+			ToolsApproved:       sess.ToolsApproved,
+			InputTokens:         sess.InputTokens,
+			OutputTokens:        sess.OutputTokens,
+			WorkingDir:          sess.WorkingDir,
+			ToolHeaderOverrides: protoToolHeaderOverrides(sess.ToolHeaderOverrides),
 		},
 	}), nil
 }
@@ -760,4 +771,20 @@ func runtimeEventToProto(event runtime.Event) *cagentv1.Event {
 		slog.Warn("Unknown runtime event type", "type", fmt.Sprintf("%T", event))
 		return nil
 	}
+}
+
+// protoToolHeaderOverrides converts Go map structure to proto map structure for tool header overrides.
+// Returns nil if the input is nil or empty.
+func protoToolHeaderOverrides(overrides map[string]map[string]string) map[string]*cagentv1.HeaderMap {
+	if len(overrides) == 0 {
+		return nil
+	}
+
+	result := make(map[string]*cagentv1.HeaderMap)
+	for toolsetName, headers := range overrides {
+		result[toolsetName] = &cagentv1.HeaderMap{
+			Headers: headers,
+		}
+	}
+	return result
 }

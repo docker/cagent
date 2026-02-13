@@ -126,16 +126,17 @@ type SessionsResponse struct {
 
 // SessionResponse represents a detailed session
 type SessionResponse struct {
-	ID            string                     `json:"id"`
-	Title         string                     `json:"title"`
-	Messages      []session.Message          `json:"messages,omitempty"`
-	CreatedAt     time.Time                  `json:"created_at"`
-	ToolsApproved bool                       `json:"tools_approved"`
-	Thinking      bool                       `json:"thinking"`
-	InputTokens   int64                      `json:"input_tokens"`
-	OutputTokens  int64                      `json:"output_tokens"`
-	WorkingDir    string                     `json:"working_dir,omitempty"`
-	Permissions   *session.PermissionsConfig `json:"permissions,omitempty"`
+	ID                  string                           `json:"id"`
+	Title               string                           `json:"title"`
+	Messages            []session.Message                `json:"messages,omitempty"`
+	CreatedAt           time.Time                        `json:"created_at"`
+	ToolsApproved       bool                             `json:"tools_approved"`
+	Thinking            bool                             `json:"thinking"`
+	InputTokens         int64                            `json:"input_tokens"`
+	OutputTokens        int64                            `json:"output_tokens"`
+	WorkingDir          string                           `json:"working_dir,omitempty"`
+	Permissions         *session.PermissionsConfig       `json:"permissions,omitempty"`
+	ToolHeaderOverrides map[string]map[string]string     `json:"tool_header_overrides,omitempty"`
 }
 
 // UpdateSessionPermissionsRequest represents a request to update session permissions.

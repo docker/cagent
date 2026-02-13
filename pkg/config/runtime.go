@@ -43,6 +43,15 @@ func (runConfig *RuntimeConfig) EnvProvider() environment.Provider {
 	return env
 }
 
+// SetEnvProvider sets a custom environment provider for this runtime config.
+// This is useful for injecting session-specific environment variables that
+// take precedence over the default computed provider.
+func (runConfig *RuntimeConfig) SetEnvProvider(provider environment.Provider) {
+	runConfig.envProviderLock.Lock()
+	defer runConfig.envProviderLock.Unlock()
+	runConfig.envProvider = provider
+}
+
 func (runConfig *RuntimeConfig) computedEnvProvider() environment.Provider {
 	defaultEnv := environment.NewDefaultProvider()
 

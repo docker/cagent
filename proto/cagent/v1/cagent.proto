@@ -127,6 +127,7 @@ message Session {
   int64 input_tokens = 6;
   int64 output_tokens = 7;
   string working_dir = 8;
+  map<string, HeaderMap> tool_header_overrides = 9;
 }
 
 // GetSessionRequest is the request for GetSession.
@@ -139,11 +140,21 @@ message GetSessionResponse {
   Session session = 1;
 }
 
+// HeaderMap represents a map of header names to values for a single toolset.
+message HeaderMap {
+  map<string, string> headers = 1;
+}
+
 // CreateSessionRequest is the request for CreateSession.
 message CreateSessionRequest {
   int32 max_iterations = 1;
   bool tools_approved = 2;
   string working_dir = 3;
+
+  // tool_header_overrides allows per-session header overrides for toolsets.
+  // The outer map key is the toolset name, inner map is header name to value.
+  // Example: {"github-mcp": {"Authorization": "Bearer token"}}
+  map<string, HeaderMap> tool_header_overrides = 4;
 }
 
 // CreateSessionResponse is the response for CreateSession.

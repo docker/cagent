@@ -101,6 +101,12 @@ type Session struct {
 	// When a session is loaded, these overrides are reapplied to the runtime.
 	AgentModelOverrides map[string]string `json:"agent_model_overrides,omitempty"`
 
+	// ToolHeaderOverrides stores per-session header overrides for toolsets.
+	// Key is toolset name (e.g., "github-mcp"), value is a map of header names to values.
+	// These take precedence over team-level headers configured in the agent YAML.
+	// Example: {"github-mcp": {"Authorization": "Bearer session-token-123"}}
+	ToolHeaderOverrides map[string]map[string]string `json:"tool_header_overrides,omitempty"`
+
 	// CustomModelsUsed tracks custom models (provider/model format) used during this session.
 	// These are shown in the model picker for easy re-selection.
 	CustomModelsUsed []string `json:"custom_models_used,omitempty"`
@@ -399,6 +405,13 @@ func WithSendUserMessage(sendUserMessage bool) Opt {
 func WithPermissions(perms *PermissionsConfig) Opt {
 	return func(s *Session) {
 		s.Permissions = perms
+	}
+}
+
+// WithToolHeaderOverrides sets session-level tool header overrides.
+func WithToolHeaderOverrides(overrides map[string]map[string]string) Opt {
+	return func(s *Session) {
+		s.ToolHeaderOverrides = overrides
 	}
 }
 
