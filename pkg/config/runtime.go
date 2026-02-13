@@ -38,6 +38,11 @@ func (runConfig *RuntimeConfig) EnvProvider() environment.Provider {
 	runConfig.envProviderLock.Lock()
 	defer runConfig.envProviderLock.Unlock()
 
+	// Return cached provider if already set (e.g., via SetEnvProvider)
+	if runConfig.envProvider != nil {
+		return runConfig.envProvider
+	}
+
 	env := runConfig.computedEnvProvider()
 	runConfig.envProvider = env
 	return env
@@ -71,4 +76,10 @@ func (runConfig *RuntimeConfig) computedEnvProvider() environment.Provider {
 
 	// Update the env provider to include env files
 	return environment.NewMultiProvider(envFilesProviders, defaultEnv)
+}
+
+// NewMapProviderForTest creates a MapProvider for use in tests.
+// This is a convenience function to create environment providers with test data.
+func NewMapProviderForTest(values map[string]string) environment.Provider {
+	return environment.NewMapProvider(values)
 }

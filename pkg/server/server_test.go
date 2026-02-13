@@ -199,6 +199,87 @@ func TestServer_UpdateSessionTitle(t *testing.T) {
 	assert.Equal(t, newTitle, sessionResp.Title)
 }
 
+func TestServer_SessionOverrides(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	store := session.NewInMemorySessionStore()
+	lnPath := startServerWithStore(t, ctx, prepareAgentsDir(t), store)
+
+	// Create a session with tool header overrides
+	createReq := map[string]any{
+		"max_iterations": 10,
+		"tools_approved": true,
+		"tool_header_overrides": map[string]any{
+			"github-mcp": map[string]string{
+				"Authorization": "Bearer session-token-123",
+				"X-API-Version": "v1",
+			},
+			"slack-mcp": map[string]string{
+				"Authorization": "Bearer slack-token-456",
+			},
+		},
+	}
+
+	createResp := httpDo(t, ctx, http.MethodPost, lnPath, "/api/sessions", createReq)
+	var createdSession api.SessionResponse
+	unmarshal(t, createResp, &createdSession)
+
+	require.NotEmpty(t, createdSession.ID)
+	assert.True(t, createdSession.ToolsApproved)
+	assert.NotNil(t, createdSession.ToolHeaderOverrides)
+
+	// Verify the overrides were stored
+	expectedOverrides := map[string]map[string]string{
+		"github-mcp": {
+			"Authorization": "Bearer session-token-123",
+			"X-API-Version": "v1",
+		},
+		"slack-mcp": {
+			"Authorization": "Bearer slack-token-456",
+		},
+	}
+	assert.Equal(t, expectedOverrides, createdSession.ToolHeaderOverrides)
+
+	// Verify GET /sessions/:id returns the overrides
+	getResp := httpGET(t, ctx, lnPath, "/api/sessions/"+createdSession.ID)
+	var sessionResp api.SessionResponse
+	unmarshal(t, getResp, &sessionResp)
+
+	assert.Equal(t, createdSession.ID, sessionResp.ID)
+	assert.Equal(t, expectedOverrides, sessionResp.ToolHeaderOverrides)
+}
+
+func TestServer_CreateSessionNoOverrides(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	store := session.NewInMemorySessionStore()
+	lnPath := startServerWithStore(t, ctx, prepareAgentsDir(t), store)
+
+	// Create a session without tool header overrides (backward compatibility)
+	createReq := map[string]any{
+		"max_iterations": 5,
+		"tools_approved": false,
+	}
+
+	createResp := httpDo(t, ctx, http.MethodPost, lnPath, "/api/sessions", createReq)
+	var createdSession api.SessionResponse
+	unmarshal(t, createResp, &createdSession)
+
+	require.NotEmpty(t, createdSession.ID)
+	assert.False(t, createdSession.ToolsApproved)
+	assert.Nil(t, createdSession.ToolHeaderOverrides)
+
+	// Verify GET /sessions/:id doesn't include overrides
+	getResp := httpGET(t, ctx, lnPath, "/api/sessions/"+createdSession.ID)
+	var sessionResp api.SessionResponse
+	unmarshal(t, getResp, &sessionResp)
+
+	assert.Equal(t, createdSession.ID, sessionResp.ID)
+	assert.Nil(t, sessionResp.ToolHeaderOverrides)
+}
+
 func startServerWithStore(t *testing.T, ctx context.Context, agentsDir string, store session.Store) string {
 	t.Helper()
 
