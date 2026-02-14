@@ -74,7 +74,7 @@ func NewSessionBrowserDialog(sessions []session.Summary) Dialog {
 			Down:       key.NewBinding(key.WithKeys("down", "ctrl+j")),
 			Enter:      key.NewBinding(key.WithKeys("enter")),
 			Escape:     key.NewBinding(key.WithKeys("esc")),
-			Star:       key.NewBinding(key.WithKeys("ctrl+s")),
+			Star:       key.NewBinding(key.WithKeys("ctrl+p")),
 			FilterStar: key.NewBinding(key.WithKeys("ctrl+f")),
 			CopyID:     key.NewBinding(key.WithKeys("ctrl+k")),
 		},
@@ -290,7 +290,7 @@ func (d *sessionBrowserDialog) View() string {
 		AddSeparator().
 		AddContent(idFooter).
 		AddSpace().
-		AddHelpKeys("↑/↓", "navigate", "ctrl+s", "star", "ctrl+f", filterDesc, "ctrl+k", "copy id", "enter", "load", "esc", "close").
+		AddHelpKeys("↑/↓", "navigate", "ctrl+p", "pin", "ctrl+f", filterDesc, "ctrl+k", "copy id", "enter", "load", "esc", "close").
 		Build()
 
 	return styles.DialogStyle.Width(dialogWidth).Render(content)

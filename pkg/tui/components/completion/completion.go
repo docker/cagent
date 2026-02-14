@@ -343,7 +343,7 @@ func (c *manager) GetLayers() []*lipgloss.Layer {
 	yPos := max(c.height-viewHeight-editorHeight-1, 0)
 
 	return []*lipgloss.Layer{
-		lipgloss.NewLayer(view).SetContent(view).X(styles.AppPaddingLeft).Y(yPos),
+		lipgloss.NewLayer(view).SetContent(view).X(styles.AppPadding).Y(yPos),
 	}
 }
 

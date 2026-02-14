@@ -58,6 +58,7 @@ type Model interface {
 	AddShellOutputMessage(content string) tea.Cmd
 	LoadFromSession(sess *session.Session) tea.Cmd
 
+	RemoveSpinner()
 	ScrollToBottom() tea.Cmd
 	AdjustBottomSlack(delta int)
 	ScrollByWheel(delta int)
@@ -65,10 +66,17 @@ type Model interface {
 	// IsScrollbarDragging returns true when the scrollbar thumb is being dragged.
 	IsScrollbarDragging() bool
 
+	// IsMouseOnScrollbar returns true when the given screen coordinates are on the scrollbar.
+	IsMouseOnScrollbar(x, y int) bool
+
 	// Inline editing methods
 	StartInlineEdit(msgIndex, sessionPosition int, content string) tea.Cmd
 	CancelInlineEdit() tea.Cmd
 	IsInlineEditing() bool
+
+	// FocusAt gives focus and selects the message at the given screen coordinates.
+	// Falls back to the default Focus behavior if no message is found at that position.
+	FocusAt(x, y int) tea.Cmd
 }
 
 // renderedItem represents a cached rendered message with position information
@@ -202,7 +210,6 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		return m, cmd
 
 	case editfile.ToggleDiffViewMsg:
-		m.sessionState.ToggleSplitDiffView()
 		m.invalidateAllItems()
 		return m, nil
 
@@ -269,7 +276,6 @@ func (m *model) handleMouseClick(msg tea.MouseClickMsg) (layout.Model, tea.Cmd) 
 		if block, ok := m.views[msgIdx].(*reasoningblock.Model); ok {
 			if block.IsToggleLine(localLine) {
 				block.Toggle()
-				m.userHasScrolled = true // Prevent auto-scroll jump
 				m.bottomSlack = 0
 				m.invalidateItem(msgIdx)
 				return m, nil
@@ -277,8 +283,6 @@ func (m *model) handleMouseClick(msg tea.MouseClickMsg) (layout.Model, tea.Cmd) 
 		}
 
 		if clicked, msg := m.isEditLabelClick(msgIdx, localLine, col); clicked {
-			// Prevent auto-scroll jump when entering edit mode
-			m.userHasScrolled = true
 			return m, core.CmdHandler(messages.EditUserMessageMsg{
 				MsgIndex:        msgIdx,
 				SessionPosition: *msg.SessionPosition,
@@ -416,14 +420,16 @@ func (m *model) handleKeyPress(msg tea.KeyPressMsg) (layout.Model, tea.Cmd) {
 		return m, nil
 	case "up", "k":
 		if m.focused {
-			m.selectPreviousMessage()
+			cmd := m.selectPreviousMessage()
+			return m, cmd
 		} else {
 			m.scrollUp()
 		}
 		return m, nil
 	case "down", "j":
 		if m.focused {
-			m.selectNextMessage()
+			cmd := m.selectNextMessage()
+			return m, cmd
 		} else {
 			m.scrollDown()
 		}
@@ -574,7 +580,7 @@ func (m *model) GetSize() (width, height int) {
 	return m.width, m.height
 }
 
-// Focus gives focus to the component
+// Focus gives focus to the component.
 func (m *model) Focus() tea.Cmd {
 	m.focused = true
 	// Start selection on the last assistant message for better UX
@@ -586,9 +592,6 @@ func (m *model) Focus() tea.Cmd {
 	// Invalidate render cache so selection highlight is shown
 	m.invalidateAllItems()
 	m.renderDirty = true
-	if m.selectedMessageIndex >= 0 {
-		m.scrollToSelectedMessage()
-	}
 	return nil
 }
 
@@ -599,6 +602,31 @@ func (m *model) Blur() tea.Cmd {
 	// Invalidate render cache so selection highlight is cleared
 	m.invalidateAllItems()
 	m.renderDirty = true
+	return nil
+}
+
+// FocusAt gives focus and selects the message at the given screen coordinates.
+func (m *model) FocusAt(x, y int) tea.Cmd {
+	m.focused = true
+
+	oldIndex := m.selectedMessageIndex
+
+	line, _ := m.mouseToLineCol(x, y)
+	if msgIdx, _ := m.globalLineToMessageLine(line); msgIdx >= 0 && m.isSelectableMessage(msgIdx) {
+		m.selectedMessageIndex = msgIdx
+	} else {
+		m.selectedMessageIndex = m.findLastAssistantMessage()
+		if m.selectedMessageIndex < 0 {
+			m.selectedMessageIndex = m.findLastSelectableMessage()
+		}
+	}
+
+	m.invalidateAllItems()
+	m.renderDirty = true
+
+	if m.messageTypeChanged(oldIndex, m.selectedMessageIndex) {
+		return core.CmdHandler(messages.InvalidateStatusBarMsg{})
+	}
 	return nil
 }
 
@@ -661,8 +689,6 @@ func (m *model) scrollUp() {
 }
 
 func (m *model) scrollDown() {
-	m.userHasScrolled = true
-	m.bottomSlack = 0
 	m.setScrollOffset(m.scrollOffset + defaultScrollAmount)
 	if m.isAtBottom() {
 		m.userHasScrolled = false
@@ -676,8 +702,6 @@ func (m *model) scrollPageUp() {
 }
 
 func (m *model) scrollPageDown() {
-	m.userHasScrolled = true
-	m.bottomSlack = 0
 	m.setScrollOffset(m.scrollOffset + m.height)
 	if m.isAtBottom() {
 		m.userHasScrolled = false
@@ -710,9 +734,10 @@ func (m *model) scrollByWheel(delta int) {
 		return
 	}
 
-	m.userHasScrolled = true
-	m.bottomSlack = 0
-	if m.isAtBottom() {
+	if delta < 0 {
+		m.userHasScrolled = true
+		m.bottomSlack = 0
+	} else if m.isAtBottom() {
 		m.userHasScrolled = false
 	}
 }
@@ -790,26 +815,46 @@ func (m *model) findNextSelectableMessage(fromIndex int) int {
 	return -1
 }
 
-func (m *model) selectPreviousMessage() {
+func (m *model) selectPreviousMessage() tea.Cmd {
 	if len(m.messages) == 0 {
-		return
+		return nil
 	}
 	if prevIndex := m.findPreviousSelectableMessage(m.selectedMessageIndex); prevIndex >= 0 {
+		oldIndex := m.selectedMessageIndex
 		m.selectedMessageIndex = prevIndex
 		m.invalidateAllItems()
 		m.scrollToSelectedMessage()
+		if m.messageTypeChanged(oldIndex, prevIndex) {
+			return core.CmdHandler(messages.InvalidateStatusBarMsg{})
+		}
 	}
+	return nil
 }
 
-func (m *model) selectNextMessage() {
+func (m *model) selectNextMessage() tea.Cmd {
 	if len(m.messages) == 0 {
-		return
+		return nil
 	}
 	if nextIndex := m.findNextSelectableMessage(m.selectedMessageIndex); nextIndex >= 0 {
+		oldIndex := m.selectedMessageIndex
 		m.selectedMessageIndex = nextIndex
 		m.invalidateAllItems()
 		m.scrollToSelectedMessage()
+		if m.messageTypeChanged(oldIndex, nextIndex) {
+			return core.CmdHandler(messages.InvalidateStatusBarMsg{})
+		}
 	}
+	return nil
+}
+
+func (m *model) messageTypeChanged(oldIndex, newIndex int) bool {
+	if oldIndex < 0 || newIndex < 0 {
+		return true
+	}
+	if oldIndex >= len(m.messages) || newIndex >= len(m.messages) {
+		return true
+	}
+	return m.messages[oldIndex].Type != m.messages[newIndex].Type
 }
 
 func (m *model) scrollToSelectedMessage() {
@@ -839,16 +884,11 @@ func (m *model) scrollToSelectedMessage() {
 	}
 	endLine := startLine + selectedHeight
 
-	prevOffset := m.scrollOffset
-	m.scrollview.SetContent(m.renderedLines, m.totalScrollableHeight())
-	m.scrollview.SetScrollOffset(m.scrollOffset)
-	m.scrollview.EnsureRangeVisible(startLine, endLine-1)
-
-	newOffset := m.scrollview.ScrollOffset()
-	if newOffset != prevOffset {
-		m.userHasScrolled = true
-		m.bottomSlack = 0
-		m.setScrollOffset(newOffset)
+	// Scroll to show the top of the selected message.
+	// When messages are taller than the viewport, always anchor to the start
+	// so the user sees the beginning of the message first.
+	if startLine < m.scrollOffset || endLine > m.scrollOffset+m.height {
+		m.setScrollOffset(startLine)
 	}
 }
 
@@ -888,8 +928,11 @@ func (m *model) renderItem(index int, view layout.Model) renderedItem {
 
 	isSelected := m.focused && index == m.selectedMessageIndex
 
-	if msgView, ok := view.(message.Model); ok {
-		msgView.SetSelected(isSelected)
+	switch v := view.(type) {
+	case message.Model:
+		v.SetSelected(isSelected)
+	case *reasoningblock.Model:
+		v.SetSelected(isSelected)
 	}
 
 	shouldCache := !isSelected && m.shouldCacheMessage(index)
@@ -1494,6 +1537,10 @@ func (m *model) createMessageView(msg *types.Message) layout.Model {
 	return view
 }
 
+func (m *model) RemoveSpinner() {
+	m.removeSpinner()
+}
+
 func (m *model) removeSpinner() {
 	if len(m.messages) == 0 {
 		return
@@ -1582,11 +1629,19 @@ func (m *model) IsScrollbarDragging() bool {
 	return m.scrollview.IsDragging()
 }
 
+func (m *model) IsMouseOnScrollbar(x, y int) bool {
+	return m.isMouseOnScrollbar(x, y)
+}
+
 func (m *model) handleScrollviewUpdate(msg tea.Msg) (layout.Model, tea.Cmd) {
 	_, cmd := m.scrollview.UpdateMouse(msg)
-	m.userHasScrolled = true
-	m.bottomSlack = 0
 	m.scrollOffset = m.scrollview.ScrollOffset()
+	if m.isAtBottom() {
+		m.userHasScrolled = false
+	} else {
+		m.userHasScrolled = true
+		m.bottomSlack = 0
+	}
 	return m, cmd
 }
 

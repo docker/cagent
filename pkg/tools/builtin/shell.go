@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -392,6 +393,9 @@ func detectWindowsShell() (shell string, argsPrefix []string) {
 func (h *shellHandler) resolveWorkDir(cwd string) string {
 	if cwd == "" || cwd == "." {
 		return h.workingDir
+	}
+	if !filepath.IsAbs(cwd) {
+		return filepath.Clean(filepath.Join(h.workingDir, cwd))
 	}
 	return cwd
 }

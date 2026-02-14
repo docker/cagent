@@ -12,15 +12,12 @@ type MouseTarget int
 
 const (
 	TargetNone MouseTarget = iota
-	TargetEditorResizeHandle
 	TargetSidebarToggle
 	TargetSidebarResizeHandle
 	TargetSidebarStar
 	TargetSidebarTitle
 	TargetSidebarContent
 	TargetMessages
-	TargetEditorBanner
-	TargetEditor
 )
 
 // HitTest determines what UI element is at the given coordinates.
@@ -40,11 +37,6 @@ func NewHitTest(page *chatPage) *HitTest {
 func (h *HitTest) At(x, y int) MouseTarget {
 	p := h.page
 
-	// Check editor resize handle first (highest priority for dragging)
-	if h.isOnEditorResizeHandle(x, y) {
-		return TargetEditorResizeHandle
-	}
-
 	// Check sidebar toggle glyph
 	if h.isOnSidebarToggleGlyph(x, y) {
 		return TargetSidebarToggle
@@ -57,7 +49,7 @@ func (h *HitTest) At(x, y int) MouseTarget {
 
 	// Check sidebar content areas
 	sl := p.computeSidebarLayout()
-	adjustedX := x - styles.AppPaddingLeft
+	adjustedX := x - styles.AppPadding
 
 	if sl.mode == sidebarVertical && sl.isInSidebar(adjustedX) {
 		return h.sidebarClickTarget(x, y)
@@ -68,35 +60,7 @@ func (h *HitTest) At(x, y int) MouseTarget {
 		return h.sidebarClickTarget(x, y)
 	}
 
-	// Check editor area
-	_, editorHeight := p.editor.GetSize()
-	editorTop := p.height - editorHeight
-	if y >= editorTop {
-		// Check banner area
-		editorTopPadding := styles.EditorStyle.GetPaddingTop()
-		localY := y - editorTop - editorTopPadding
-		if localY >= 0 && localY < p.editor.BannerHeight() {
-			return TargetEditorBanner
-		}
-		return TargetEditor
-	}
-
 	return TargetMessages
-}
-
-// isOnEditorResizeHandle checks if (x, y) is on the draggable editor resize handle.
-func (h *HitTest) isOnEditorResizeHandle(x, y int) bool {
-	p := h.page
-	_, editorHeight := p.editor.GetSize()
-	resizeY := p.height - editorHeight - 2
-
-	if y != resizeY {
-		return false
-	}
-
-	// Only the center portion is draggable
-	center := p.width / 2
-	return x >= center-resizeHandleWidth/2 && x < center+resizeHandleWidth/2
 }
 
 // isOnSidebarToggleGlyph checks if (x, y) is on the sidebar toggle glyph.
@@ -117,7 +81,7 @@ func (h *HitTest) isOnSidebarToggleGlyph(x, y int) bool {
 	if y != 0 {
 		return false
 	}
-	adjustedX := x - styles.AppPaddingLeft
+	adjustedX := x - styles.AppPadding
 	return adjustedX == sl.innerWidth-toggleColumnWidth
 }
 
@@ -132,15 +96,8 @@ func (h *HitTest) isOnSidebarResizeHandle(x, y int) bool {
 	if y < 0 || y >= sl.chatHeight {
 		return false
 	}
-	adjustedX := x - styles.AppPaddingLeft
+	adjustedX := x - styles.AppPadding
 	return sl.isOnHandle(adjustedX)
-}
-
-// IsOnResizeLine checks if y is on the resize handle line.
-func (h *HitTest) IsOnResizeLine(y int) bool {
-	p := h.page
-	_, editorHeight := p.editor.GetSize()
-	return y == p.height-editorHeight-2
 }
 
 // ExtractCoords extracts x, y coordinates from a mouse message.

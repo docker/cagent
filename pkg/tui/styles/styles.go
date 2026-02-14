@@ -78,14 +78,18 @@ var (
 	FadedGray color.Color
 
 	// Tabs
-	TabBg        color.Color
-	TabPrimaryFg color.Color
-	TabAccentFg  color.Color
+	TabBg         color.Color
+	TabPrimaryFg  color.Color
+	TabAccentFg   color.Color
+	TabActiveBg   color.Color
+	TabActiveFg   color.Color
+	TabInactiveFg color.Color
+	TabBorder     color.Color
 )
 
 // Base Styles
 const (
-	AppPaddingLeft = 1 // Keep in sync with AppStyle padding
+	AppPadding = 1 // Symmetric left/right padding used by AppStyle and EditorStyle
 
 	// DoubleClickThreshold is the maximum time between clicks to register as a double-click
 	DoubleClickThreshold = 400 * time.Millisecond
@@ -94,7 +98,7 @@ const (
 var (
 	NoStyle   = lipgloss.NewStyle()
 	BaseStyle = NoStyle.Foreground(TextPrimary)
-	AppStyle  = BaseStyle.Padding(0, 1, 0, AppPaddingLeft)
+	AppStyle  = BaseStyle.Padding(0, AppPadding, 0, AppPadding)
 )
 
 // Text Styles
@@ -358,7 +362,7 @@ var (
 			Color: Accent,
 		},
 	}
-	EditorStyle = BaseStyle.Padding(1, 0, 0, 0)
+	EditorStyle = BaseStyle.Padding(1, AppPadding, 0, AppPadding)
 	// SuggestionGhostStyle renders inline auto-complete hints in a muted tone.
 	// Use a distinct grey so suggestion text is visually separate from the user's input.
 	// NOTE: Rebuilt by ApplyTheme() using theme's suggestion_ghost color.

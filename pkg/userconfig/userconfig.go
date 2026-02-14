@@ -41,11 +41,39 @@ func (a *Alias) HasOptions() bool {
 type Settings struct {
 	// HideToolResults hides tool call results in the TUI by default
 	HideToolResults bool `yaml:"hide_tool_results,omitempty"`
+	// SplitDiffView enables side-by-side split diff rendering for file edits.
+	// Defaults to true when not set.
+	SplitDiffView *bool `yaml:"split_diff_view,omitempty"`
 	// Theme is the default theme reference (e.g., "dark", "light")
 	// Theme files are loaded from ~/.cagent/themes/<theme>.yaml
 	Theme string `yaml:"theme,omitempty"`
 	// YOLO enables auto-approve mode for all tool calls globally
 	YOLO bool `yaml:"YOLO,omitempty"`
+	// TabTitleMaxLength is the maximum display length for tab titles in the TUI.
+	// Titles longer than this are truncated with an ellipsis. Defaults to 20.
+	TabTitleMaxLength int `yaml:"tab_title_max_length,omitempty"`
+	// RestoreTabs restores previously open tabs when launching the TUI.
+	// Defaults to true when not set.
+	RestoreTabs *bool `yaml:"restore_tabs,omitempty"`
+}
+
+// DefaultTabTitleMaxLength is the default maximum tab title length when not configured.
+const DefaultTabTitleMaxLength = 20
+
+// GetTabTitleMaxLength returns the configured tab title max length, falling back to the default.
+func (s *Settings) GetTabTitleMaxLength() int {
+	if s == nil || s.TabTitleMaxLength <= 0 {
+		return DefaultTabTitleMaxLength
+	}
+	return s.TabTitleMaxLength
+}
+
+// GetSplitDiffView returns whether split diff view is enabled, defaulting to true.
+func (s *Settings) GetSplitDiffView() bool {
+	if s == nil || s.SplitDiffView == nil {
+		return true
+	}
+	return *s.SplitDiffView
 }
 
 // CredentialHelper contains configuration for a credential helper command
@@ -271,10 +299,17 @@ func (c *Config) DeleteAlias(name string) bool {
 	return false
 }
 
-// GetSettings returns the global settings, or an empty Settings if not set
+func boolPtr(b bool) *bool {
+	return &b
+}
+
+// GetSettings returns the global settings with defaults applied.
 func (c *Config) GetSettings() *Settings {
 	if c.Settings == nil {
-		return &Settings{}
+		return &Settings{RestoreTabs: boolPtr(true)}
+	}
+	if c.Settings.RestoreTabs == nil {
+		c.Settings.RestoreTabs = boolPtr(true)
 	}
 	return c.Settings
 }

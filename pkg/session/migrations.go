@@ -320,6 +320,12 @@ func getAllMigrations() []Migration {
 				-- SQLite doesn't support DROP COLUMN directly in older versions
 			`,
 		},
+		{
+			ID:          17,
+			Name:        "017_add_split_diff_view_column",
+			Description: "Add split_diff_view column to sessions table for persisting split diff toggle",
+			UpSQL:       `ALTER TABLE sessions ADD COLUMN split_diff_view BOOLEAN`,
+		},
 	}
 }
 

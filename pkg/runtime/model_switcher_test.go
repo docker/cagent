@@ -30,7 +30,7 @@ func (m *mockCatalogStore) GetModel(_ string) (*modelsdev.Model, error) {
 	return nil, nil
 }
 
-func (m *mockCatalogStore) GetDatabase(_ context.Context) (*modelsdev.Database, error) {
+func (m *mockCatalogStore) GetDatabase() (*modelsdev.Database, error) {
 	return m.db, nil
 }
 

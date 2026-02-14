@@ -125,6 +125,10 @@ type ThemeColors struct {
 	SelectedFg      string `yaml:"selected_fg,omitempty"` // Text on selected/brand backgrounds
 	SuggestionGhost string `yaml:"suggestion_ghost,omitempty"`
 	TabBg           string `yaml:"tab_bg,omitempty"`
+	TabActiveBg     string `yaml:"tab_active_bg,omitempty"`   // Active/focused tab background
+	TabActiveFg     string `yaml:"tab_active_fg,omitempty"`   // Active/focused tab text
+	TabInactiveFg   string `yaml:"tab_inactive_fg,omitempty"` // Inactive/unfocused tab text
+	TabBorder       string `yaml:"tab_border,omitempty"`      // Tab left/right border color
 	Placeholder     string `yaml:"placeholder,omitempty"`
 
 	// Badge colors
@@ -729,6 +733,18 @@ func mergeColors(base, override ThemeColors) ThemeColors {
 	if override.TabBg != "" {
 		result.TabBg = override.TabBg
 	}
+	if override.TabActiveBg != "" {
+		result.TabActiveBg = override.TabActiveBg
+	}
+	if override.TabActiveFg != "" {
+		result.TabActiveFg = override.TabActiveFg
+	}
+	if override.TabInactiveFg != "" {
+		result.TabInactiveFg = override.TabInactiveFg
+	}
+	if override.TabBorder != "" {
+		result.TabBorder = override.TabBorder
+	}
 	if override.Placeholder != "" {
 		result.Placeholder = override.Placeholder
 	}
@@ -921,6 +937,10 @@ func ApplyTheme(theme *Theme) {
 	TabBg = lipgloss.Color(c.TabBg)
 	TabPrimaryFg = lipgloss.Color(c.TextMuted)
 	TabAccentFg = lipgloss.Color(c.Highlight)
+	TabActiveBg = lipgloss.Color(c.TabActiveBg)
+	TabActiveFg = lipgloss.Color(c.TabActiveFg)
+	TabInactiveFg = lipgloss.Color(c.TabInactiveFg)
+	TabBorder = lipgloss.Color(c.TabBorder)
 
 	// Rebuild all derived styles
 	rebuildStyles()
@@ -933,7 +953,7 @@ func ApplyTheme(theme *Theme) {
 func rebuildStyles() {
 	// Base styles
 	BaseStyle = NoStyle.Foreground(TextPrimary)
-	AppStyle = BaseStyle.Padding(0, 1, 0, AppPaddingLeft)
+	AppStyle = BaseStyle.Padding(0, AppPadding, 0, AppPadding)
 
 	// Text styles
 	HighlightWhiteStyle = BaseStyle.Foreground(White).Bold(true)
@@ -1121,7 +1141,7 @@ func rebuildStyles() {
 		},
 	}
 
-	EditorStyle = BaseStyle.Padding(1, 0, 0, 0)
+	EditorStyle = BaseStyle.Padding(1, AppPadding, 0, AppPadding)
 	SuggestionGhostStyle = BaseStyle.Foreground(lipgloss.Color(CurrentTheme().Colors.SuggestionGhost))
 	SuggestionCursorStyle = BaseStyle.Background(Accent).Foreground(lipgloss.Color(CurrentTheme().Colors.SuggestionGhost))
 

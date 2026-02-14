@@ -233,3 +233,47 @@ func TestIsProcessRunning(t *testing.T) {
 	// Non-existent PID should not be running (using a very high PID unlikely to exist)
 	assert.False(t, isProcessRunning(999999999), "Very high PID should not be running")
 }
+
+func TestResolveWorkDir(t *testing.T) {
+	t.Parallel()
+
+	workingDir := "/configured/project"
+	h := &shellHandler{workingDir: workingDir}
+
+	tests := []struct {
+		name     string
+		cwd      string
+		expected string
+	}{
+		{name: "empty defaults to workingDir", cwd: "", expected: workingDir},
+		{name: "dot defaults to workingDir", cwd: ".", expected: workingDir},
+		{name: "absolute path unchanged", cwd: "/tmp/other", expected: "/tmp/other"},
+		{name: "relative path joined with workingDir", cwd: "src/pkg", expected: "/configured/project/src/pkg"},
+		{name: "relative with dot prefix", cwd: "./subdir", expected: "/configured/project/subdir"},
+		{name: "relative with parent traversal", cwd: "../sibling", expected: "/configured/sibling"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.expected, h.resolveWorkDir(tt.cwd))
+		})
+	}
+}
+
+func TestShellTool_RelativeCwdResolvesAgainstWorkingDir(t *testing.T) {
+	// Create a directory structure: workingDir/subdir/
+	workingDir := t.TempDir()
+	subdir := workingDir + "/subdir"
+	require.NoError(t, os.Mkdir(subdir, 0o755))
+
+	tool := NewShellTool(nil, &config.RuntimeConfig{Config: config.Config{WorkingDir: workingDir}}, nil)
+
+	result, err := tool.handler.RunShell(t.Context(), RunShellArgs{
+		Cmd: "pwd",
+		Cwd: "subdir",
+	})
+	require.NoError(t, err)
+	assert.Contains(t, result.Output, subdir,
+		"relative cwd must resolve against the configured workingDir, not the process cwd")
+}

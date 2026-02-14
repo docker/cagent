@@ -1163,7 +1163,7 @@ func (e *editor) getPasteCompletionItems() []completion.Item {
 func (e *editor) View() string {
 	view := e.textarea.View()
 
-	if e.hasSuggestion && e.suggestion != "" {
+	if e.textarea.Focused() && e.hasSuggestion && e.suggestion != "" {
 		view = e.applySuggestionOverlay(view)
 	}
 
@@ -1258,6 +1258,7 @@ func (e *editor) Focus() tea.Cmd {
 // Blur removes focus from the component
 func (e *editor) Blur() tea.Cmd {
 	e.textarea.Blur()
+	e.clearSuggestion()
 	return nil
 }
 

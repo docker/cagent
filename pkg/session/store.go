@@ -515,12 +515,12 @@ func (s *SQLiteSessionStore) AddSession(ctx context.Context, session *Session) e
 			id, tools_approved, input_tokens, output_tokens, title, cost, send_user_message,
 			max_iterations, working_dir, created_at, permissions, agent_model_overrides,
 			custom_models_used, thinking, parent_id, branch_parent_session_id,
-			branch_parent_position, branch_created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			branch_parent_position, branch_created_at, split_diff_view
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		session.ID, session.ToolsApproved, session.InputTokens, session.OutputTokens, session.Title,
 		session.Cost, session.SendUserMessage, session.MaxIterations, session.WorkingDir,
 		session.CreatedAt.Format(time.RFC3339), permissionsJSON, agentModelOverridesJSON,
-		customModelsUsedJSON, session.Thinking, parentID, branchParentID, branchParentPosition, branchCreatedAt)
+		customModelsUsedJSON, session.Thinking, parentID, branchParentID, branchParentPosition, branchCreatedAt, session.SplitDiffView)
 	if err != nil {
 		return err
 	}
@@ -549,8 +549,9 @@ func scanSession(scanner interface {
 	var branchParentID sql.NullString
 	var branchParentPosition sql.NullInt64
 	var branchCreatedAt sql.NullString
+	var splitDiffView sql.NullBool
 
-	err := scanner.Scan(&sessionID, &toolsApprovedStr, &inputTokensStr, &outputTokensStr, &titleStr, &costStr, &sendUserMessageStr, &maxIterationsStr, &workingDir, &createdAtStr, &starredStr, &permissionsJSON, &agentModelOverridesJSON, &customModelsUsedJSON, &thinkingStr, &parentID, &branchParentID, &branchParentPosition, &branchCreatedAt)
+	err := scanner.Scan(&sessionID, &toolsApprovedStr, &inputTokensStr, &outputTokensStr, &titleStr, &costStr, &sendUserMessageStr, &maxIterationsStr, &workingDir, &createdAtStr, &starredStr, &permissionsJSON, &agentModelOverridesJSON, &customModelsUsedJSON, &thinkingStr, &parentID, &branchParentID, &branchParentPosition, &branchCreatedAt, &splitDiffView)
 	if err != nil {
 		return nil, err
 	}
@@ -640,6 +641,11 @@ func scanSession(scanner interface {
 		branchCreatedAtPtr = &parsed
 	}
 
+	var splitDiffViewPtr *bool
+	if splitDiffView.Valid {
+		splitDiffViewPtr = &splitDiffView.Bool
+	}
+
 	return &Session{
 		ID:                    sessionID,
 		Title:                 titleStr,
@@ -661,6 +667,7 @@ func scanSession(scanner interface {
 		BranchParentPosition:  branchParentPositionPtr,
 		BranchCreatedAt:       branchCreatedAtPtr,
 		ParentID:              parentID.String,
+		SplitDiffView:         splitDiffViewPtr,
 	}, nil
 }
 
@@ -671,7 +678,7 @@ func (s *SQLiteSessionStore) GetSession(ctx context.Context, id string) (*Sessio
 	}
 
 	row := s.db.QueryRowContext(ctx,
-		"SELECT id, tools_approved, input_tokens, output_tokens, title, cost, send_user_message, max_iterations, working_dir, created_at, starred, permissions, agent_model_overrides, custom_models_used, thinking, parent_id, branch_parent_session_id, branch_parent_position, branch_created_at FROM sessions WHERE id = ?", id)
+		"SELECT id, tools_approved, input_tokens, output_tokens, title, cost, send_user_message, max_iterations, working_dir, created_at, starred, permissions, agent_model_overrides, custom_models_used, thinking, parent_id, branch_parent_session_id, branch_parent_position, branch_created_at, split_diff_view FROM sessions WHERE id = ?", id)
 
 	sess, err := scanSession(row)
 	if err != nil {
@@ -787,7 +794,7 @@ func (s *SQLiteSessionStore) loadSessionItemsWith(ctx context.Context, q querier
 // loadSessionWith loads a session using the provided querier.
 func (s *SQLiteSessionStore) loadSessionWith(ctx context.Context, q querier, id string) (*Session, error) {
 	row := q.QueryRowContext(ctx,
-		"SELECT id, tools_approved, input_tokens, output_tokens, title, cost, send_user_message, max_iterations, working_dir, created_at, starred, permissions, agent_model_overrides, custom_models_used, thinking, parent_id, branch_parent_session_id, branch_parent_position, branch_created_at FROM sessions WHERE id = ?", id)
+		"SELECT id, tools_approved, input_tokens, output_tokens, title, cost, send_user_message, max_iterations, working_dir, created_at, starred, permissions, agent_model_overrides, custom_models_used, thinking, parent_id, branch_parent_session_id, branch_parent_position, branch_created_at, split_diff_view FROM sessions WHERE id = ?", id)
 
 	sess, err := scanSession(row)
 	if err != nil {
@@ -842,7 +849,7 @@ func (s *SQLiteSessionStore) loadMessagesFromLegacyColumn(ctx context.Context, s
 // GetSessions retrieves all root sessions (excludes sub-sessions)
 func (s *SQLiteSessionStore) GetSessions(ctx context.Context) ([]*Session, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, tools_approved, input_tokens, output_tokens, title, cost, send_user_message, max_iterations, working_dir, created_at, starred, permissions, agent_model_overrides, custom_models_used, thinking, parent_id, branch_parent_session_id, branch_parent_position, branch_created_at FROM sessions WHERE parent_id IS NULL OR parent_id = '' ORDER BY created_at DESC")
+		"SELECT id, tools_approved, input_tokens, output_tokens, title, cost, send_user_message, max_iterations, working_dir, created_at, starred, permissions, agent_model_overrides, custom_models_used, thinking, parent_id, branch_parent_session_id, branch_parent_position, branch_created_at, split_diff_view FROM sessions WHERE parent_id IS NULL OR parent_id = '' ORDER BY created_at DESC")
 	if err != nil {
 		return nil, err
 	}
@@ -1005,9 +1012,9 @@ func (s *SQLiteSessionStore) UpdateSession(ctx context.Context, session *Session
 			id, tools_approved, input_tokens, output_tokens, title, cost, send_user_message,
 			max_iterations, working_dir, created_at, starred, permissions, agent_model_overrides,
 			custom_models_used, thinking, parent_id, branch_parent_session_id,
-			branch_parent_position, branch_created_at
+			branch_parent_position, branch_created_at, split_diff_view
 		)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
 		   title = excluded.title,
 		   tools_approved = excluded.tools_approved,
@@ -1025,11 +1032,12 @@ func (s *SQLiteSessionStore) UpdateSession(ctx context.Context, session *Session
 		   parent_id = excluded.parent_id,
 		   branch_parent_session_id = excluded.branch_parent_session_id,
 		   branch_parent_position = excluded.branch_parent_position,
-		   branch_created_at = excluded.branch_created_at`,
+		   branch_created_at = excluded.branch_created_at,
+		   split_diff_view = excluded.split_diff_view`,
 		session.ID, session.ToolsApproved, session.InputTokens, session.OutputTokens,
 		session.Title, session.Cost, session.SendUserMessage, session.MaxIterations, session.WorkingDir,
 		session.CreatedAt.Format(time.RFC3339), session.Starred, permissionsJSON, agentModelOverridesJSON,
-		customModelsUsedJSON, session.Thinking, parentID, branchParentID, branchParentPosition, branchCreatedAt)
+		customModelsUsedJSON, session.Thinking, parentID, branchParentID, branchParentPosition, branchCreatedAt, session.SplitDiffView)
 	if err != nil {
 		return err
 	}
@@ -1240,14 +1248,14 @@ func (s *SQLiteSessionStore) addSessionTx(ctx context.Context, tx *sql.Tx, sessi
 			id, tools_approved, input_tokens, output_tokens, title, cost, send_user_message,
 			max_iterations, working_dir, created_at, starred, permissions, agent_model_overrides,
 			custom_models_used, thinking, parent_id, branch_parent_session_id,
-			branch_parent_position, branch_created_at
+			branch_parent_position, branch_created_at, split_diff_view
 		)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		session.ID, session.ToolsApproved, session.InputTokens, session.OutputTokens,
 		session.Title, session.Cost, session.SendUserMessage, session.MaxIterations,
 		session.WorkingDir, session.CreatedAt.Format(time.RFC3339), session.Starred,
 		permissionsJSON, agentModelOverridesJSON, customModelsUsedJSON, session.Thinking,
-		parentID, branchParentID, branchParentPosition, branchCreatedAt)
+		parentID, branchParentID, branchParentPosition, branchCreatedAt, session.SplitDiffView)
 	return err
 }
 

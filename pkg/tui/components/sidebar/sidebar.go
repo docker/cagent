@@ -434,6 +434,15 @@ func (m *model) LoadFromSession(sess *session.Session) {
 	// Load starred status
 	m.sessionStarred = sess.Starred
 
+	// Load working directory from session
+	if sess.WorkingDir != "" {
+		wd := sess.WorkingDir
+		if homeDir := paths.GetHomeDir(); homeDir != "" && strings.HasPrefix(wd, homeDir) {
+			wd = "~" + wd[len(homeDir):]
+		}
+		m.workingDirectory = wd
+	}
+
 	// Session has content if it has messages or token usage
 	m.sessionHasContent = len(sess.Messages) > 0 || sess.InputTokens > 0 || sess.OutputTokens > 0
 
@@ -633,6 +642,9 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		}
 		m.invalidateCache()
 		return m, nil
+	case messages.SessionToggleChangedMsg:
+		m.invalidateCache()
+		return m, nil
 	case messages.ThemeChangedMsg:
 		// Theme changed - recreate spinners with new colors
 		// The spinner pre-renders frames with colors, so we need to recreate it
@@ -727,11 +739,8 @@ func (m *model) computeCollapsedViewModel(contentWidth int) CollapsedViewModel {
 	star := m.starIndicator()
 
 	var titleWithStar string
-	var editing bool
 	switch {
 	case m.editingTitle:
-		editing = true
-		// Width was pre-calculated in SetSize, just render
 		titleWithStar = star + m.titleInput.View()
 	case m.titleRegenerating:
 		titleWithStar = star + m.spinner.View() + styles.MutedStyle.Render(" Generating title…")
@@ -752,10 +761,10 @@ func (m *model) computeCollapsedViewModel(contentWidth int) CollapsedViewModel {
 	usageWidth := lipgloss.Width(vm.UsageSummary)
 
 	// Title and indicator fit on one line if:
-	// - editing mode (input is constrained to fit), OR
+	// - editing mode (input is constrained to fit in collapsed mode), OR
 	// - no working indicator AND title fits, OR
 	// - both fit together with gap
-	vm.TitleAndIndicatorOnOneLine = editing ||
+	vm.TitleAndIndicatorOnOneLine = m.editingTitle ||
 		(vm.WorkingIndicator == "" && titleWidth <= contentWidth) ||
 		(vm.WorkingIndicator != "" && titleWidth+minGap+wiWidth <= contentWidth)
 	vm.WdAndUsageOnOneLine = wdWidth+minGap+usageWidth <= contentWidth
@@ -1126,7 +1135,7 @@ func (m *model) toolsetInfo(contentWidth int) string {
 		{m.sessionState.YoloMode(), "YOLO mode enabled", "^y"},
 		{m.sessionState.Thinking() && m.reasoningSupported, "Thinking enabled", "/think"},
 		{m.sessionState.HideToolResults(), "Tool output hidden", "^o"},
-		{m.sessionState.SplitDiffView(), "Split Diff View enabled", "^t"},
+		{m.sessionState.SplitDiffView(), "Split Diff View", "/split-diff"},
 	}
 
 	for _, toggle := range toggles {
@@ -1185,20 +1194,18 @@ func (m *model) SetSize(width, height int) tea.Cmd {
 	return nil
 }
 
-// updateTitleInputWidth pre-calculates the title input width based on current dimensions.
-// This avoids setting width during View(), keeping View() pure.
+// updateTitleInputWidth sets the title input viewport width.
+// In vertical mode the input is wide enough to show the full text — the tab
+// body's lipgloss Width wraps it visually. In collapsed mode the input is
+// constrained to the single available line so it scrolls horizontally instead.
 func (m *model) updateTitleInputWidth() {
-	starWidth := lipgloss.Width(m.starIndicator())
-
-	// Calculate content width (without scrollbar for simplicity - editing usually doesn't need scrollbar)
-	contentWidth := m.contentWidth(false)
-
-	// Account for star indicator width and leave room for cursor
-	inputWidth := max(contentWidth-starWidth-1,
-		// Minimum usable width
-		10)
-
-	m.titleInput.SetWidth(inputWidth)
+	if m.mode == ModeCollapsed {
+		starWidth := lipgloss.Width(m.starIndicator())
+		inputWidth := m.contentWidth(false) - starWidth
+		m.titleInput.SetWidth(max(10, inputWidth))
+	} else {
+		m.titleInput.SetWidth(m.titleInput.CharLimit)
+	}
 }
 
 // SetPosition sets the absolute position of the component on screen
@@ -1300,15 +1307,7 @@ func (m *model) HandleTitleClick() bool {
 func (m *model) BeginTitleEdit() {
 	m.editingTitle = true
 	m.titleInput.SetValue(m.sessionTitle)
-
-	// Calculate and set the input width based on current sidebar width
-	contentWidth := m.contentWidth(false)
-	starWidth := lipgloss.Width(m.starIndicator())
-	inputWidth := max(contentWidth-starWidth-1,
-		// Minimum usable width
-		10)
-	m.titleInput.SetWidth(inputWidth)
-
+	m.updateTitleInputWidth()
 	m.titleInput.Focus()
 	m.titleInput.CursorEnd()
 	m.invalidateCache()

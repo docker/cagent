@@ -222,6 +222,16 @@ func builtInSessionCommands() []Item {
 				return core.CmdHandler(messages.OpenThemePickerMsg{})
 			},
 		},
+		{
+			ID:           "settings.split-diff",
+			Label:        "Split Diff",
+			SlashCommand: "/split-diff",
+			Description:  "Toggle split diff view mode",
+			Category:     "Settings",
+			Execute: func(string) tea.Cmd {
+				return core.CmdHandler(messages.ToggleSplitDiffMsg{})
+			},
+		},
 	}
 
 	// Add speak command on supported platforms (macOS only)

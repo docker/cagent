@@ -284,6 +284,16 @@ type ModelConfig struct {
 	Routing []RoutingRule `json:"routing,omitempty"`
 }
 
+// Clone returns a deep copy of the ModelConfig.
+func (m *ModelConfig) Clone() *ModelConfig {
+	if m == nil {
+		return nil
+	}
+	var c ModelConfig
+	types.CloneThroughJSON(m, &c)
+	return &c
+}
+
 // FlexibleModelConfig wraps ModelConfig to support both shorthand and full syntax.
 // It can be unmarshaled from either:
 //   - A shorthand string: "provider/model" (e.g., "anthropic/claude-sonnet-4-5")

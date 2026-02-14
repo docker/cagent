@@ -287,8 +287,10 @@ func (r *LocalRuntime) AvailableModels(ctx context.Context) []ModelChoice {
 // CatalogStore is an extended interface for model stores that support fetching the full database.
 type CatalogStore interface {
 	ModelStore
-	GetDatabase(ctx context.Context) (*modelsdev.Database, error)
+	GetDatabase() (*modelsdev.Database, error)
 }
+
+var _ CatalogStore = (*modelsdev.Store)(nil)
 
 // buildCatalogChoices builds ModelChoice entries from the models.dev catalog,
 // filtered by supported providers and available credentials.
@@ -300,7 +302,7 @@ func (r *LocalRuntime) buildCatalogChoices(ctx context.Context) []ModelChoice {
 		return nil
 	}
 
-	db, err := catalogStore.GetDatabase(ctx)
+	db, err := catalogStore.GetDatabase()
 	if err != nil {
 		slog.Debug("Failed to get models.dev database for catalog", "error", err)
 		return nil

@@ -41,7 +41,7 @@ type SessionState struct {
 
 func NewSessionState(s *session.Session) *SessionState {
 	return &SessionState{
-		splitDiffView:   true,
+		splitDiffView:   s.GetSplitDiffView(),
 		yoloMode:        s.ToolsApproved,
 		thinking:        s.Thinking,
 		hideToolResults: s.HideToolResults,

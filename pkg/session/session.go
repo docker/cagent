@@ -75,6 +75,10 @@ type Session struct {
 	// HideToolResults is a flag to indicate if tool results should be hidden
 	HideToolResults bool `json:"hide_tool_results"`
 
+	// SplitDiffView enables side-by-side split diff rendering for file edits.
+	// Defaults to true when not explicitly set (zero value means enabled).
+	SplitDiffView *bool `json:"split_diff_view,omitempty"`
+
 	// WorkingDir is the base directory used for filesystem-aware tools
 	WorkingDir string `json:"working_dir,omitempty"`
 
@@ -390,6 +394,12 @@ func WithHideToolResults(hideToolResults bool) Opt {
 	}
 }
 
+func WithSplitDiffView(splitDiffView bool) Opt {
+	return func(s *Session) {
+		s.SplitDiffView = &splitDiffView
+	}
+}
+
 func WithSendUserMessage(sendUserMessage bool) Opt {
 	return func(s *Session) {
 		s.SendUserMessage = sendUserMessage
@@ -408,6 +418,15 @@ func WithParentID(parentID string) Opt {
 	return func(s *Session) {
 		s.ParentID = parentID
 	}
+}
+
+// GetSplitDiffView returns whether split diff view is enabled.
+// Defaults to true when not explicitly set.
+func (s *Session) GetSplitDiffView() bool {
+	if s.SplitDiffView == nil {
+		return true
+	}
+	return *s.SplitDiffView
 }
 
 // IsSubSession returns true if this session is a sub-session (has a parent).

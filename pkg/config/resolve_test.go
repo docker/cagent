@@ -86,7 +86,8 @@ agents:
 }
 
 func TestResolveAgentFile_EmptyIsDefault(t *testing.T) {
-	t.Parallel()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 
 	resolved, err := resolve("")
 
@@ -95,7 +96,8 @@ func TestResolveAgentFile_EmptyIsDefault(t *testing.T) {
 }
 
 func TestResolveAgentFile_DefaultIsDefault(t *testing.T) {
-	t.Parallel()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 
 	resolved, err := resolve("default")
 
