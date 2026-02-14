@@ -2,6 +2,7 @@ package editor
 
 import (
 	"fmt"
+	"log"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -1064,21 +1065,45 @@ func (e *editor) InsertText(text string) {
 	e.refreshSuggestion()
 }
 
-// AttachFile adds a file as an attachment and inserts @filepath into the editor
+// AttachFile safely adds a file as an attachment and inserts @filepath into the editor.
+// If the file does not exist or is not accessible, the reference is ignored gracefully.
 func (e *editor) AttachFile(filePath string) {
+	// Validate the file exists before attempting to attach it
+	if info, err := os.Stat(filePath); err != nil {
+		if os.IsNotExist(err) {
+			// fully qualify log package to avoid shadowing
+			log.Println("AttachFile skipped: file '" + filePath + "' does not exist.")
+		} else {
+			log.Println("AttachFile skipped: cannot access file '"+filePath+"':", err)
+		}
+		return
+	} else if info.IsDir() {
+		log.Println("AttachFile skipped: '" + filePath + "' is a directory, not a file.")
+		return
+	}
+
+	// Build the placeholder reference
 	placeholder := "@" + filePath
+
+	// Add the file as an attachment
 	e.addFileAttachment(placeholder)
+
+	// Insert the placeholder into the editor textarea
 	currentValue := e.textarea.Value()
 	e.textarea.SetValue(currentValue + placeholder + " ")
+
+	// Move cursor to the end and mark user activity
 	e.textarea.MoveToEnd()
 	e.userTyped = true
+
+	// Update any UI indicators or banners
 	e.updateAttachmentBanner()
 }
 
-// tryAddFileRef checks if word is a valid @filepath and adds it as attachment.
-// Called when cursor leaves a word to detect manually-typed file references.
+// tryAddFileRef safely checks if word is a valid @filepath and adds it as an attachment.
+// Skips non-existent files, directories, or paste placeholders with logging.
 func (e *editor) tryAddFileRef(word string) {
-	// Must start with @ and look like a path (contains / or .)
+	// Must start with @ and be long enough to be meaningful
 	if !strings.HasPrefix(word, "@") || len(word) < 2 {
 		return
 	}
@@ -1088,11 +1113,29 @@ func (e *editor) tryAddFileRef(word string) {
 		return
 	}
 
-	path := word[1:] // strip @
-	if !strings.ContainsAny(path, "/.") {
-		return // not a path-like reference (e.g., @username)
+	filePath := word[1:] // remove '@'
+
+	// Must look like a path (contains '/' or '.')
+	if !strings.ContainsAny(filePath, "/.") {
+		return // e.g., @username, ignore
 	}
 
+	// Validate the file exists and is not a directory
+	info, err := os.Stat(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Println("tryAddFileRef skipped: file does not exist:", filePath)
+		} else {
+			log.Println("tryAddFileRef skipped: cannot access file:", filePath, err)
+		}
+		return
+	}
+	if info.IsDir() {
+		log.Println("tryAddFileRef skipped: path is a directory:", filePath)
+		return
+	}
+
+	// File is valid, add as attachment
 	e.addFileAttachment(word)
 }
 
@@ -1122,38 +1165,68 @@ func (e *editor) addFileAttachment(placeholder string) {
 	})
 }
 
-// collectAttachments returns a map of placeholder to file content for all attachments
-// referenced in content. Unreferenced attachments are cleaned up.
+// collectAttachments returns a map of placeholder -> file content
+// for all attachments referenced in the provided content.
 func (e *editor) collectAttachments(content string) map[string]string {
+	// Fast path: nothing to process
 	if len(e.attachments) == 0 {
 		return nil
 	}
 
 	attachments := make(map[string]string)
+
+	// Reuse underlying slice memory to avoid allocations
+	// This keeps only attachments that should persist.
+	remaining := e.attachments[:0]
+
 	for _, att := range e.attachments {
+		// If placeholder is not referenced in content
+		// remove temp files and optionally preserve non-temp ones
 		if !strings.Contains(content, att.placeholder) {
 			if att.isTemp {
 				_ = os.Remove(att.path)
+			} else {
+				remaining = append(remaining, att)
 			}
 			continue
 		}
 
+		// Attempt to read attachment file
 		data, err := os.ReadFile(att.path)
 		if err != nil {
-			slog.Warn("failed to read attachment", "path", att.path, "error", err)
+			// Log warning but do NOT break rendering flow
+			slog.Warn("failed to read attachment",
+				"path", att.path,
+				"error", err,
+			)
+
+			// Ensure temp files are cleaned even on failure
 			if att.isTemp {
 				_ = os.Remove(att.path)
 			}
+
 			continue
 		}
 
+		// Store successfully read attachment
 		attachments[att.placeholder] = string(data)
 
+		// Remove temp files after successful read
 		if att.isTemp {
 			_ = os.Remove(att.path)
+		} else {
+			// Preserve non-temp attachments if needed later
+			remaining = append(remaining, att)
 		}
 	}
-	e.attachments = nil
+
+	// Update editor state with only remaining attachments
+	e.attachments = remaining
+
+	// Return nil if nothing valid was collected
+	if len(attachments) == 0 {
+		return nil
+	}
 
 	return attachments
 }
