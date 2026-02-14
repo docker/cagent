@@ -234,7 +234,14 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 			return err
 		}
 
-		loadResult, err := f.loadAgentFrom(ctx, agentSource)
+		opts := []teamloader.Opt{
+			teamloader.WithModelOverrides(f.modelOverrides),
+		}
+		if len(f.promptFiles) > 0 {
+			opts = append(opts, teamloader.WithPromptFiles(f.promptFiles))
+		}
+
+		loadResult, err := teamloader.LoadWithConfig(ctx, agentSource, &f.runConfig, opts...)
 		if err != nil {
 			return err
 		}
@@ -275,58 +282,16 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 	return f.handleRunMode(ctx, rt, sess, args)
 }
 
-func (f *runExecFlags) loadAgentFrom(ctx context.Context, agentSource config.Source) (*teamloader.LoadResult, error) {
-	opts := []teamloader.Opt{
-		teamloader.WithModelOverrides(f.modelOverrides),
-	}
-	if len(f.promptFiles) > 0 {
-		opts = append(opts, teamloader.WithPromptFiles(f.promptFiles))
-	}
-
-	result, err := teamloader.LoadWithConfig(ctx, agentSource, &f.runConfig, opts...)
-	if err != nil {
-		return nil, err
-	}
-
-	return result, nil
-}
-
 func (f *runExecFlags) createRemoteRuntimeAndSession(ctx context.Context, originalFilename string) (runtime.Runtime, *session.Session, error) {
+	var (
+		client runtime.RemoteClient
+		err    error
+	)
 	if f.connectRPC {
-		return f.createConnectRPCRuntimeAndSession(ctx, originalFilename)
+		client, err = runtime.NewConnectRPCClient(f.remoteAddress)
+	} else {
+		client, err = runtime.NewClient(f.remoteAddress)
 	}
-	return f.createHTTPRuntimeAndSession(ctx, originalFilename)
-}
-
-func (f *runExecFlags) createConnectRPCRuntimeAndSession(ctx context.Context, originalFilename string) (runtime.Runtime, *session.Session, error) {
-	connectClient, err := runtime.NewConnectRPCClient(f.remoteAddress)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create connect-rpc client: %w", err)
-	}
-
-	sessTemplate := session.New(
-		session.WithToolsApproved(f.autoApprove),
-	)
-
-	sess, err := connectClient.CreateSession(ctx, sessTemplate)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	remoteRt, err := runtime.NewRemoteRuntime(connectClient,
-		runtime.WithRemoteCurrentAgent(f.agentName),
-		runtime.WithRemoteAgentFilename(originalFilename),
-	)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create connect-rpc remote runtime: %w", err)
-	}
-
-	slog.Debug("Using connect-rpc remote runtime", "address", f.remoteAddress, "agent", f.agentName)
-	return remoteRt, sess, nil
-}
-
-func (f *runExecFlags) createHTTPRuntimeAndSession(ctx context.Context, originalFilename string) (runtime.Runtime, *session.Session, error) {
-	remoteClient, err := runtime.NewClient(f.remoteAddress)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create remote client: %w", err)
 	}
@@ -335,12 +300,12 @@ func (f *runExecFlags) createHTTPRuntimeAndSession(ctx context.Context, original
 		session.WithToolsApproved(f.autoApprove),
 	)
 
-	sess, err := remoteClient.CreateSession(ctx, sessTemplate)
+	sess, err := client.CreateSession(ctx, sessTemplate)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	remoteRt, err := runtime.NewRemoteRuntime(remoteClient,
+	remoteRt, err := runtime.NewRemoteRuntime(client,
 		runtime.WithRemoteCurrentAgent(f.agentName),
 		runtime.WithRemoteAgentFilename(originalFilename),
 	)
@@ -348,7 +313,7 @@ func (f *runExecFlags) createHTTPRuntimeAndSession(ctx context.Context, original
 		return nil, nil, fmt.Errorf("failed to create remote runtime: %w", err)
 	}
 
-	slog.Debug("Using remote runtime", "address", f.remoteAddress, "agent", f.agentName)
+	slog.Debug("Using remote runtime", "address", f.remoteAddress, "agent", f.agentName, "connect_rpc", f.connectRPC)
 	return remoteRt, sess, nil
 }
 

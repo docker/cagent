@@ -35,9 +35,7 @@ func newExecCmd() *cobra.Command {
 func (f *runExecFlags) runExecCommand(cmd *cobra.Command, args []string) error {
 	telemetry.TrackCommand("exec", args)
 
-	ctx := cmd.Context()
 	out := cli.NewPrinter(cmd.OutOrStdout())
 
-	tui := false
-	return f.runOrExec(ctx, out, args, tui)
+	return f.runOrExec(cmd.Context(), out, args, false)
 }

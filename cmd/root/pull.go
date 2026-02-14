@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/google/go-containerregistry/pkg/crane"
 	"github.com/spf13/cobra"
 
 	"github.com/docker/cagent/pkg/cli"
@@ -46,8 +45,7 @@ func (f *pullFlags) runPullCommand(cmd *cobra.Command, args []string) error {
 
 	out.Println("Pulling agent", registryRef)
 
-	var opts []crane.Option
-	_, err := remote.Pull(ctx, registryRef, f.force, opts...)
+	_, err := remote.Pull(ctx, registryRef, f.force)
 	if err != nil {
 		return fmt.Errorf("failed to pull artifact: %w", err)
 	}

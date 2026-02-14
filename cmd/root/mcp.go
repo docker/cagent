@@ -1,13 +1,10 @@
 package root
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 
 	"github.com/docker/cagent/pkg/config"
 	"github.com/docker/cagent/pkg/mcp"
-	"github.com/docker/cagent/pkg/server"
 	"github.com/docker/cagent/pkg/telemetry"
 )
 
@@ -52,15 +49,10 @@ func (f *mcpFlags) runMCPCommand(cmd *cobra.Command, args []string) error {
 		return mcp.StartMCPServer(ctx, agentFilename, f.agentName, &f.runConfig)
 	}
 
-	// Listen as early as possible
-	ln, err := server.Listen(ctx, f.listenAddr)
+	ln, err := listenAndCloseOnCancel(ctx, f.listenAddr)
 	if err != nil {
-		return fmt.Errorf("failed to listen on %s: %w", f.listenAddr, err)
+		return err
 	}
-	go func() {
-		<-ctx.Done()
-		_ = ln.Close()
-	}()
 
 	return mcp.StartHTTPServer(ctx, agentFilename, f.agentName, &f.runConfig, ln)
 }

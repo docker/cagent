@@ -40,10 +40,8 @@ func newCatalogListCmd() *cobra.Command {
 func runCatalogListCommand(cmd *cobra.Command, args []string) error {
 	telemetry.TrackCommand("catalog", append([]string{"list"}, args...))
 
-	var org string
-	if len(args) == 0 {
-		org = "agentcatalog"
-	} else {
+	org := "agentcatalog"
+	if len(args) > 0 {
 		org = args[0]
 	}
 
