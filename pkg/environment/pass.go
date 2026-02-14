@@ -1,13 +1,6 @@
 package environment
 
-import (
-	"bytes"
-	"context"
-	"errors"
-	"log/slog"
-	"os/exec"
-	"strings"
-)
+import "context"
 
 // PassProvider is a provider that retrieves secrets using the `pass` password
 // manager.
@@ -21,12 +14,8 @@ func (PassNotAvailableError) Error() string {
 
 // NewPassProvider creates a new PassProvider instance.
 func NewPassProvider() (*PassProvider, error) {
-	path, err := exec.LookPath("pass")
-	if err != nil && !errors.Is(err, exec.ErrNotFound) {
-		slog.Warn("failed to lookup `pass` binary", "error", err)
-	}
-	if path == "" {
-		return nil, PassNotAvailableError{}
+	if err := lookupBinary("pass", PassNotAvailableError{}); err != nil {
+		return nil, err
 	}
 	return &PassProvider{}, nil
 }
@@ -34,19 +23,5 @@ func NewPassProvider() (*PassProvider, error) {
 // Get retrieves the value of a secret by its name using the `pass` CLI.
 // The name corresponds to the path in the `pass` store.
 func (p *PassProvider) Get(ctx context.Context, name string) (string, bool) {
-	cmd := exec.CommandContext(ctx, "pass", "show", name)
-
-	var out bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &stderr
-
-	err := cmd.Run()
-	if err != nil {
-		// Ignore error
-		slog.Debug("Failed to find secret in pass", "error", err)
-		return "", false
-	}
-
-	return strings.TrimSpace(out.String()), true
+	return runCommand(ctx, "pass", "pass", "show", name)
 }
