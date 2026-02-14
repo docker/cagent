@@ -173,7 +173,7 @@ func NewSemanticEmbeddingsFromConfig(ctx context.Context, cfg latest.RAGStrategy
 			return
 		}
 
-		cost := calculateSemanticUsageCost(ctx, embeddingCfg.ModelsStore, chatModelID, usage)
+		cost := calculateSemanticUsageCost(embeddingCfg.ModelsStore, chatModelID, usage)
 		store.RecordUsage(totalTokens, cost)
 	}
 
@@ -501,12 +501,12 @@ func humanizeMetadataKey(key string) string {
 }
 
 // calculateSemanticUsageCost calculates cost for semantic LLM usage.
-func calculateSemanticUsageCost(ctx context.Context, modelsStore modelStore, modelID string, usage *chat.Usage) float64 {
+func calculateSemanticUsageCost(modelsStore modelStore, modelID string, usage *chat.Usage) float64 {
 	if usage == nil || modelsStore == nil || modelID == "" || strings.HasPrefix(modelID, "dmr/") {
 		return 0
 	}
 
-	model, err := modelsStore.GetModel(ctx, modelID)
+	model, err := modelsStore.GetModel(modelID)
 	if err != nil {
 		slog.Debug("Failed to get semantic model pricing from models.dev, cost will be 0",
 			"model_id", modelID,

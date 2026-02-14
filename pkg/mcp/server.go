@@ -3,6 +3,7 @@ package mcp
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -74,7 +75,7 @@ func StartHTTPServer(ctx context.Context, agentFilename, agentName string, runCo
 	case <-ctx.Done():
 		return httpServer.Shutdown(context.Background())
 	case err := <-errCh:
-		if err == http.ErrServerClosed {
+		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
 		return err
@@ -82,7 +83,7 @@ func StartHTTPServer(ctx context.Context, agentFilename, agentName string, runCo
 }
 
 func createMCPServer(ctx context.Context, agentFilename, agentName string, runConfig *config.RuntimeConfig) (*mcp.Server, func(), error) {
-	agentSource, err := config.Resolve(agentFilename)
+	agentSource, err := config.Resolve(agentFilename, nil)
 	if err != nil {
 		return nil, nil, err
 	}

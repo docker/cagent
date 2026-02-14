@@ -12,7 +12,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/docker/cagent/pkg/runtime"
-	"github.com/docker/cagent/pkg/tui/components/scrollbar"
+	"github.com/docker/cagent/pkg/tui/components/scrollview"
 	"github.com/docker/cagent/pkg/tui/components/toolcommon"
 	"github.com/docker/cagent/pkg/tui/core"
 	"github.com/docker/cagent/pkg/tui/core/layout"
@@ -32,14 +32,13 @@ var SupportedProviders = []string{
 // modelPickerDialog is a dialog for selecting a model for the current agent.
 type modelPickerDialog struct {
 	BaseDialog
-	textInput        textinput.Model
-	models           []runtime.ModelChoice
-	filtered         []runtime.ModelChoice
-	selected         int
-	keyMap           commandPaletteKeyMap
-	errMsg           string // validation error message
-	scrollbar        *scrollbar.Model
-	needsScrollToSel bool // true when keyboard nav requires scrolling to selection
+	textInput  textinput.Model
+	models     []runtime.ModelChoice
+	filtered   []runtime.ModelChoice
+	selected   int
+	keyMap     commandPaletteKeyMap
+	errMsg     string // validation error message
+	scrollview *scrollview.Model
 
 	// Double-click detection
 	lastClickTime  time.Time
@@ -85,10 +84,10 @@ func NewModelPickerDialog(models []runtime.ModelChoice) Dialog {
 	})
 
 	d := &modelPickerDialog{
-		textInput: ti,
-		models:    sortedModels,
-		keyMap:    defaultCommandPaletteKeyMap(),
-		scrollbar: scrollbar.New(),
+		textInput:  ti,
+		models:     sortedModels,
+		keyMap:     defaultCommandPaletteKeyMap(),
+		scrollview: scrollview.New(scrollview.WithReserveScrollbarSpace(true)),
 	}
 	d.filterModels()
 	return d
@@ -99,30 +98,40 @@ func (d *modelPickerDialog) Init() tea.Cmd {
 }
 
 func (d *modelPickerDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
+	// Scrollview handles mouse scrollbar, wheel, and pgup/pgdn/home/end
+	if handled, cmd := d.scrollview.Update(msg); handled {
+		return d, cmd
+	}
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		cmd := d.SetSize(msg.Width, msg.Height)
 		return d, cmd
 
 	case tea.PasteMsg:
-		// Forward paste to text input
 		var cmd tea.Cmd
 		d.textInput, cmd = d.textInput.Update(msg)
 		d.filterModels()
-		d.errMsg = "" // Clear error when user types
+		d.errMsg = ""
 		return d, cmd
 
 	case tea.MouseClickMsg:
-		return d.handleMouseClick(msg)
-
-	case tea.MouseMotionMsg:
-		return d.handleMouseMotion(msg)
-
-	case tea.MouseReleaseMsg:
-		return d.handleMouseRelease(msg)
-
-	case tea.MouseWheelMsg:
-		return d.handleMouseWheel(msg)
+		// Scrollbar clicks handled above; this handles list item clicks
+		if msg.Button == tea.MouseLeft {
+			if modelIdx := d.mouseYToModelIndex(msg.Y); modelIdx >= 0 {
+				now := time.Now()
+				if modelIdx == d.lastClickIndex && now.Sub(d.lastClickTime) < styles.DoubleClickThreshold {
+					d.selected = modelIdx
+					d.lastClickTime = time.Time{}
+					cmd := d.handleSelection()
+					return d, cmd
+				}
+				d.selected = modelIdx
+				d.lastClickTime = now
+				d.lastClickIndex = modelIdx
+			}
+		}
+		return d, nil
 
 	case tea.KeyPressMsg:
 		if cmd := HandleQuit(msg); cmd != nil {
@@ -136,31 +145,15 @@ func (d *modelPickerDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		case key.Matches(msg, d.keyMap.Up):
 			if d.selected > 0 {
 				d.selected--
-				d.needsScrollToSel = true
+				d.scrollview.EnsureLineVisible(d.findSelectedLine(nil))
 			}
 			return d, nil
 
 		case key.Matches(msg, d.keyMap.Down):
 			if d.selected < len(d.filtered)-1 {
 				d.selected++
-				d.needsScrollToSel = true
+				d.scrollview.EnsureLineVisible(d.findSelectedLine(nil))
 			}
-			return d, nil
-
-		case key.Matches(msg, d.keyMap.PageUp):
-			d.selected -= d.pageSize()
-			if d.selected < 0 {
-				d.selected = 0
-			}
-			d.needsScrollToSel = true
-			return d, nil
-
-		case key.Matches(msg, d.keyMap.PageDown):
-			d.selected += d.pageSize()
-			if d.selected >= len(d.filtered) {
-				d.selected = max(0, len(d.filtered)-1)
-			}
-			d.needsScrollToSel = true
 			return d, nil
 
 		case key.Matches(msg, d.keyMap.Enter):
@@ -171,7 +164,7 @@ func (d *modelPickerDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			d.textInput, cmd = d.textInput.Update(msg)
 			d.filterModels()
-			d.errMsg = "" // Clear error when user types
+			d.errMsg = ""
 			return d, cmd
 		}
 	}
@@ -179,114 +172,11 @@ func (d *modelPickerDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	return d, nil
 }
 
-// handleMouseClick handles mouse click events on the dialog
-func (d *modelPickerDialog) handleMouseClick(msg tea.MouseClickMsg) (layout.Model, tea.Cmd) {
-	// Check if click is on the scrollbar
-	if d.isMouseOnScrollbar(msg.X, msg.Y) {
-		sb, cmd := d.scrollbar.Update(msg)
-		d.scrollbar = sb
-		return d, cmd
-	}
-
-	// Check if click is on a model in the list
-	if msg.Button == tea.MouseLeft {
-		if modelIdx := d.mouseYToModelIndex(msg.Y); modelIdx >= 0 {
-			now := time.Now()
-
-			// Check for double-click: same index within threshold
-			if modelIdx == d.lastClickIndex && now.Sub(d.lastClickTime) < styles.DoubleClickThreshold {
-				// Double-click: confirm selection
-				d.selected = modelIdx
-				d.lastClickTime = time.Time{} // Reset to prevent triple-click
-				cmd := d.handleSelection()
-				return d, cmd
-			}
-
-			// Single click: just highlight
-			d.selected = modelIdx
-			d.lastClickTime = now
-			d.lastClickIndex = modelIdx
-		}
-	}
-	return d, nil
-}
-
-// handleMouseMotion handles mouse drag events (for scrollbar dragging)
-func (d *modelPickerDialog) handleMouseMotion(msg tea.MouseMotionMsg) (layout.Model, tea.Cmd) {
-	if d.scrollbar.IsDragging() {
-		sb, cmd := d.scrollbar.Update(msg)
-		d.scrollbar = sb
-		return d, cmd
-	}
-	// Hover highlighting disabled for now
-	return d, nil
-}
-
-// handleMouseRelease handles mouse button release events
-func (d *modelPickerDialog) handleMouseRelease(msg tea.MouseReleaseMsg) (layout.Model, tea.Cmd) {
-	if d.scrollbar.IsDragging() {
-		sb, cmd := d.scrollbar.Update(msg)
-		d.scrollbar = sb
-		return d, cmd
-	}
-	return d, nil
-}
-
-// handleMouseWheel handles mouse wheel scrolling inside the dialog
-func (d *modelPickerDialog) handleMouseWheel(msg tea.MouseWheelMsg) (layout.Model, tea.Cmd) {
-	// Only scroll if mouse is inside the dialog
-	if !d.isMouseInDialog(msg.X, msg.Y) {
-		return d, nil
-	}
-
-	buttonStr := msg.Button.String()
-	switch buttonStr {
-	case "wheelup":
-		d.scrollbar.ScrollUp()
-		d.scrollbar.ScrollUp() // Scroll 2 lines at a time
-	case "wheeldown":
-		d.scrollbar.ScrollDown()
-		d.scrollbar.ScrollDown() // Scroll 2 lines at a time
-	}
-	return d, nil
-}
-
-// isMouseInDialog checks if the mouse position is inside the dialog bounds
-func (d *modelPickerDialog) isMouseInDialog(x, y int) bool {
-	dialogRow, dialogCol := d.Position()
-	dialogWidth, maxHeight, _ := d.dialogSize()
-
-	return x >= dialogCol && x < dialogCol+dialogWidth &&
-		y >= dialogRow && y < dialogRow+maxHeight
-}
-
-// isMouseOnScrollbar checks if the mouse position is on the scrollbar
-// by delegating to the scrollbar component which knows its own position
-func (d *modelPickerDialog) isMouseOnScrollbar(x, y int) bool {
-	// The scrollbar's position is set in View() via SetPosition()
-	// We check if the scrollbar would be visible (has content to scroll)
-	dialogWidth, maxHeight, _ := d.dialogSize()
-	maxItems := maxHeight - pickerListVerticalOverhead
-
-	if len(d.filtered) <= maxItems {
-		return false // No scrollbar when content fits
-	}
-
-	// Use a simple bounds check based on scrollbar position set in View()
-	dialogRow, dialogCol := d.Position()
-	scrollbarX := dialogCol + dialogWidth - pickerScrollbarXInset - scrollbar.Width
-	scrollbarY := dialogRow + pickerScrollbarYOffset
-
-	return x >= scrollbarX && x < scrollbarX+scrollbar.Width &&
-		y >= scrollbarY && y < scrollbarY+maxItems
-}
-
 // mouseYToModelIndex converts a mouse Y position to a model index.
 // Returns -1 if the position is not on a model (e.g., on a separator or outside the list).
 func (d *modelPickerDialog) mouseYToModelIndex(y int) int {
 	dialogRow, _ := d.Position()
-	_, maxHeight, _ := d.dialogSize()
-	maxItems := maxHeight - pickerListVerticalOverhead
+	maxItems := d.scrollview.VisibleHeight()
 
 	listStartY := dialogRow + pickerListStartOffset
 	listEndY := listStartY + maxItems
@@ -298,7 +188,7 @@ func (d *modelPickerDialog) mouseYToModelIndex(y int) int {
 
 	// Calculate which line in the visible area was clicked
 	lineInView := y - listStartY
-	scrollOffset := d.scrollbar.GetScrollOffset()
+	scrollOffset := d.scrollview.ScrollOffset()
 
 	// Calculate the actual line index in allModelLines
 	actualLine := scrollOffset + lineInView
@@ -401,8 +291,8 @@ func validateCustomModelSpec(spec string) error {
 	}
 
 	// Handle alloy specs (comma-separated)
-	parts := strings.Split(spec, ",")
-	for _, part := range parts {
+	parts := strings.SplitSeq(spec, ",")
+	for part := range parts {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
@@ -473,8 +363,8 @@ func (d *modelPickerDialog) filterModels() {
 	if d.selected >= len(d.filtered) {
 		d.selected = max(0, len(d.filtered)-1)
 	}
-	// Reset scrollbar when filtering
-	d.scrollbar.SetScrollOffset(0)
+	// Reset scroll when filtering
+	d.scrollview.SetScrollOffset(0)
 }
 
 // Model picker dialog dimension constants
@@ -501,17 +391,6 @@ const (
 	// border(1) + padding(1) + title(1) + space(1) + input(1) + separator(1) = 6
 	pickerListStartOffset = 6
 
-	// pickerScrollbarYOffset is the Y offset from dialog top to where the scrollbar starts.
-	// The scrollbar is rendered horizontally alongside the model list (via JoinHorizontal),
-	// so they must start at the same Y position.
-	pickerScrollbarYOffset = pickerListStartOffset
-
-	// pickerScrollbarXInset is the inset from dialog right edge for the scrollbar
-	pickerScrollbarXInset = 3
-
-	// pickerScrollbarGap is the space between content and the scrollbar
-	pickerScrollbarGap = 1
-
 	// catalogSeparatorLabel is the text for the catalog section separator
 	catalogSeparatorLabel = "── Other models "
 	// customSeparatorLabel is the text for the custom models section separator
@@ -521,16 +400,24 @@ const (
 func (d *modelPickerDialog) dialogSize() (dialogWidth, maxHeight, contentWidth int) {
 	dialogWidth = max(min(d.Width()*pickerWidthPercent/100, pickerMaxWidth), pickerMinWidth)
 	maxHeight = min(d.Height()*pickerHeightPercent/100, pickerMaxHeight)
-	contentWidth = dialogWidth - pickerDialogPadding - scrollbar.Width - pickerScrollbarGap
+	contentWidth = dialogWidth - pickerDialogPadding - d.scrollview.ReservedCols()
 	return dialogWidth, maxHeight, contentWidth
 }
 
+// SetSize sets the dialog dimensions and configures the scrollview.
+func (d *modelPickerDialog) SetSize(width, height int) tea.Cmd {
+	cmd := d.BaseDialog.SetSize(width, height)
+	_, maxHeight, contentWidth := d.dialogSize()
+	regionWidth := contentWidth + d.scrollview.ReservedCols()
+	visLines := max(1, maxHeight-pickerListVerticalOverhead)
+	d.scrollview.SetSize(regionWidth, visLines)
+	return cmd
+}
+
 func (d *modelPickerDialog) View() string {
-	dialogWidth, maxHeight, contentWidth := d.dialogSize()
+	dialogWidth, _, contentWidth := d.dialogSize()
 
 	d.textInput.SetWidth(contentWidth)
-
-	maxItems := maxHeight - pickerListVerticalOverhead
 
 	// Build all model lines first to calculate total height
 	var allModelLines []string
@@ -573,76 +460,29 @@ func (d *modelPickerDialog) View() string {
 		allModelLines = append(allModelLines, d.renderModel(model, i == d.selected, contentWidth))
 	}
 
-	totalLines := len(allModelLines)
-	visibleLines := maxItems
+	regionWidth := contentWidth + d.scrollview.ReservedCols()
 
-	// Update scrollbar dimensions
-	d.scrollbar.SetDimensions(visibleLines, totalLines)
-
-	// Only auto-scroll to selection when keyboard navigation occurred
-	if d.needsScrollToSel {
-		selectedLine := d.findSelectedLine(allModelLines)
-		scrollOffset := d.scrollbar.GetScrollOffset()
-		if selectedLine < scrollOffset {
-			d.scrollbar.SetScrollOffset(selectedLine)
-		} else if selectedLine >= scrollOffset+visibleLines {
-			d.scrollbar.SetScrollOffset(selectedLine - visibleLines + 1)
-		}
-		d.needsScrollToSel = false
-	}
-
-	// Slice visible lines based on scroll offset
-	scrollOffset := d.scrollbar.GetScrollOffset()
-	visibleEnd := min(scrollOffset+visibleLines, totalLines)
-	visibleModelLines := allModelLines[scrollOffset:visibleEnd]
-
-	// Pad with empty lines if content is shorter than visible area
-	for len(visibleModelLines) < visibleLines {
-		visibleModelLines = append(visibleModelLines, "")
-	}
-
-	// Handle empty state
-	if len(d.filtered) == 0 {
-		visibleModelLines = []string{"", styles.DialogContentStyle.
-			Italic(true).
-			Align(lipgloss.Center).
-			Width(contentWidth).
-			Render("No models found")}
-		for len(visibleModelLines) < visibleLines {
-			visibleModelLines = append(visibleModelLines, "")
-		}
-	}
-
-	// Build model list with fixed width to keep scrollbar position stable
-	modelListStyle := lipgloss.NewStyle().Width(contentWidth)
-	var fixedWidthLines []string
-	for _, line := range visibleModelLines {
-		fixedWidthLines = append(fixedWidthLines, modelListStyle.Render(line))
-	}
-	modelListContent := strings.Join(fixedWidthLines, "\n")
-
-	// Set scrollbar position for mouse hit testing
+	// Set scrollview position for mouse hit-testing (auto-computed from dialog position)
 	dialogRow, dialogCol := d.Position()
-	scrollbarX := dialogCol + dialogWidth - pickerScrollbarXInset - scrollbar.Width
-	scrollbarY := dialogRow + pickerScrollbarYOffset
-	d.scrollbar.SetPosition(scrollbarX, scrollbarY)
+	d.scrollview.SetPosition(dialogCol+3, dialogRow+pickerListStartOffset)
 
-	// Get scrollbar view
-	scrollbarView := d.scrollbar.View()
+	d.scrollview.SetContent(allModelLines, len(allModelLines))
 
-	// Combine content with scrollbar (gap between content and scrollbar)
-	// Always include the gap and scrollbar space to maintain consistent layout
 	var scrollableContent string
-	gap := strings.Repeat(" ", pickerScrollbarGap)
-	if scrollbarView != "" {
-		scrollableContent = lipgloss.JoinHorizontal(lipgloss.Top, modelListContent, gap, scrollbarView)
+	if len(d.filtered) == 0 {
+		visLines := d.scrollview.VisibleHeight()
+		emptyLines := []string{"", styles.DialogContentStyle.
+			Italic(true).Align(lipgloss.Center).Width(contentWidth).
+			Render("No models found")}
+		for len(emptyLines) < visLines {
+			emptyLines = append(emptyLines, "")
+		}
+		scrollableContent = d.scrollview.ViewWithLines(emptyLines)
 	} else {
-		// No scrollbar needed, but still pad to maintain consistent width
-		scrollbarPlaceholder := strings.Repeat(" ", scrollbar.Width)
-		scrollableContent = lipgloss.JoinHorizontal(lipgloss.Top, modelListContent, gap, scrollbarPlaceholder)
+		scrollableContent = d.scrollview.View()
 	}
 
-	contentBuilder := NewContent(contentWidth + pickerScrollbarGap + scrollbar.Width).
+	contentBuilder := NewContent(regionWidth).
 		AddTitle("Select Model").
 		AddSpace().
 		AddContent(d.textInput.View())
@@ -713,11 +553,6 @@ func (d *modelPickerDialog) findSelectedLine(allModelLines []string) int {
 	}
 
 	return min(lineIndex, len(allModelLines)-1)
-}
-
-func (d *modelPickerDialog) pageSize() int {
-	_, maxHeight, _ := d.dialogSize()
-	return max(1, maxHeight-pickerListVerticalOverhead)
 }
 
 func (d *modelPickerDialog) renderModel(model runtime.ModelChoice, selected bool, maxWidth int) string {

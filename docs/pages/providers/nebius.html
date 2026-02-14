@@ -1,0 +1,82 @@
+<h1>Nebius</h1>
+<p class="subtitle">Use Nebius AI models with cagent.</p>
+
+<h2>Overview</h2>
+
+<p>Nebius provides AI models through an OpenAI-compatible API. cagent includes built-in support for Nebius as an alias provider.</p>
+
+<h2>Setup</h2>
+
+<ol>
+  <li>Get an API key from <a href="https://nebius.ai/" target="_blank" rel="noopener noreferrer">Nebius AI</a></li>
+  <li>Set the environment variable:
+    <pre><code class="language-bash">export NEBIUS_API_KEY=your-api-key</code></pre>
+  </li>
+</ol>
+
+<h2>Usage</h2>
+
+<h3>Inline Syntax</h3>
+
+<p>The simplest way to use Nebius:</p>
+
+<pre><code class="language-yaml">agents:
+  root:
+    model: nebius/deepseek-ai/DeepSeek-V3
+    description: Assistant using Nebius
+    instruction: You are a helpful assistant.</code></pre>
+
+<h3>Named Model</h3>
+
+<p>For more control over parameters:</p>
+
+<pre><code class="language-yaml">models:
+  nebius_model:
+    provider: nebius
+    model: deepseek-ai/DeepSeek-V3
+    temperature: 0.7
+    max_tokens: 8192
+
+agents:
+  root:
+    model: nebius_model
+    description: Assistant using Nebius
+    instruction: You are a helpful assistant.</code></pre>
+
+<h2>Available Models</h2>
+
+<p>Nebius hosts various open models. Check the <a href="https://nebius.ai/docs" target="_blank" rel="noopener noreferrer">Nebius documentation</a> for the current model catalog.</p>
+
+<table>
+  <thead><tr><th>Model</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>deepseek-ai/DeepSeek-V3</code></td><td>DeepSeek V3 model</td></tr>
+    <tr><td><code>Qwen/Qwen2.5-72B-Instruct</code></td><td>Qwen 2.5 72B instruction-tuned</td></tr>
+    <tr><td><code>meta-llama/Llama-3.3-70B-Instruct</code></td><td>Llama 3.3 70B instruction-tuned</td></tr>
+  </tbody>
+</table>
+
+<h2>How It Works</h2>
+
+<p>Nebius is implemented as a built-in alias in cagent:</p>
+
+<ul>
+  <li><strong>API Type:</strong> OpenAI-compatible (<code>openai_chatcompletions</code>)</li>
+  <li><strong>Base URL:</strong> <code>https://api.studio.nebius.ai/v1</code></li>
+  <li><strong>Token Variable:</strong> <code>NEBIUS_API_KEY</code></li>
+</ul>
+
+<h2>Example: Code Assistant</h2>
+
+<pre><code class="language-yaml">agents:
+  coder:
+    model: nebius/deepseek-ai/DeepSeek-V3
+    description: Code assistant using DeepSeek
+    instruction: |
+      You are an expert programmer using DeepSeek V3.
+      Write clean, well-documented code.
+      Follow best practices for the language being used.
+    toolsets:
+      - type: filesystem
+      - type: shell
+      - type: think</code></pre>

@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -274,10 +275,10 @@ func listBuiltinThemeRefs() ([]string, error) {
 		}
 		name := entry.Name()
 		// Accept .yaml and .yml files
-		if strings.HasSuffix(name, ".yaml") {
-			refs = append(refs, strings.TrimSuffix(name, ".yaml"))
-		} else if strings.HasSuffix(name, ".yml") {
-			refs = append(refs, strings.TrimSuffix(name, ".yml"))
+		if before, ok := strings.CutSuffix(name, ".yaml"); ok {
+			refs = append(refs, before)
+		} else if before, ok := strings.CutSuffix(name, ".yml"); ok {
+			refs = append(refs, before)
 		}
 	}
 
@@ -380,10 +381,10 @@ func listThemeRefsFrom(dir string) ([]string, error) {
 		}
 		name := entry.Name()
 		// Accept .yaml and .yml files
-		if strings.HasSuffix(name, ".yaml") {
-			refs = append(refs, strings.TrimSuffix(name, ".yaml"))
-		} else if strings.HasSuffix(name, ".yml") {
-			refs = append(refs, strings.TrimSuffix(name, ".yml"))
+		if before, ok := strings.CutSuffix(name, ".yaml"); ok {
+			refs = append(refs, before)
+		} else if before, ok := strings.CutSuffix(name, ".yml"); ok {
+			refs = append(refs, before)
 		}
 	}
 
@@ -565,12 +566,7 @@ func IsBuiltinTheme(ref string) bool {
 		return false
 	}
 
-	for _, builtinRef := range builtinRefs {
-		if builtinRef == ref {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(builtinRefs, ref)
 }
 
 // loadThemeFrom loads a theme from a specific directory (for testing).
@@ -985,6 +981,10 @@ func rebuildStyles() {
 
 	SelectedMessageStyle = AssistantMessageStyle.
 		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(Success)
+
+	SelectedUserMessageStyle = UserMessageStyle.
+		BorderStyle(lipgloss.ThickBorder()).
 		BorderForeground(Success)
 
 	// Dialog styles

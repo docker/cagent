@@ -1,0 +1,98 @@
+<h1>AWS Bedrock</h1>
+<p class="subtitle">Access Claude, Nova, Llama, and more through AWS infrastructure with enterprise-grade security and compliance.</p>
+
+<h2>Prerequisites</h2>
+
+<ul>
+  <li>AWS account with Bedrock enabled in your region</li>
+  <li>Model access granted in the <a href="https://console.aws.amazon.com/bedrock/" target="_blank" rel="noopener noreferrer">Bedrock Console</a> (some models require approval)</li>
+  <li>AWS credentials configured (see authentication below)</li>
+</ul>
+
+<h2>Configuration</h2>
+
+<pre><code class="language-yaml">models:
+  bedrock-claude:
+    provider: amazon-bedrock
+    model: global.anthropic.claude-sonnet-4-5-20250929-v1:0
+    max_tokens: 64000
+    provider_opts:
+      region: us-east-1</code></pre>
+
+<h2>Authentication</h2>
+
+<h3>Option 1: Bedrock API Key (Simplest)</h3>
+
+<pre><code class="language-bash">export AWS_BEARER_TOKEN_BEDROCK="your-key"</code></pre>
+
+<pre><code class="language-yaml">models:
+  bedrock:
+    provider: amazon-bedrock
+    model: global.anthropic.claude-sonnet-4-5-20250929-v1:0
+    token_key: AWS_BEARER_TOKEN_BEDROCK  # env var name
+    provider_opts:
+      region: us-east-1</code></pre>
+
+<h3>Option 2: AWS Credentials (Default)</h3>
+
+<p>Uses the standard AWS SDK credential chain: env vars → shared credentials → config → IAM roles.</p>
+
+<pre><code class="language-yaml">models:
+  bedrock:
+    provider: amazon-bedrock
+    model: global.anthropic.claude-sonnet-4-5-20250929-v1:0
+    provider_opts:
+      profile: my-aws-profile
+      region: us-east-1</code></pre>
+
+<h3>With IAM Role Assumption</h3>
+
+<pre><code class="language-yaml">models:
+  bedrock:
+    provider: amazon-bedrock
+    model: anthropic.claude-3-sonnet-20240229-v1:0
+    provider_opts:
+      role_arn: "arn:aws:iam::123456789012:role/BedrockAccessRole"
+      external_id: "my-external-id"</code></pre>
+
+<h2>Provider Options</h2>
+
+<table>
+  <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>region</code></td><td>string</td><td>us-east-1</td><td>AWS region</td></tr>
+    <tr><td><code>profile</code></td><td>string</td><td>—</td><td>AWS profile name</td></tr>
+    <tr><td><code>role_arn</code></td><td>string</td><td>—</td><td>IAM role ARN for assume role</td></tr>
+    <tr><td><code>role_session_name</code></td><td>string</td><td>cagent-bedrock-session</td><td>Session name for assumed role</td></tr>
+    <tr><td><code>external_id</code></td><td>string</td><td>—</td><td>External ID for role assumption</td></tr>
+    <tr><td><code>endpoint_url</code></td><td>string</td><td>—</td><td>Custom endpoint (VPC/testing)</td></tr>
+    <tr><td><code>interleaved_thinking</code></td><td>bool</td><td>true</td><td>Reasoning during tool calls (Claude)</td></tr>
+    <tr><td><code>disable_prompt_caching</code></td><td>bool</td><td>false</td><td>Disable automatic prompt caching</td></tr>
+  </tbody>
+</table>
+
+<h2>Inference Profiles</h2>
+
+<p>Use inference profile prefixes for optimal routing:</p>
+
+<table>
+  <thead><tr><th>Prefix</th><th>Routes To</th></tr></thead>
+  <tbody>
+    <tr><td><code>global.</code></td><td>All commercial AWS regions (recommended)</td></tr>
+    <tr><td><code>us.</code></td><td>US regions only</td></tr>
+    <tr><td><code>eu.</code></td><td>EU regions only (GDPR compliance)</td></tr>
+  </tbody>
+</table>
+
+<div class="callout callout-tip">
+  <div class="callout-title">💡 Inference profiles</div>
+  <p>Use <code>global.</code> prefix on model IDs for automatic cross-region routing. Use <code>eu.</code> prefix for GDPR compliance.</p>
+</div>
+
+<h2>Prompt Caching</h2>
+
+<p>Automatically enabled for supported models to reduce latency and costs. System prompts, tool definitions, and recent messages are cached with a 5-minute TTL.</p>
+
+<pre><code class="language-bash"># Disable if needed
+provider_opts:
+  disable_prompt_caching: true</code></pre>

@@ -36,6 +36,10 @@ func Push(reference string) error {
 		img = mutate.Annotations(img, metadata.Annotations).(v1.Image)
 	}
 
+	// Wrap as a spec-compliant OCI artifact so the pushed manifest includes
+	// artifactType and an empty config descriptor.
+	img = content.NewArtifactImage(img, "application/vnd.docker.cagent.config.v1+json")
+
 	ref, err := name.ParseReference(reference)
 	if err != nil {
 		return fmt.Errorf("parsing registry reference %s: %w", reference, err)

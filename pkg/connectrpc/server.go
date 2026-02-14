@@ -24,6 +24,7 @@ import (
 	"github.com/docker/cagent/pkg/server"
 	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/tools"
+	"github.com/docker/cagent/pkg/upstream"
 )
 
 // Server implements the Connect-RPC AgentService.
@@ -44,7 +45,8 @@ func (s *Server) Handler() http.Handler {
 
 	path, handler := cagentv1connect.NewAgentServiceHandler(s)
 	mux.Handle(path, handler)
-	return h2c.NewHandler(mux, &http2.Server{})
+
+	return upstream.Handler(h2c.NewHandler(mux, &http2.Server{}))
 }
 
 // Serve starts the Connect-RPC server on the given listener.
@@ -225,7 +227,7 @@ func (s *Server) DeleteSession(ctx context.Context, req *connect.Request[cagentv
 
 // ResumeSession resumes a paused session.
 func (s *Server) ResumeSession(ctx context.Context, req *connect.Request[cagentv1.ResumeSessionRequest]) (*connect.Response[cagentv1.ResumeSessionResponse], error) {
-	if err := s.sm.ResumeSession(ctx, req.Msg.Id, req.Msg.Confirmation, req.Msg.Reason); err != nil {
+	if err := s.sm.ResumeSession(ctx, req.Msg.Id, req.Msg.Confirmation, req.Msg.Reason, req.Msg.ToolName); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to resume session: %w", err))
 	}
 	return connect.NewResponse(&cagentv1.ResumeSessionResponse{}), nil
@@ -303,6 +305,23 @@ func (s *Server) RunAgent(ctx context.Context, req *connect.Request[cagentv1.Run
 func (s *Server) Ping(_ context.Context, _ *connect.Request[cagentv1.PingRequest]) (*connect.Response[cagentv1.PingResponse], error) {
 	return connect.NewResponse(&cagentv1.PingResponse{
 		Status: "ok",
+	}), nil
+}
+
+// GetAgentToolCount returns the number of tools available for an agent.
+func (s *Server) GetAgentToolCount(ctx context.Context, req *connect.Request[cagentv1.GetAgentToolCountRequest]) (*connect.Response[cagentv1.GetAgentToolCountResponse], error) {
+	agentName := req.Msg.AgentName
+	if agentName == "" {
+		agentName = "root"
+	}
+
+	count, err := s.sm.GetAgentToolCount(ctx, req.Msg.Id, agentName)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to get agent tool count: %w", err))
+	}
+
+	return connect.NewResponse(&cagentv1.GetAgentToolCountResponse{
+		AvailableTools: int32(count),
 	}), nil
 }
 

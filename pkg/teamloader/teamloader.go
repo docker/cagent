@@ -43,6 +43,7 @@ func isThinkingBudgetDisabled(tb *latest.ThinkingBudget) bool {
 
 type loadOptions struct {
 	modelOverrides  []string
+	promptFiles     []string
 	toolsetRegistry *ToolsetRegistry
 }
 
@@ -51,6 +52,15 @@ type Opt func(*loadOptions) error
 func WithModelOverrides(overrides []string) Opt {
 	return func(opts *loadOptions) error {
 		opts.modelOverrides = overrides
+		return nil
+	}
+}
+
+// WithPromptFiles adds additional prompt files to all agents.
+// These are merged with any prompt files defined in the agent config.
+func WithPromptFiles(files []string) Opt {
+	return func(opts *loadOptions) error {
+		opts.promptFiles = files
 		return nil
 	}
 }
@@ -102,7 +112,12 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 
 	// Resolve model aliases (e.g., "claude-sonnet-4-5" -> "claude-sonnet-4-5-20250929")
 	// This ensures the sidebar and other UI elements show the actual model being used.
-	config.ResolveModelAliases(ctx, cfg)
+	modelsStore, err := modelsdev.NewStore()
+	if err != nil {
+		slog.Debug("Failed to create modelsdev store for alias resolution", "error", err)
+	} else {
+		config.ResolveModelAliases(cfg, modelsStore)
+	}
 
 	// Apply model overrides from CLI flags before checking required env vars
 	if err := config.ApplyModelOverrides(cfg, loadOpts.modelOverrides); err != nil {
@@ -132,7 +147,7 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 	agentsByName := make(map[string]*agent.Agent)
 
 	autoModel := sync.OnceValue(func() latest.ModelConfig {
-		return config.AutoModelConfig(ctx, runConfig.ModelsGateway, env)
+		return config.AutoModelConfig(ctx, runConfig.ModelsGateway, env, runConfig.DefaultModel)
 	})
 
 	expander := js.NewJsExpander(env)
@@ -143,6 +158,21 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 			skillsEnabled = *agentConfig.Skills
 		}
 
+		// Merge CLI prompt files with agent config prompt files, deduplicating
+		promptFiles := append([]string{}, agentConfig.AddPromptFiles...)
+		promptFiles = append(promptFiles, loadOpts.promptFiles...)
+
+		// Deduplicate to avoid redundant context (saves tokens)
+		seen := make(map[string]bool)
+		unique := promptFiles[:0]
+		for _, f := range promptFiles {
+			if !seen[f] {
+				seen[f] = true
+				unique = append(unique, f)
+			}
+		}
+		promptFiles = unique
+
 		opts := []agent.Opt{
 			agent.WithName(agentConfig.Name),
 			agent.WithDescription(expander.Expand(ctx, agentConfig.Description)),
@@ -150,7 +180,7 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 			agent.WithAddDate(agentConfig.AddDate),
 			agent.WithAddEnvironmentInfo(agentConfig.AddEnvironmentInfo),
 			agent.WithAddDescriptionParameter(agentConfig.AddDescriptionParameter),
-			agent.WithAddPromptFiles(agentConfig.AddPromptFiles),
+			agent.WithAddPromptFiles(promptFiles),
 			agent.WithMaxIterations(agentConfig.MaxIterations),
 			agent.WithNumHistoryItems(agentConfig.NumHistoryItems),
 			agent.WithCommands(expander.ExpandCommands(ctx, agentConfig.Commands)),
@@ -162,8 +192,7 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 		if err != nil {
 			// Return auto model fallback errors and DMR not installed errors directly
 			// without wrapping to provide cleaner messages
-			var autoErr *config.ErrAutoModelFallback
-			if errors.As(err, &autoErr) || errors.Is(err, dmr.ErrNotInstalled) {
+			if _, ok := errors.AsType[*config.AutoModelFallbackError](err); ok || errors.Is(err, dmr.ErrNotInstalled) {
 				return nil, err
 			}
 			return nil, fmt.Errorf("failed to get models: %w", err)
@@ -172,6 +201,22 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 			opts = append(opts, agent.WithModel(model))
 		}
 		opts = append(opts, agent.WithThinkingConfigured(thinkingConfigured))
+
+		// Load fallback models if configured
+		fallbackModelRefs := agentConfig.GetFallbackModels()
+		if len(fallbackModelRefs) > 0 {
+			fallbackModels, err := getFallbackModelsForAgent(ctx, cfg, &agentConfig, runConfig)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get fallback models: %w", err)
+			}
+			for _, model := range fallbackModels {
+				opts = append(opts, agent.WithFallbackModel(model))
+			}
+			opts = append(opts,
+				agent.WithFallbackRetries(agentConfig.GetFallbackRetries()),
+				agent.WithFallbackCooldown(agentConfig.GetFallbackCooldown()),
+			)
+		}
 
 		agentTools, warnings := getToolsForAgent(ctx, &agentConfig, parentDir, runConfig, loadOpts.toolsetRegistry)
 		if len(warnings) > 0 {
@@ -264,26 +309,25 @@ func getModelsForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentC
 			thinkingConfigured = true
 		}
 
-		opts := []options.Opt{
-			options.WithGateway(runConfig.ModelsGateway),
-			options.WithStructuredOutput(a.StructuredOutput),
-			options.WithProviders(cfg.Providers),
-		}
-
 		// Use max_tokens from config if specified, otherwise look up from models.dev
-		var maxTokens *int64
+		maxTokens := &defaultMaxTokens
 		if modelCfg.MaxTokens != nil {
 			maxTokens = modelCfg.MaxTokens
 		} else {
-			maxTokens = &defaultMaxTokens
 			modelsStore, err := modelsdev.NewStore()
 			if err != nil {
 				return nil, false, err
 			}
-			m, err := modelsStore.GetModel(ctx, modelCfg.Provider+"/"+modelCfg.Model)
+			m, err := modelsStore.GetModel(modelCfg.Provider + "/" + modelCfg.Model)
 			if err == nil {
 				maxTokens = &m.Limit.Output
 			}
+		}
+
+		opts := []options.Opt{
+			options.WithGateway(runConfig.ModelsGateway),
+			options.WithStructuredOutput(a.StructuredOutput),
+			options.WithProviders(cfg.Providers),
 		}
 		if maxTokens != nil {
 			opts = append(opts, options.WithMaxTokens(*maxTokens))
@@ -299,7 +343,7 @@ func getModelsForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentC
 		if err != nil {
 			// Return a cleaner error message for auto model selection failures
 			if isAutoModel {
-				return nil, false, &config.ErrAutoModelFallback{}
+				return nil, false, &config.AutoModelFallbackError{}
 			}
 			return nil, false, err
 		}
@@ -307,6 +351,65 @@ func getModelsForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentC
 	}
 
 	return models, thinkingConfigured, nil
+}
+
+// getFallbackModelsForAgent returns fallback providers for an agent based on its fallback configuration.
+// It uses the same resolution logic as primary models (named model, inline provider/model format).
+func getFallbackModelsForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentConfig, runConfig *config.RuntimeConfig) ([]provider.Provider, error) {
+	var fallbackModels []provider.Provider
+
+	for _, name := range a.GetFallbackModels() {
+		modelCfg, exists := cfg.Models[name]
+		if !exists {
+			// Try parsing as inline provider/model format (e.g., "openai/gpt-4o")
+			providerName, modelName, ok := strings.Cut(name, "/")
+			if !ok {
+				return nil, fmt.Errorf("fallback model '%s' not found in configuration and is not a valid provider/model format", name)
+			}
+			modelCfg = latest.ModelConfig{
+				Provider: providerName,
+				Model:    modelName,
+			}
+		}
+
+		// Use max_tokens from config if specified, otherwise look up from models.dev
+		maxTokens := &defaultMaxTokens
+		if modelCfg.MaxTokens != nil {
+			maxTokens = modelCfg.MaxTokens
+		} else {
+			modelsStore, err := modelsdev.NewStore()
+			if err != nil {
+				return nil, err
+			}
+			m, err := modelsStore.GetModel(modelCfg.Provider + "/" + modelCfg.Model)
+			if err == nil {
+				maxTokens = &m.Limit.Output
+			}
+		}
+
+		opts := []options.Opt{
+			options.WithGateway(runConfig.ModelsGateway),
+			options.WithStructuredOutput(a.StructuredOutput),
+			options.WithProviders(cfg.Providers),
+		}
+		if maxTokens != nil {
+			opts = append(opts, options.WithMaxTokens(*maxTokens))
+		}
+
+		// Pass the full models map for routing rules to resolve model references
+		model, err := provider.NewWithModels(ctx,
+			&modelCfg,
+			cfg.Models,
+			runConfig.EnvProvider(),
+			opts...,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create fallback model '%s': %w", name, err)
+		}
+		fallbackModels = append(fallbackModels, model)
+	}
+
+	return fallbackModels, nil
 }
 
 // getToolsForAgent returns the tool definitions for an agent based on its configuration

@@ -15,6 +15,7 @@ import (
 	"github.com/docker/cagent/pkg/tui/core/layout"
 	"github.com/docker/cagent/pkg/tui/dialog"
 	"github.com/docker/cagent/pkg/tui/messages"
+	"github.com/docker/cagent/pkg/tui/page/chat"
 )
 
 // mockChatPage implements chat.Page for testing
@@ -34,8 +35,12 @@ func (m *mockChatPage) SetTitleRegenerating(bool) tea.Cmd      { return nil }
 func (m *mockChatPage) InsertText(string)                      {}
 func (m *mockChatPage) SetRecording(bool) tea.Cmd              { return nil }
 func (m *mockChatPage) SendEditorContent() tea.Cmd             { return nil }
-func (m *mockChatPage) Bindings() []key.Binding                { return nil }
-func (m *mockChatPage) Help() help.KeyMap                      { return nil }
+func (m *mockChatPage) GetSidebarSettings() chat.SidebarSettings {
+	return chat.SidebarSettings{}
+}
+func (m *mockChatPage) SetSidebarSettings(chat.SidebarSettings) {}
+func (m *mockChatPage) Bindings() []key.Binding                 { return nil }
+func (m *mockChatPage) Help() help.KeyMap                       { return nil }
 
 // collectMsgs executes a command (or batch/sequence of commands) and collects all returned messages.
 func collectMsgs(cmd tea.Cmd) []tea.Msg {

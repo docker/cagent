@@ -1,0 +1,57 @@
+<h1>Anthropic</h1>
+<p class="subtitle">Use Claude Sonnet 4, Claude Sonnet 4.5, and other Anthropic models with cagent.</p>
+
+<h2>Setup</h2>
+
+<pre><code class="language-bash"># Set your API key
+export ANTHROPIC_API_KEY="sk-ant-..."</code></pre>
+
+<h2>Configuration</h2>
+
+<h3>Inline</h3>
+<pre><code class="language-yaml">agents:
+  root:
+    model: anthropic/claude-sonnet-4-0</code></pre>
+
+<h3>Named Model</h3>
+<pre><code class="language-yaml">models:
+  claude:
+    provider: anthropic
+    model: claude-sonnet-4-0
+    max_tokens: 64000</code></pre>
+
+<h2>Available Models</h2>
+
+<table>
+  <thead><tr><th>Model</th><th>Best For</th></tr></thead>
+  <tbody>
+    <tr><td><code>claude-sonnet-4-5</code></td><td>Most capable, extended thinking</td></tr>
+    <tr><td><code>claude-sonnet-4-0</code></td><td>Strong coding, balanced performance</td></tr>
+  </tbody>
+</table>
+
+<h2>Thinking Budget</h2>
+
+<p>Anthropic uses integer token budgets (1024–32768). Defaults to 8192 with interleaved thinking enabled:</p>
+
+<pre><code class="language-yaml">models:
+  claude-deep:
+    provider: anthropic
+    model: claude-sonnet-4-5
+    thinking_budget: 16384  # must be &lt; max_tokens</code></pre>
+
+<h2>Interleaved Thinking</h2>
+
+<p>Enabled by default. Allows tool calls during model reasoning for more integrated problem-solving:</p>
+
+<pre><code class="language-yaml">models:
+  claude:
+    provider: anthropic
+    model: claude-sonnet-4-5
+    provider_opts:
+      interleaved_thinking: false  # disable if needed</code></pre>
+
+<div class="callout callout-info">
+  <div class="callout-title">ℹ️ Note</div>
+  <p>Anthropic thinking budget values below 1024 or greater than or equal to <code>max_tokens</code> are ignored (a warning is logged).</p>
+</div>

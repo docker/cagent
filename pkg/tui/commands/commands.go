@@ -262,7 +262,7 @@ func BuildCommandCategories(ctx context.Context, application *app.App) []Categor
 
 	// Check if the current model supports reasoning; hide /think if not
 	currentModel := application.CurrentAgentModel()
-	if !modelsdev.ModelSupportsReasoning(ctx, currentModel) {
+	if !modelsdev.ModelSupportsReasoning(currentModel) {
 		filtered := make([]Item, 0, len(sessionCommands))
 		for _, cmd := range sessionCommands {
 			if cmd.ID != "session.think" {
@@ -385,6 +385,36 @@ func BuildCommandCategories(ctx context.Context, application *app.App) []Categor
 		categories = append(categories, Category{
 			Name:     "MCP Prompts",
 			Commands: mcpCommands,
+		})
+	}
+
+	// Add skill commands if skills are enabled for the current agent
+	skillsList := application.CurrentAgentSkills()
+	if len(skillsList) > 0 {
+		skillCommands := make([]Item, 0, len(skillsList))
+		for _, skill := range skillsList {
+			skillName := skill.Name
+			description := toolcommon.TruncateText(skill.Description, 55)
+
+			skillCommands = append(skillCommands, Item{
+				ID:           "skill." + skillName,
+				Label:        skillName,
+				Description:  description,
+				Category:     "Skills",
+				SlashCommand: "/" + skillName,
+				Execute: func(arg string) tea.Cmd {
+					input := "/" + skillName
+					if arg = strings.TrimSpace(arg); arg != "" {
+						input += " " + arg
+					}
+					return core.CmdHandler(messages.SendMsg{Content: input})
+				},
+			})
+		}
+
+		categories = append(categories, Category{
+			Name:     "Skills",
+			Commands: skillCommands,
 		})
 	}
 

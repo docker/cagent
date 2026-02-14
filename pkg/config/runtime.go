@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/docker/cagent/pkg/config/latest"
 	"github.com/docker/cagent/pkg/environment"
 )
 
@@ -18,6 +19,7 @@ type RuntimeConfig struct {
 type Config struct {
 	EnvFiles       []string
 	ModelsGateway  string
+	DefaultModel   *latest.ModelConfig
 	GlobalCodeMode bool
 	WorkingDir     string
 }

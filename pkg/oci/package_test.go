@@ -25,7 +25,7 @@ agents:
 	store, err := content.NewStore(content.WithBaseDir(t.TempDir()))
 	require.NoError(t, err)
 
-	agentSource, err := config.Resolve(agentFilename)
+	agentSource, err := config.Resolve(agentFilename, nil)
 	require.NoError(t, err)
 
 	tag := "test-app:v1.0.0"
@@ -59,7 +59,7 @@ func TestPackageFileAsOCIToStoreInvalidTag(t *testing.T) {
 	agentFilename := filepath.Join(t.TempDir(), "test.txt")
 	require.NoError(t, os.WriteFile(agentFilename, []byte("test content"), 0o644))
 
-	agentSource, err := config.Resolve(agentFilename)
+	agentSource, err := config.Resolve(agentFilename, nil)
 	require.NoError(t, err)
 
 	store, err := content.NewStore(content.WithBaseDir(t.TempDir()))
@@ -87,7 +87,7 @@ agents:
 	store, err := content.NewStore(content.WithBaseDir(t.TempDir()))
 	require.NoError(t, err)
 
-	agentSource, err := config.Resolve(agentFilename)
+	agentSource, err := config.Resolve(agentFilename, nil)
 	require.NoError(t, err)
 
 	tag := "test-providers:v1.0.0"

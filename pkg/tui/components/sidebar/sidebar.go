@@ -1,7 +1,6 @@
 package sidebar
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -20,6 +19,7 @@ import (
 	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/tools"
 	"github.com/docker/cagent/pkg/tui/components/scrollbar"
+	"github.com/docker/cagent/pkg/tui/components/scrollview"
 	"github.com/docker/cagent/pkg/tui/components/spinner"
 	"github.com/docker/cagent/pkg/tui/components/tab"
 	"github.com/docker/cagent/pkg/tui/components/tool/todotool"
@@ -50,6 +50,7 @@ type Model interface {
 	SetTeamInfo(availableAgents []runtime.AgentDetails)
 	SetAgentSwitching(switching bool)
 	SetToolsetInfo(availableTools int, loading bool)
+	SetSkillsInfo(availableSkills int)
 	SetSessionStarred(starred bool)
 	SetQueuedMessages(messages ...string)
 	GetSize() (width, height int)
@@ -89,6 +90,8 @@ type Model interface {
 	SetTitleRegenerating(regenerating bool) tea.Cmd
 	// ScrollByWheel applies a wheel delta to the sidebar scrollbar.
 	ScrollByWheel(delta int)
+	// IsScrollbarDragging returns true when the scrollbar thumb is being dragged.
+	IsScrollbarDragging() bool
 }
 
 // ragIndexingState tracks per-strategy indexing progress
@@ -122,10 +125,11 @@ type model struct {
 	availableAgents    []runtime.AgentDetails
 	agentSwitching     bool
 	availableTools     int
+	availableSkills    int
 	toolsLoading       bool // true when more tools may still be loading
 	sessionState       *service.SessionState
 	workingAgent       string // Name of the agent currently working (empty if none)
-	scrollbar          *scrollbar.Model
+	scrollview         *scrollview.Model
 	workingDirectory   string
 	queuedMessages     []string // Truncated preview of queued messages
 	streamCancelled    bool     // true after ESC cancel until next StreamStartedEvent
@@ -160,17 +164,20 @@ func New(sessionState *service.SessionState, opts ...Option) Model {
 	ti.Prompt = "" // No prompt to maximize usable width in collapsed sidebar
 
 	m := &model{
-		width:              20,
-		layoutCfg:          DefaultLayoutConfig(),
-		height:             24,
-		sessionUsage:       make(map[string]*runtime.Usage),
-		sessionAgent:       make(map[string]string),
-		todoComp:           todotool.NewSidebarComponent(),
-		spinner:            spinner.New(spinner.ModeSpinnerOnly, styles.SpinnerDotsHighlightStyle),
-		sessionTitle:       "New session",
-		ragIndexing:        make(map[string]*ragIndexingState),
-		sessionState:       sessionState,
-		scrollbar:          scrollbar.New(),
+		width:        20,
+		layoutCfg:    DefaultLayoutConfig(),
+		height:       24,
+		sessionUsage: make(map[string]*runtime.Usage),
+		sessionAgent: make(map[string]string),
+		todoComp:     todotool.NewSidebarComponent(),
+		spinner:      spinner.New(spinner.ModeSpinnerOnly, styles.SpinnerDotsHighlightStyle),
+		sessionTitle: "New session",
+		ragIndexing:  make(map[string]*ragIndexingState),
+		sessionState: sessionState,
+		scrollview: scrollview.New(
+			scrollview.WithWheelStep(1),
+			scrollview.WithKeyMap(nil), // Sidebar has no keyboard scroll — only mouse
+		),
 		workingDirectory:   getCurrentWorkingDirectory(),
 		reasoningSupported: true,
 		preferredWidth:     DefaultWidth,
@@ -245,18 +252,21 @@ func (m *model) SetAgentInfo(agentName, modelID, description string) {
 	m.currentAgent = agentName
 	m.agentModel = modelID
 	m.agentDescription = description
-	m.reasoningSupported = modelsdev.ModelSupportsReasoning(context.Background(), modelID)
+	m.reasoningSupported = modelsdev.ModelSupportsReasoning(modelID)
 
-	// Update the model in availableAgents for the current agent
-	// This is important when model routing selects a different model than configured
-	// Extract just the model name from "provider/model" format to match TeamInfoEvent format
+	// Update the provider and model in availableAgents for the current agent.
+	// This is important when fallback models from different providers are used.
+	// Parse "provider/model" format using first slash to handle model names containing slashes
+	// (e.g., "dmr/ai/llama3.2" → Provider="dmr", Model="ai/llama3.2").
 	for i := range m.availableAgents {
 		if m.availableAgents[i].Name == agentName && modelID != "" {
-			modelName := modelID
-			if idx := strings.LastIndex(modelName, "/"); idx != -1 {
-				modelName = modelName[idx+1:]
+			if provider, modelName, found := strings.Cut(modelID, "/"); found {
+				m.availableAgents[i].Provider = provider
+				m.availableAgents[i].Model = modelName
+			} else {
+				// No slash in modelID; treat the whole string as model name
+				m.availableAgents[i].Model = modelID
 			}
-			m.availableAgents[i].Model = modelName
 			break
 		}
 	}
@@ -279,6 +289,12 @@ func (m *model) SetAgentSwitching(switching bool) {
 func (m *model) SetToolsetInfo(availableTools int, loading bool) {
 	m.availableTools = availableTools
 	m.toolsLoading = loading
+	m.invalidateCache()
+}
+
+// SetSkillsInfo sets the number of available skills
+func (m *model) SetSkillsInfo(availableSkills int) {
+	m.availableSkills = availableSkills
 	m.invalidateCache()
 }
 
@@ -306,11 +322,15 @@ func (m *model) SetTitleRegenerating(regenerating bool) tea.Cmd {
 	return nil
 }
 
+func (m *model) IsScrollbarDragging() bool {
+	return m.scrollview.IsDragging()
+}
+
 func (m *model) ScrollByWheel(delta int) {
 	if m.mode != ModeVertical || delta == 0 {
 		return
 	}
-	m.scrollbar.SetScrollOffset(m.scrollbar.GetScrollOffset() + delta)
+	m.scrollview.ScrollBy(delta)
 }
 
 // ClickResult indicates what was clicked in the sidebar
@@ -356,7 +376,7 @@ func (m *model) HandleClickType(x, y int) ClickResult {
 	}
 
 	// In vertical mode, the title starts at verticalStarY
-	scrollOffset := m.scrollbar.GetScrollOffset()
+	scrollOffset := m.scrollview.ScrollOffset()
 	contentY := y + scrollOffset // Convert viewport Y to content Y
 	titleLines := m.titleLineCount()
 
@@ -468,21 +488,10 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		cmd := m.SetSize(msg.Width, msg.Height)
 		return m, cmd
-	case tea.MouseClickMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
+	case tea.MouseClickMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg, tea.MouseWheelMsg:
 		if m.mode == ModeVertical {
-			sb, cmd := m.scrollbar.Update(msg)
-			m.scrollbar = sb
+			_, cmd := m.scrollview.Update(msg)
 			return m, cmd
-		}
-		return m, nil
-	case tea.MouseWheelMsg:
-		if m.mode == ModeVertical {
-			switch msg.Button.String() {
-			case "wheelup":
-				m.ScrollByWheel(-1)
-			case "wheeldown":
-				m.ScrollByWheel(1)
-			}
 		}
 		return m, nil
 	case *runtime.TokenUsageEvent:
@@ -539,14 +548,32 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 			m.invalidateCache()
 		}
 		return m, nil
+	case *runtime.ToolCallEvent:
+		// Tool call started - ensure working agent is set
+		if msg.AgentName != "" {
+			m.workingAgent = msg.AgentName
+			m.invalidateCache()
+		}
+		cmd := m.startSpinner()
+		return m, cmd
+	case *runtime.ToolCallResponseEvent:
+		// Tool response received - ensure working agent is set (in case stream events were missed)
+		if msg.AgentName != "" {
+			m.workingAgent = msg.AgentName
+			m.invalidateCache()
+		}
+		cmd := m.startSpinner()
+		return m, cmd
 	case *runtime.SessionTitleEvent:
-		m.sessionTitle = msg.Title
-		// Mark title as generated (enables pencil icon)
-		m.titleGenerated = true
-		// Clear regenerating state now that we have a title
+		// Clear regenerating state now that title generation is done
 		if m.titleRegenerating {
 			m.titleRegenerating = false
 			m.stopSpinner()
+		}
+		// Only update title and mark as generated if a non-empty title was provided
+		if msg.Title != "" {
+			m.sessionTitle = msg.Title
+			m.titleGenerated = true
 		}
 		m.invalidateCache()
 		return m, nil
@@ -593,6 +620,7 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		m.workingAgent = ""
 		m.toolsLoading = false
 		m.mcpInit = false
+		m.titleRegenerating = false
 		// Force-stop main spinner if it was active (state is now cleared)
 		if m.spinnerActive {
 			m.spinnerActive = false
@@ -737,10 +765,7 @@ func (m *model) computeCollapsedViewModel(contentWidth int) CollapsedViewModel {
 
 // CollapsedHeight returns the number of lines needed for collapsed mode.
 func (m *model) CollapsedHeight(outerWidth int) int {
-	contentWidth := outerWidth - m.layoutCfg.PaddingLeft - m.layoutCfg.PaddingRight
-	if contentWidth < 1 {
-		contentWidth = 1
-	}
+	contentWidth := max(outerWidth-m.layoutCfg.PaddingLeft-m.layoutCfg.PaddingRight, 1)
 	return m.computeCollapsedViewModel(contentWidth).LineCount()
 }
 
@@ -749,19 +774,18 @@ func (m *model) collapsedView() string {
 }
 
 func (m *model) verticalView() string {
-	visibleLines := m.height
 	contentWidthNoScroll := m.contentWidth(false)
 
 	// Use cached render if available and width hasn't changed
 	if !m.cacheDirty && len(m.cachedLines) > 0 && m.cachedWidth == contentWidthNoScroll {
-		return m.renderFromCache(visibleLines)
+		return m.renderFromCache()
 	}
 
 	// Two-pass rendering: first check if scrollbar is needed
 	// Pass 1: render without scrollbar to count lines
 	lines := m.renderSections(contentWidthNoScroll)
 	totalLines := len(lines)
-	needsScrollbar := totalLines > visibleLines
+	needsScrollbar := totalLines > m.height
 
 	// Pass 2: if scrollbar needed, re-render with narrower content width
 	if needsScrollbar {
@@ -775,43 +799,22 @@ func (m *model) verticalView() string {
 	m.cachedNeedsScrollbar = needsScrollbar
 	m.cacheDirty = false
 
-	return m.renderFromCache(visibleLines)
+	return m.renderFromCache()
 }
 
-// renderFromCache renders the sidebar from cached lines, applying scroll offset and scrollbar.
-func (m *model) renderFromCache(visibleLines int) string {
-	lines := m.cachedLines
-	totalLines := len(lines)
-	needsScrollbar := m.cachedNeedsScrollbar
-
-	// Update scrollbar dimensions
-	m.scrollbar.SetDimensions(visibleLines, totalLines)
-
-	// Get scroll offset from scrollbar
-	scrollOffset := m.scrollbar.GetScrollOffset()
-
-	// Extract visible portion - copy to avoid mutating cache
-	endIdx := min(scrollOffset+visibleLines, totalLines)
-	visibleContent := make([]string, endIdx-scrollOffset)
-	copy(visibleContent, lines[scrollOffset:endIdx])
-
-	// Pad to fill height if content is shorter
-	for len(visibleContent) < visibleLines {
-		visibleContent = append(visibleContent, "")
+// renderFromCache renders the sidebar from cached lines using the scrollview
+// component which guarantees fixed-width output and a pinned scrollbar.
+func (m *model) renderFromCache() string {
+	// Compute the scrollview region width: content + gap + scrollbar (if needed)
+	regionWidth := m.contentWidth(m.cachedNeedsScrollbar)
+	if m.cachedNeedsScrollbar {
+		regionWidth += m.layoutCfg.ScrollbarGap + scrollbar.Width
 	}
 
-	// Render with scrollbar gap if needed
-	if needsScrollbar {
-		scrollbarGap := strings.Repeat(" ", m.layoutCfg.ScrollbarGap)
-		scrollbarView := m.scrollbar.View()
-		return lipgloss.JoinHorizontal(lipgloss.Top,
-			strings.Join(visibleContent, "\n"),
-			scrollbarGap,
-			scrollbarView,
-		)
-	}
+	m.scrollview.SetSize(regionWidth, m.height)
+	m.scrollview.SetContent(m.cachedLines, len(m.cachedLines))
 
-	return strings.Join(visibleContent, "\n")
+	return m.scrollview.View()
 }
 
 // renderSections renders all sidebar sections and returns them as lines.
@@ -1104,7 +1107,14 @@ func (m *model) toolsetInfo(contentWidth int) string {
 	var lines []string
 
 	// Tools status line
-	lines = append(lines, m.renderToolsStatus())
+	if toolsStatus := m.renderToolsStatus(); toolsStatus != "" {
+		lines = append(lines, toolsStatus)
+	}
+
+	// Skills status line
+	if m.availableSkills > 0 {
+		lines = append(lines, m.renderSkillsStatus())
+	}
 
 	// Toggle indicators with shortcuts
 	// Only show "Thinking enabled" if the model supports reasoning
@@ -1146,6 +1156,15 @@ func (m *model) renderToolsStatus() string {
 	return ""
 }
 
+// renderSkillsStatus renders the skills available status line
+func (m *model) renderSkillsStatus() string {
+	label := "skills available"
+	if m.availableSkills == 1 {
+		label = "skill available"
+	}
+	return styles.TabAccentStyle.Render("█") + styles.TabPrimaryStyle.Render(fmt.Sprintf(" %d %s", m.availableSkills, label))
+}
+
 // renderToggleIndicator renders a toggle status with its keyboard shortcut
 func (m *model) renderToggleIndicator(label, shortcut string, contentWidth int) string {
 	indicator := styles.TabAccentStyle.Render("✓") + styles.TabPrimaryStyle.Render(" "+label)
@@ -1155,9 +1174,12 @@ func (m *model) renderToggleIndicator(label, shortcut string, contentWidth int) 
 
 // SetSize sets the dimensions of the component
 func (m *model) SetSize(width, height int) tea.Cmd {
+	if m.width == width && m.height == height {
+		return nil // Dimensions unchanged — skip cache invalidation
+	}
 	m.width = width
 	m.height = height
-	m.updateScrollbarPosition()
+	m.updateScrollviewPosition()
 	m.updateTitleInputWidth()
 	m.invalidateCache() // Width/height change affects layout
 	return nil
@@ -1166,17 +1188,15 @@ func (m *model) SetSize(width, height int) tea.Cmd {
 // updateTitleInputWidth pre-calculates the title input width based on current dimensions.
 // This avoids setting width during View(), keeping View() pure.
 func (m *model) updateTitleInputWidth() {
-	star := m.starIndicator()
-	starWidth := lipgloss.Width(star)
+	starWidth := lipgloss.Width(m.starIndicator())
 
 	// Calculate content width (without scrollbar for simplicity - editing usually doesn't need scrollbar)
 	contentWidth := m.contentWidth(false)
 
 	// Account for star indicator width and leave room for cursor
-	inputWidth := contentWidth - starWidth - 1
-	if inputWidth < 10 {
-		inputWidth = 10 // Minimum usable width
-	}
+	inputWidth := max(contentWidth-starWidth-1,
+		// Minimum usable width
+		10)
 
 	m.titleInput.SetWidth(inputWidth)
 }
@@ -1185,15 +1205,14 @@ func (m *model) updateTitleInputWidth() {
 func (m *model) SetPosition(x, y int) tea.Cmd {
 	m.xPos = x
 	m.yPos = y
-	m.updateScrollbarPosition()
+	m.updateScrollviewPosition()
 	return nil
 }
 
-// updateScrollbarPosition updates the scrollbar's position based on sidebar position and size
-func (m *model) updateScrollbarPosition() {
-	// Scrollbar is at the right edge of the sidebar content
-	// width-1 because the scrollbar is 1 char wide and at the rightmost position
-	m.scrollbar.SetPosition(m.xPos+m.width-1, m.yPos)
+// updateScrollviewPosition updates the scrollview's position based on sidebar position and layout.
+func (m *model) updateScrollviewPosition() {
+	// The scrollview region starts after left padding.
+	m.scrollview.SetPosition(m.xPos+m.layoutCfg.PaddingLeft, m.yPos)
 }
 
 // GetSize returns the current dimensions
@@ -1285,10 +1304,9 @@ func (m *model) BeginTitleEdit() {
 	// Calculate and set the input width based on current sidebar width
 	contentWidth := m.contentWidth(false)
 	starWidth := lipgloss.Width(m.starIndicator())
-	inputWidth := contentWidth - starWidth - 1
-	if inputWidth < 10 {
-		inputWidth = 10 // Minimum usable width
-	}
+	inputWidth := max(contentWidth-starWidth-1,
+		// Minimum usable width
+		10)
 	m.titleInput.SetWidth(inputWidth)
 
 	m.titleInput.Focus()

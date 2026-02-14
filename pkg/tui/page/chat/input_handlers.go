@@ -38,8 +38,19 @@ func (p *chatPage) handleKeyPress(msg tea.KeyPressMsg) (layout.Model, tea.Cmd, b
 		}
 	}
 
+	// History search is a modal state — capture all keys before normal routing
+	if p.focusedPanel == PanelEditor && p.editor.IsHistorySearchActive() {
+		model, cmd := p.editor.Update(msg)
+		p.editor = model.(editor.Editor)
+		return p, cmd, true
+	}
+
 	switch {
 	case key.Matches(msg, p.keyMap.Tab):
+		// Block Tab when inline editing - user must escape or submit first
+		if p.messages.IsInlineEditing() {
+			return p, nil, true
+		}
 		if p.focusedPanel == PanelEditor {
 			if cmd := p.editor.AcceptSuggestion(); cmd != nil {
 				return p, cmd, true
@@ -49,8 +60,23 @@ func (p *chatPage) handleKeyPress(msg tea.KeyPressMsg) (layout.Model, tea.Cmd, b
 		return p, nil, true
 
 	case key.Matches(msg, p.keyMap.Cancel):
-		cmd := p.cancelStream(true)
-		return p, cmd, true
+		// If inline editing is active, cancel the edit first
+		if p.messages.IsInlineEditing() {
+			cmd := p.messages.CancelInlineEdit()
+			return p, cmd, true
+		}
+		// Otherwise cancel the stream (only if something is running)
+		if p.working || p.msgCancel != nil {
+			cmd := p.cancelStream(true)
+			return p, cmd, true
+		}
+		// Forward to focused component for other uses (e.g., clear selection)
+		if p.focusedPanel == PanelChat {
+			model, cmd := p.messages.Update(msg)
+			p.messages = model.(messages.Model)
+			return p, cmd, true
+		}
+		return p, nil, true
 
 	case key.Matches(msg, p.keyMap.ExternalEditor):
 		cmd := p.openExternalEditor()
@@ -65,6 +91,13 @@ func (p *chatPage) handleKeyPress(msg tea.KeyPressMsg) (layout.Model, tea.Cmd, b
 		p.sidebar.ToggleCollapsed()
 		cmd := p.SetSize(p.width, p.height)
 		return p, cmd, true
+
+	case key.Matches(msg, p.keyMap.HistorySearch):
+		if p.focusedPanel == PanelEditor && !p.working && !p.editor.IsRecording() {
+			model, cmd := p.editor.EnterHistorySearch()
+			p.editor = model.(editor.Editor)
+			return p, cmd, true
+		}
 	}
 
 	// Route other keys to focused component
@@ -174,6 +207,21 @@ func (p *chatPage) handleMouseMotion(msg tea.MouseMotionMsg) (layout.Model, tea.
 		return p, nil
 	}
 
+	// During a scrollbar drag, forward motion to both scrollable components
+	// so the drag continues even when the cursor drifts outside the component.
+	// The scrollbar ignores motion if it isn't the one being dragged.
+	if p.isScrollbarDragging() {
+		var cmds []tea.Cmd
+		messagesModel, messagesCmd := p.messages.Update(msg)
+		p.messages = messagesModel.(messages.Model)
+		cmds = append(cmds, messagesCmd)
+
+		sidebarModel, sidebarCmd := p.sidebar.Update(msg)
+		p.sidebar = sidebarModel.(sidebar.Model)
+		cmds = append(cmds, sidebarCmd)
+		return p, tea.Batch(cmds...)
+	}
+
 	hit := NewHitTest(p)
 	p.isHoveringHandle = hit.IsOnResizeLine(msg.Y)
 
@@ -182,6 +230,8 @@ func (p *chatPage) handleMouseMotion(msg tea.MouseMotionMsg) (layout.Model, tea.
 }
 
 // handleMouseRelease handles mouse release events.
+// Release is broadcast to all scrollable components so that a scrollbar drag
+// that ends outside the component's bounds still terminates correctly.
 func (p *chatPage) handleMouseRelease(msg tea.MouseReleaseMsg) (layout.Model, tea.Cmd) {
 	if p.isDragging {
 		p.isDragging = false
@@ -191,8 +241,25 @@ func (p *chatPage) handleMouseRelease(msg tea.MouseReleaseMsg) (layout.Model, te
 		p.isDraggingSidebar = false
 		return p, nil
 	}
-	cmd := p.routeMouseEvent(msg, msg.Y)
-	return p, cmd
+
+	var cmds []tea.Cmd
+
+	// Forward release to both messages and sidebar so any active scrollbar
+	// drag is properly ended, regardless of where the mouse was released.
+	messagesModel, messagesCmd := p.messages.Update(msg)
+	p.messages = messagesModel.(messages.Model)
+	cmds = append(cmds, messagesCmd)
+
+	sidebarModel, sidebarCmd := p.sidebar.Update(msg)
+	p.sidebar = sidebarModel.(sidebar.Model)
+	cmds = append(cmds, sidebarCmd)
+
+	return p, tea.Batch(cmds...)
+}
+
+// isScrollbarDragging returns true if any scrollable component has an active scrollbar drag.
+func (p *chatPage) isScrollbarDragging() bool {
+	return p.messages.IsScrollbarDragging() || p.sidebar.IsScrollbarDragging()
 }
 
 // handleMouseWheel handles mouse wheel events.

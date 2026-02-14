@@ -152,6 +152,10 @@ var (
 	SelectedMessageStyle = AssistantMessageStyle.
 				BorderStyle(lipgloss.NormalBorder()).
 				BorderForeground(Success)
+
+	SelectedUserMessageStyle = UserMessageStyle.
+					BorderStyle(lipgloss.ThickBorder()).
+					BorderForeground(Success)
 )
 
 // Dialog Styles
@@ -687,13 +691,13 @@ func MarkdownStyle() ansi.StyleConfig {
 				BlockSuffix: "",
 				Color:       &textColor,
 			},
-			Margin: uintPtr(0),
+			Margin: new(uint(0)),
 		},
 		BlockQuote: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
 				Color: &blockquoteColor,
 			},
-			Indent:      uintPtr(1),
+			Indent:      new(uint(1)),
 			IndentToken: nil,
 		},
 		List: ansi.StyleList{
@@ -703,14 +707,14 @@ func MarkdownStyle() ansi.StyleConfig {
 			StylePrimitive: ansi.StylePrimitive{
 				BlockSuffix: "\n",
 				Color:       &headingColor,
-				Bold:        boolPtr(true),
+				Bold:        new(true),
 			},
 		},
 		H1: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
 				Prefix: "## ",
 				Color:  &headingColor,
-				Bold:   boolPtr(true),
+				Bold:   new(true),
 			},
 		},
 		H2: ansi.StyleBlock{
@@ -744,14 +748,14 @@ func MarkdownStyle() ansi.StyleConfig {
 			},
 		},
 		Strikethrough: ansi.StylePrimitive{
-			CrossedOut: boolPtr(true),
+			CrossedOut: new(true),
 		},
 		Emph: ansi.StylePrimitive{
-			Italic: boolPtr(true),
+			Italic: new(true),
 		},
 		Strong: ansi.StylePrimitive{
 			Color: &strongColor,
-			Bold:  boolPtr(true),
+			Bold:  new(true),
 		},
 		HorizontalRule: ansi.StylePrimitive{
 			Color:  &hrColor,
@@ -770,15 +774,15 @@ func MarkdownStyle() ansi.StyleConfig {
 		},
 		Link: ansi.StylePrimitive{
 			Color:     &linkColor,
-			Underline: boolPtr(true),
+			Underline: new(true),
 		},
 		LinkText: ansi.StylePrimitive{
 			Color: &linkColor,
-			Bold:  boolPtr(true),
+			Bold:  new(true),
 		},
 		Image: ansi.StylePrimitive{
 			Color:     &linkColor,
-			Underline: boolPtr(true),
+			Underline: new(true),
 		},
 		ImageText: ansi.StylePrimitive{
 			Color:  &textSecondary,
@@ -797,7 +801,7 @@ func MarkdownStyle() ansi.StyleConfig {
 				StylePrimitive: ansi.StylePrimitive{
 					Color: &textSecondary,
 				},
-				Margin: uintPtr(defaultMargin),
+				Margin: new(uint(defaultMargin)),
 			},
 			Theme: "monokai",
 			Chroma: &ansi.Chroma{
@@ -846,8 +850,8 @@ func MarkdownStyle() ansi.StyleConfig {
 				},
 				NameClass: ansi.StylePrimitive{
 					Color:     &chromaErrorFg,
-					Underline: boolPtr(true),
-					Bold:      boolPtr(true),
+					Underline: new(true),
+					Bold:      new(true),
 				},
 				NameDecorator: ansi.StylePrimitive{
 					Color: &chromaNameDecorator,
@@ -868,13 +872,13 @@ func MarkdownStyle() ansi.StyleConfig {
 					Color: &chromaGenericDeleted,
 				},
 				GenericEmph: ansi.StylePrimitive{
-					Italic: boolPtr(true),
+					Italic: new(true),
 				},
 				GenericInserted: ansi.StylePrimitive{
 					Color: &chromaSuccess,
 				},
 				GenericStrong: ansi.StylePrimitive{
-					Bold: boolPtr(true),
+					Bold: new(true),
 				},
 				GenericSubheading: ansi.StylePrimitive{
 					Color: &chromaGenericSubheading,
@@ -898,12 +902,4 @@ func MarkdownStyle() ansi.StyleConfig {
 	customDarkStyle.CodeBlock.BackgroundColor = &codeBgColor
 
 	return customDarkStyle
-}
-
-func uintPtr(u uint) *uint {
-	return &u
-}
-
-func boolPtr(b bool) *bool {
-	return &b
 }

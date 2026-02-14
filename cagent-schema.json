@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/cagent/cagent/blob/main/cagent-schema.json",
   "title": "Cagent Configuration",
-  "description": "Configuration schema for Cagent v4",
+  "description": "Configuration schema for Cagent v5",
   "type": "object",
   "properties": {
     "version": {
@@ -13,14 +13,16 @@
         "1",
         "2",
         "3",
-        "4"
+        "4",
+        "5"
       ],
       "examples": [
         "0",
         "1",
         "2",
         "3",
-        "4"
+        "4",
+        "5"
       ]
     },
     "providers": {
@@ -95,7 +97,9 @@
           ]
         }
       },
-      "required": ["base_url"],
+      "required": [
+        "base_url"
+      ],
       "additionalProperties": false
     },
     "AgentConfig": {
@@ -112,6 +116,10 @@
             "anthropic/claude-sonnet-4-5",
             "claude"
           ]
+        },
+        "fallback": {
+          "$ref": "#/definitions/FallbackConfig",
+          "description": "Fallback model configuration for automatic failover and retry behavior"
         },
         "description": {
           "type": "string",
@@ -277,9 +285,17 @@
             "type": "string"
           }
         },
+        "add_description_parameter": {
+          "type": "boolean",
+          "description": "Whether to add a 'description' parameter to tool calls, allowing the LLM to provide context about why it is calling a tool"
+        },
         "hooks": {
           "$ref": "#/definitions/HooksConfig",
           "description": "Lifecycle hooks for executing shell commands at various points in the agent's execution"
+        },
+        "skills": {
+          "type": "boolean",
+          "description": "Enable skills discovery for this agent. When enabled, the agent can discover and load skill files (SKILL.md) from the workspace."
         }
       },
       "additionalProperties": false
@@ -295,6 +311,48 @@
         "instruction": {
           "type": "string",
           "description": "The prompt sent to the agent. Supports bang commands (!`command`) and positional arguments ($1, $2, etc.)"
+        }
+      },
+      "additionalProperties": false
+    },
+    "FallbackConfig": {
+      "type": "object",
+      "description": "Configuration for fallback model behavior when the primary model fails",
+      "properties": {
+        "models": {
+          "type": "array",
+          "description": "List of fallback models to try in order if the primary model fails. Each entry can be a model name from the models section or an inline provider/model format (e.g., 'openai/gpt-4o').",
+          "items": {
+            "type": "string"
+          },
+          "examples": [
+            [
+              "anthropic/claude-sonnet-4-0",
+              "openai/gpt-4o"
+            ],
+            [
+              "backup_model",
+              "openai/gpt-5-mini"
+            ]
+          ]
+        },
+        "retries": {
+          "type": "integer",
+          "description": "Number of retries per model with exponential backoff for retryable errors (5xx, timeouts). Use 0 or omit for default (2 retries = 3 total attempts per model). Use -1 to disable retries entirely (try each model only once).",
+          "minimum": -1,
+          "default": 2
+        },
+        "cooldown": {
+          "type": "string",
+          "description": "Duration to stick with a successful fallback model before retrying the primary. Only applies after a non-retryable error (e.g., 429 rate limit). Use Go duration format (e.g., '1m', '30s', '2m30s'). Default is '1m'.",
+          "pattern": "^([0-9]+(ns|us|µs|ms|s|m|h))+$",
+          "default": "1m",
+          "examples": [
+            "1m",
+            "30s",
+            "2m30s",
+            "5m"
+          ]
         }
       },
       "additionalProperties": false
@@ -539,6 +597,14 @@
         "readme": {
           "type": "string",
           "description": "README or description"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of the agent configuration"
+        },
+        "version": {
+          "type": "string",
+          "description": "Version of the agent configuration (used for OCI registry publishing)"
         }
       },
       "additionalProperties": false
@@ -554,9 +620,20 @@
             "type": "string"
           },
           "examples": [
-            ["shell:cmd=ls*", "shell:cmd=git status*", "shell:cmd=go test*"],
-            ["mcp:github:get_*", "mcp:github:list_*"],
-            ["think", "create_todo*", "list_todos"]
+            [
+              "shell:cmd=ls*",
+              "shell:cmd=git status*",
+              "shell:cmd=go test*"
+            ],
+            [
+              "mcp:github:get_*",
+              "mcp:github:list_*"
+            ],
+            [
+              "think",
+              "create_todo*",
+              "list_todos"
+            ]
           ]
         },
         "deny": {
@@ -566,9 +643,17 @@
             "type": "string"
           },
           "examples": [
-            ["shell:cmd=rm -rf*", "shell:cmd=sudo*"],
-            ["shell:cmd=git push --force*", "shell:cmd=git reset --hard*"],
-            ["mcp:github:delete_*"]
+            [
+              "shell:cmd=rm -rf*",
+              "shell:cmd=sudo*"
+            ],
+            [
+              "shell:cmd=git push --force*",
+              "shell:cmd=git reset --hard*"
+            ],
+            [
+              "mcp:github:delete_*"
+            ]
           ]
         }
       },
@@ -588,12 +673,14 @@
             "memory",
             "filesystem",
             "shell",
+            "tasks",
             "todo",
             "fetch",
             "api",
             "a2a",
             "lsp",
-            "user_prompt"
+            "user_prompt",
+            "openapi"
           ]
         },
         "instruction": {
@@ -692,7 +779,10 @@
           ],
           "examples": [
             true,
-            ["read_file", "write_file"]
+            [
+              "read_file",
+              "write_file"
+            ]
           ]
         },
         "timeout": {
@@ -702,8 +792,15 @@
         },
         "url": {
           "type": "string",
-          "description": "URL for the a2a tool",
+          "description": "URL for the a2a or openapi tool",
           "format": "uri"
+        },
+        "headers": {
+          "type": "object",
+          "description": "HTTP headers for API requests (supports ${env.VAR} interpolation)",
+          "additionalProperties": {
+            "type": "string"
+          }
         },
         "name": {
           "type": "string",
@@ -750,13 +847,18 @@
           "properties": {
             "type": {
               "enum": [
-                "shell",
-                "filesystem",
-                "todo",
+                "mcp",
+                "script",
                 "think",
                 "memory",
-                "script",
+                "filesystem",
+                "shell",
+                "tasks",
+                "todo",
                 "fetch",
+                "api",
+                "a2a",
+                "lsp",
                 "user_prompt"
               ]
             }
@@ -800,6 +902,22 @@
               "properties": {
                 "type": {
                   "const": "a2a"
+                }
+              }
+            },
+            {
+              "required": [
+                "url"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "properties": {
+                "type": {
+                  "const": "openapi"
                 }
               }
             },
@@ -860,9 +978,18 @@
           },
           "minItems": 1,
           "examples": [
-            [".", "/tmp"],
-            ["./src", "./config:ro"],
-            ["/data:rw", "/secrets:ro"]
+            [
+              ".",
+              "/tmp"
+            ],
+            [
+              "./src",
+              "./config:ro"
+            ],
+            [
+              "/data:rw",
+              "/secrets:ro"
+            ]
           ]
         }
       },

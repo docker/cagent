@@ -1,7 +1,6 @@
 package dialog
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	"github.com/docker/go-units"
 
 	"github.com/docker/cagent/pkg/fsx"
+	"github.com/docker/cagent/pkg/tui/components/scrollview"
 	"github.com/docker/cagent/pkg/tui/core"
 	"github.com/docker/cagent/pkg/tui/core/layout"
 	"github.com/docker/cagent/pkg/tui/messages"
@@ -26,6 +26,11 @@ type fileEntry struct {
 	size  int64
 }
 
+const (
+	filePickerListOverhead = 10
+	filePickerListStartY   = 7 // border(1) + padding(1) + title(1) + space(1) + dir(1) + input(1) + separator(1)
+)
+
 type filePickerDialog struct {
 	BaseDialog
 	textInput  textinput.Model
@@ -33,7 +38,7 @@ type filePickerDialog struct {
 	entries    []fileEntry
 	filtered   []fileEntry
 	selected   int
-	offset     int
+	scrollview *scrollview.Model
 	keyMap     commandPaletteKeyMap
 	err        error
 }
@@ -56,9 +61,7 @@ func NewFilePickerDialog(initialPath string) Dialog {
 	startDir := cwd
 	var selectFile string
 
-	// Handle initial path if provided
 	if initialPath != "" {
-		// Make path absolute if relative
 		if !filepath.IsAbs(initialPath) {
 			initialPath = filepath.Join(cwd, initialPath)
 		}
@@ -72,7 +75,6 @@ func NewFilePickerDialog(initialPath string) Dialog {
 				selectFile = filepath.Base(initialPath)
 			}
 		} else {
-			// Path doesn't exist, try to use parent directory
 			parentDir := filepath.Dir(initialPath)
 			if info, err := os.Stat(parentDir); err == nil && info.IsDir() {
 				startDir = parentDir
@@ -83,12 +85,12 @@ func NewFilePickerDialog(initialPath string) Dialog {
 	d := &filePickerDialog{
 		textInput:  ti,
 		currentDir: startDir,
+		scrollview: scrollview.New(scrollview.WithReserveScrollbarSpace(true)),
 		keyMap:     defaultCommandPaletteKeyMap(),
 	}
 
 	d.loadDirectory()
 
-	// If we have a file to select, find and select it
 	if selectFile != "" {
 		for i, entry := range d.filtered {
 			if entry.name == selectFile {
@@ -105,10 +107,9 @@ func (d *filePickerDialog) loadDirectory() {
 	d.entries = nil
 	d.filtered = nil
 	d.selected = 0
-	d.offset = 0
+	d.scrollview.SetScrollOffset(0)
 	d.err = nil
 
-	// Add parent directory entry if not at root
 	if d.currentDir != "/" {
 		d.entries = append(d.entries, fileEntry{
 			name:  "..",
@@ -117,7 +118,6 @@ func (d *filePickerDialog) loadDirectory() {
 		})
 	}
 
-	// Try to use VCS matcher to filter out ignored files
 	var shouldIgnore func(string) bool
 	if vcsMatcher, err := fsx.NewVCSMatcher(d.currentDir); err == nil && vcsMatcher != nil {
 		shouldIgnore = vcsMatcher.ShouldIgnore
@@ -129,20 +129,14 @@ func (d *filePickerDialog) loadDirectory() {
 		return
 	}
 
-	// First pass: add directories
 	for _, entry := range dirEntries {
-		// Skip hidden files/directories
 		if strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
-
 		fullPath := filepath.Join(d.currentDir, entry.Name())
-
-		// Skip ignored files
 		if shouldIgnore != nil && shouldIgnore(fullPath) {
 			continue
 		}
-
 		if entry.IsDir() {
 			d.entries = append(d.entries, fileEntry{
 				name:  entry.Name() + "/",
@@ -152,30 +146,19 @@ func (d *filePickerDialog) loadDirectory() {
 		}
 	}
 
-	// Second pass: add all files (not just images)
 	for _, entry := range dirEntries {
-		if entry.IsDir() {
+		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
-
-		// Skip hidden files
-		if strings.HasPrefix(entry.Name(), ".") {
-			continue
-		}
-
 		fullPath := filepath.Join(d.currentDir, entry.Name())
-
-		// Skip ignored files
 		if shouldIgnore != nil && shouldIgnore(fullPath) {
 			continue
 		}
-
 		info, err := entry.Info()
 		size := int64(0)
 		if err == nil {
 			size = info.Size()
 		}
-
 		d.entries = append(d.entries, fileEntry{
 			name:  entry.Name(),
 			path:  fullPath,
@@ -192,13 +175,17 @@ func (d *filePickerDialog) Init() tea.Cmd {
 }
 
 func (d *filePickerDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
+	// Scrollview handles mouse click/motion/release, wheel, and pgup/pgdn/home/end
+	if handled, cmd := d.scrollview.Update(msg); handled {
+		return d, cmd
+	}
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		cmd := d.SetSize(msg.Width, msg.Height)
 		return d, cmd
 
 	case tea.PasteMsg:
-		// Forward paste to text input
 		var cmd tea.Cmd
 		d.textInput, cmd = d.textInput.Update(msg)
 		d.filterEntries()
@@ -216,26 +203,14 @@ func (d *filePickerDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		case key.Matches(msg, d.keyMap.Up):
 			if d.selected > 0 {
 				d.selected--
+				d.scrollview.EnsureLineVisible(d.selected)
 			}
 			return d, nil
 
 		case key.Matches(msg, d.keyMap.Down):
 			if d.selected < len(d.filtered)-1 {
 				d.selected++
-			}
-			return d, nil
-
-		case key.Matches(msg, d.keyMap.PageUp):
-			d.selected -= d.pageSize()
-			if d.selected < 0 {
-				d.selected = 0
-			}
-			return d, nil
-
-		case key.Matches(msg, d.keyMap.PageDown):
-			d.selected += d.pageSize()
-			if d.selected >= len(d.filtered) {
-				d.selected = max(0, len(d.filtered)-1)
+				d.scrollview.EnsureLineVisible(d.selected)
 			}
 			return d, nil
 
@@ -243,13 +218,11 @@ func (d *filePickerDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 			if d.selected >= 0 && d.selected < len(d.filtered) {
 				entry := d.filtered[d.selected]
 				if entry.isDir {
-					// Navigate into directory
 					d.currentDir = entry.path
 					d.textInput.SetValue("")
 					d.loadDirectory()
 					return d, nil
 				}
-				// Select file
 				return d, tea.Sequence(
 					core.CmdHandler(CloseDialogMsg{}),
 					core.CmdHandler(messages.InsertFileRefMsg{FilePath: entry.path}),
@@ -273,18 +246,16 @@ func (d *filePickerDialog) filterEntries() {
 	if query == "" {
 		d.filtered = d.entries
 		d.selected = 0
-		d.offset = 0
+		d.scrollview.SetScrollOffset(0)
 		return
 	}
 
 	d.filtered = nil
 	for _, entry := range d.entries {
-		// Always include parent directory in filter results
 		if entry.name == ".." {
 			d.filtered = append(d.filtered, entry)
 			continue
 		}
-
 		if strings.Contains(strings.ToLower(entry.name), query) {
 			d.filtered = append(d.filtered, entry)
 		}
@@ -293,69 +264,70 @@ func (d *filePickerDialog) filterEntries() {
 	if d.selected >= len(d.filtered) {
 		d.selected = 0
 	}
-	d.offset = 0
+	d.scrollview.SetScrollOffset(0)
 }
 
 func (d *filePickerDialog) dialogSize() (dialogWidth, maxHeight, contentWidth int) {
 	dialogWidth = max(min(d.Width()*80/100, 80), 60)
 	maxHeight = min(d.Height()*70/100, 30)
-	contentWidth = dialogWidth - 6
+	contentWidth = dialogWidth - 6 - d.scrollview.ReservedCols()
 	return dialogWidth, maxHeight, contentWidth
 }
 
 func (d *filePickerDialog) View() string {
-	dialogWidth, maxHeight, contentWidth := d.dialogSize()
-
+	dialogWidth, _, contentWidth := d.dialogSize()
 	d.textInput.SetWidth(contentWidth)
 
-	// Show current directory
 	displayDir := d.currentDir
 	if len(displayDir) > contentWidth-4 {
 		displayDir = "…" + displayDir[len(displayDir)-(contentWidth-5):]
 	}
 	dirLine := styles.MutedStyle.Render("📁 " + displayDir)
 
-	var entryLines []string
-	maxItems := maxHeight - 10
-
-	// Adjust offset to keep selected item visible
-	if d.selected < d.offset {
-		d.offset = d.selected
-	} else if d.selected >= d.offset+maxItems {
-		d.offset = d.selected - maxItems + 1
+	// Build all entry lines
+	var allLines []string
+	for i, entry := range d.filtered {
+		allLines = append(allLines, d.renderEntry(entry, i == d.selected, contentWidth))
 	}
 
-	// Render visible items based on offset
-	visibleEnd := min(d.offset+maxItems, len(d.filtered))
-	for i := d.offset; i < visibleEnd; i++ {
-		entryLines = append(entryLines, d.renderEntry(d.filtered[i], i == d.selected, contentWidth))
+	regionWidth := contentWidth + d.scrollview.ReservedCols()
+	visibleLines := d.scrollview.VisibleHeight()
+
+	// Set scrollview position for mouse hit-testing (auto-computed from dialog position)
+	dialogRow, dialogCol := d.Position()
+	d.scrollview.SetPosition(dialogCol+3, dialogRow+filePickerListStartY)
+
+	d.scrollview.SetContent(allLines, len(allLines))
+
+	var scrollableContent string
+	switch {
+	case d.err != nil:
+		errLines := []string{"", styles.ErrorStyle.
+			Align(lipgloss.Center).Width(contentWidth).
+			Render(d.err.Error())}
+		for len(errLines) < visibleLines {
+			errLines = append(errLines, "")
+		}
+		scrollableContent = d.scrollview.ViewWithLines(errLines)
+	case len(d.filtered) == 0:
+		emptyLines := []string{"", styles.DialogContentStyle.
+			Italic(true).Align(lipgloss.Center).Width(contentWidth).
+			Render("No files found")}
+		for len(emptyLines) < visibleLines {
+			emptyLines = append(emptyLines, "")
+		}
+		scrollableContent = d.scrollview.ViewWithLines(emptyLines)
+	default:
+		scrollableContent = d.scrollview.View()
 	}
 
-	// Show indicator if there are more items
-	if visibleEnd < len(d.filtered) {
-		entryLines = append(entryLines, styles.MutedStyle.Render(fmt.Sprintf("  … and %d more", len(d.filtered)-visibleEnd)))
-	}
-
-	if d.err != nil {
-		entryLines = append(entryLines, "", styles.ErrorStyle.
-			Align(lipgloss.Center).
-			Width(contentWidth).
-			Render(d.err.Error()))
-	} else if len(d.filtered) == 0 {
-		entryLines = append(entryLines, "", styles.DialogContentStyle.
-			Italic(true).
-			Align(lipgloss.Center).
-			Width(contentWidth).
-			Render("No files found"))
-	}
-
-	content := NewContent(contentWidth).
+	content := NewContent(regionWidth).
 		AddTitle("Attach File").
 		AddSpace().
 		AddContent(dirLine).
 		AddContent(d.textInput.View()).
 		AddSeparator().
-		AddContent(strings.Join(entryLines, "\n")).
+		AddContent(scrollableContent).
 		AddSpace().
 		AddHelpKeys("↑/↓", "navigate", "enter", "select", "esc", "close").
 		Build()
@@ -363,9 +335,14 @@ func (d *filePickerDialog) View() string {
 	return styles.DialogStyle.Width(dialogWidth).Render(content)
 }
 
-func (d *filePickerDialog) pageSize() int {
-	_, maxHeight, _ := d.dialogSize()
-	return max(1, maxHeight-10)
+// SetSize sets the dialog dimensions and configures the scrollview region.
+func (d *filePickerDialog) SetSize(width, height int) tea.Cmd {
+	cmd := d.BaseDialog.SetSize(width, height)
+	_, maxHeight, contentWidth := d.dialogSize()
+	regionWidth := contentWidth + d.scrollview.ReservedCols()
+	visibleLines := max(1, maxHeight-filePickerListOverhead)
+	d.scrollview.SetSize(regionWidth, visibleLines)
+	return cmd
 }
 
 func (d *filePickerDialog) renderEntry(entry fileEntry, selected bool, maxWidth int) string {

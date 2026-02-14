@@ -1249,7 +1249,7 @@ func TestDetectCachingSupport_SupportedModel(t *testing.T) {
 	t.Parallel()
 
 	// Uses real models.dev lookup to verify Claude models support caching
-	supported := detectCachingSupport(t.Context(), "anthropic.claude-3-5-sonnet-20241022-v2:0")
+	supported := detectCachingSupport("anthropic.claude-3-5-sonnet-20241022-v2:0")
 	assert.True(t, supported)
 }
 
@@ -1257,7 +1257,7 @@ func TestDetectCachingSupport_UnsupportedModel(t *testing.T) {
 	t.Parallel()
 
 	// Llama doesn't have cache pricing in models.dev
-	supported := detectCachingSupport(t.Context(), "meta.llama3-8b-instruct-v1:0")
+	supported := detectCachingSupport("meta.llama3-8b-instruct-v1:0")
 	assert.False(t, supported)
 }
 
@@ -1265,7 +1265,7 @@ func TestDetectCachingSupport_UnknownModel(t *testing.T) {
 	t.Parallel()
 
 	// Unknown model should gracefully return false, not panic
-	supported := detectCachingSupport(t.Context(), "nonexistent.model.that.does.not.exist:v1")
+	supported := detectCachingSupport("nonexistent.model.that.does.not.exist:v1")
 	assert.False(t, supported)
 }
 

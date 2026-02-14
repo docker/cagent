@@ -112,7 +112,7 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 
 	// Detect prompt caching capability at init time for efficiency.
 	// Uses models.dev cache pricing as proxy for capability detection.
-	cachingSupported := detectCachingSupport(ctx, cfg.Model)
+	cachingSupported := detectCachingSupport(cfg.Model)
 
 	slog.Debug("Bedrock client created successfully",
 		"model", cfg.Model,
@@ -133,7 +133,7 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 // detectCachingSupport checks if a model supports prompt caching using models.dev data.
 // Models with non-zero CacheRead/CacheWrite costs support prompt caching.
 // Returns false on lookup failure (safe default for unsupported models).
-func detectCachingSupport(ctx context.Context, model string) bool {
+func detectCachingSupport(model string) bool {
 	store, err := modelsdev.NewStore()
 	if err != nil {
 		slog.Debug("Bedrock models store unavailable, prompt caching disabled", "error", err)
@@ -141,7 +141,7 @@ func detectCachingSupport(ctx context.Context, model string) bool {
 	}
 
 	modelID := "amazon-bedrock/" + model
-	m, err := store.GetModel(ctx, modelID)
+	m, err := store.GetModel(modelID)
 	if err != nil {
 		slog.Debug("Bedrock prompt caching disabled: model not found in models.dev",
 			"model_id", modelID, "error", err)

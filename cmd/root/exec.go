@@ -11,17 +11,16 @@ func newExecCmd() *cobra.Command {
 	var flags runExecFlags
 
 	cmd := &cobra.Command{
-		Use:   "exec <agent-file>|<registry-ref>",
+		Use:   "exec <agent-file>|<registry-ref> <message>...",
 		Short: "Execute an agent",
-		Long:  "Execute an agent (Single user message / No TUI)",
-		Example: `  cagent exec ./agent.yaml
-  cagent exec ./team.yaml --agent root
-  cagent exec ./echo.yaml "INSTRUCTIONS"
+		Long:  "Execute an agent with one or more user messages (multi-turn, No TUI)",
+		Example: `  cagent exec ./agent.yaml "What is Go?"
+  cagent exec ./team.yaml --agent root "First question" "Follow-up question"
   echo "INSTRUCTIONS" | cagent exec ./echo.yaml -
   cagent exec ./agent.yaml "question" --record  # Records to auto-generated file`,
 		GroupID:           "core",
 		ValidArgsFunction: completeRunExec,
-		Args:              cobra.RangeArgs(1, 2),
+		Args:              cobra.MinimumNArgs(2),
 		RunE:              flags.runExecCommand,
 	}
 

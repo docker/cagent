@@ -36,5 +36,5 @@ func listenUnix(ctx context.Context, path string) (net.Listener, error) {
 
 func listenTCP(ctx context.Context, addr string) (net.Listener, error) {
 	var lc net.ListenConfig
-	return lc.Listen(ctx, "tcp", addr)
+	return lc.Listen(ctx, "tcp4", addr)
 }

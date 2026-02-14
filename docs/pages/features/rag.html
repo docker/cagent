@@ -1,0 +1,251 @@
+<h1>RAG (Retrieval-Augmented Generation)</h1>
+<p class="subtitle">Give your agents access to document knowledge bases with background indexing, multiple retrieval strategies, and hybrid search.</p>
+
+<h2>Overview</h2>
+
+<p>RAG lets agents search through your documents to find relevant information before responding. cagent supports:</p>
+
+<ul>
+  <li><strong>Background indexing</strong> — Files are indexed automatically and re-indexed on change</li>
+  <li><strong>Multiple strategies</strong> — Semantic embeddings, BM25 keyword search, and LLM-enhanced search</li>
+  <li><strong>Hybrid search</strong> — Combine strategies with result fusion for best results</li>
+  <li><strong>Reranking</strong> — Re-score results with specialized models for improved relevance</li>
+</ul>
+
+<h2>Quick Start</h2>
+
+<pre><code class="language-yaml">rag:
+  my_docs:
+    description: "Technical documentation"
+    docs: [./documents, ./some-doc.md]
+    strategies:
+      - type: chunked-embeddings
+        model: openai/text-embedding-3-small
+        database: ./docs.db
+        vector_dimensions: 1536
+
+agents:
+  root:
+    model: openai/gpt-4o
+    instruction: |
+      You have access to a knowledge base. Use it to answer questions.
+    rag: [my_docs]</code></pre>
+
+<h2>Retrieval Strategies</h2>
+
+<h3>Chunked Embeddings (Semantic Search)</h3>
+
+<p>Uses embedding models to find semantically similar content. Best for understanding intent, synonyms, and paraphrasing.</p>
+
+<pre><code class="language-yaml">strategies:
+  - type: chunked-embeddings
+    model: openai/text-embedding-3-small
+    database: ./vector.db
+    vector_dimensions: 1536
+    similarity_metric: cosine_similarity
+    threshold: 0.5
+    limit: 10
+    batch_size: 50
+    chunking:
+      size: 1000
+      overlap: 100</code></pre>
+
+<h3>Semantic Embeddings (LLM-Enhanced)</h3>
+
+<p>Uses an LLM to generate semantic summaries of each chunk before embedding, capturing meaning and intent. Best for code search and understanding implementations.</p>
+
+<pre><code class="language-yaml">strategies:
+  - type: semantic-embeddings
+    embedding_model: openai/text-embedding-3-small
+    vector_dimensions: 1536
+    chat_model: openai/gpt-4o-mini
+    database: ./semantic.db
+    ast_context: true           # include AST metadata
+    chunking:
+      size: 1000
+      code_aware: true          # AST-aware chunking</code></pre>
+
+<div class="callout callout-info">
+  <div class="callout-title">ℹ️ Trade-offs</div>
+  <p>Semantic embeddings provide higher quality retrieval but slower indexing (LLM call per chunk) and additional API costs.</p>
+</div>
+
+<h3>BM25 (Keyword Search)</h3>
+
+<p>Traditional keyword matching using the BM25 algorithm. Best for exact terms, technical jargon, and code identifiers.</p>
+
+<pre><code class="language-yaml">strategies:
+  - type: bm25
+    database: ./bm25.db
+    k1: 1.5               # term frequency saturation
+    b: 0.75               # length normalization
+    threshold: 0.3
+    limit: 10
+    chunking:
+      size: 1000
+      overlap: 100</code></pre>
+
+<h2>Hybrid Search</h2>
+
+<p>Combine multiple strategies for best results. Strategies run in parallel and results are fused together:</p>
+
+<pre><code class="language-yaml">rag:
+  hybrid:
+    docs: [./docs]
+    strategies:
+      - type: chunked-embeddings
+        model: openai/text-embedding-3-small
+        database: ./vector.db
+        vector_dimensions: 1536
+        limit: 20
+        chunking: { size: 1000, overlap: 100 }
+      - type: bm25
+        database: ./bm25.db
+        limit: 15
+        chunking: { size: 1000, overlap: 100 }
+    results:
+      fusion:
+        strategy: rrf         # Reciprocal Rank Fusion
+        k: 60
+      deduplicate: true
+      limit: 5</code></pre>
+
+<h2>Fusion Strategies</h2>
+
+<table>
+  <thead><tr><th>Strategy</th><th>Best For</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>rrf</code></td><td>General use (recommended)</td><td>Reciprocal Rank Fusion — rank-based, no score normalization needed</td></tr>
+    <tr><td><code>weighted</code></td><td>Known performance characteristics</td><td>Weight strategies differently (e.g., embeddings: 0.7, BM25: 0.3)</td></tr>
+    <tr><td><code>max</code></td><td>Same scoring scale</td><td>Takes the maximum score from any strategy</td></tr>
+  </tbody>
+</table>
+
+<h2>Reranking</h2>
+
+<p>Re-score retrieved documents with a specialized model to improve relevance:</p>
+
+<pre><code class="language-yaml">results:
+  reranking:
+    model: openai/gpt-4o-mini
+    top_k: 10             # only rerank top 10
+    threshold: 0.3        # minimum score after reranking
+    criteria: |
+      Prioritize official documentation over blog posts.
+      Prefer recent information and practical examples.
+  limit: 5</code></pre>
+
+<p>Supported reranking providers: <strong>DMR</strong> (native <code>/rerank</code> endpoint), <strong>OpenAI</strong>, <strong>Anthropic</strong>, <strong>Gemini</strong>.</p>
+
+<h2>Code-Aware Chunking</h2>
+
+<p>For source code, enable AST-based chunking to keep functions and methods intact:</p>
+
+<pre><code class="language-yaml">chunking:
+  size: 2000
+  code_aware: true  # Uses tree-sitter for AST-based chunking</code></pre>
+
+<div class="callout callout-info">
+  <div class="callout-title">ℹ️ Language Support</div>
+  <p>Currently supports Go (<code>.go</code>) files. More languages will be added. Falls back to plain text chunking for unsupported file types.</p>
+</div>
+
+<h2>Debugging RAG</h2>
+
+<p>Enable debug logging to see retrieval details:</p>
+
+<pre><code class="language-bash">$ cagent run config.yaml --debug --log-file cagent.debug</code></pre>
+
+<p>Look for log tags: <code>[RAG Manager]</code>, <code>[Chunked-Embeddings Strategy]</code>, <code>[BM25 Strategy]</code>, <code>[RRF Fusion]</code>, <code>[Reranker]</code>.</p>
+
+<div class="callout callout-tip">
+  <div class="callout-title">💡 Examples</div>
+  <p>See the <a href="https://github.com/docker/cagent/tree/main/examples/rag" target="_blank" rel="noopener noreferrer">RAG examples</a> in the GitHub repo for complete, runnable configurations.</p>
+</div>
+
+<h2>Configuration Reference</h2>
+
+<h3>Top-Level RAG Fields</h3>
+
+<table>
+  <thead><tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>docs</code></td><td>[]string</td><td>—</td><td>Document paths/directories (shared across strategies)</td></tr>
+    <tr><td><code>description</code></td><td>string</td><td>—</td><td>Human-readable description of this RAG source</td></tr>
+    <tr><td><code>respect_vcs</code></td><td>boolean</td><td><code>true</code></td><td>Respect <code>.gitignore</code> files when indexing documents</td></tr>
+    <tr><td><code>strategies</code></td><td>[]object</td><td>—</td><td>Array of retrieval strategy configurations</td></tr>
+    <tr><td><code>results</code></td><td>object</td><td>—</td><td>Post-processing: fusion, reranking, deduplication, final limit</td></tr>
+  </tbody>
+</table>
+
+<h3>Chunked-Embeddings Strategy</h3>
+
+<table>
+  <thead><tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>model</code></td><td>string</td><td>—</td><td><strong>Required.</strong> Embedding model reference</td></tr>
+    <tr><td><code>database</code></td><td>string</td><td>—</td><td>Path to local SQLite database</td></tr>
+    <tr><td><code>vector_dimensions</code></td><td>int</td><td>—</td><td>Embedding dimensions (e.g., 1536 for text-embedding-3-small)</td></tr>
+    <tr><td><code>similarity_metric</code></td><td>string</td><td><code>cosine_similarity</code></td><td>Similarity metric</td></tr>
+    <tr><td><code>threshold</code></td><td>float</td><td><code>0.5</code></td><td>Minimum similarity score (0–1)</td></tr>
+    <tr><td><code>limit</code></td><td>int</td><td><code>5</code></td><td>Max results from this strategy</td></tr>
+    <tr><td><code>batch_size</code></td><td>int</td><td><code>50</code></td><td>Chunks per embedding request</td></tr>
+    <tr><td><code>max_embedding_concurrency</code></td><td>int</td><td><code>3</code></td><td>Max concurrent embedding requests</td></tr>
+    <tr><td><code>chunking.size</code></td><td>int</td><td><code>1000</code></td><td>Chunk size in characters</td></tr>
+    <tr><td><code>chunking.overlap</code></td><td>int</td><td><code>75</code></td><td>Overlap between chunks in characters</td></tr>
+    <tr><td><code>chunking.code_aware</code></td><td>bool</td><td><code>false</code></td><td>AST-based chunking (Go files only)</td></tr>
+  </tbody>
+</table>
+
+<h3>Semantic-Embeddings Strategy</h3>
+
+<table>
+  <thead><tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>embedding_model</code></td><td>string</td><td>—</td><td><strong>Required.</strong> Embedding model reference</td></tr>
+    <tr><td><code>chat_model</code></td><td>string</td><td>—</td><td><strong>Required.</strong> LLM for generating semantic summaries</td></tr>
+    <tr><td><code>vector_dimensions</code></td><td>int</td><td>—</td><td><strong>Required.</strong> Embedding dimensions</td></tr>
+    <tr><td><code>database</code></td><td>string</td><td>—</td><td>Path to local SQLite database</td></tr>
+    <tr><td><code>semantic_prompt</code></td><td>string</td><td>(built-in)</td><td>Custom prompt template (<code>${path}</code>, <code>${content}</code>, <code>${ast_context}</code>)</td></tr>
+    <tr><td><code>ast_context</code></td><td>bool</td><td><code>false</code></td><td>Include tree-sitter AST metadata in prompts</td></tr>
+    <tr><td><code>threshold</code></td><td>float</td><td><code>0.5</code></td><td>Minimum similarity score (0–1)</td></tr>
+    <tr><td><code>limit</code></td><td>int</td><td><code>5</code></td><td>Max results</td></tr>
+    <tr><td><code>max_indexing_concurrency</code></td><td>int</td><td><code>3</code></td><td>Max concurrent file indexing</td></tr>
+    <tr><td><code>chunking.size</code></td><td>int</td><td><code>1000</code></td><td>Chunk size in characters</td></tr>
+    <tr><td><code>chunking.overlap</code></td><td>int</td><td><code>75</code></td><td>Overlap between chunks</td></tr>
+    <tr><td><code>chunking.code_aware</code></td><td>bool</td><td><code>false</code></td><td>AST-based chunking</td></tr>
+  </tbody>
+</table>
+
+<h3>BM25 Strategy</h3>
+
+<table>
+  <thead><tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>database</code></td><td>string</td><td>—</td><td>Path to local SQLite database</td></tr>
+    <tr><td><code>k1</code></td><td>float</td><td><code>1.5</code></td><td>Term frequency saturation (1.2–2.0 recommended)</td></tr>
+    <tr><td><code>b</code></td><td>float</td><td><code>0.75</code></td><td>Length normalization (0–1)</td></tr>
+    <tr><td><code>threshold</code></td><td>float</td><td><code>0.0</code></td><td>Minimum BM25 score</td></tr>
+    <tr><td><code>limit</code></td><td>int</td><td><code>5</code></td><td>Max results</td></tr>
+    <tr><td><code>chunking.size</code></td><td>int</td><td><code>1000</code></td><td>Chunk size in characters</td></tr>
+    <tr><td><code>chunking.overlap</code></td><td>int</td><td><code>75</code></td><td>Overlap between chunks</td></tr>
+  </tbody>
+</table>
+
+<h3>Results (Post-Processing)</h3>
+
+<table>
+  <thead><tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>fusion.strategy</code></td><td>string</td><td><code>rrf</code></td><td>Fusion method: <code>rrf</code>, <code>weighted</code>, or <code>max</code></td></tr>
+    <tr><td><code>fusion.k</code></td><td>int</td><td><code>60</code></td><td>RRF rank constant</td></tr>
+    <tr><td><code>deduplicate</code></td><td>bool</td><td><code>true</code></td><td>Remove duplicate results</td></tr>
+    <tr><td><code>limit</code></td><td>int</td><td><code>15</code></td><td>Final number of results</td></tr>
+    <tr><td><code>include_score</code></td><td>bool</td><td><code>false</code></td><td>Include relevance scores in results</td></tr>
+    <tr><td><code>return_full_content</code></td><td>bool</td><td><code>false</code></td><td>Return full document content instead of just matched chunks</td></tr>
+    <tr><td><code>reranking.model</code></td><td>string</td><td>—</td><td>Reranking model reference</td></tr>
+    <tr><td><code>reranking.top_k</code></td><td>int</td><td>(all)</td><td>Only rerank top K results</td></tr>
+    <tr><td><code>reranking.threshold</code></td><td>float</td><td><code>0.5</code></td><td>Minimum relevance score after reranking</td></tr>
+    <tr><td><code>reranking.criteria</code></td><td>string</td><td>—</td><td>Custom relevance guidance for the reranking model</td></tr>
+  </tbody>
+</table>

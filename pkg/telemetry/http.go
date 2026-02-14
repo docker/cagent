@@ -6,7 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 )
 
@@ -18,11 +21,18 @@ func (tc *Client) createEvent(eventName string, properties map[string]any) Event
 	allProperties := make(map[string]any)
 
 	// Copy user-provided properties first
-	for k, v := range properties {
-		allProperties[k] = v
+	maps.Copy(allProperties, properties)
+
+	// Allow callers to attach custom metadata to telemetry events
+	if tags := os.Getenv("TELEMETRY_TAGS"); tags != "" {
+		for _, pair := range strings.Split(tags, ",") {
+			if k, v, ok := strings.Cut(pair, "="); ok && strings.TrimSpace(k) != "" {
+				allProperties[strings.TrimSpace(k)] = strings.TrimSpace(v)
+			}
+		}
 	}
 
-	// Add system metadata to properties
+	// Add system metadata AFTER tags so they cannot be overwritten
 	allProperties["user_uuid"] = tc.userUUID
 	allProperties["version"] = tc.getVersion()
 	allProperties["os"] = osInfo

@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"runtime"
@@ -136,6 +138,10 @@ func statusToString(status int32) string {
 }
 
 func (h *shellHandler) RunShell(ctx context.Context, params RunShellArgs) (*tools.ToolCallResult, error) {
+	if strings.TrimSpace(params.Cmd) == "" {
+		return tools.ResultError("Error: empty command"), nil
+	}
+
 	timeout := h.timeout
 	if params.Timeout > 0 {
 		timeout = time.Duration(params.Timeout) * time.Second
@@ -150,6 +156,8 @@ func (h *shellHandler) RunShell(ctx context.Context, params RunShellArgs) (*tool
 	if h.sandbox != nil {
 		return h.sandbox.runCommand(timeoutCtx, ctx, params.Cmd, cwd, timeout), nil
 	}
+
+	slog.Debug("Executing native shell command", "command", params.Cmd, "cwd", cwd)
 
 	return h.runNativeCommand(timeoutCtx, ctx, params.Cmd, cwd, timeout), nil
 }
@@ -242,7 +250,7 @@ func (h *shellHandler) monitorJob(job *backgroundJob, cmd *exec.Cmd) {
 	}
 
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 			job.exitCode = exitErr.ExitCode()
 		} else {
 			job.exitCode = -1

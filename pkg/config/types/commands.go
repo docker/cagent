@@ -112,7 +112,7 @@ func (c *Commands) UnmarshalYAML(unmarshal func(any) error) error {
 
 // parseCommandValue parses a command value which can be either:
 // - a simple string (becomes the instruction)
-// - a map with description/instruction fields
+// - a map with description/instruction fields.
 func parseCommandValue(v any) (Command, error) {
 	switch val := v.(type) {
 	case string:

@@ -97,4 +97,4 @@ tasks:
 
   record-demo:
     desc: Record demo gif
-    cmd: vhs ./docs/demo.tape
+    cmd: vhs ./docs/recordings/demo.tape

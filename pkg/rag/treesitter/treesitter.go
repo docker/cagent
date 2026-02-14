@@ -518,8 +518,8 @@ func extractPackageName(root *sitter.Node, content []byte) string {
 	scanner := bufio.NewScanner(bytes.NewReader(content))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "package ") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "package "))
+		if after, ok := strings.CutPrefix(line, "package "); ok {
+			return strings.TrimSpace(after)
 		}
 	}
 

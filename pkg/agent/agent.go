@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"math/rand"
 	"sync/atomic"
+	"time"
 
 	"github.com/docker/cagent/pkg/config/latest"
 	"github.com/docker/cagent/pkg/config/types"
@@ -21,6 +22,9 @@ type Agent struct {
 	instruction             string
 	toolsets                []*tools.StartableToolSet
 	models                  []provider.Provider
+	fallbackModels          []provider.Provider                 // Fallback models to try if primary fails
+	fallbackRetries         int                                 // Number of retries per fallback model with exponential backoff
+	fallbackCooldown        time.Duration                       // Duration to stick with fallback after non-retryable error
 	modelOverrides          atomic.Pointer[[]provider.Provider] // Optional model override(s) set at runtime (supports alloy)
 	subAgents               []*Agent
 	handoffs                []*Agent
@@ -166,6 +170,22 @@ func (a *Agent) HasModelOverride() bool {
 // This is useful for listing available models in the TUI picker.
 func (a *Agent) ConfiguredModels() []provider.Provider {
 	return a.models
+}
+
+// FallbackModels returns the fallback models to try if the primary model fails.
+func (a *Agent) FallbackModels() []provider.Provider {
+	return a.fallbackModels
+}
+
+// FallbackRetries returns the number of retries per fallback model.
+func (a *Agent) FallbackRetries() int {
+	return a.fallbackRetries
+}
+
+// FallbackCooldown returns the duration to stick with a successful fallback
+// model before retrying the primary. Returns 0 if not configured.
+func (a *Agent) FallbackCooldown() time.Duration {
+	return a.fallbackCooldown
 }
 
 // Commands returns the named commands configured for this agent.

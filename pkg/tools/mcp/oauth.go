@@ -272,8 +272,8 @@ func (t *oauthTransport) handleManagedOAuthFlow(ctx context.Context, authServer,
 	redirectURI := callbackServer.GetRedirectURI()
 	slog.Debug("Using redirect URI", "uri", redirectURI)
 
-	clientID := ""
-	clientSecret := ""
+	var clientID string
+	var clientSecret string
 
 	if authServerMetadata.RegistrationEndpoint != "" {
 		slog.Debug("Attempting dynamic client registration")

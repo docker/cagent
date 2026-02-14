@@ -13,9 +13,9 @@ import (
 // manager.
 type PassProvider struct{}
 
-type ErrPassNotAvailable struct{}
+type PassNotAvailableError struct{}
 
-func (ErrPassNotAvailable) Error() string {
+func (PassNotAvailableError) Error() string {
 	return "pass is not installed"
 }
 
@@ -26,7 +26,7 @@ func NewPassProvider() (*PassProvider, error) {
 		slog.Warn("failed to lookup `pass` binary", "error", err)
 	}
 	if path == "" {
-		return nil, ErrPassNotAvailable{}
+		return nil, PassNotAvailableError{}
 	}
 	return &PassProvider{}, nil
 }

@@ -1,0 +1,160 @@
+<h1>Model Routing</h1>
+<p class="subtitle">Route requests to different models based on the content of user messages.</p>
+
+<h2>Overview</h2>
+
+<p>Model routing lets you define a "router" model that automatically selects the best underlying model based on the user's message. This is useful for cost optimization, specialized handling, or load balancing across models.</p>
+
+<div class="callout callout-info">
+  <div class="callout-title">ℹ️ How It Works</div>
+  <p>cagent uses NLP-based text similarity (via Bleve full-text search) to match user messages against example phrases you define. The route with the best-matching examples wins, and that model handles the request.</p>
+</div>
+
+<h2>Configuration</h2>
+
+<p>Add <code>routing</code> rules to any model definition. The model's <code>provider</code>/<code>model</code> fields become the fallback when no route matches:</p>
+
+<pre><code class="language-yaml">models:
+  smart_router:
+    # Fallback model when no routing rule matches
+    provider: openai
+    model: gpt-4o-mini
+    
+    # Routing rules
+    routing:
+      - model: anthropic/claude-sonnet-4-0
+        examples:
+          - "Write a detailed technical document"
+          - "Help me architect this system"
+          - "Review this code for security issues"
+          - "Explain this complex algorithm"
+      
+      - model: openai/gpt-4o
+        examples:
+          - "Generate some creative ideas"
+          - "Write a story about"
+          - "Help me brainstorm"
+          - "Come up with names for"
+      
+      - model: openai/gpt-4o-mini
+        examples:
+          - "What time is it"
+          - "Convert this to JSON"
+          - "Simple math calculation"
+          - "Translate this word"
+
+agents:
+  root:
+    model: smart_router
+    description: Assistant with intelligent model routing
+    instruction: You are a helpful assistant.</code></pre>
+
+<h2>Routing Rules</h2>
+
+<p>Each routing rule has:</p>
+
+<table>
+  <thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>model</code></td><td>string</td><td>✓</td><td>Target model (inline format or reference to <code>models</code> section)</td></tr>
+    <tr><td><code>examples</code></td><td>array</td><td>✓</td><td>Example phrases that should route to this model</td></tr>
+  </tbody>
+</table>
+
+<h2>Matching Behavior</h2>
+
+<p>The router:</p>
+
+<ol>
+  <li>Extracts the last user message from the conversation</li>
+  <li>Searches all examples using full-text search</li>
+  <li>Aggregates match scores by route (best score per route wins)</li>
+  <li>Selects the route with the highest overall score</li>
+  <li>Falls back to the base model if no good match is found</li>
+</ol>
+
+<div class="callout callout-tip">
+  <div class="callout-title">💡 Writing Good Examples</div>
+  <ul>
+    <li>Use diverse phrasing that captures the intent</li>
+    <li>Include keywords users actually use</li>
+    <li>Add 5-10 examples per route for best results</li>
+    <li>Examples don't need to be exact matches — the router uses semantic similarity</li>
+  </ul>
+</div>
+
+<h2>Use Cases</h2>
+
+<h3>Cost Optimization</h3>
+
+<p>Route simple queries to cheaper models:</p>
+
+<pre><code class="language-yaml">models:
+  cost_optimizer:
+    provider: openai
+    model: gpt-4o-mini  # Cheap fallback
+    routing:
+      - model: anthropic/claude-sonnet-4-0
+        examples:
+          - "Complex analysis"
+          - "Detailed research"
+          - "Multi-step reasoning"</code></pre>
+
+<h3>Specialized Models</h3>
+
+<p>Route coding tasks to code-specialized models:</p>
+
+<pre><code class="language-yaml">models:
+  task_router:
+    provider: openai
+    model: gpt-4o  # General fallback
+    routing:
+      - model: anthropic/claude-sonnet-4-0
+        examples:
+          - "Write code"
+          - "Debug this function"
+          - "Review my implementation"
+          - "Fix this bug"
+      - model: openai/gpt-4o
+        examples:
+          - "Write a blog post"
+          - "Help me with writing"
+          - "Summarize this document"</code></pre>
+
+<h3>Load Balancing</h3>
+
+<p>Distribute load across equivalent models from different providers:</p>
+
+<pre><code class="language-yaml">models:
+  load_balancer:
+    provider: openai
+    model: gpt-4o
+    routing:
+      - model: anthropic/claude-sonnet-4-0
+        examples:
+          - "First request pattern"
+          - "Another request type"
+      - model: google/gemini-2.5-flash
+        examples:
+          - "Different request pattern"
+          - "Alternative query style"</code></pre>
+
+<h2>Debugging</h2>
+
+<p>Enable debug logging to see routing decisions:</p>
+
+<pre><code class="language-bash">$ cagent run config.yaml --debug</code></pre>
+
+<p>Look for log entries like:</p>
+
+<pre><code class="language-text">"Rule-based router selected model" router=smart_router selected_model=anthropic/claude-sonnet-4-0
+"Route matched" model=anthropic/claude-sonnet-4-0 score=2.45</code></pre>
+
+<div class="callout callout-warning">
+  <div class="callout-title">⚠️ Limitations</div>
+  <ul>
+    <li>Routing only considers the last user message, not full conversation context</li>
+    <li>Very short messages may not match well — consider your fallback carefully</li>
+    <li>Each routed model creates a separate provider connection</li>
+  </ul>
+</div>

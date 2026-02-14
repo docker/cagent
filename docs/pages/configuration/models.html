@@ -1,0 +1,163 @@
+<h1>Model Configuration</h1>
+<p class="subtitle">Complete reference for defining models with providers, parameters, and reasoning settings.</p>
+
+<h2>Full Schema</h2>
+
+<pre><code class="language-yaml">models:
+  model_name:
+    provider: string              # Required: openai, anthropic, google, amazon-bedrock, dmr
+    model: string                 # Required: model identifier
+    temperature: float            # Optional: 0.0–1.0
+    max_tokens: integer           # Optional: response length limit
+    top_p: float                  # Optional: 0.0–1.0
+    frequency_penalty: float     # Optional: 0.0–2.0
+    presence_penalty: float      # Optional: 0.0–2.0
+    base_url: string             # Optional: custom API endpoint
+    token_key: string            # Optional: env var for API token
+    thinking_budget: string|int  # Optional: reasoning effort
+    parallel_tool_calls: boolean # Optional: allow parallel tool calls
+    track_usage: boolean         # Optional: track token usage
+    routing: [list]              # Optional: rule-based model routing
+    provider_opts:                # Optional: provider-specific options
+      key: value</code></pre>
+
+<h2>Properties Reference</h2>
+
+<table>
+  <thead><tr><th>Property</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>provider</code></td><td>string</td><td>✓</td><td>Provider: <code>openai</code>, <code>anthropic</code>, <code>google</code>, <code>amazon-bedrock</code>, <code>dmr</code>, <code>mistral</code>, <code>xai</code></td></tr>
+    <tr><td><code>model</code></td><td>string</td><td>✓</td><td>Model name (e.g., <code>gpt-4o</code>, <code>claude-sonnet-4-0</code>, <code>gemini-2.5-flash</code>)</td></tr>
+    <tr><td><code>temperature</code></td><td>float</td><td>✗</td><td>Randomness. <code>0.0</code> = deterministic, <code>1.0</code> = creative</td></tr>
+    <tr><td><code>max_tokens</code></td><td>int</td><td>✗</td><td>Maximum response length in tokens</td></tr>
+    <tr><td><code>top_p</code></td><td>float</td><td>✗</td><td>Nucleus sampling threshold</td></tr>
+    <tr><td><code>frequency_penalty</code></td><td>float</td><td>✗</td><td>Penalize repeated tokens (0.0–2.0)</td></tr>
+    <tr><td><code>presence_penalty</code></td><td>float</td><td>✗</td><td>Encourage topic diversity (0.0–2.0)</td></tr>
+    <tr><td><code>base_url</code></td><td>string</td><td>✗</td><td>Custom API endpoint URL (for self-hosted or proxied endpoints)</td></tr>
+    <tr><td><code>token_key</code></td><td>string</td><td>✗</td><td>Environment variable name containing the API token (overrides provider default)</td></tr>
+    <tr><td><code>thinking_budget</code></td><td>string/int</td><td>✗</td><td>Reasoning effort control</td></tr>
+    <tr><td><code>parallel_tool_calls</code></td><td>boolean</td><td>✗</td><td>Allow model to call multiple tools at once</td></tr>
+    <tr><td><code>track_usage</code></td><td>boolean</td><td>✗</td><td>Track and report token usage for this model</td></tr>
+    <tr><td><code>routing</code></td><td>array</td><td>✗</td><td>Rule-based routing to different models. See <a href="#configuration/routing" onclick="event.preventDefault(); navigate('configuration/routing')">Model Routing</a>.</td></tr>
+    <tr><td><code>provider_opts</code></td><td>object</td><td>✗</td><td>Provider-specific options (see provider pages)</td></tr>
+  </tbody>
+</table>
+
+<h2>Thinking Budget</h2>
+
+<p>Control how much reasoning the model does before responding. This varies by provider:</p>
+
+<h3>OpenAI</h3>
+<p>Uses effort levels as strings:</p>
+<pre><code class="language-yaml">models:
+  gpt:
+    provider: openai
+    model: gpt-5-mini
+    thinking_budget: low   # minimal | low | medium | high</code></pre>
+
+<h3>Anthropic</h3>
+<p>Uses an integer token budget (1024–32768):</p>
+<pre><code class="language-yaml">models:
+  claude:
+    provider: anthropic
+    model: claude-sonnet-4-5
+    thinking_budget: 16384  # must be &lt; max_tokens</code></pre>
+
+<h3>Google Gemini 2.5</h3>
+<p>Uses an integer token budget. <code>0</code> disables, <code>-1</code> lets the model decide:</p>
+<pre><code class="language-yaml">models:
+  gemini:
+    provider: google
+    model: gemini-2.5-flash
+    thinking_budget: -1    # dynamic (default)</code></pre>
+
+<h3>Google Gemini 3</h3>
+<p>Uses effort levels like OpenAI:</p>
+<pre><code class="language-yaml">models:
+  gemini3:
+    provider: google
+    model: gemini-3-flash
+    thinking_budget: medium  # minimal | low | medium | high</code></pre>
+
+<h3>Disabling Thinking</h3>
+<p>Works for all providers:</p>
+<pre><code class="language-yaml">thinking_budget: none   # or 0</code></pre>
+
+<div class="callout callout-info">
+  <div class="callout-title">ℹ️ Runtime Toggle</div>
+  <p>Even when thinking is disabled in config, you can enable it during a session using the <code>/think</code> command in the TUI.</p>
+</div>
+
+<h2>Interleaved Thinking</h2>
+
+<p>For Anthropic and Bedrock Claude models, interleaved thinking allows tool calls during model reasoning. This is enabled by default:</p>
+
+<pre><code class="language-yaml">models:
+  claude:
+    provider: anthropic
+    model: claude-sonnet-4-5
+    # interleaved_thinking defaults to true
+    provider_opts:
+      interleaved_thinking: false  # disable if needed</code></pre>
+
+<h2>Examples by Provider</h2>
+
+<pre><code class="language-yaml">models:
+  # OpenAI
+  gpt:
+    provider: openai
+    model: gpt-5-mini
+
+  # Anthropic
+  claude:
+    provider: anthropic
+    model: claude-sonnet-4-0
+    max_tokens: 64000
+
+  # Google Gemini
+  gemini:
+    provider: google
+    model: gemini-2.5-flash
+    temperature: 0.5
+
+  # AWS Bedrock
+  bedrock:
+    provider: amazon-bedrock
+    model: global.anthropic.claude-sonnet-4-5-20250929-v1:0
+    provider_opts:
+      region: us-east-1
+
+  # Docker Model Runner (local)
+  local:
+    provider: dmr
+    model: ai/qwen3
+    max_tokens: 8192</code></pre>
+
+<p>For detailed provider setup, see the <a href="#providers/overview" onclick="event.preventDefault(); navigate('providers/overview')">Model Providers</a> section.</p>
+
+<h2>Custom Endpoints</h2>
+
+<p>Use <code>base_url</code> to point to custom or self-hosted endpoints:</p>
+
+<pre><code class="language-yaml">models:
+  # Azure OpenAI
+  azure_gpt:
+    provider: openai
+    model: gpt-4o
+    base_url: https://my-resource.openai.azure.com/openai/deployments/gpt-4o
+    token_key: AZURE_OPENAI_API_KEY
+
+  # Self-hosted vLLM
+  local_llama:
+    provider: openai  # vLLM is OpenAI-compatible
+    model: meta-llama/Llama-3.2-3B-Instruct
+    base_url: http://localhost:8000/v1
+
+  # Proxy or gateway
+  proxied:
+    provider: openai
+    model: gpt-4o
+    base_url: https://proxy.internal.company.com/openai/v1
+    token_key: INTERNAL_API_KEY</code></pre>
+
+<p>See <a href="#providers/local" onclick="event.preventDefault(); navigate('providers/local')">Local Models</a> for more examples of custom endpoints.</p>

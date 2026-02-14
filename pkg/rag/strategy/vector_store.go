@@ -87,7 +87,7 @@ type VectorStore struct {
 }
 
 type modelStore interface {
-	GetModel(ctx context.Context, modelID string) (*modelsdev.Model, error)
+	GetModel(modelID string) (*modelsdev.Model, error)
 }
 
 // EmbeddingInputBuilder builds the string that will be sent to the embedding model
@@ -150,7 +150,7 @@ func NewVectorStore(cfg VectorStoreConfig) *VectorStore {
 	// Set usage handler to calculate cost from models.dev and emit events with CUMULATIVE totals
 	// This matches how chat completions calculate cost in runtime.go
 	cfg.Embedder.SetUsageHandler(func(tokens int64, _ float64) {
-		cost := s.calculateCost(context.Background(), tokens)
+		cost := s.calculateCost(tokens)
 		s.recordUsage(tokens, cost)
 	})
 
@@ -169,12 +169,12 @@ func (s *VectorStore) SetEmbeddingInputBuilder(builder EmbeddingInputBuilder) {
 }
 
 // calculateCost calculates embedding cost using models.dev pricing
-func (s *VectorStore) calculateCost(ctx context.Context, tokens int64) float64 {
+func (s *VectorStore) calculateCost(tokens int64) float64 {
 	if s.modelsStore == nil || strings.HasPrefix(s.modelID, "dmr/") {
 		return 0
 	}
 
-	model, err := s.modelsStore.GetModel(ctx, s.modelID)
+	model, err := s.modelsStore.GetModel(s.modelID)
 	if err != nil {
 		slog.Debug("Failed to get model pricing from models.dev, cost will be 0",
 			"model_id", s.modelID,

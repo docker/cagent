@@ -3,7 +3,6 @@ package cli
 import (
 	"cmp"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -41,8 +40,10 @@ type Config struct {
 	OutputJSON     bool
 }
 
-// Run executes an agent in non-TUI mode, handling user input and runtime events
-func Run(ctx context.Context, out *Printer, cfg Config, rt runtime.Runtime, sess *session.Session, args []string) error {
+// Run executes an agent in non-TUI mode, handling user input and runtime events.
+// userMessages contains the user messages to send. If a single message is "-",
+// input is read from stdin. If empty, an interactive prompt loop is started.
+func Run(ctx context.Context, out *Printer, cfg Config, rt runtime.Runtime, sess *session.Session, userMessages []string) error {
 	// Create a cancellable context for this agentic loop and wire Ctrl+C to cancel it
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -164,14 +165,23 @@ func Run(ctx context.Context, out *Printer, cfg Config, rt runtime.Runtime, sess
 					return nil
 				}
 			case *runtime.ElicitationRequestEvent:
-				serverURL := e.Meta["cagent/server_url"].(string)
+				serverURL, ok := e.Meta["cagent/server_url"].(string)
+				if !ok || serverURL == "" {
+					slog.Warn("Skipping elicitation: missing or invalid server_url (non-interactive session?)")
+					_ = rt.ResumeElicitation(ctx, "decline", nil)
+					return nil
+				}
+
 				result := out.PromptOAuthAuthorization(ctx, serverURL)
-				switch {
-				case ctx.Err() != nil:
+
+				if ctx.Err() != nil {
 					return ctx.Err()
-				case result == ConfirmationApprove:
+				}
+
+				switch result {
+				case ConfirmationApprove:
 					_ = rt.ResumeElicitation(ctx, "accept", nil)
-				case result == ConfirmationReject:
+				case ConfirmationReject:
 					_ = rt.ResumeElicitation(ctx, "decline", nil)
 					return fmt.Errorf("OAuth authorization rejected by user")
 				}
@@ -185,22 +195,26 @@ func Run(ctx context.Context, out *Printer, cfg Config, rt runtime.Runtime, sess
 		return nil
 	}
 
-	if len(args) == 2 {
-		if args[1] == "-" {
-			buf, err := io.ReadAll(os.Stdin)
-			if err != nil {
-				return fmt.Errorf("failed to read from stdin: %w", err)
-			}
+	switch {
+	case len(userMessages) == 1 && userMessages[0] == "-":
+		// Single "-" argument: read from stdin
+		buf, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return fmt.Errorf("failed to read from stdin: %w", err)
+		}
 
-			if err := oneLoop(string(buf), os.Stdin); err != nil {
-				return err
-			}
-		} else {
-			if err := oneLoop(args[1], os.Stdin); err != nil {
+		if err := oneLoop(string(buf), os.Stdin); err != nil {
+			return err
+		}
+	case len(userMessages) > 0:
+		// One or more messages: multi-turn conversation
+		for _, msg := range userMessages {
+			if err := oneLoop(msg, os.Stdin); err != nil {
 				return err
 			}
 		}
-	} else {
+	default:
+		// No messages: interactive prompt loop
 		out.PrintWelcomeMessage(cfg.AppName)
 		firstQuestion := true
 		for {
@@ -307,78 +321,69 @@ func ParseAttachCommand(userInput string) (messageText, attachPath string) {
 	return messageText, attachPath
 }
 
-// CreateUserMessageWithAttachment creates a user message with optional image attachment
+// CreateUserMessageWithAttachment creates a user message with optional file attachment.
+// Text files are inlined directly as text content for cross-provider compatibility.
+// Binary files (images, PDFs) are stored as file references for provider-specific upload.
 func CreateUserMessageWithAttachment(userContent, attachmentPath string) *session.Message {
 	if attachmentPath == "" {
 		return session.UserMessage(userContent)
 	}
 
-	// Convert file to data URL
-	dataURL, err := fileToDataURL(attachmentPath)
+	// Validate file exists
+	absPath, err := filepath.Abs(attachmentPath)
 	if err != nil {
-		slog.Warn("Failed to attach file", "path", attachmentPath, "error", err)
+		slog.Warn("Failed to get absolute path for attachment", "path", attachmentPath, "error", err)
+		return session.UserMessage(userContent)
+	}
+
+	fi, err := os.Stat(absPath)
+	if err != nil {
+		slog.Warn("Attachment file not accessible", "path", absPath, "error", err)
 		return session.UserMessage(userContent)
 	}
 
 	// Ensure we have some text content when attaching a file
 	textContent := cmp.Or(strings.TrimSpace(userContent), "Please analyze this attached file.")
 
-	// Create message with multi-content including text and image
 	multiContent := []chat.MessagePart{
 		{
 			Type: chat.MessagePartTypeText,
 			Text: textContent,
 		},
-		{
-			Type: chat.MessagePartTypeImageURL,
-			ImageURL: &chat.MessageImageURL{
-				URL:    dataURL,
-				Detail: chat.ImageURLDetailAuto,
-			},
-		},
 	}
 
-	return session.UserMessage("", multiContent...)
-}
+	switch {
+	case chat.IsTextFile(absPath):
+		// Text files are inlined directly as text content.
+		if fi.Size() > chat.MaxInlineFileSize {
+			slog.Warn("Attachment text file too large to inline", "path", absPath, "size", fi.Size())
+			return session.UserMessage(userContent)
+		}
+		content, err := chat.ReadFileForInline(absPath)
+		if err != nil {
+			slog.Warn("Failed to read attachment file", "path", absPath, "error", err)
+			return session.UserMessage(userContent)
+		}
+		multiContent = append(multiContent, chat.MessagePart{
+			Type: chat.MessagePartTypeText,
+			Text: content,
+		})
 
-// fileToDataURL converts a file to a data URL
-func fileToDataURL(filePath string) (string, error) {
-	// Check if file exists
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		return "", fmt.Errorf("file does not exist: %s", filePath)
-	}
-
-	// Read file content
-	fileBytes, err := os.ReadFile(filePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read file: %w", err)
-	}
-
-	// Determine MIME type based on file extension
-	ext := strings.ToLower(filepath.Ext(filePath))
-	var mimeType string
-	switch ext {
-	case ".jpg", ".jpeg":
-		mimeType = "image/jpeg"
-	case ".png":
-		mimeType = "image/png"
-	case ".gif":
-		mimeType = "image/gif"
-	case ".webp":
-		mimeType = "image/webp"
-	case ".bmp":
-		mimeType = "image/bmp"
-	case ".svg":
-		mimeType = "image/svg+xml"
 	default:
-		return "", fmt.Errorf("unsupported image format: %s", ext)
+		// Binary files (images, PDFs) are kept as file references.
+		mimeType := chat.DetectMimeType(absPath)
+		if !chat.IsSupportedMimeType(mimeType) {
+			slog.Warn("Unsupported attachment file type", "path", absPath, "mime_type", mimeType)
+			return session.UserMessage(userContent)
+		}
+		multiContent = append(multiContent, chat.MessagePart{
+			Type: chat.MessagePartTypeFile,
+			File: &chat.MessageFile{
+				Path:     absPath,
+				MimeType: mimeType,
+			},
+		})
 	}
 
-	// Encode to base64
-	encoded := base64.StdEncoding.EncodeToString(fileBytes)
-
-	// Create data URL
-	dataURL := fmt.Sprintf("data:%s;base64,%s", mimeType, encoded)
-
-	return dataURL, nil
+	return session.UserMessage(textContent, multiContent...)
 }

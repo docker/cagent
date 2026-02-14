@@ -260,15 +260,7 @@ func (d *multiChoiceDialog) computeDialogWidth() int {
 	}
 
 	// Calculate total dialog width
-	dialogWidth := maxContentWidth + frameWidth
-
-	// Apply bounds
-	if dialogWidth < multiChoiceMinDialogWidth {
-		dialogWidth = multiChoiceMinDialogWidth
-	}
-	if dialogWidth > multiChoiceMaxDialogWidth {
-		dialogWidth = multiChoiceMaxDialogWidth
-	}
+	dialogWidth := min(max(maxContentWidth+frameWidth, multiChoiceMinDialogWidth), multiChoiceMaxDialogWidth)
 
 	// Don't exceed screen width
 	screenLimit := d.Width() * multiChoiceScreenWidthFactor / 100
@@ -660,10 +652,9 @@ func (d *multiChoiceDialog) renderOption(num int, label string, isSelected bool,
 	numBoxWidth := lipgloss.Width(numBox)
 
 	// Calculate available width for label (allow word wrap)
-	labelWidth := contentWidth - numBoxWidth - 1 // -1 for space between number box and label
-	if labelWidth < multiChoiceMinLabelWidth {
-		labelWidth = multiChoiceMinLabelWidth
-	}
+	labelWidth := max(
+		// -1 for space between number box and label
+		contentWidth-numBoxWidth-1, multiChoiceMinLabelWidth)
 
 	// Apply width constraint for word wrapping
 	var labelRendered string
@@ -706,10 +697,7 @@ func (d *multiChoiceDialog) renderCustomOption(isSelected bool, contentWidth int
 
 	// Calculate available width for text display
 	// -1 for space between number box and input, -1 for cursor space
-	availableWidth := contentWidth - numBoxWidth - 2
-	if availableWidth < multiChoiceMinLabelWidth {
-		availableWidth = multiChoiceMinLabelWidth
-	}
+	availableWidth := max(contentWidth-numBoxWidth-2, multiChoiceMinLabelWidth)
 
 	value := d.customInput.Value()
 
@@ -818,10 +806,7 @@ func (d *multiChoiceDialog) renderHelpAndButtons(contentWidth int) string {
 	totalBtnWidth := secondaryWidth + multiChoiceButtonSpacing + primaryWidth
 
 	// Calculate spacing between help and buttons
-	spacing := contentWidth - helpWidth - totalBtnWidth
-	if spacing < multiChoiceMinHelpSpacing {
-		spacing = multiChoiceMinHelpSpacing
-	}
+	spacing := max(contentWidth-helpWidth-totalBtnWidth, multiChoiceMinHelpSpacing)
 
 	// Store button positions for click detection (relative to content area)
 	d.secondaryBtnCol = helpWidth + spacing

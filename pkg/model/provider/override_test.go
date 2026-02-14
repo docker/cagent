@@ -29,7 +29,7 @@ func TestApplyOverrides_Thinking(t *testing.T) {
 				Model:          "claude-sonnet-4-0",
 				ThinkingBudget: &latest.ThinkingBudget{Tokens: 8192},
 			},
-			thinkingEnabled:      boolPtr(false),
+			thinkingEnabled:      new(false),
 			expectThinkingBudget: nil,
 		},
 		{
@@ -40,7 +40,7 @@ func TestApplyOverrides_Thinking(t *testing.T) {
 				ThinkingBudget: &latest.ThinkingBudget{Tokens: 16384},
 				ProviderOpts:   map[string]any{"interleaved_thinking": true},
 			},
-			thinkingEnabled:           boolPtr(false),
+			thinkingEnabled:           new(false),
 			expectThinkingBudget:      nil,
 			expectInterleavedThinking: nil, // key should be removed
 		},
@@ -51,7 +51,7 @@ func TestApplyOverrides_Thinking(t *testing.T) {
 				Model:          "claude-sonnet-4-0",
 				ThinkingBudget: &latest.ThinkingBudget{Tokens: 8192},
 			},
-			thinkingEnabled:      boolPtr(true),
+			thinkingEnabled:      new(true),
 			expectThinkingBudget: &latest.ThinkingBudget{Tokens: 8192},
 		},
 		{
@@ -62,9 +62,9 @@ func TestApplyOverrides_Thinking(t *testing.T) {
 				ThinkingBudget: &latest.ThinkingBudget{Tokens: 8192},
 				ProviderOpts:   map[string]any{"interleaved_thinking": true},
 			},
-			thinkingEnabled:           boolPtr(true),
+			thinkingEnabled:           new(true),
 			expectThinkingBudget:      &latest.ThinkingBudget{Tokens: 8192},
-			expectInterleavedThinking: boolPtr(true),
+			expectInterleavedThinking: new(true),
 		},
 		{
 			name: "preserves other ProviderOpts when clearing thinking",
@@ -77,7 +77,7 @@ func TestApplyOverrides_Thinking(t *testing.T) {
 					"other_option":         "preserved",
 				},
 			},
-			thinkingEnabled:      boolPtr(false),
+			thinkingEnabled:      new(false),
 			expectThinkingBudget: nil,
 		},
 		{
@@ -97,7 +97,7 @@ func TestApplyOverrides_Thinking(t *testing.T) {
 				Model:          "gpt-4o",
 				ThinkingBudget: nil, // No thinking configured
 			},
-			thinkingEnabled:      boolPtr(true),
+			thinkingEnabled:      new(true),
 			expectThinkingBudget: &latest.ThinkingBudget{Effort: "medium"}, // OpenAI default
 		},
 		{
@@ -107,9 +107,9 @@ func TestApplyOverrides_Thinking(t *testing.T) {
 				Model:          "claude-sonnet-4-0",
 				ThinkingBudget: nil, // No thinking configured
 			},
-			thinkingEnabled:           boolPtr(true),
+			thinkingEnabled:           new(true),
 			expectThinkingBudget:      &latest.ThinkingBudget{Tokens: 8192}, // Anthropic default
-			expectInterleavedThinking: boolPtr(true),                        // Anthropic default
+			expectInterleavedThinking: new(true),                            // Anthropic default
 		},
 		{
 			name: "restores defaults when /think used with tokens=0",
@@ -118,7 +118,7 @@ func TestApplyOverrides_Thinking(t *testing.T) {
 				Model:          "gpt-4o",
 				ThinkingBudget: &latest.ThinkingBudget{Tokens: 0}, // User had thinking disabled
 			},
-			thinkingEnabled:      boolPtr(true),                            // User runs /think
+			thinkingEnabled:      new(true),                                // User runs /think
 			expectThinkingBudget: &latest.ThinkingBudget{Effort: "medium"}, // Apply OpenAI default
 		},
 		{
@@ -128,9 +128,9 @@ func TestApplyOverrides_Thinking(t *testing.T) {
 				Model:          "claude-sonnet-4-0",
 				ThinkingBudget: &latest.ThinkingBudget{Effort: "none"}, // User had thinking disabled
 			},
-			thinkingEnabled:           boolPtr(true),                        // User runs /think
+			thinkingEnabled:           new(true),                            // User runs /think
 			expectThinkingBudget:      &latest.ThinkingBudget{Tokens: 8192}, // Apply Anthropic default
-			expectInterleavedThinking: boolPtr(true),
+			expectInterleavedThinking: new(true),
 		},
 	}
 

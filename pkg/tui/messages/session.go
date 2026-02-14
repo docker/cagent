@@ -3,6 +3,24 @@ package messages
 
 import "github.com/docker/cagent/pkg/session"
 
+// Attachment represents content attached to a message. It is either a reference
+// to a file on disk (FilePath is set) or inline content already in memory
+// (Content is set, e.g. pasted text). When FilePath is set the consumer reads
+// and classifies the file at send time; when only Content is set the consumer
+// uses it directly as inline text. This design lets us add binary-file support
+// (images, PDFs, …) in the future by extending the struct with a MimeType hint.
+type Attachment struct {
+	// Name is the human-readable label (e.g. "paste-1", "main.go").
+	Name string
+	// FilePath is the resolved, absolute path to a file on disk.
+	// Empty when the content is supplied inline (paste attachments).
+	FilePath string
+	// Content holds the raw text content. Set for paste attachments whose
+	// backing temp file is cleaned up before the message reaches the app layer.
+	// Empty for file-reference attachments that are read from disk.
+	Content string
+}
+
 // Session lifecycle messages control session state and persistence.
 type (
 	// NewSessionMsg requests creation of a new session.
@@ -52,8 +70,8 @@ type (
 
 	// SendMsg contains the content sent to the agent.
 	SendMsg struct {
-		Content     string            // Full content sent to the agent (with file contents expanded)
-		Attachments map[string]string // Map of filename to content for attachments
+		Content     string       // Full content sent to the agent (with file contents expanded)
+		Attachments []Attachment // Attached files or inline content (e.g. pastes)
 	}
 
 	// SendAttachmentMsg is a message for the first message with an attachment.

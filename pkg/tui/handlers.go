@@ -15,6 +15,7 @@ import (
 	"github.com/docker/cagent/pkg/browser"
 	"github.com/docker/cagent/pkg/evaluation"
 	"github.com/docker/cagent/pkg/modelsdev"
+	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/tools"
 	mcptools "github.com/docker/cagent/pkg/tools/mcp"
 	"github.com/docker/cagent/pkg/tui/components/notification"
@@ -94,6 +95,56 @@ func (a *appModel) handleLoadSession(sessionID string) (tea.Model, tea.Cmd) {
 	return a, tea.Batch(
 		a.Init(),
 		a.handleWindowResize(a.wWidth, a.wHeight),
+	)
+}
+
+func (a *appModel) handleBranchFromEdit(msg messages.BranchFromEditMsg) (tea.Model, tea.Cmd) {
+	store := a.application.SessionStore()
+	if store == nil {
+		return a, notification.ErrorCmd("No session store configured")
+	}
+	if msg.ParentSessionID == "" {
+		return a, notification.ErrorCmd("No parent session for branch")
+	}
+
+	parent, err := store.GetSession(context.Background(), msg.ParentSessionID)
+	if err != nil {
+		return a, notification.ErrorCmd(fmt.Sprintf("Failed to load parent session: %v", err))
+	}
+
+	newSess, err := session.BranchSession(parent, msg.BranchAtPosition)
+	if err != nil {
+		return a, notification.ErrorCmd(fmt.Sprintf("Failed to branch session: %v", err))
+	}
+
+	if err := store.AddSession(context.Background(), newSess); err != nil {
+		return a, notification.ErrorCmd(fmt.Sprintf("Failed to save branched session: %v", err))
+	}
+
+	if current := a.application.Session(); current != nil {
+		newSess.HideToolResults = current.HideToolResults
+		newSess.ToolsApproved = current.ToolsApproved
+	}
+
+	// Preserve sidebar settings across branch
+	sidebarSettings := a.chatPage.GetSidebarSettings()
+
+	a.application.ReplaceSession(context.Background(), newSess)
+	a.sessionState = service.NewSessionState(newSess)
+	a.chatPage = chat.New(a.application, a.sessionState)
+	a.dialog = dialog.New()
+	a.applyKeyboardEnhancements()
+
+	// Restore sidebar settings
+	a.chatPage.SetSidebarSettings(sidebarSettings)
+
+	return a, tea.Sequence(
+		a.Init(),
+		a.handleWindowResize(a.wWidth, a.wHeight),
+		core.CmdHandler(messages.SendMsg{
+			Content:     msg.Content,
+			Attachments: msg.Attachments,
+		}),
 	)
 }
 
@@ -279,7 +330,7 @@ func (a *appModel) handleToggleYolo() (tea.Model, tea.Cmd) {
 func (a *appModel) handleToggleThinking() (tea.Model, tea.Cmd) {
 	// Check if the current model supports reasoning
 	currentModel := a.application.CurrentAgentModel()
-	if !modelsdev.ModelSupportsReasoning(context.Background(), currentModel) {
+	if !modelsdev.ModelSupportsReasoning(currentModel) {
 		return a, notification.InfoCmd("Thinking/reasoning is not supported for the current model")
 	}
 

@@ -29,6 +29,7 @@ func NewGlamourRenderer(width int) *glamour.TermRenderer {
 	r, _ := glamour.NewTermRenderer(
 		glamour.WithWordWrap(width),
 		glamour.WithStyles(style),
+		glamour.WithPreservedNewLines(),
 	)
 	return r
 }

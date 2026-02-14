@@ -1,0 +1,160 @@
+<h1>Tools</h1>
+<p class="subtitle">Tools give agents the ability to interact with the world — read files, run commands, search the web, query databases, and more.</p>
+
+<h2>How Tools Work</h2>
+
+<p>When an agent needs to perform an action, it makes a <strong>tool call</strong>. The cagent runtime executes the tool and returns the result to the agent, which can then use it to continue its work.</p>
+
+<ol>
+  <li>Agent receives a user message</li>
+  <li>Agent decides it needs to use a tool (e.g., read a file)</li>
+  <li>cagent executes the tool and returns the result</li>
+  <li>Agent incorporates the result and responds</li>
+</ol>
+
+<div class="callout callout-info">
+  <div class="callout-title">ℹ️ Tool Confirmation</div>
+  <p>By default, cagent asks for user confirmation before executing tools that have side effects (shell commands, file writes). Use <code>--yolo</code> to auto-approve all tool calls.</p>
+</div>
+
+<h2>Built-in Tools</h2>
+
+<p>cagent ships with several built-in tools that require no external dependencies. Each is enabled by adding its <code>type</code> to the agent's <code>toolsets</code> list.</p>
+
+<h3>Filesystem</h3>
+
+<p>Gives agents the ability to read, write, list, search, and navigate files and directories. The agent receives tools such as <code>read_file</code>, <code>write_file</code>, <code>list_directory</code>, <code>search_files_content</code>, <code>directory_tree</code>, and more.</p>
+
+<pre><code class="language-yaml">toolsets:
+  - type: filesystem</code></pre>
+
+<p>The filesystem tool respects the working directory and allows agents to explore codebases, edit config files, create new files, and perform search-and-replace operations.</p>
+
+<h3>Shell</h3>
+
+<p>Allows agents to execute arbitrary shell commands in the user's environment. This is one of the most powerful tools — it lets agents run builds, install dependencies, query APIs, and interact with the system.</p>
+
+<pre><code class="language-yaml">toolsets:
+  - type: shell</code></pre>
+
+<p>Commands run in a fresh shell session with access to all environment variables. Each invocation is isolated — no state persists between calls. Requires user confirmation by default.</p>
+
+<h3>Think</h3>
+
+<p>A reasoning scratchpad that lets agents think step-by-step before acting. The agent can write its thoughts without producing visible output to the user — useful for planning complex tasks, breaking down problems, and reasoning through multi-step solutions.</p>
+
+<pre><code class="language-yaml">toolsets:
+  - type: think</code></pre>
+
+<p>This is a lightweight tool with no side effects. It's recommended for all agents — it improves the quality of reasoning on complex tasks at minimal cost.</p>
+
+<h3>Todo</h3>
+
+<p>Task list management. Agents can create, update, list, and track progress on tasks. Useful for complex multi-step workflows where the agent needs to stay organized.</p>
+
+<pre><code class="language-yaml">toolsets:
+  - type: todo</code></pre>
+
+<p>The agent gets tools like <code>create_todo</code>, <code>update_todos</code>, and <code>list_todos</code> with status tracking (pending, in-progress, completed).</p>
+
+<h3>Memory</h3>
+
+<p>Persistent key-value storage backed by SQLite. Data survives across sessions, allowing agents to remember facts, user preferences, project context, and past decisions.</p>
+
+<pre><code class="language-yaml">toolsets:
+  - type: memory
+    path: ./agent_memory.db  # optional: custom database path</code></pre>
+
+<p>Without <code>path</code>, a default location is used. Memory is especially useful for long-running assistants that need to recall information across conversations.</p>
+
+<h3>Fetch</h3>
+
+<p>Make HTTP requests (GET, POST, PUT, DELETE, etc.) to external APIs. The agent can read web pages, call REST APIs, download data, and interact with web services.</p>
+
+<pre><code class="language-yaml">toolsets:
+  - type: fetch</code></pre>
+
+<h3>Script</h3>
+
+<p>Define custom shell scripts as named tools. Unlike the generic <code>shell</code> tool where the agent writes the command, script tools execute predefined commands — useful for exposing safe, constrained operations.</p>
+
+<pre><code class="language-yaml">toolsets:
+  - type: script
+    scripts:
+      - name: run_tests
+        description: Run the project test suite
+        command: task test
+      - name: lint
+        description: Run the linter
+        command: task lint</code></pre>
+
+<h3>Transfer Task</h3>
+
+<p>The <code>transfer_task</code> tool is automatically available when an agent has <code>sub_agents</code> configured. It allows the agent to delegate tasks to specialized sub-agents and receive their results. This is the core mechanism for multi-agent orchestration — you don't need to add it manually.</p>
+
+<h2>MCP Tools</h2>
+
+<p>cagent supports the <a href="https://modelcontextprotocol.io/" target="_blank" rel="noopener noreferrer">Model Context Protocol (MCP)</a> for extending agents with external tools. There are three ways to connect MCP tools:</p>
+
+<h3>Docker MCP (Recommended)</h3>
+
+<p>Run MCP servers in Docker containers for security and isolation:</p>
+
+<pre><code class="language-yaml">toolsets:
+  - type: mcp
+    ref: docker:duckduckgo        # web search
+  - type: mcp
+    ref: docker:github-official   # GitHub integration</code></pre>
+
+<p>Docker MCP tools run through the <a href="https://github.com/docker/mcp-gateway" target="_blank" rel="noopener noreferrer">Docker MCP Gateway</a>, which manages container lifecycles and provides security isolation. Browse available tools in the <a href="https://hub.docker.com/search?q=&type=mcp" target="_blank" rel="noopener noreferrer">Docker MCP Catalog</a>.</p>
+
+<h3>Local MCP (stdio)</h3>
+
+<p>Run MCP servers as local processes communicating over stdin/stdout. Here's an example adding <code>rust-mcp-filesystem</code> for file operations alongside a Docker MCP tool:</p>
+
+<pre><code class="language-yaml">toolsets:
+  - type: mcp
+    ref: docker:duckduckgo
+  - type: mcp
+    command: rust-mcp-filesystem
+    args: ["--allow-write", "."]
+    tools: ["read_file", "write_file"]  # optional: only expose specific tools
+    env:
+      - "RUST_LOG=debug"</code></pre>
+
+<h3>Remote MCP (SSE / HTTP)</h3>
+
+<p>Connect to MCP servers running on a network:</p>
+
+<pre><code class="language-yaml">toolsets:
+  - type: mcp
+    remote:
+      url: "https://mcp.example.com"
+      transport_type: "sse"
+      headers:
+        Authorization: "Bearer your-token"</code></pre>
+
+<h2>Tool Filtering</h2>
+
+<p>MCP servers may expose many tools. You can whitelist only the ones you need:</p>
+
+<pre><code class="language-yaml">toolsets:
+  - type: mcp
+    ref: docker:github-official
+    tools: ["list_issues", "create_issue"]  # only these tools</code></pre>
+
+<h2>Tool Instructions</h2>
+
+<p>Add custom instructions that are injected into the agent's context when a toolset is loaded:</p>
+
+<pre><code class="language-yaml">toolsets:
+  - type: mcp
+    ref: docker:github-official
+    instruction: |
+      Use these tools to manage GitHub issues.
+      Always check for existing issues before creating new ones.</code></pre>
+
+<div class="callout callout-tip">
+  <div class="callout-title">💡 See also</div>
+  <p>For connecting to 50+ cloud services via remote MCP with OAuth, see <a href="#features/remote-mcp" onclick="event.preventDefault(); navigate('features/remote-mcp')">Remote MCP Servers</a>. For RAG (document retrieval), see <a href="#features/rag" onclick="event.preventDefault(); navigate('features/rag')">RAG</a>. For full tool config reference, see <a href="#configuration/tools" onclick="event.preventDefault(); navigate('configuration/tools')">Tool Config</a>.</p>
+</div>

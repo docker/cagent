@@ -62,6 +62,9 @@ const (
 	AgentServiceResumeElicitationProcedure = "/cagent.v1.AgentService/ResumeElicitation"
 	// AgentServiceRunAgentProcedure is the fully-qualified name of the AgentService's RunAgent RPC.
 	AgentServiceRunAgentProcedure = "/cagent.v1.AgentService/RunAgent"
+	// AgentServiceGetAgentToolCountProcedure is the fully-qualified name of the AgentService's
+	// GetAgentToolCount RPC.
+	AgentServiceGetAgentToolCountProcedure = "/cagent.v1.AgentService/GetAgentToolCount"
 	// AgentServicePingProcedure is the fully-qualified name of the AgentService's Ping RPC.
 	AgentServicePingProcedure = "/cagent.v1.AgentService/Ping"
 )
@@ -90,6 +93,10 @@ type AgentServiceClient interface {
 	ResumeElicitation(context.Context, *connect.Request[v1.ResumeElicitationRequest]) (*connect.Response[v1.ResumeElicitationResponse], error)
 	// RunAgent runs an agent loop and streams events.
 	RunAgent(context.Context, *connect.Request[v1.RunAgentRequest]) (*connect.ServerStreamForClient[v1.Event], error)
+	// GetAgentToolCount returns the number of tools available for an agent.
+	// This is used by the remote TUI to display the tool count at startup
+	// without waiting for the first RunAgent call.
+	GetAgentToolCount(context.Context, *connect.Request[v1.GetAgentToolCountRequest]) (*connect.Response[v1.GetAgentToolCountResponse], error)
 	// Ping is a health check endpoint.
 	Ping(context.Context, *connect.Request[v1.PingRequest]) (*connect.Response[v1.PingResponse], error)
 }
@@ -171,6 +178,12 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("RunAgent")),
 			connect.WithClientOptions(opts...),
 		),
+		getAgentToolCount: connect.NewClient[v1.GetAgentToolCountRequest, v1.GetAgentToolCountResponse](
+			httpClient,
+			baseURL+AgentServiceGetAgentToolCountProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("GetAgentToolCount")),
+			connect.WithClientOptions(opts...),
+		),
 		ping: connect.NewClient[v1.PingRequest, v1.PingResponse](
 			httpClient,
 			baseURL+AgentServicePingProcedure,
@@ -193,6 +206,7 @@ type agentServiceClient struct {
 	updateSessionTitle *connect.Client[v1.UpdateSessionTitleRequest, v1.UpdateSessionTitleResponse]
 	resumeElicitation  *connect.Client[v1.ResumeElicitationRequest, v1.ResumeElicitationResponse]
 	runAgent           *connect.Client[v1.RunAgentRequest, v1.Event]
+	getAgentToolCount  *connect.Client[v1.GetAgentToolCountRequest, v1.GetAgentToolCountResponse]
 	ping               *connect.Client[v1.PingRequest, v1.PingResponse]
 }
 
@@ -251,6 +265,11 @@ func (c *agentServiceClient) RunAgent(ctx context.Context, req *connect.Request[
 	return c.runAgent.CallServerStream(ctx, req)
 }
 
+// GetAgentToolCount calls cagent.v1.AgentService.GetAgentToolCount.
+func (c *agentServiceClient) GetAgentToolCount(ctx context.Context, req *connect.Request[v1.GetAgentToolCountRequest]) (*connect.Response[v1.GetAgentToolCountResponse], error) {
+	return c.getAgentToolCount.CallUnary(ctx, req)
+}
+
 // Ping calls cagent.v1.AgentService.Ping.
 func (c *agentServiceClient) Ping(ctx context.Context, req *connect.Request[v1.PingRequest]) (*connect.Response[v1.PingResponse], error) {
 	return c.ping.CallUnary(ctx, req)
@@ -280,6 +299,10 @@ type AgentServiceHandler interface {
 	ResumeElicitation(context.Context, *connect.Request[v1.ResumeElicitationRequest]) (*connect.Response[v1.ResumeElicitationResponse], error)
 	// RunAgent runs an agent loop and streams events.
 	RunAgent(context.Context, *connect.Request[v1.RunAgentRequest], *connect.ServerStream[v1.Event]) error
+	// GetAgentToolCount returns the number of tools available for an agent.
+	// This is used by the remote TUI to display the tool count at startup
+	// without waiting for the first RunAgent call.
+	GetAgentToolCount(context.Context, *connect.Request[v1.GetAgentToolCountRequest]) (*connect.Response[v1.GetAgentToolCountResponse], error)
 	// Ping is a health check endpoint.
 	Ping(context.Context, *connect.Request[v1.PingRequest]) (*connect.Response[v1.PingResponse], error)
 }
@@ -357,6 +380,12 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("RunAgent")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceGetAgentToolCountHandler := connect.NewUnaryHandler(
+		AgentServiceGetAgentToolCountProcedure,
+		svc.GetAgentToolCount,
+		connect.WithSchema(agentServiceMethods.ByName("GetAgentToolCount")),
+		connect.WithHandlerOptions(opts...),
+	)
 	agentServicePingHandler := connect.NewUnaryHandler(
 		AgentServicePingProcedure,
 		svc.Ping,
@@ -387,6 +416,8 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceResumeElicitationHandler.ServeHTTP(w, r)
 		case AgentServiceRunAgentProcedure:
 			agentServiceRunAgentHandler.ServeHTTP(w, r)
+		case AgentServiceGetAgentToolCountProcedure:
+			agentServiceGetAgentToolCountHandler.ServeHTTP(w, r)
 		case AgentServicePingProcedure:
 			agentServicePingHandler.ServeHTTP(w, r)
 		default:
@@ -440,6 +471,10 @@ func (UnimplementedAgentServiceHandler) ResumeElicitation(context.Context, *conn
 
 func (UnimplementedAgentServiceHandler) RunAgent(context.Context, *connect.Request[v1.RunAgentRequest], *connect.ServerStream[v1.Event]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("cagent.v1.AgentService.RunAgent is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) GetAgentToolCount(context.Context, *connect.Request[v1.GetAgentToolCountRequest]) (*connect.Response[v1.GetAgentToolCountResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cagent.v1.AgentService.GetAgentToolCount is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) Ping(context.Context, *connect.Request[v1.PingRequest]) (*connect.Response[v1.PingResponse], error) {

@@ -58,12 +58,23 @@ func (c *SidebarComponent) Render() string {
 func (c *SidebarComponent) renderTodoLine(todo builtin.Todo) string {
 	icon, style := renderTodoIcon(todo.Status)
 
-	// Compute prefix width dynamically (icon + space separator)
 	prefix := icon + " "
-	maxDescWidth := c.width - lipgloss.Width(prefix)
-	description := toolcommon.TruncateText(todo.Description, maxDescWidth)
+	prefixWidth := lipgloss.Width(prefix)
+	maxDescWidth := max(1, c.width-prefixWidth)
 
-	return styles.TabPrimaryStyle.Render(style.Render(prefix + description))
+	wrapped := toolcommon.WrapLinesWords(todo.Description, maxDescWidth)
+	indent := strings.Repeat(" ", prefixWidth)
+
+	var b strings.Builder
+	for i, line := range wrapped {
+		if i == 0 {
+			b.WriteString(prefix + line)
+		} else {
+			b.WriteString("\n" + indent + line)
+		}
+	}
+
+	return styles.TabPrimaryStyle.Render(style.Render(b.String()))
 }
 
 func (c *SidebarComponent) renderTab(title, content string) string {

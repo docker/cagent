@@ -1,13 +1,12 @@
 package dialog
 
 import (
-	"strings"
-
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/docker/cagent/pkg/runtime"
+	"github.com/docker/cagent/pkg/tui/components/scrollview"
 	"github.com/docker/cagent/pkg/tui/core"
 	"github.com/docker/cagent/pkg/tui/core/layout"
 	"github.com/docker/cagent/pkg/tui/styles"
@@ -18,12 +17,8 @@ type permissionsDialog struct {
 	BaseDialog
 	permissions *runtime.PermissionsInfo
 	yoloEnabled bool
-	keyMap      permissionsDialogKeyMap
-	offset      int
-}
-
-type permissionsDialogKeyMap struct {
-	Close, Up, Down, PageUp, PageDown key.Binding
+	closeKey    key.Binding
+	scrollview  *scrollview.Model
 }
 
 // NewPermissionsDialog creates a new dialog showing tool permission rules.
@@ -31,13 +26,11 @@ func NewPermissionsDialog(perms *runtime.PermissionsInfo, yoloEnabled bool) Dial
 	return &permissionsDialog{
 		permissions: perms,
 		yoloEnabled: yoloEnabled,
-		keyMap: permissionsDialogKeyMap{
-			Close:    key.NewBinding(key.WithKeys("esc", "enter", "q"), key.WithHelp("Esc", "close")),
-			Up:       key.NewBinding(key.WithKeys("up", "k")),
-			Down:     key.NewBinding(key.WithKeys("down", "j")),
-			PageUp:   key.NewBinding(key.WithKeys("pgup")),
-			PageDown: key.NewBinding(key.WithKeys("pgdown")),
-		},
+		scrollview: scrollview.New(
+			scrollview.WithKeyMap(scrollview.ReadOnlyScrollKeyMap()),
+			scrollview.WithReserveScrollbarSpace(true),
+		),
+		closeKey: key.NewBinding(key.WithKeys("esc", "enter", "q"), key.WithHelp("Esc", "close")),
 	}
 }
 
@@ -46,31 +39,18 @@ func (d *permissionsDialog) Init() tea.Cmd {
 }
 
 func (d *permissionsDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
+	if handled, cmd := d.scrollview.Update(msg); handled {
+		return d, cmd
+	}
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		cmd := d.SetSize(msg.Width, msg.Height)
 		return d, cmd
 
 	case tea.KeyPressMsg:
-		switch {
-		case key.Matches(msg, d.keyMap.Close):
+		if key.Matches(msg, d.closeKey) {
 			return d, core.CmdHandler(CloseDialogMsg{})
-		case key.Matches(msg, d.keyMap.Up):
-			d.offset = max(0, d.offset-1)
-		case key.Matches(msg, d.keyMap.Down):
-			d.offset++
-		case key.Matches(msg, d.keyMap.PageUp):
-			d.offset = max(0, d.offset-d.pageSize())
-		case key.Matches(msg, d.keyMap.PageDown):
-			d.offset += d.pageSize()
-		}
-
-	case tea.MouseWheelMsg:
-		switch msg.Button.String() {
-		case "wheelup":
-			d.offset = max(0, d.offset-1)
-		case "wheeldown":
-			d.offset++
 		}
 	}
 	return d, nil
@@ -79,13 +59,8 @@ func (d *permissionsDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 func (d *permissionsDialog) dialogSize() (dialogWidth, maxHeight, contentWidth int) {
 	dialogWidth = d.ComputeDialogWidth(60, 40, 70)
 	maxHeight = min(d.Height()*70/100, 30)
-	contentWidth = d.ContentWidth(dialogWidth, 2)
+	contentWidth = d.ContentWidth(dialogWidth, 2) - d.scrollview.ReservedCols()
 	return dialogWidth, maxHeight, contentWidth
-}
-
-func (d *permissionsDialog) pageSize() int {
-	_, maxHeight, _ := d.dialogSize()
-	return max(1, maxHeight-10)
 }
 
 func (d *permissionsDialog) Position() (row, col int) {
@@ -181,29 +156,19 @@ func (d *permissionsDialog) applyScrolling(allLines []string, contentWidth, maxH
 
 	visibleLines := max(1, maxHeight-headerLines-footerLines-4)
 	contentLines := allLines[headerLines:]
-	totalContentLines := len(contentLines)
 
-	// Clamp offset
-	maxOffset := max(0, totalContentLines-visibleLines)
-	d.offset = min(d.offset, maxOffset)
+	regionWidth := contentWidth + d.scrollview.ReservedCols()
+	d.scrollview.SetSize(regionWidth, visibleLines)
 
-	// Extract visible portion
-	endIdx := min(d.offset+visibleLines, totalContentLines)
-	parts := append(allLines[:headerLines], contentLines[d.offset:endIdx]...)
+	// Set scrollview position for mouse hit-testing (auto-computed from dialog position)
+	// Y offset: border(1) + padding(1) + headerLines(3) = 5
+	dialogRow, dialogCol := d.Position()
+	d.scrollview.SetPosition(dialogCol+3, dialogRow+2+headerLines)
 
-	// Scroll indicator
-	if totalContentLines > visibleLines {
-		scrollInfo := lipgloss.NewStyle().Render("")
-		if d.offset > 0 {
-			scrollInfo = "↑ "
-		}
-		scrollInfo += styles.MutedStyle.Render("[" + strings.Repeat("─", 3) + "]")
-		if endIdx < totalContentLines {
-			scrollInfo += " ↓"
-		}
-		parts = append(parts, styles.MutedStyle.Render(scrollInfo))
-	}
+	d.scrollview.SetContent(contentLines, len(contentLines))
 
-	parts = append(parts, "", RenderHelpKeys(contentWidth, "↑↓", "scroll", "Esc", "close"))
+	scrollableContent := d.scrollview.View()
+	parts := append(allLines[:headerLines], scrollableContent)
+	parts = append(parts, "", RenderHelpKeys(regionWidth, "↑↓", "scroll", "Esc", "close"))
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }

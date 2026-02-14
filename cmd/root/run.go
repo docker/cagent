@@ -2,6 +2,7 @@ package root
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -23,6 +24,7 @@ import (
 	"github.com/docker/cagent/pkg/teamloader"
 	"github.com/docker/cagent/pkg/telemetry"
 	"github.com/docker/cagent/pkg/tui/styles"
+	"github.com/docker/cagent/pkg/userconfig"
 )
 
 type runExecFlags struct {
@@ -32,6 +34,7 @@ type runExecFlags struct {
 	remoteAddress     string
 	connectRPC        bool
 	modelOverrides    []string
+	promptFiles       []string
 	dryRun            bool
 	runConfig         config.RuntimeConfig
 	sessionDB         string
@@ -56,18 +59,20 @@ func newRunCmd() *cobra.Command {
 	var flags runExecFlags
 
 	cmd := &cobra.Command{
-		Use:   "run [<agent-file>|<registry-ref>] [message|-]",
+		Use:   "run [<agent-file>|<registry-ref>] [message]...",
 		Short: "Run an agent",
 		Long:  "Run an agent with the specified configuration and prompt",
 		Example: `  cagent run ./agent.yaml
   cagent run ./team.yaml --agent root
   cagent run # built-in default agent
+  cagent run coder # built-in coding agent
   cagent run ./echo.yaml "INSTRUCTIONS"
+  cagent run ./echo.yaml "First question" "Follow-up question"
   echo "INSTRUCTIONS" | cagent run ./echo.yaml -
   cagent run ./agent.yaml --record  # Records session to auto-generated file`,
 		GroupID:           "core",
 		ValidArgsFunction: completeRunExec,
-		Args:              cobra.RangeArgs(0, 2),
+		Args:              cobra.ArbitraryArgs,
 		RunE:              flags.runRunCommand,
 	}
 
@@ -82,12 +87,13 @@ func addRunOrExecFlags(cmd *cobra.Command, flags *runExecFlags) {
 	cmd.PersistentFlags().BoolVar(&flags.autoApprove, "yolo", false, "Automatically approve all tool calls without prompting")
 	cmd.PersistentFlags().BoolVar(&flags.hideToolResults, "hide-tool-results", false, "Hide tool call results")
 	cmd.PersistentFlags().StringVar(&flags.attachmentPath, "attach", "", "Attach an image file to the message")
+	cmd.PersistentFlags().StringArrayVar(&flags.promptFiles, "prompt-file", nil, "Append file contents to the prompt (repeatable)")
 	cmd.PersistentFlags().StringArrayVar(&flags.modelOverrides, "model", nil, "Override agent model: [agent=]provider/model (repeatable)")
 	cmd.PersistentFlags().BoolVar(&flags.dryRun, "dry-run", false, "Initialize the agent without executing anything")
 	cmd.PersistentFlags().StringVar(&flags.remoteAddress, "remote", "", "Use remote runtime with specified address")
 	cmd.PersistentFlags().BoolVar(&flags.connectRPC, "connect-rpc", false, "Use Connect-RPC protocol for remote communication (requires --remote)")
 	cmd.PersistentFlags().StringVarP(&flags.sessionDB, "session-db", "s", filepath.Join(paths.GetHomeDir(), ".cagent", "session.db"), "Path to the session database")
-	cmd.PersistentFlags().StringVar(&flags.sessionID, "session", "", "Continue from a previous session by ID")
+	cmd.PersistentFlags().StringVar(&flags.sessionID, "session", "", "Continue from a previous session by ID or relative offset (e.g., -1 for last session)")
 	cmd.PersistentFlags().StringVar(&flags.fakeResponses, "fake", "", "Replay AI responses from cassette file (for testing)")
 	cmd.PersistentFlags().IntVar(&flags.fakeStreamDelay, "fake-stream", 0, "Simulate streaming with delay in ms between chunks (default 15ms if no value given)")
 	cmd.Flag("fake-stream").NoOptDefVal = "15" // --fake-stream without value uses 15ms
@@ -114,7 +120,7 @@ func (f *runExecFlags) runRunCommand(cmd *cobra.Command, args []string) error {
 	return f.runOrExec(ctx, out, args, tui)
 }
 
-func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []string, tui bool) error {
+func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []string, tui bool) (retErr error) {
 	slog.Debug("Starting agent", "agent", f.agentName)
 
 	// Start CPU profiling if requested
@@ -155,10 +161,14 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 
 	// Apply global user settings first (lowest priority)
 	// User settings only apply if the flag wasn't explicitly set by the user
-	userSettings := config.GetUserSettings()
+	userSettings := userconfig.Get()
 	if userSettings.HideToolResults && !f.hideToolResults {
 		f.hideToolResults = true
 		slog.Debug("Applying user settings", "hide_tool_results", true)
+	}
+	if userSettings.YOLO && !f.autoApprove {
+		f.autoApprove = true
+		slog.Debug("Applying user settings", "YOLO", true)
 	}
 
 	// Apply alias options if this is an alias reference
@@ -184,6 +194,9 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 	defer func() {
 		if err := fakeCleanup(); err != nil {
 			slog.Error("Failed to cleanup fake proxy", "error", err)
+			if retErr == nil {
+				retErr = fmt.Errorf("failed to cleanup fake proxy: %w", err)
+			}
 		}
 	}()
 
@@ -193,7 +206,14 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 		return err
 	}
 	if cassettePath != "" {
-		defer recordCleanup()
+		defer func() {
+			if err := recordCleanup(); err != nil {
+				slog.Error("Failed to cleanup recording proxy", "error", err)
+				if retErr == nil {
+					retErr = fmt.Errorf("failed to cleanup recording proxy: %w", err)
+				}
+			}
+		}()
 		out.Println("Recording mode enabled, cassette: " + cassettePath)
 	}
 
@@ -209,7 +229,7 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 		}
 		cleanup = func() {} // Remote runtime doesn't need local cleanup
 	} else {
-		agentSource, err := config.Resolve(agentFileName)
+		agentSource, err := config.Resolve(agentFileName, f.runConfig.EnvProvider())
 		if err != nil {
 			return err
 		}
@@ -230,6 +250,9 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 			cleanupCtx := context.WithoutCancel(ctx)
 			if err := loadResult.Team.StopToolSets(cleanupCtx); err != nil {
 				slog.Error("Failed to stop tool sets", "error", err)
+			}
+			if err := rt.Close(); err != nil {
+				slog.Error("Failed to close runtime", "error", err)
 			}
 		}
 	}
@@ -253,7 +276,14 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 }
 
 func (f *runExecFlags) loadAgentFrom(ctx context.Context, agentSource config.Source) (*teamloader.LoadResult, error) {
-	result, err := teamloader.LoadWithConfig(ctx, agentSource, &f.runConfig, teamloader.WithModelOverrides(f.modelOverrides))
+	opts := []teamloader.Opt{
+		teamloader.WithModelOverrides(f.modelOverrides),
+	}
+	if len(f.promptFiles) > 0 {
+		opts = append(opts, teamloader.WithPromptFiles(f.promptFiles))
+	}
+
+	result, err := teamloader.LoadWithConfig(ctx, agentSource, &f.runConfig, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -330,7 +360,13 @@ func (f *runExecFlags) createLocalRuntimeAndSession(ctx context.Context, loadRes
 		return nil, nil, err
 	}
 
-	sessStore, err := session.NewSQLiteSessionStore(f.sessionDB)
+	// Expand tilde in session database path
+	sessionDB, err := expandTilde(f.sessionDB)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	sessStore, err := session.NewSQLiteSessionStore(sessionDB)
 	if err != nil {
 		return nil, nil, fmt.Errorf("creating session store: %w", err)
 	}
@@ -356,10 +392,16 @@ func (f *runExecFlags) createLocalRuntimeAndSession(ctx context.Context, loadRes
 
 	var sess *session.Session
 	if f.sessionID != "" {
-		// Load existing session
-		sess, err = sessStore.GetSession(ctx, f.sessionID)
+		// Resolve relative session references (e.g., "-1" for last session)
+		resolvedID, err := session.ResolveSessionID(ctx, sessStore, f.sessionID)
 		if err != nil {
-			return nil, nil, fmt.Errorf("loading session %q: %w", f.sessionID, err)
+			return nil, nil, fmt.Errorf("resolving session %q: %w", f.sessionID, err)
+		}
+
+		// Load existing session
+		sess, err = sessStore.GetSession(ctx, resolvedID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("loading session %q: %w", resolvedID, err)
 		}
 		sess.ToolsApproved = f.autoApprove
 		sess.HideToolResults = f.hideToolResults
@@ -375,7 +417,7 @@ func (f *runExecFlags) createLocalRuntimeAndSession(ctx context.Context, loadRes
 			}
 		}
 
-		slog.Debug("Loaded existing session", "session_id", f.sessionID, "agent", f.agentName)
+		slog.Debug("Loaded existing session", "session_id", resolvedID, "session_ref", f.sessionID, "agent", f.agentName)
 	} else {
 		sess = session.New(
 			session.WithMaxIterations(agent.MaxIterations()),
@@ -392,12 +434,8 @@ func (f *runExecFlags) createLocalRuntimeAndSession(ctx context.Context, loadRes
 }
 
 func (f *runExecFlags) handleExecMode(ctx context.Context, out *cli.Printer, rt runtime.Runtime, sess *session.Session, args []string) error {
-	execArgs := []string{"exec"}
-	if len(args) == 2 {
-		execArgs = append(execArgs, args[1])
-	} else {
-		execArgs = append(execArgs, "Please proceed.")
-	}
+	// args[0] is the agent file; args[1:] are user messages for multi-turn conversation
+	userMessages := args[1:]
 
 	err := cli.Run(ctx, out, cli.Config{
 		AppName:        AppName,
@@ -405,8 +443,8 @@ func (f *runExecFlags) handleExecMode(ctx context.Context, out *cli.Printer, rt 
 		HideToolCalls:  f.hideToolCalls,
 		OutputJSON:     f.outputJSON,
 		AutoApprove:    f.autoApprove,
-	}, rt, sess, execArgs)
-	if cliErr, ok := err.(cli.RuntimeError); ok {
+	}, rt, sess, userMessages)
+	if cliErr, ok := errors.AsType[cli.RuntimeError](err); ok {
 		return RuntimeError{Err: cliErr.Err}
 	}
 	return err
@@ -439,6 +477,9 @@ func (f *runExecFlags) handleRunMode(ctx context.Context, rt runtime.Runtime, se
 	if firstMessage != nil {
 		opts = append(opts, app.WithFirstMessage(*firstMessage))
 	}
+	if len(args) > 2 {
+		opts = append(opts, app.WithQueuedMessages(args[2:]))
+	}
 	if f.attachmentPath != "" {
 		opts = append(opts, app.WithFirstMessageAttachment(f.attachmentPath))
 	}
@@ -453,7 +494,7 @@ func (f *runExecFlags) handleRunMode(ctx context.Context, rt runtime.Runtime, se
 func applyTheme() {
 	// Resolve theme from user config > built-in default
 	themeRef := styles.DefaultThemeRef
-	if userSettings := config.GetUserSettings(); userSettings.Theme != "" {
+	if userSettings := userconfig.Get(); userSettings.Theme != "" {
 		themeRef = userSettings.Theme
 	}
 

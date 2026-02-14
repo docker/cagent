@@ -31,6 +31,7 @@ type Client struct {
 	base.Config
 	clientFn         func(context.Context) (anthropic.Client, error)
 	lastHTTPResponse *http.Response
+	fileManager      *FileManager
 }
 
 func (c *Client) getResponseTrailer() http.Header {
@@ -203,7 +204,23 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 
 	slog.Debug("Anthropic client created successfully", "model", cfg.Model)
 
+	// Initialize FileManager for file uploads
+	anthropicClient.fileManager = NewFileManager(anthropicClient.clientFn)
+
 	return anthropicClient, nil
+}
+
+// hasFileAttachments checks if any messages contain file attachments.
+// This is used to determine if we need to use the Beta API (Files API is Beta-only).
+func hasFileAttachments(messages []chat.Message) bool {
+	for i := range messages {
+		for _, part := range messages[i].MultiContent {
+			if part.Type == chat.MessagePartTypeFile && part.File != nil {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // CreateChatCompletionStream creates a streaming chat completion request
@@ -236,9 +253,10 @@ func (c *Client) CreateChatCompletionStream(
 
 	// Use Beta API when:
 	// 1. Interleaved thinking is enabled, or
-	// 2. Structured output is configured
+	// 2. Structured output is configured, or
+	// 3. Messages contain file attachments (Files API is Beta-only)
 	// Note: Structured outputs require beta header support (only available on BetaMessageNewParams)
-	if c.interleavedThinkingEnabled() || c.ModelOptions.StructuredOutput() != nil {
+	if c.interleavedThinkingEnabled() || c.ModelOptions.StructuredOutput() != nil || hasFileAttachments(messages) {
 		return c.createBetaStream(ctx, client, messages, requestTools, maxTokens)
 	}
 
@@ -248,7 +266,11 @@ func (c *Client) CreateChatCompletionStream(
 		return nil, err
 	}
 
-	converted := convertMessages(messages)
+	converted, err := c.convertMessages(ctx, messages)
+	if err != nil {
+		slog.Error("Failed to convert messages for Anthropic request", "error", err)
+		return nil, err
+	}
 	// Preflight validation to ensure tool_use/tool_result sequencing is valid
 	if err := validateAnthropicSequencing(converted); err != nil {
 		slog.Warn("Invalid message sequencing for Anthropic detected, attempting self-repair", "error", err)
@@ -257,6 +279,9 @@ func (c *Client) CreateChatCompletionStream(
 			slog.Error("Failed to self-repair Anthropic sequencing", "error", err2)
 			return nil, err
 		}
+	}
+	if len(converted) == 0 {
+		return nil, errors.New("no messages to send after conversion: all messages were filtered out")
 	}
 	sys := extractSystemBlocks(messages)
 
@@ -344,7 +369,7 @@ func (c *Client) CreateChatCompletionStream(
 	return ad, nil
 }
 
-func convertMessages(messages []chat.Message) []anthropic.MessageParam {
+func (c *Client) convertMessages(ctx context.Context, messages []chat.Message) ([]anthropic.MessageParam, error) {
 	var anthropicMessages []anthropic.MessageParam
 	// Track whether the last appended assistant message included tool_use blocks
 	// so we can ensure the immediate next message is the grouped tool_result user message.
@@ -357,53 +382,11 @@ func convertMessages(messages []chat.Message) []anthropic.MessageParam {
 			continue
 		}
 		if msg.Role == chat.MessageRoleUser {
-			// Handle MultiContent for user messages (including images)
+			// Handle MultiContent for user messages (including images and files)
 			if len(msg.MultiContent) > 0 {
-				contentBlocks := make([]anthropic.ContentBlockParamUnion, 0, len(msg.MultiContent))
-				for _, part := range msg.MultiContent {
-					if part.Type == chat.MessagePartTypeText {
-						if txt := strings.TrimSpace(part.Text); txt != "" {
-							contentBlocks = append(contentBlocks, anthropic.NewTextBlock(txt))
-						}
-					} else if part.Type == chat.MessagePartTypeImageURL && part.ImageURL != nil {
-						// Anthropic expects base64 image data
-						// Extract base64 data from data URL
-						if strings.HasPrefix(part.ImageURL.URL, "data:") {
-							parts := strings.SplitN(part.ImageURL.URL, ",", 2)
-							if len(parts) == 2 {
-								// Extract media type from data URL
-								mediaTypePart := parts[0]
-								base64Data := parts[1]
-
-								var mediaType string
-								switch {
-								case strings.Contains(mediaTypePart, "image/jpeg"):
-									mediaType = "image/jpeg"
-								case strings.Contains(mediaTypePart, "image/png"):
-									mediaType = "image/png"
-								case strings.Contains(mediaTypePart, "image/gif"):
-									mediaType = "image/gif"
-								case strings.Contains(mediaTypePart, "image/webp"):
-									mediaType = "image/webp"
-								default:
-									// Default to jpeg if not recognized
-									mediaType = "image/jpeg"
-								}
-
-								// Use SDK helper with proper typed source for better performance
-								// (avoids JSON marshal/unmarshal round trip)
-								contentBlocks = append(contentBlocks, anthropic.NewImageBlock(anthropic.Base64ImageSourceParam{
-									Data:      base64Data,
-									MediaType: anthropic.Base64ImageSourceMediaType(mediaType),
-								}))
-							}
-						} else if strings.HasPrefix(part.ImageURL.URL, "http://") || strings.HasPrefix(part.ImageURL.URL, "https://") {
-							// Support URL-based images - Anthropic can fetch images directly from URLs
-							contentBlocks = append(contentBlocks, anthropic.NewImageBlock(anthropic.URLImageSourceParam{
-								URL: part.ImageURL.URL,
-							}))
-						}
-					}
+				contentBlocks, err := c.convertUserMultiContent(ctx, msg.MultiContent)
+				if err != nil {
+					return nil, err
 				}
 				if len(contentBlocks) > 0 {
 					anthropicMessages = append(anthropicMessages, anthropic.NewUserMessage(contentBlocks...))
@@ -477,7 +460,7 @@ func convertMessages(messages []chat.Message) []anthropic.MessageParam {
 			var blocks []anthropic.ContentBlockParamUnion
 			j := i
 			for j < len(messages) && messages[j].Role == chat.MessageRoleTool {
-				tr := anthropic.NewToolResultBlock(messages[j].ToolCallID, strings.TrimSpace(messages[j].Content), false)
+				tr := anthropic.NewToolResultBlock(messages[j].ToolCallID, strings.TrimSpace(messages[j].Content), messages[j].IsError)
 				blocks = append(blocks, tr)
 				j++
 			}
@@ -499,7 +482,84 @@ func convertMessages(messages []chat.Message) []anthropic.MessageParam {
 	// Add ephemeral cache to last 2 messages' last content block
 	applyMessageCacheControl(anthropicMessages)
 
-	return anthropicMessages
+	return anthropicMessages, nil
+}
+
+// convertUserMultiContent converts user message multi-content parts to Anthropic content blocks.
+// It handles text and images (base64 and URL). File uploads are NOT supported in the non-Beta API
+// and will return an error - callers should use hasFileAttachments() to route to the Beta API.
+func (c *Client) convertUserMultiContent(_ context.Context, parts []chat.MessagePart) ([]anthropic.ContentBlockParamUnion, error) {
+	contentBlocks := make([]anthropic.ContentBlockParamUnion, 0, len(parts))
+
+	for _, part := range parts {
+		switch part.Type {
+		case chat.MessagePartTypeText:
+			if txt := strings.TrimSpace(part.Text); txt != "" {
+				contentBlocks = append(contentBlocks, anthropic.NewTextBlock(txt))
+			}
+
+		case chat.MessagePartTypeImageURL:
+			if part.ImageURL == nil {
+				continue
+			}
+			// Handle base64 data URLs (legacy format)
+			if strings.HasPrefix(part.ImageURL.URL, "data:") {
+				urlParts := strings.SplitN(part.ImageURL.URL, ",", 2)
+				if len(urlParts) == 2 {
+					mediaTypePart := urlParts[0]
+					base64Data := urlParts[1]
+
+					var mediaType string
+					switch {
+					case strings.Contains(mediaTypePart, "image/jpeg"):
+						mediaType = "image/jpeg"
+					case strings.Contains(mediaTypePart, "image/png"):
+						mediaType = "image/png"
+					case strings.Contains(mediaTypePart, "image/gif"):
+						mediaType = "image/gif"
+					case strings.Contains(mediaTypePart, "image/webp"):
+						mediaType = "image/webp"
+					default:
+						mediaType = "image/jpeg"
+					}
+
+					contentBlocks = append(contentBlocks, anthropic.NewImageBlock(anthropic.Base64ImageSourceParam{
+						Data:      base64Data,
+						MediaType: anthropic.Base64ImageSourceMediaType(mediaType),
+					}))
+				}
+			} else if strings.HasPrefix(part.ImageURL.URL, "http://") || strings.HasPrefix(part.ImageURL.URL, "https://") {
+				// URL-based images
+				contentBlocks = append(contentBlocks, anthropic.NewImageBlock(anthropic.URLImageSourceParam{
+					URL: part.ImageURL.URL,
+				}))
+			}
+
+		case chat.MessagePartTypeFile:
+			if part.File == nil {
+				continue
+			}
+
+			// File uploads require the Beta API - this code path should not be reached
+			// if hasFileAttachments() correctly routes to createBetaStream().
+			// Return a clear error if we somehow get here.
+			return nil, fmt.Errorf("file attachments require the Beta API; use hasFileAttachments() to route correctly (path=%q, file_id=%q)",
+				part.File.Path, part.File.FileID)
+		}
+	}
+
+	return contentBlocks, nil
+}
+
+// createFileContentBlock creates the appropriate content block for a file based on its MIME type.
+// Note: File uploads via the Files API require the Beta API. This function supports images
+// (which have OfFile in the Beta API only) and documents. For non-Beta API usage with files,
+// the caller should handle the conversion differently or use base64 encoding.
+func createFileContentBlock(fileID, mimeType string) (anthropic.ContentBlockParamUnion, error) {
+	// The standard (non-Beta) API doesn't support file references in ImageBlockParamSourceUnion
+	// or DocumentBlockParamSourceUnion. Files API is Beta-only.
+	// For now, we return an error directing users to use the Beta API path.
+	return anthropic.ContentBlockParamUnion{}, fmt.Errorf("file uploads require the Beta API; file_id=%s, mime_type=%s", fileID, mimeType)
 }
 
 // applyMessageCacheControl adds ephemeral cache control to the last content block
@@ -595,6 +655,20 @@ func ConvertParametersToSchema(params any) (anthropic.ToolInputSchemaParam, erro
 
 func (c *Client) ID() string {
 	return c.ModelConfig.Provider + "/" + c.ModelConfig.Model
+}
+
+// CleanupFiles removes all files uploaded during this session from Anthropic's storage.
+func (c *Client) CleanupFiles(ctx context.Context) error {
+	if c.fileManager == nil {
+		return nil
+	}
+	return c.fileManager.CleanupAll(ctx)
+}
+
+// FileManager returns the file manager for this client, allowing external cleanup.
+// Returns nil if file uploads are not supported or not initialized.
+func (c *Client) FileManager() *FileManager {
+	return c.fileManager
 }
 
 // validateAnthropicSequencing verifies that for every assistant message that includes

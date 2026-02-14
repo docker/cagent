@@ -1,0 +1,233 @@
+<h1>Hooks</h1>
+<p class="subtitle">Run shell commands at various points during agent execution for deterministic control over behavior.</p>
+
+<h2>Overview</h2>
+
+<p>Hooks allow you to execute shell commands or scripts at key points in an agent's lifecycle. They provide deterministic control that works alongside the LLM's behavior, enabling validation, logging, environment setup, and more.</p>
+
+<div class="callout callout-info">
+  <div class="callout-title">ℹ️ Use Cases</div>
+  <ul>
+    <li>Validate or transform tool inputs before execution</li>
+    <li>Log all tool calls to an audit file</li>
+    <li>Block dangerous operations based on custom rules</li>
+    <li>Set up the environment when a session starts</li>
+    <li>Clean up resources when a session ends</li>
+  </ul>
+</div>
+
+<h2>Hook Types</h2>
+
+<p>There are four hook event types:</p>
+
+<table>
+  <thead><tr><th>Event</th><th>When it fires</th><th>Can block?</th></tr></thead>
+  <tbody>
+    <tr><td><code>pre_tool_use</code></td><td>Before a tool call executes</td><td>Yes</td></tr>
+    <tr><td><code>post_tool_use</code></td><td>After a tool completes successfully</td><td>No</td></tr>
+    <tr><td><code>session_start</code></td><td>When a session begins or resumes</td><td>No</td></tr>
+    <tr><td><code>session_end</code></td><td>When a session terminates</td><td>No</td></tr>
+  </tbody>
+</table>
+
+<h2>Configuration</h2>
+
+<pre><code class="language-yaml">agents:
+  root:
+    model: openai/gpt-4o
+    description: An agent with hooks
+    instruction: You are a helpful assistant.
+    hooks:
+      # Run before specific tools
+      pre_tool_use:
+        - matcher: "shell|edit_file"
+          hooks:
+            - type: command
+              command: "./scripts/validate-command.sh"
+              timeout: 30
+      
+      # Run after all tool calls
+      post_tool_use:
+        - matcher: "*"
+          hooks:
+            - type: command
+              command: "./scripts/log-tool-call.sh"
+      
+      # Run when session starts
+      session_start:
+        - type: command
+          command: "./scripts/setup-env.sh"
+      
+      # Run when session ends
+      session_end:
+        - type: command
+          command: "./scripts/cleanup.sh"</code></pre>
+
+<h2>Matcher Patterns</h2>
+
+<p>The <code>matcher</code> field uses regex patterns to match tool names:</p>
+
+<table>
+  <thead><tr><th>Pattern</th><th>Matches</th></tr></thead>
+  <tbody>
+    <tr><td><code>*</code></td><td>All tools</td></tr>
+    <tr><td><code>shell</code></td><td>Only the <code>shell</code> tool</td></tr>
+    <tr><td><code>shell|edit_file</code></td><td>Either <code>shell</code> or <code>edit_file</code></td></tr>
+    <tr><td><code>mcp:.*</code></td><td>All MCP tools (regex)</td></tr>
+  </tbody>
+</table>
+
+<h2>Hook Input</h2>
+
+<p>Hooks receive JSON input via stdin with context about the event:</p>
+
+<pre><code class="language-json">{
+  "session_id": "abc123",
+  "cwd": "/path/to/project",
+  "hook_event_name": "pre_tool_use",
+  "tool_name": "shell",
+  "tool_use_id": "call_xyz",
+  "tool_input": {
+    "cmd": "rm -rf /tmp/cache",
+    "cwd": "."
+  }
+}</code></pre>
+
+<h3>Input Fields by Event Type</h3>
+
+<table>
+  <thead><tr><th>Field</th><th>pre_tool_use</th><th>post_tool_use</th><th>session_start</th><th>session_end</th></tr></thead>
+  <tbody>
+    <tr><td><code>session_id</code></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+    <tr><td><code>cwd</code></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+    <tr><td><code>hook_event_name</code></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+    <tr><td><code>tool_name</code></td><td>✓</td><td>✓</td><td></td><td></td></tr>
+    <tr><td><code>tool_use_id</code></td><td>✓</td><td>✓</td><td></td><td></td></tr>
+    <tr><td><code>tool_input</code></td><td>✓</td><td>✓</td><td></td><td></td></tr>
+    <tr><td><code>tool_response</code></td><td></td><td>✓</td><td></td><td></td></tr>
+    <tr><td><code>source</code></td><td></td><td></td><td>✓</td><td></td></tr>
+    <tr><td><code>reason</code></td><td></td><td></td><td></td><td>✓</td></tr>
+  </tbody>
+</table>
+
+<p>The <code>source</code> field for <code>session_start</code> can be: <code>startup</code>, <code>resume</code>, <code>clear</code>, or <code>compact</code>.</p>
+<p>The <code>reason</code> field for <code>session_end</code> can be: <code>clear</code>, <code>logout</code>, <code>prompt_input_exit</code>, or <code>other</code>.</p>
+
+<h2>Hook Output</h2>
+
+<p>Hooks communicate back via JSON output to stdout:</p>
+
+<pre><code class="language-json">{
+  "continue": true,
+  "stop_reason": "Optional message when continue=false",
+  "suppress_output": false,
+  "system_message": "Warning message to show user",
+  "decision": "allow",
+  "reason": "Explanation for the decision",
+  "hook_specific_output": {
+    "hook_event_name": "pre_tool_use",
+    "permission_decision": "allow",
+    "permission_decision_reason": "Command is safe",
+    "updated_input": { "cmd": "modified command" }
+  }
+}</code></pre>
+
+<h3>Output Fields</h3>
+
+<table>
+  <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>continue</code></td><td>boolean</td><td>Whether to continue execution (default: <code>true</code>)</td></tr>
+    <tr><td><code>stop_reason</code></td><td>string</td><td>Message to show when <code>continue=false</code></td></tr>
+    <tr><td><code>suppress_output</code></td><td>boolean</td><td>Hide stdout from transcript</td></tr>
+    <tr><td><code>system_message</code></td><td>string</td><td>Warning message to display to user</td></tr>
+    <tr><td><code>decision</code></td><td>string</td><td>For blocking: <code>block</code> to prevent operation</td></tr>
+    <tr><td><code>reason</code></td><td>string</td><td>Explanation for the decision</td></tr>
+  </tbody>
+</table>
+
+<h3>Pre-Tool-Use Specific Output</h3>
+
+<p>The <code>hook_specific_output</code> for <code>pre_tool_use</code> supports:</p>
+
+<table>
+  <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>permission_decision</code></td><td>string</td><td><code>allow</code>, <code>deny</code>, or <code>ask</code></td></tr>
+    <tr><td><code>permission_decision_reason</code></td><td>string</td><td>Explanation for the decision</td></tr>
+    <tr><td><code>updated_input</code></td><td>object</td><td>Modified tool input (replaces original)</td></tr>
+  </tbody>
+</table>
+
+<h2>Exit Codes</h2>
+
+<p>Hook exit codes have special meaning:</p>
+
+<table>
+  <thead><tr><th>Exit Code</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><code>0</code></td><td>Success — continue normally</td></tr>
+    <tr><td><code>2</code></td><td>Blocking error — stop the operation</td></tr>
+    <tr><td>Other</td><td>Error — logged but execution continues</td></tr>
+  </tbody>
+</table>
+
+<h2>Example: Validation Script</h2>
+
+<p>A simple pre-tool-use hook that blocks dangerous shell commands:</p>
+
+<pre><code class="language-bash">#!/bin/bash
+# scripts/validate-command.sh
+
+# Read JSON input from stdin
+INPUT=$(cat)
+TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name')
+CMD=$(echo "$INPUT" | jq -r '.tool_input.cmd // empty')
+
+# Block dangerous commands
+if [[ "$TOOL_NAME" == "shell" ]]; then
+  if [[ "$CMD" =~ ^sudo ]] || [[ "$CMD" =~ rm.*-rf ]]; then
+    echo '{"decision": "block", "reason": "Dangerous command blocked by policy"}'
+    exit 2
+  fi
+fi
+
+# Allow everything else
+echo '{"decision": "allow"}'
+exit 0</code></pre>
+
+<h2>Example: Audit Logging</h2>
+
+<p>A post-tool-use hook that logs all tool calls:</p>
+
+<pre><code class="language-bash">#!/bin/bash
+# scripts/log-tool-call.sh
+
+INPUT=$(cat)
+TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name')
+SESSION_ID=$(echo "$INPUT" | jq -r '.session_id')
+
+# Append to audit log
+echo "$TIMESTAMP | $SESSION_ID | $TOOL_NAME" >> ./audit.log
+
+# Don't block execution
+echo '{"continue": true}'
+exit 0</code></pre>
+
+<h2>Timeout</h2>
+
+<p>Hooks have a default timeout of 60 seconds. You can customize this per hook:</p>
+
+<pre><code class="language-yaml">hooks:
+  pre_tool_use:
+    - matcher: "*"
+      hooks:
+        - type: command
+          command: "./slow-validation.sh"
+          timeout: 120  # 2 minutes</code></pre>
+
+<div class="callout callout-warning">
+  <div class="callout-title">⚠️ Performance</div>
+  <p>Hooks run synchronously and can slow down agent execution. Keep hook scripts fast and efficient. Consider using <code>suppress_output: true</code> for logging hooks to reduce noise.</p>
+</div>

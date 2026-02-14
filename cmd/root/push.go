@@ -38,7 +38,7 @@ func runPushCommand(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	agentSource, err := config.Resolve(agentFilename)
+	agentSource, err := config.Resolve(agentFilename, nil)
 	if err != nil {
 		return fmt.Errorf("resolving agent file: %w", err)
 	}

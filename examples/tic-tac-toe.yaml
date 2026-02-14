@@ -10,8 +10,8 @@ metadata:
     The Game master talks to both players over A2A.
 
     To run the demo:
-    cagent a2a --port 8080 ./examples/tic-tac-toe.yaml --agent player_blue
-    cagent a2a --port 8081 ./examples/tic-tac-toe.yaml --agent player_red
+    cagent a2a --listen 127.0.0.1:8080 ./examples/tic-tac-toe.yaml --agent player_blue
+    cagent a2a --listen 127.0.0.1:8081 ./examples/tic-tac-toe.yaml --agent player_red
     cagent run --yolo ./examples/tic-tac-toe.yaml 'Go!'
 
 agents:
@@ -43,12 +43,12 @@ agents:
       </preparation>
     add_environment_info: true
     toolsets:
-      - type: shell
-      - type: filesystem
-      - type: a2a
-        url: http://localhost:8080/
-      - type: a2a
-        url: http://localhost:8081/
+    - type: shell
+    - type: filesystem
+    - type: a2a
+      url: http://localhost:8080/
+    - type: a2a
+      url: http://localhost:8081/
 
   # BLUE Player
   player_blue:

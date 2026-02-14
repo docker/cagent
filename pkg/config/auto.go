@@ -32,11 +32,11 @@ var cloudProviders = []providerConfig{
 	}, "AWS_ACCESS_KEY_ID (or AWS_PROFILE, AWS_ROLE_ARN, AWS_BEARER_TOKEN_BEDROCK)"},
 }
 
-// ErrAutoModelFallback is returned when auto model selection fails because
+// AutoModelFallbackError is returned when auto model selection fails because
 // no providers are available (no API keys configured and DMR not installed).
-type ErrAutoModelFallback struct{}
+type AutoModelFallbackError struct{}
 
-func (e *ErrAutoModelFallback) Error() string {
+func (e *AutoModelFallbackError) Error() string {
 	var hints []string
 	for _, p := range cloudProviders {
 		hints = append(hints, fmt.Sprintf("    - %s: %s", p.name, p.hint))
@@ -52,7 +52,7 @@ To fix this, you can:
 
 var DefaultModels = map[string]string{
 	"openai":         "gpt-5-mini",
-	"anthropic":      "claude-sonnet-4-0",
+	"anthropic":      "claude-sonnet-4-5",
 	"google":         "gemini-2.5-flash",
 	"dmr":            "ai/qwen3:latest",
 	"mistral":        "mistral-small-latest",
@@ -82,7 +82,16 @@ func AvailableProviders(ctx context.Context, modelsGateway string, env environme
 	return providers
 }
 
-func AutoModelConfig(ctx context.Context, modelsGateway string, env environment.Provider) latest.ModelConfig {
+func AutoModelConfig(ctx context.Context, modelsGateway string, env environment.Provider, defaultModel *latest.ModelConfig) latest.ModelConfig {
+	// If user specified a default model config, use it (with defaults for unset fields)
+	if defaultModel != nil && defaultModel.Provider != "" && defaultModel.Model != "" {
+		result := *defaultModel
+		if result.MaxTokens == nil {
+			result.MaxTokens = PreferredMaxTokens(result.Provider)
+		}
+		return result
+	}
+
 	availableProviders := AvailableProviders(ctx, modelsGateway, env)
 	firstAvailable := availableProviders[0]
 

@@ -849,7 +849,7 @@ task build  # Should create ./bin/cagent
 - Manual workflow dispatch
 
 **Build Configuration:**
-- Go version: 1.25.5
+- Go version: 1.26.0
 - Platforms: linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64, windows/arm64
 - Binary name: `cagent` (or `cagent.exe` on Windows)
 - Version injection: Uses git tag and commit SHA via ldflags

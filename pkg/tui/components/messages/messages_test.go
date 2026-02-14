@@ -1,6 +1,7 @@
 package messages
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	"github.com/docker/cagent/pkg/tui/animation"
 	"github.com/docker/cagent/pkg/tui/components/reasoningblock"
 	"github.com/docker/cagent/pkg/tui/core/layout"
+	tuimessages "github.com/docker/cagent/pkg/tui/messages"
 	"github.com/docker/cagent/pkg/tui/service"
 	"github.com/docker/cagent/pkg/tui/types"
 )
@@ -32,7 +34,7 @@ func TestViewDoesNotWrapWideLines(t *testing.T) {
 	m.views = append(m.views, m.createMessageView(msg))
 
 	out := m.View()
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		assert.LessOrEqual(t, ansi.StringWidth(line), 20)
 	}
 }
@@ -843,7 +845,7 @@ func BenchmarkMessagesView_RenderWhileScrolling(b *testing.B) {
 	for i := range b.N {
 		// Vary scroll position to simulate wheel scrolling
 		m.scrollOffset = (i % 50) * 2
-		m.scrollbar.SetScrollOffset(m.scrollOffset)
+		m.scrollview.SetScrollOffset(m.scrollOffset)
 		_ = m.View()
 	}
 }
@@ -870,7 +872,271 @@ func BenchmarkMessagesView_LargeHistory(b *testing.B) {
 
 	for i := range b.N {
 		m.scrollOffset = (i % 100) * 5
-		m.scrollbar.SetScrollOffset(m.scrollOffset)
+		m.scrollview.SetScrollOffset(m.scrollOffset)
 		_ = m.View()
 	}
+}
+
+func TestIsSelectableMessage(t *testing.T) {
+	t.Parallel()
+
+	sessionPos := 1
+
+	tests := []struct {
+		name     string
+		msg      *types.Message
+		expected bool
+	}{
+		{
+			name:     "assistant message is selectable",
+			msg:      types.Agent(types.MessageTypeAssistant, "root", "Hello"),
+			expected: true,
+		},
+		{
+			name:     "reasoning block is selectable",
+			msg:      types.Agent(types.MessageTypeAssistantReasoningBlock, "root", "Thinking..."),
+			expected: true,
+		},
+		{
+			name: "user message with session position is selectable",
+			msg: &types.Message{
+				Type:            types.MessageTypeUser,
+				Content:         "Hello",
+				SessionPosition: &sessionPos,
+			},
+			expected: true,
+		},
+		{
+			name: "user message without session position is not selectable",
+			msg: &types.Message{
+				Type:            types.MessageTypeUser,
+				Content:         "Hello",
+				SessionPosition: nil,
+			},
+			expected: false,
+		},
+		{
+			name:     "tool call is not selectable",
+			msg:      types.ToolCallMessage("root", tools.ToolCall{ID: "call-1", Function: tools.FunctionCall{Name: "test", Arguments: "{}"}}, tools.Tool{Name: "test"}, types.ToolStatusCompleted),
+			expected: false,
+		},
+		{
+			name:     "spinner is not selectable",
+			msg:      types.Spinner(),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			sessionState := &service.SessionState{}
+			m := NewScrollableView(80, 24, sessionState).(*model)
+			m.SetSize(80, 24)
+
+			m.messages = append(m.messages, tt.msg)
+			m.views = append(m.views, m.createMessageView(tt.msg))
+
+			got := m.isSelectableMessage(0)
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
+
+func TestKeyEEmitsEditUserMessageMsg(t *testing.T) {
+	t.Parallel()
+
+	sessionPos := 1
+	sessionState := &service.SessionState{}
+	m := NewScrollableView(80, 24, sessionState).(*model)
+	m.SetSize(80, 24)
+
+	// Add a user message with session position
+	userMsg := &types.Message{
+		Type:            types.MessageTypeUser,
+		Content:         "Hello world",
+		SessionPosition: &sessionPos,
+	}
+	m.messages = append(m.messages, userMsg)
+	m.views = append(m.views, m.createMessageView(userMsg))
+
+	// Focus and select the message
+	m.Focus()
+	m.selectedMessageIndex = 0
+
+	// Press 'e' key
+	keyMsg := tea.KeyPressMsg{Code: 101} // 'e'
+	_, cmd := m.Update(keyMsg)
+
+	// Verify a command was returned
+	require.NotNil(t, cmd, "expected a command to be returned")
+
+	// Execute the command to get the message
+	msg := cmd()
+	editMsg, ok := msg.(tuimessages.EditUserMessageMsg)
+	require.True(t, ok, "expected EditUserMessageMsg, got %T", msg)
+
+	assert.Equal(t, 0, editMsg.MsgIndex)
+	assert.Equal(t, 1, editMsg.SessionPosition)
+	assert.Equal(t, "Hello world", editMsg.OriginalContent)
+}
+
+func TestKeyENoOpForNonEditableUserMessage(t *testing.T) {
+	t.Parallel()
+
+	sessionState := &service.SessionState{}
+	m := NewScrollableView(80, 24, sessionState).(*model)
+	m.SetSize(80, 24)
+
+	// Add a user message WITHOUT session position (not editable)
+	userMsg := &types.Message{
+		Type:            types.MessageTypeUser,
+		Content:         "Hello world",
+		SessionPosition: nil,
+	}
+	m.messages = append(m.messages, userMsg)
+	m.views = append(m.views, m.createMessageView(userMsg))
+
+	// Focus and select the message
+	m.Focus()
+	m.selectedMessageIndex = 0
+
+	// Press 'e' key
+	keyMsg := tea.KeyPressMsg{Code: 101} // 'e'
+	_, cmd := m.Update(keyMsg)
+
+	// Should return nil command since message is not editable
+	assert.Nil(t, cmd, "expected no command for non-editable user message")
+}
+
+func TestKeyENoOpForAssistantMessage(t *testing.T) {
+	t.Parallel()
+
+	sessionState := &service.SessionState{}
+	m := NewScrollableView(80, 24, sessionState).(*model)
+	m.SetSize(80, 24)
+
+	// Add an assistant message
+	assistantMsg := types.Agent(types.MessageTypeAssistant, "root", "Hello")
+	m.messages = append(m.messages, assistantMsg)
+	m.views = append(m.views, m.createMessageView(assistantMsg))
+
+	// Focus and select the message
+	m.Focus()
+	m.selectedMessageIndex = 0
+
+	// Press 'e' key
+	keyMsg := tea.KeyPressMsg{Code: 101} // 'e'
+	_, cmd := m.Update(keyMsg)
+
+	// Should return nil command since it's an assistant message
+	assert.Nil(t, cmd, "expected no command for assistant message")
+}
+
+func TestUserMessageNavigationWithArrowKeys(t *testing.T) {
+	t.Parallel()
+
+	sessionPos1 := 1
+	sessionPos2 := 2
+
+	sessionState := &service.SessionState{}
+	m := NewScrollableView(80, 24, sessionState).(*model)
+	m.SetSize(80, 24)
+
+	// Add messages: user (editable), assistant, user (editable)
+	userMsg1 := &types.Message{
+		Type:            types.MessageTypeUser,
+		Content:         "First user message",
+		SessionPosition: &sessionPos1,
+	}
+	assistantMsg := types.Agent(types.MessageTypeAssistant, "root", "Response")
+	userMsg2 := &types.Message{
+		Type:            types.MessageTypeUser,
+		Content:         "Second user message",
+		SessionPosition: &sessionPos2,
+	}
+
+	m.messages = append(m.messages, userMsg1, assistantMsg, userMsg2)
+	for _, msg := range m.messages {
+		m.views = append(m.views, m.createMessageView(msg))
+	}
+
+	// Focus the component - this auto-selects the last assistant message
+	m.Focus()
+
+	// Focus() selects the last assistant message (index 1)
+	assert.Equal(t, 1, m.selectedMessageIndex, "Focus should select last assistant message")
+
+	// Press up to go back to first user message
+	upMsg := tea.KeyPressMsg{Code: tea.KeyUp}
+	m.Update(upMsg)
+	assert.Equal(t, 0, m.selectedMessageIndex, "should select first user message after up")
+
+	// Press down to go back to assistant message
+	downMsg := tea.KeyPressMsg{Code: tea.KeyDown}
+	m.Update(downMsg)
+	assert.Equal(t, 1, m.selectedMessageIndex, "should select assistant message after down")
+
+	// Press down to go to second user message
+	m.Update(downMsg)
+	assert.Equal(t, 2, m.selectedMessageIndex, "should select second user message after down")
+}
+
+func TestBindingsIncludesEditKeyWhenUserMessageSelected(t *testing.T) {
+	t.Parallel()
+
+	sessionPos := 1
+	sessionState := &service.SessionState{}
+	m := NewScrollableView(80, 24, sessionState).(*model)
+	m.SetSize(80, 24)
+
+	// Add a user message with session position
+	userMsg := &types.Message{
+		Type:            types.MessageTypeUser,
+		Content:         "Hello world",
+		SessionPosition: &sessionPos,
+	}
+	m.messages = append(m.messages, userMsg)
+	m.views = append(m.views, m.createMessageView(userMsg))
+
+	// Focus and select the user message
+	m.Focus()
+
+	bindings := m.Bindings()
+
+	// Find the 'e' binding - should be present when user message is selected
+	var foundE bool
+	for _, b := range bindings {
+		if slices.Contains(b.Keys(), "e") {
+			foundE = true
+		}
+	}
+	assert.True(t, foundE, "Bindings should include 'e' key when user message is selected")
+}
+
+func TestBindingsExcludesEditKeyWhenAssistantMessageSelected(t *testing.T) {
+	t.Parallel()
+
+	sessionState := &service.SessionState{}
+	m := NewScrollableView(80, 24, sessionState).(*model)
+	m.SetSize(80, 24)
+
+	// Add an assistant message
+	assistantMsg := types.Agent(types.MessageTypeAssistant, "root", "Hello")
+	m.messages = append(m.messages, assistantMsg)
+	m.views = append(m.views, m.createMessageView(assistantMsg))
+
+	// Focus and select the assistant message
+	m.Focus()
+
+	bindings := m.Bindings()
+
+	// Find the 'e' binding - should NOT be present when assistant message is selected
+	var foundE bool
+	for _, b := range bindings {
+		if slices.Contains(b.Keys(), "e") {
+			foundE = true
+		}
+	}
+	assert.False(t, foundE, "Bindings should NOT include 'e' key when assistant message is selected")
 }

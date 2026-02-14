@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/docker/cagent/pkg/config"
+	"github.com/docker/cagent/pkg/config/latest"
 	"github.com/docker/cagent/pkg/userconfig"
 )
 
@@ -149,6 +150,85 @@ func TestCanonize(t *testing.T) {
 			result := canonize(tt.input)
 
 			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestDefaultModelLogic(t *testing.T) {
+	tests := []struct {
+		name             string
+		env              string
+		userConfig       *userconfig.Config
+		expectedProvider string
+		expectedModel    string
+	}{
+		{
+			name:             "env",
+			env:              "openai/gpt-4o",
+			expectedProvider: "openai",
+			expectedModel:    "gpt-4o",
+		},
+		{
+			name: "user_config",
+			userConfig: &userconfig.Config{
+				DefaultModel: &latest.FlexibleModelConfig{
+					ModelConfig: latest.ModelConfig{Provider: "google", Model: "gemini-2.5-flash"},
+				},
+			},
+			expectedProvider: "google",
+			expectedModel:    "gemini-2.5-flash",
+		},
+		{
+			name: "env_overrides_user_config",
+			env:  "openai/gpt-4o",
+			userConfig: &userconfig.Config{
+				DefaultModel: &latest.FlexibleModelConfig{
+					ModelConfig: latest.ModelConfig{Provider: "google", Model: "gemini-2.5-flash"},
+				},
+			},
+			expectedProvider: "openai",
+			expectedModel:    "gpt-4o",
+		},
+		{
+			name:             "empty_when_not_set",
+			expectedProvider: "",
+			expectedModel:    "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("CAGENT_DEFAULT_MODEL", tt.env)
+
+			// Mock user config loader
+			original := loadUserConfig
+			loadUserConfig = func() (*userconfig.Config, error) {
+				if tt.userConfig != nil {
+					return tt.userConfig, nil
+				}
+				return &userconfig.Config{}, nil
+			}
+			t.Cleanup(func() { loadUserConfig = original })
+
+			cmd := &cobra.Command{
+				RunE: func(*cobra.Command, []string) error {
+					return nil
+				},
+			}
+			runConfig := config.RuntimeConfig{}
+			addGatewayFlags(cmd, &runConfig)
+
+			cmd.SetArgs(nil)
+			err := cmd.Execute()
+
+			require.NoError(t, err)
+			if tt.expectedProvider == "" && tt.expectedModel == "" {
+				assert.Nil(t, runConfig.DefaultModel)
+			} else {
+				require.NotNil(t, runConfig.DefaultModel)
+				assert.Equal(t, tt.expectedProvider, runConfig.DefaultModel.Provider)
+				assert.Equal(t, tt.expectedModel, runConfig.DefaultModel.Model)
+			}
 		})
 	}
 }

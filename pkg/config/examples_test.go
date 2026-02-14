@@ -42,7 +42,7 @@ func TestParseExamples(t *testing.T) {
 		t.Run(file, func(t *testing.T) {
 			t.Parallel()
 
-			cfg, err := Load(t.Context(), testfileSource(file))
+			cfg, err := Load(t.Context(), NewFileSource(file))
 
 			require.NoError(t, err)
 			require.Equal(t, latest.Version, cfg.Version, "Version should be %d in %s", latest.Version, file)
@@ -70,7 +70,7 @@ func TestParseExamples(t *testing.T) {
 					continue
 				}
 
-				model, err := modelsStore.GetModel(t.Context(), model.Provider+"/"+model.Model)
+				model, err := modelsStore.GetModel(model.Provider + "/" + model.Model)
 				require.NoError(t, err)
 				require.NotNil(t, model)
 			}

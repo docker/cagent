@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,11 +21,11 @@ agents:
 	err := tmpRoot.WriteFile("valid.yaml", []byte(validConfig), 0o644)
 	require.NoError(t, err)
 
-	cfg, err := Load(t.Context(), testfileSource(filepath.Join(tmp, "valid.yaml")))
+	cfg, err := Load(t.Context(), NewFileSource(filepath.Join(tmp, "valid.yaml")))
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 
-	_, err = Load(t.Context(), testfileSource(filepath.Join(tmp, "../../../etc/passwd"))) //nolint: gocritic // testing invalid path
+	_, err = Load(t.Context(), NewFileSource(filepath.Join(tmp, "../../../etc/passwd"))) //nolint: gocritic // testing invalid path
 	require.Error(t, err)
 }
 
@@ -65,10 +66,27 @@ func TestValidationErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := Load(t.Context(), testfileSource(filepath.Join("testdata", tt.path)))
+			_, err := Load(t.Context(), NewFileSource(filepath.Join("testdata", tt.path)))
 			require.Error(t, err)
 		})
 	}
+}
+
+func TestLoadConfig_UnsupportedVersion(t *testing.T) {
+	t.Parallel()
+
+	cfg := `version: "99"
+agents:
+  root:
+    model: openai/gpt-4
+`
+	_, err := Load(t.Context(), NewBytesSource("test", []byte(cfg)))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported config version: 99")
+	assert.Contains(t, err.Error(), "valid versions")
+	// Check that at least some known versions are listed
+	assert.Contains(t, err.Error(), "1")
+	assert.Contains(t, err.Error(), "2")
 }
 
 func TestValidSkillsConfiguration(t *testing.T) {
@@ -96,7 +114,7 @@ func TestValidSkillsConfiguration(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			cfg, err := Load(t.Context(), testfileSource(filepath.Join("testdata", tt.path)))
+			cfg, err := Load(t.Context(), NewFileSource(filepath.Join("testdata", tt.path)))
 			require.NoError(t, err)
 			require.NotNil(t, cfg)
 		})
