@@ -31,6 +31,10 @@ func (e RuntimeError) Unwrap() error {
 	return e.Err
 }
 
+// maxAutoExtensions is the maximum number of times --yolo mode will
+// auto-continue when max iterations is reached, to prevent infinite loops.
+const maxAutoExtensions = 5
+
 // Config holds configuration for running an agent in CLI mode
 type Config struct {
 	AppName        string
@@ -60,6 +64,8 @@ func Run(ctx context.Context, out *Printer, cfg Config, rt runtime.Runtime, sess
 	var lastErr error
 
 	oneLoop := func(text string, rd io.Reader) error {
+		autoExtensions := 0
+
 		userInput := strings.TrimSpace(text)
 		if userInput == "" {
 			return nil
@@ -153,16 +159,32 @@ func Run(ctx context.Context, out *Printer, cfg Config, rt runtime.Runtime, sess
 					out.PrintError(lastErr)
 				}
 			case *runtime.MaxIterationsReachedEvent:
-				result := out.PromptMaxIterationsContinue(ctx, e.MaxIterations)
-				switch result {
-				case ConfirmationApprove:
-					rt.Resume(ctx, runtime.ResumeApprove())
-				case ConfirmationReject:
-					rt.Resume(ctx, runtime.ResumeReject(""))
-					return nil
-				case ConfirmationAbort:
-					rt.Resume(ctx, runtime.ResumeReject(""))
-					return nil
+				if cfg.AutoApprove {
+					autoExtensions++
+					if autoExtensions <= maxAutoExtensions {
+						slog.Info("Auto-extending iterations in yolo mode",
+							"extension", autoExtensions,
+							"max_extensions", maxAutoExtensions,
+							"current_max", e.MaxIterations)
+						rt.Resume(ctx, runtime.ResumeApprove())
+					} else {
+						slog.Warn("Max auto-extensions reached in yolo mode, stopping",
+							"total_extensions", autoExtensions)
+						rt.Resume(ctx, runtime.ResumeReject(""))
+						return nil
+					}
+				} else {
+					result := out.PromptMaxIterationsContinue(ctx, e.MaxIterations)
+					switch result {
+					case ConfirmationApprove:
+						rt.Resume(ctx, runtime.ResumeApprove())
+					case ConfirmationReject:
+						rt.Resume(ctx, runtime.ResumeReject(""))
+						return nil
+					case ConfirmationAbort:
+						rt.Resume(ctx, runtime.ResumeReject(""))
+						return nil
+					}
 				}
 			case *runtime.ElicitationRequestEvent:
 				serverURL, ok := e.Meta["cagent/server_url"].(string)
