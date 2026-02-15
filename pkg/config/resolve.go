@@ -53,11 +53,39 @@ func ResolveAlias(agentFilename string) *userconfig.Alias {
 	return alias
 }
 
-// ResolveSources resolves an agent file reference (local file, URL, or OCI image) to sources.
+// GetUserSettings returns the global user settings from the config file.
+// Returns an empty Settings if the config file doesn't exist or has no settings.
+func GetUserSettings() *userconfig.Settings {
+	cfg, err := userconfig.Load()
+	if err != nil {
+		return &userconfig.Settings{}
+	}
+	return cfg.GetSettings()
+}
+
+// ResolveSources resolves an agent file reference (local file, URL, git URL, or OCI image) to sources.
 // If envProvider is non-nil, it will be used to look up GITHUB_TOKEN for authentication
 // when fetching from GitHub URLs.
 // For OCI references, always checks remote for updates but falls back to local cache if offline.
 func ResolveSources(agentsPath string, envProvider environment.Provider) (Sources, error) {
+	// Handle URL references first (before resolve() which converts to absolute path)
+	if IsURLReference(agentsPath) {
+		return map[string]Source{
+			agentsPath: NewURLSource(agentsPath, envProvider),
+		}, nil
+	}
+
+	// Handle git URL references
+	if IsGitReference(agentsPath) {
+		src, err := NewGitSource(agentsPath)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]Source{
+			agentsPath: src,
+		}, nil
+	}
+
 	resolvedPath, err := resolve(agentsPath)
 	if err != nil {
 		// resolve() only fails for non-OCI, non-URL, non-builtin references
@@ -78,11 +106,20 @@ func ResolveSources(agentsPath string, envProvider environment.Provider) (Source
 	return singleSource(key, source), nil
 }
 
-// Resolve resolves an agent file reference (local file, URL, or OCI image) to a source.
+// Resolve resolves an agent file reference (local file, URL, git URL, or OCI image) to a source.
 // If envProvider is non-nil, it will be used to look up GITHUB_TOKEN for authentication
 // when fetching from GitHub URLs.
 // For OCI references, always checks remote for updates but falls back to local cache if offline.
 func Resolve(agentFilename string, envProvider environment.Provider) (Source, error) {
+	// Handle git URL references early (before resolve() which converts to absolute path)
+	if IsGitReference(agentFilename) {
+		return NewGitSource(agentFilename)
+	}
+
+	if IsURLReference(agentFilename) {
+		return NewURLSource(agentFilename, envProvider), nil
+	}
+
 	resolvedPath, err := resolve(agentFilename)
 	if err != nil {
 		if IsOCIReference(agentFilename) {
@@ -159,8 +196,8 @@ func resolve(agentFilename string) (string, error) {
 		return agentFilename, nil
 	}
 
-	// Don't convert OCI references or URLs to absolute paths
-	if IsOCIReference(agentFilename) || IsURLReference(agentFilename) {
+	// Don't convert OCI references, URLs, or git references to absolute paths
+	if IsOCIReference(agentFilename) || IsURLReference(agentFilename) || IsGitReference(agentFilename) {
 		return agentFilename, nil
 	}
 

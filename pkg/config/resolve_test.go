@@ -619,3 +619,93 @@ func TestResolveAlias_WithAllOptions(t *testing.T) {
 	assert.Equal(t, "anthropic/claude-sonnet-4-0", alias.Model)
 	assert.True(t, alias.HideToolResults)
 }
+
+func TestGetUserSettings_Empty(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// No config file exists
+	settings := GetUserSettings()
+	require.NotNil(t, settings)
+	assert.False(t, settings.HideToolResults)
+}
+
+func TestGetUserSettings_WithHideToolResults(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Set up config with settings
+	cfg, err := userconfig.Load()
+	require.NoError(t, err)
+	cfg.Settings = &userconfig.Settings{
+		HideToolResults: true,
+	}
+	require.NoError(t, cfg.Save())
+
+	// Get settings
+	settings := GetUserSettings()
+	require.NotNil(t, settings)
+	assert.True(t, settings.HideToolResults)
+}
+
+func TestIsGitReference(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input    string
+		expected bool
+	}{
+		// Valid git references
+		{"https://github.com/org/repo.git", true},
+		{"https://github.com/org/repo.git#main", true},
+		{"https://github.com/org/repo.git#main:subdir", true},
+		{"https://github.com/org/repo.git?ref=main", true},
+		{"git@github.com:org/repo.git", true},
+		{"git@github.com:org/repo.git#develop", true},
+		{"git://github.com/org/repo.git", true},
+		// Not git references
+		{"./agent.yaml", false},
+		{"/path/to/agent.yaml", false},
+		{"agent.yaml", false},
+		{"default", false},
+		{"coder", false},
+		{"registry.io/org/agent:latest", false},
+		{"https://example.com/agent.yaml", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			t.Parallel()
+			got := IsGitReference(tt.input)
+			assert.Equal(t, tt.expected, got, "IsGitReference(%q)", tt.input)
+		})
+	}
+}
+
+func TestResolve_GitReference(t *testing.T) {
+	t.Parallel()
+
+	// Test that git references are detected and don't error on resolve
+	// (actual cloning is not tested here as it requires network)
+	gitURL := "https://github.com/example/repo.git#main"
+
+	source, err := Resolve(gitURL, nil)
+	require.NoError(t, err)
+	assert.Equal(t, gitURL, source.Name())
+}
+
+func TestResolveSources_GitReference(t *testing.T) {
+	t.Parallel()
+
+	// Test that git references are detected in ResolveSources
+	gitURL := "https://github.com/example/repo.git#main"
+
+	sources, err := ResolveSources(gitURL, nil)
+	require.NoError(t, err)
+	require.Len(t, sources, 1)
+
+	source, ok := sources[gitURL]
+	require.True(t, ok)
+	assert.Equal(t, gitURL, source.Name())
+}
