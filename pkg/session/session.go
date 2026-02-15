@@ -653,10 +653,17 @@ func (s *Session) GetMessages(a *agent.Agent) []chat.Message {
 
 	startIndex := lastSummaryIndex + 1
 
-	// Begin adding conversation messages
+	// Begin adding conversation messages.
+	// Filter out sub-agent messages that may be present in the parent session
+	// (either from historical persistence bugs or from sub-session expansion).
+	// Only include messages that belong to this agent or have no agent set (user messages).
+	agentName := a.Name()
 	for i := startIndex; i < len(s.Messages); i++ {
 		item := s.Messages[i]
 		if item.IsMessage() {
+			if item.Message.AgentName != "" && item.Message.AgentName != agentName {
+				continue
+			}
 			messages = append(messages, item.Message.Message)
 		}
 	}
