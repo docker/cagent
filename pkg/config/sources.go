@@ -16,13 +16,14 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/moby/buildkit/frontend/dockerfile/dfgitutil"
+	"github.com/moby/buildkit/util/gitutil"
+
 	"github.com/docker/cagent/pkg/content"
 	"github.com/docker/cagent/pkg/environment"
 	"github.com/docker/cagent/pkg/httpclient"
 	"github.com/docker/cagent/pkg/paths"
 	"github.com/docker/cagent/pkg/remote"
-	"github.com/moby/buildkit/frontend/dockerfile/dfgitutil"
-	"github.com/moby/buildkit/util/gitutil"
 )
 
 type Source interface {
