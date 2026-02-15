@@ -35,6 +35,35 @@ func (e RuntimeError) Unwrap() error {
 // auto-continue when max iterations is reached, to prevent infinite loops.
 const maxAutoExtensions = 5
 
+// maxIterAction describes what the caller should do after a MaxIterationsReachedEvent.
+type maxIterAction int
+
+const (
+	maxIterContinue maxIterAction = iota // auto-approved, keep running
+	maxIterStop                          // safety cap reached, caller should stop
+	maxIterPrompt                        // not in yolo mode, caller should prompt the user
+)
+
+// handleMaxIterationsAutoApprove decides whether to auto-extend iterations in
+// --yolo mode. Returns maxIterContinue (approved), maxIterStop (cap reached),
+// or maxIterPrompt (not in auto-approve mode, caller should ask the user).
+func handleMaxIterationsAutoApprove(autoApprove bool, autoExtensions *int, maxIter int) maxIterAction {
+	if !autoApprove {
+		return maxIterPrompt
+	}
+	*autoExtensions++
+	if *autoExtensions <= maxAutoExtensions {
+		slog.Info("Auto-extending iterations in yolo mode",
+			"extension", *autoExtensions,
+			"max_extensions", maxAutoExtensions,
+			"current_max", maxIter)
+		return maxIterContinue
+	}
+	slog.Warn("Max auto-extensions reached in yolo mode, stopping",
+		"total_extensions", *autoExtensions)
+	return maxIterStop
+}
+
 // Config holds configuration for running an agent in CLI mode
 type Config struct {
 	AppName        string
@@ -81,21 +110,10 @@ func Run(ctx context.Context, out *Printer, cfg Config, rt runtime.Runtime, sess
 						rt.Resume(ctx, runtime.ResumeReject(""))
 					}
 				case *runtime.MaxIterationsReachedEvent:
-					if cfg.AutoApprove {
-						autoExtensions++
-						if autoExtensions <= maxAutoExtensions {
-							slog.Info("Auto-extending iterations in yolo mode (json)",
-								"extension", autoExtensions,
-								"max_extensions", maxAutoExtensions,
-								"current_max", e.MaxIterations)
-							rt.Resume(ctx, runtime.ResumeApprove())
-						} else {
-							slog.Warn("Max auto-extensions reached in yolo mode (json), stopping",
-								"total_extensions", autoExtensions)
-							rt.Resume(ctx, runtime.ResumeReject(""))
-							return nil
-						}
-					} else {
+					switch handleMaxIterationsAutoApprove(cfg.AutoApprove, &autoExtensions, e.MaxIterations) {
+					case maxIterContinue:
+						rt.Resume(ctx, runtime.ResumeApprove())
+					default: // maxIterStop or maxIterPrompt (no interactive prompt in JSON mode)
 						rt.Resume(ctx, runtime.ResumeReject(""))
 						return nil
 					}
@@ -178,21 +196,13 @@ func Run(ctx context.Context, out *Printer, cfg Config, rt runtime.Runtime, sess
 					out.PrintError(lastErr)
 				}
 			case *runtime.MaxIterationsReachedEvent:
-				if cfg.AutoApprove {
-					autoExtensions++
-					if autoExtensions <= maxAutoExtensions {
-						slog.Info("Auto-extending iterations in yolo mode",
-							"extension", autoExtensions,
-							"max_extensions", maxAutoExtensions,
-							"current_max", e.MaxIterations)
-						rt.Resume(ctx, runtime.ResumeApprove())
-					} else {
-						slog.Warn("Max auto-extensions reached in yolo mode, stopping",
-							"total_extensions", autoExtensions)
-						rt.Resume(ctx, runtime.ResumeReject(""))
-						return nil
-					}
-				} else {
+				switch handleMaxIterationsAutoApprove(cfg.AutoApprove, &autoExtensions, e.MaxIterations) {
+				case maxIterContinue:
+					rt.Resume(ctx, runtime.ResumeApprove())
+				case maxIterStop:
+					rt.Resume(ctx, runtime.ResumeReject(""))
+					return nil
+				case maxIterPrompt:
 					result := out.PromptMaxIterationsContinue(ctx, e.MaxIterations)
 					switch result {
 					case ConfirmationApprove:
