@@ -80,6 +80,25 @@ func Run(ctx context.Context, out *Printer, cfg Config, rt runtime.Runtime, sess
 					if !cfg.AutoApprove {
 						rt.Resume(ctx, runtime.ResumeReject(""))
 					}
+				case *runtime.MaxIterationsReachedEvent:
+					if cfg.AutoApprove {
+						autoExtensions++
+						if autoExtensions <= maxAutoExtensions {
+							slog.Info("Auto-extending iterations in yolo mode (json)",
+								"extension", autoExtensions,
+								"max_extensions", maxAutoExtensions,
+								"current_max", e.MaxIterations)
+							rt.Resume(ctx, runtime.ResumeApprove())
+						} else {
+							slog.Warn("Max auto-extensions reached in yolo mode (json), stopping",
+								"total_extensions", autoExtensions)
+							rt.Resume(ctx, runtime.ResumeReject(""))
+							return nil
+						}
+					} else {
+						rt.Resume(ctx, runtime.ResumeReject(""))
+						return nil
+					}
 				case *runtime.ErrorEvent:
 					return fmt.Errorf("%s", e.Error)
 				}
