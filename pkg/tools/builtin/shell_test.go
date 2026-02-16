@@ -1,16 +1,29 @@
 package builtin
 
 import (
-	"os"
+	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/docker/cagent/pkg/config"
-	"github.com/docker/cagent/pkg/config/latest"
+	"github.com/docker/cagent/pkg/sandbox"
 	"github.com/docker/cagent/pkg/tools"
 )
+
+// noopRunner is a minimal sandbox.Runner for testing sandbox-mode behavior
+// without needing Docker.
+type noopRunner struct{}
+
+var _ sandbox.Runner = (*noopRunner)(nil)
+
+func (*noopRunner) RunCommand(_, _ context.Context, _, _ string, _ time.Duration) *tools.ToolCallResult {
+	return tools.ResultSuccess("<noop>")
+}
+func (*noopRunner) Start(context.Context) error { return nil }
+func (*noopRunner) Stop(context.Context) error  { return nil }
 
 func TestNewShellTool(t *testing.T) {
 	t.Setenv("SHELL", "/bin/bash")
@@ -124,47 +137,11 @@ func TestShellTool_ListBackgroundJobs(t *testing.T) {
 	assert.Contains(t, listResult.Output, "ID: job_")
 }
 
-func TestParseSandboxPath(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		input    string
-		wantPath string
-		wantMode string
-	}{
-		{input: ".", wantPath: ".", wantMode: "rw"},
-		{input: "/tmp", wantPath: "/tmp", wantMode: "rw"},
-		{input: "./src", wantPath: "./src", wantMode: "rw"},
-		{input: "/tmp:ro", wantPath: "/tmp", wantMode: "ro"},
-		{input: "./config:ro", wantPath: "./config", wantMode: "ro"},
-		{input: "/data:rw", wantPath: "/data", wantMode: "rw"},
-		{input: "./secrets:ro", wantPath: "./secrets", wantMode: "ro"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			t.Parallel()
-			path, mode := parseSandboxPath(tt.input)
-			assert.Equal(t, tt.wantPath, path)
-			assert.Equal(t, tt.wantMode, mode)
-		})
-	}
-}
-
 func TestShellTool_SandboxInstructions(t *testing.T) {
 	t.Parallel()
 
-	workingDir := "/workspace/project"
-	sandboxConfig := &latest.SandboxConfig{
-		Image: "alpine:latest",
-		Paths: []string{
-			".",
-			"/tmp",
-			"/home/user:ro",
-		},
-	}
-
-	tool := NewShellTool(nil, &config.RuntimeConfig{Config: config.Config{WorkingDir: workingDir}}, sandboxConfig)
+	runner := &noopRunner{}
+	tool := NewShellTool(nil, &config.RuntimeConfig{Config: config.Config{WorkingDir: "/workspace/project"}}, runner)
 
 	instructions := tool.Instructions()
 
@@ -190,46 +167,4 @@ func TestShellTool_NativeInstructions(t *testing.T) {
 	assert.Contains(t, instructions, "Shell Tool Usage Guide")
 	assert.NotContains(t, instructions, "Sandbox Mode")
 	assert.NotContains(t, instructions, "## Mounted Paths")
-}
-
-func TestIsValidEnvVarName(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name  string
-		valid bool
-	}{
-		{"HOME", true},
-		{"USER", true},
-		{"PATH", true},
-		{"_private", true},
-		{"MY_VAR_123", true},
-		{"a", true},
-		{"A", true},
-		{"_", true},
-		{"", false},
-		{"123", false},
-		{"1VAR", false},
-		{"VAR-NAME", false},
-		{"VAR.NAME", false},
-		{"VAR NAME", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			result := isValidEnvVarName(tt.name)
-			assert.Equal(t, tt.valid, result, "isValidEnvVarName(%q)", tt.name)
-		})
-	}
-}
-
-func TestIsProcessRunning(t *testing.T) {
-	t.Parallel()
-
-	// Current process should be running
-	assert.True(t, isProcessRunning(os.Getpid()), "Current process should be running")
-
-	// Non-existent PID should not be running (using a very high PID unlikely to exist)
-	assert.False(t, isProcessRunning(999999999), "Very high PID should not be running")
 }
