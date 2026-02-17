@@ -16,6 +16,7 @@ func TestTokenStore_SaveLoad(t *testing.T) {
 		TokenType:        "bearer",
 		ExpiresAt:        time.Now().Add(1 * time.Hour).Unix(),
 		RefreshExpiresAt: time.Now().Add(8 * time.Hour).Unix(),
+		Mode:             ModeInternal,
 	}
 
 	if err := store.Save(token); err != nil {
@@ -35,6 +36,33 @@ func TestTokenStore_SaveLoad(t *testing.T) {
 	}
 	if loaded.ExpiresAt != token.ExpiresAt {
 		t.Errorf("ExpiresAt = %d, want %d", loaded.ExpiresAt, token.ExpiresAt)
+	}
+	if loaded.Mode != token.Mode {
+		t.Errorf("Mode = %q, want %q", loaded.Mode, token.Mode)
+	}
+}
+
+func TestTokenStore_SaveLoad_ExternalMode(t *testing.T) {
+	dir := t.TempDir()
+	store := NewTokenStoreWithDir(dir)
+
+	token := &Token{
+		AccessToken: "test-access",
+		ExpiresAt:   time.Now().Add(1 * time.Hour).Unix(),
+		Mode:        ModeExternal,
+	}
+
+	if err := store.Save(token); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	loaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if loaded.Mode != ModeExternal {
+		t.Errorf("Mode = %q, want %q", loaded.Mode, ModeExternal)
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 
 type loginFlags struct {
 	method   string
+	mode     string
 	clientID string
 	idcsURL  string
 	endpoint string
@@ -39,10 +40,15 @@ func newLoginOCACmd() *cobra.Command {
 		Short: "Authenticate with Oracle Code Assist (OCA)",
 		Long: `Authenticate with Oracle Code Assist using OAuth2.
 
+Modes:
+  internal   For Oracle employees (default)
+  external   For non-Oracle users
+
 By default, opens a browser for PKCE authentication.
 Use --method=headless for environments without a browser (SSH, containers).
 
 All configuration values can also be set via environment variables:
+  OCA_MODE         Authentication mode (internal or external)
   OCA_AUTH_FLOW    Authentication method (headless for device code)
   OCA_CLIENT_ID    IDCS client ID
   OCA_IDCS_URL     IDCS base URL
@@ -56,6 +62,7 @@ Precedence: flags > env vars > defaults`,
 		},
 	}
 
+	cmd.Flags().StringVar(&flags.mode, "mode", "", "Authentication mode: internal (Oracle employees) or external (env: OCA_MODE)")
 	cmd.Flags().StringVar(&flags.method, "method", "", "Authentication method: browser (PKCE) or headless (device code)")
 	cmd.Flags().StringVar(&flags.clientID, "client-id", "", "IDCS client ID (env: OCA_CLIENT_ID)")
 	cmd.Flags().StringVar(&flags.idcsURL, "idcs-url", "", "IDCS base URL (env: OCA_IDCS_URL)")
@@ -69,21 +76,30 @@ func runLoginOCA(ctx context.Context, cmd *cobra.Command, flags loginFlags) erro
 	// Start from defaults (which already include env var overrides)
 	cfg := oca.DefaultIDCSConfig()
 
-	// CLI flags override env vars and defaults
+	// CLI --mode flag overrides env var
+	if flags.mode != "" {
+		if flags.mode != oca.ModeInternal && flags.mode != oca.ModeExternal {
+			return fmt.Errorf("unknown mode: %s (use 'internal' or 'external')", flags.mode)
+		}
+		cfg.Mode = flags.mode
+	}
+
+	// CLI flags override env vars and defaults for the active profile
+	p := cfg.ActiveProfile()
 	if flags.clientID != "" {
-		cfg.ClientID = flags.clientID
+		p.ClientID = flags.clientID
 	}
 	if flags.idcsURL != "" {
-		cfg.IDCSBaseURL = flags.idcsURL
-		cfg.AuthEndpoint = flags.idcsURL + "/oauth2/v1/authorize"
-		cfg.TokenEndpoint = flags.idcsURL + "/oauth2/v1/token"
-		cfg.DeviceEndpoint = flags.idcsURL + "/oauth2/v1/device"
+		p.IDCSBaseURL = flags.idcsURL
+		p.AuthEndpoint = flags.idcsURL + "/oauth2/v1/authorize"
+		p.TokenEndpoint = flags.idcsURL + "/oauth2/v1/token"
+		p.DeviceEndpoint = flags.idcsURL + "/oauth2/v1/device"
 	}
 	if flags.endpoint != "" {
-		cfg.LiteLLMBaseURL = flags.endpoint
+		p.LiteLLMBaseURL = flags.endpoint
 	}
 	if flags.scope != "" {
-		cfg.Scope = flags.scope
+		p.Scope = flags.scope
 	}
 
 	// Resolve auth method: flag > env var > default ("browser")
@@ -103,6 +119,8 @@ func runLoginOCA(ctx context.Context, cmd *cobra.Command, flags loginFlags) erro
 
 	output := cmd.OutOrStdout()
 
+	fmt.Fprintf(output, "Mode: %s\n", cfg.Mode)
+
 	var token *oca.Token
 	var err error
 
@@ -121,6 +139,9 @@ func runLoginOCA(ctx context.Context, cmd *cobra.Command, flags loginFlags) erro
 		return fmt.Errorf("authentication failed: %w", err)
 	}
 
+	// Ensure mode is stored with the token
+	token.Mode = cfg.Mode
+
 	// Save token
 	store := oca.NewTokenStore()
 	if err := store.Save(token); err != nil {
@@ -130,7 +151,7 @@ func runLoginOCA(ctx context.Context, cmd *cobra.Command, flags loginFlags) erro
 	fmt.Fprintln(output, "Successfully authenticated with Oracle Code Assist!")
 
 	// Fetch and display available models
-	models, err := oca.FetchModels(ctx, cfg.LiteLLMBaseURL, token.AccessToken)
+	models, err := oca.FetchModels(ctx, p.LiteLLMBaseURL, token.AccessToken)
 	if err != nil {
 		fmt.Fprintf(output, "Warning: could not fetch available models: %v\n", err)
 		return nil

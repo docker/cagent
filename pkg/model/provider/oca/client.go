@@ -30,10 +30,18 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 		idcsCfg = oca.ConfigFromProviderOpts(cfg.ProviderOpts)
 	}
 
+	// If there's a stored token, use its mode for profile resolution
+	store := oca.NewTokenStore()
+	storedToken, _ := store.Load()
+	if storedToken != nil && storedToken.Mode != "" {
+		idcsCfg.Mode = storedToken.Mode
+	}
+
+	p := idcsCfg.ActiveProfile()
+
 	// Resolve token: env var > token store
 	token, _ := env.Get(ctx, OCAAccessTokenEnv)
 	if token == "" {
-		store := oca.NewTokenStore()
 		var err error
 		token, err = oca.GetValidToken(ctx, idcsCfg, store)
 		if err != nil {
@@ -51,9 +59,9 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 		ocaCfg.Model = "oca/" + ocaCfg.Model
 	}
 
-	// Set base URL to litellm endpoint
+	// Set base URL to litellm endpoint from the active profile
 	if ocaCfg.BaseURL == "" {
-		ocaCfg.BaseURL = idcsCfg.LiteLLMBaseURL
+		ocaCfg.BaseURL = p.LiteLLMBaseURL
 	}
 
 	// Use the token as the API key (litellm accepts Bearer token as API key)
@@ -68,6 +76,7 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 	slog.Debug("Creating OCA client via OpenAI wrapper",
 		"model", ocaCfg.Model,
 		"base_url", ocaCfg.BaseURL,
+		"mode", idcsCfg.Mode,
 	)
 
 	// Create an environment provider that injects the OCA token

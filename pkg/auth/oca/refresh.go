@@ -11,14 +11,14 @@ import (
 )
 
 // RefreshToken exchanges a refresh token for a new access token.
-func RefreshToken(ctx context.Context, cfg IDCSConfig, refreshToken string) (*Token, error) {
+func RefreshToken(ctx context.Context, p *IDCSProfile, refreshToken string) (*Token, error) {
 	form := url.Values{
 		"grant_type":    {"refresh_token"},
 		"refresh_token": {refreshToken},
-		"client_id":     {cfg.ClientID},
+		"client_id":     {p.ClientID},
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.TokenEndpoint, strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.TokenEndpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, fmt.Errorf("creating refresh request: %w", err)
 	}
@@ -70,7 +70,7 @@ func RefreshToken(ctx context.Context, cfg IDCSConfig, refreshToken string) (*To
 }
 
 // GetValidToken retrieves a valid access token, refreshing if necessary.
-// Returns the access token string or an error if no valid token is available.
+// It uses the mode stored in the token to select the correct IDCS profile for refresh.
 func GetValidToken(ctx context.Context, cfg IDCSConfig, store *TokenStore) (string, error) {
 	t, err := store.Load()
 	if err != nil {
@@ -88,10 +88,18 @@ func GetValidToken(ctx context.Context, cfg IDCSConfig, store *TokenStore) (stri
 
 	// Try to refresh
 	if t.CanRefresh() {
-		newToken, err := RefreshToken(ctx, cfg, t.RefreshToken)
+		// Use the mode from the stored token to pick the right profile
+		refreshCfg := cfg
+		if t.Mode != "" {
+			refreshCfg.Mode = t.Mode
+		}
+		p := refreshCfg.ActiveProfile()
+
+		newToken, err := RefreshToken(ctx, p, t.RefreshToken)
 		if err != nil {
 			return "", fmt.Errorf("token expired and refresh failed: %w\nRun 'cagent login oca' to re-authenticate", err)
 		}
+		newToken.Mode = t.Mode
 		if err := store.Save(newToken); err != nil {
 			return "", fmt.Errorf("saving refreshed token: %w", err)
 		}

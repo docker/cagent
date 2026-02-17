@@ -45,10 +45,13 @@ func TestLoginWithDeviceCode(t *testing.T) {
 	defer server.Close()
 
 	cfg := IDCSConfig{
-		ClientID:       "test-client",
-		DeviceEndpoint: server.URL + "/device",
-		TokenEndpoint:  server.URL + "/token",
-		Scope:          "openid offline_access",
+		Internal: IDCSProfile{
+			ClientID:       "test-client",
+			DeviceEndpoint: server.URL + "/device",
+			TokenEndpoint:  server.URL + "/token",
+			Scope:          "openid offline_access",
+		},
+		Mode: ModeInternal,
 	}
 
 	var output bytes.Buffer
@@ -62,6 +65,9 @@ func TestLoginWithDeviceCode(t *testing.T) {
 	}
 	if token.RefreshToken != "test-refresh-token" {
 		t.Errorf("RefreshToken = %q, want %q", token.RefreshToken, "test-refresh-token")
+	}
+	if token.Mode != ModeInternal {
+		t.Errorf("Mode = %q, want %q", token.Mode, ModeInternal)
 	}
 
 	outputStr := output.String()
@@ -94,10 +100,13 @@ func TestLoginWithDeviceCode_AccessDenied(t *testing.T) {
 	defer server.Close()
 
 	cfg := IDCSConfig{
-		ClientID:       "test-client",
-		DeviceEndpoint: server.URL + "/device",
-		TokenEndpoint:  server.URL + "/token",
-		Scope:          "openid offline_access",
+		Internal: IDCSProfile{
+			ClientID:       "test-client",
+			DeviceEndpoint: server.URL + "/device",
+			TokenEndpoint:  server.URL + "/token",
+			Scope:          "openid offline_access",
+		},
+		Mode: ModeInternal,
 	}
 
 	var output bytes.Buffer

@@ -64,13 +64,13 @@ func TestGenerateState(t *testing.T) {
 }
 
 func TestBuildAuthorizationURL(t *testing.T) {
-	cfg := IDCSConfig{
+	p := &IDCSProfile{
 		AuthEndpoint: "https://idcs.example.com/oauth2/v1/authorize",
 		ClientID:     "test-client",
 		Scope:        "openid offline_access",
 	}
 
-	url := buildAuthorizationURL(cfg, "challenge123", "state456", "http://localhost:8669/callback")
+	url := buildAuthorizationURL(p, "challenge123", "state456", "http://localhost:8669/callback")
 
 	if url == "" {
 		t.Fatal("URL should not be empty")

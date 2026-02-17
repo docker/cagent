@@ -19,6 +19,8 @@ import (
 
 // LoginWithPKCE performs the OAuth2 Authorization Code + PKCE flow.
 func LoginWithPKCE(ctx context.Context, cfg IDCSConfig) (*Token, error) {
+	p := cfg.ActiveProfile()
+
 	// Generate PKCE verifier and challenge
 	verifier, err := generateCodeVerifier()
 	if err != nil {
@@ -95,7 +97,7 @@ func LoginWithPKCE(ctx context.Context, cfg IDCSConfig) (*Token, error) {
 	defer srv.Shutdown(context.Background())
 
 	// Build authorization URL
-	authURL := buildAuthorizationURL(cfg, challenge, state, redirectURI)
+	authURL := buildAuthorizationURL(p, challenge, state, redirectURI)
 
 	// Open browser
 	if err := browser.Open(ctx, authURL); err != nil {
@@ -111,33 +113,38 @@ func LoginWithPKCE(ctx context.Context, cfg IDCSConfig) (*Token, error) {
 			return nil, result.err
 		}
 		// Exchange code for tokens
-		return exchangeCodeForToken(cfg, result.code, verifier, redirectURI)
+		token, err := exchangeCodeForToken(p, result.code, verifier, redirectURI)
+		if err != nil {
+			return nil, err
+		}
+		token.Mode = cfg.Mode
+		return token, nil
 	}
 }
 
-func buildAuthorizationURL(cfg IDCSConfig, challenge, state, redirectURI string) string {
+func buildAuthorizationURL(p *IDCSProfile, challenge, state, redirectURI string) string {
 	params := url.Values{
 		"response_type":         {"code"},
-		"client_id":             {cfg.ClientID},
+		"client_id":             {p.ClientID},
 		"redirect_uri":          {redirectURI},
-		"scope":                 {cfg.Scope},
+		"scope":                 {p.Scope},
 		"code_challenge":        {challenge},
 		"code_challenge_method": {"S256"},
 		"state":                 {state},
 	}
-	return cfg.AuthEndpoint + "?" + params.Encode()
+	return p.AuthEndpoint + "?" + params.Encode()
 }
 
-func exchangeCodeForToken(cfg IDCSConfig, code, verifier, redirectURI string) (*Token, error) {
+func exchangeCodeForToken(p *IDCSProfile, code, verifier, redirectURI string) (*Token, error) {
 	form := url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {code},
-		"client_id":     {cfg.ClientID},
+		"client_id":     {p.ClientID},
 		"redirect_uri":  {redirectURI},
 		"code_verifier": {verifier},
 	}
 
-	resp, err := http.PostForm(cfg.TokenEndpoint, form)
+	resp, err := http.PostForm(p.TokenEndpoint, form)
 	if err != nil {
 		return nil, fmt.Errorf("exchanging code for token: %w", err)
 	}

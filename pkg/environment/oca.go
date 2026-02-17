@@ -26,8 +26,15 @@ func (p *OCATokenProvider) Get(ctx context.Context, name string) (string, bool) 
 		return "", false
 	}
 
-	// DefaultIDCSConfig already resolves env var overrides for IDCS endpoints
+	// DefaultIDCSConfig resolves mode from OCA_MODE env var and applies overrides
 	cfg := oca.DefaultIDCSConfig()
+
+	// If there's a stored token with a mode, use it for profile resolution
+	storedToken, _ := p.store.Load()
+	if storedToken != nil && storedToken.Mode != "" {
+		cfg.Mode = storedToken.Mode
+	}
+
 	token, err := oca.GetValidToken(ctx, cfg, p.store)
 	if err != nil {
 		slog.Debug("OCA token provider: no valid token available", "error", err)

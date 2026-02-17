@@ -21,14 +21,16 @@ type deviceCodeResponse struct {
 
 // LoginWithDeviceCode performs the OAuth2 Device Code flow against IDCS.
 func LoginWithDeviceCode(ctx context.Context, cfg IDCSConfig, output io.Writer) (*Token, error) {
+	p := cfg.ActiveProfile()
+
 	// Step 1: Request device code
 	form := url.Values{
 		"response_type": {"device_code"},
-		"scope":         {cfg.Scope},
-		"client_id":     {cfg.ClientID},
+		"scope":         {p.Scope},
+		"client_id":     {p.ClientID},
 	}
 
-	resp, err := http.PostForm(cfg.DeviceEndpoint, form)
+	resp, err := http.PostForm(p.DeviceEndpoint, form)
 	if err != nil {
 		return nil, fmt.Errorf("requesting device code: %w", err)
 	}
@@ -71,7 +73,7 @@ func LoginWithDeviceCode(ctx context.Context, cfg IDCSConfig, output io.Writer) 
 		case <-time.After(time.Duration(interval) * time.Second):
 		}
 
-		token, done, newInterval, err := pollDeviceToken(cfg, dcResp.DeviceCode)
+		token, done, newInterval, err := pollDeviceToken(p, dcResp.DeviceCode)
 		if err != nil {
 			return nil, err
 		}
@@ -79,19 +81,20 @@ func LoginWithDeviceCode(ctx context.Context, cfg IDCSConfig, output io.Writer) 
 			interval = newInterval
 		}
 		if done {
+			token.Mode = cfg.Mode
 			return token, nil
 		}
 	}
 }
 
-func pollDeviceToken(cfg IDCSConfig, deviceCode string) (token *Token, done bool, newInterval int, err error) {
+func pollDeviceToken(p *IDCSProfile, deviceCode string) (token *Token, done bool, newInterval int, err error) {
 	form := url.Values{
 		"grant_type":  {"urn:ietf:params:oauth:grant-type:device_code"},
-		"client_id":   {cfg.ClientID},
+		"client_id":   {p.ClientID},
 		"device_code": {deviceCode},
 	}
 
-	resp, err := http.PostForm(cfg.TokenEndpoint, form)
+	resp, err := http.PostForm(p.TokenEndpoint, form)
 	if err != nil {
 		return nil, false, 0, fmt.Errorf("polling token endpoint: %w", err)
 	}

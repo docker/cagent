@@ -27,12 +27,12 @@ func TestRefreshToken(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg := IDCSConfig{
+	p := &IDCSProfile{
 		ClientID:      "test-client",
 		TokenEndpoint: server.URL,
 	}
 
-	token, err := RefreshToken(context.Background(), cfg, "old-refresh")
+	token, err := RefreshToken(context.Background(), p, "old-refresh")
 	if err != nil {
 		t.Fatalf("RefreshToken() error = %v", err)
 	}
@@ -56,12 +56,12 @@ func TestRefreshToken_KeepsOldRefreshToken(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg := IDCSConfig{
+	p := &IDCSProfile{
 		ClientID:      "test-client",
 		TokenEndpoint: server.URL,
 	}
 
-	token, err := RefreshToken(context.Background(), cfg, "old-refresh")
+	token, err := RefreshToken(context.Background(), p, "old-refresh")
 	if err != nil {
 		t.Fatalf("RefreshToken() error = %v", err)
 	}
@@ -78,6 +78,7 @@ func TestGetValidToken_ValidToken(t *testing.T) {
 	token := &Token{
 		AccessToken: "valid-token",
 		ExpiresAt:   time.Now().Add(1 * time.Hour).Unix(),
+		Mode:        ModeInternal,
 	}
 	if err := store.Save(token); err != nil {
 		t.Fatalf("Save() error = %v", err)
@@ -120,5 +121,52 @@ func TestGetValidToken_ExpiredNoRefresh(t *testing.T) {
 	_, err := GetValidToken(context.Background(), cfg, store)
 	if err == nil {
 		t.Fatal("expected error for expired token without refresh")
+	}
+}
+
+func TestGetValidToken_PreservesMode(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"access_token":  "refreshed-token",
+			"refresh_token": "new-refresh",
+			"token_type":    "Bearer",
+			"expires_in":    3600,
+		})
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	store := NewTokenStoreWithDir(dir)
+
+	token := &Token{
+		AccessToken:      "expired-token",
+		RefreshToken:     "old-refresh",
+		ExpiresAt:        time.Now().Add(-1 * time.Hour).Unix(),
+		RefreshExpiresAt: time.Now().Add(7 * time.Hour).Unix(),
+		Mode:             ModeExternal,
+	}
+	if err := store.Save(token); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	cfg := DefaultIDCSConfig()
+	// Override the external profile's token endpoint to our mock server
+	cfg.External.TokenEndpoint = server.URL
+
+	got, err := GetValidToken(context.Background(), cfg, store)
+	if err != nil {
+		t.Fatalf("GetValidToken() error = %v", err)
+	}
+	if got != "refreshed-token" {
+		t.Errorf("GetValidToken() = %q, want %q", got, "refreshed-token")
+	}
+
+	// Verify mode was preserved on the saved token
+	saved, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if saved.Mode != ModeExternal {
+		t.Errorf("saved token Mode = %q, want %q", saved.Mode, ModeExternal)
 	}
 }

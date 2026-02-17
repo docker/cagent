@@ -18,6 +18,7 @@ type Token struct {
 	Scope            string `json:"scope,omitempty"`
 	ExpiresAt        int64  `json:"expires_at"`
 	RefreshExpiresAt int64  `json:"refresh_expires_at,omitempty"`
+	Mode             string `json:"mode,omitempty"`
 }
 
 // IsExpired returns true if the access token is expired or will expire within the renewal buffer.
