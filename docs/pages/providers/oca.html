@@ -10,11 +10,11 @@
 
 <h2>Quick Start</h2>
 
-<pre><code class="language-bash"># 1. Authenticate as an Oracle employee (default)
+<pre><code class="language-bash"># 1. Authenticate (default: external)
 cagent login oca
 
-# 1b. Or authenticate as an external user
-cagent login oca --mode=external
+# 1b. Or authenticate as an Oracle employee
+cagent login oca --mode=internal
 
 # 2. Run an agent with an OCA model
 cagent run --model oca/gpt-4.1 my-agent.yaml</code></pre>
@@ -27,16 +27,16 @@ cagent run --model oca/gpt-4.1 my-agent.yaml</code></pre>
   <thead><tr><th>Mode</th><th>Who</th><th>IDCS Tenant</th><th>Endpoint</th></tr></thead>
   <tbody>
     <tr>
-      <td><code>internal</code> (default)</td>
-      <td>Oracle employees</td>
-      <td>Oracle corporate IDCS</td>
-      <td><code>code-internal.aiservice...</code></td>
-    </tr>
-    <tr>
-      <td><code>external</code></td>
+      <td><code>external</code> (default)</td>
       <td>Non-Oracle users</td>
       <td>Oracle external login</td>
       <td><code>code.aiservice...</code></td>
+    </tr>
+    <tr>
+      <td><code>internal</code></td>
+      <td>Oracle employees</td>
+      <td>Oracle corporate IDCS</td>
+      <td><code>code-internal.aiservice...</code></td>
     </tr>
   </tbody>
 </table>
@@ -51,11 +51,11 @@ cagent run --model oca/gpt-4.1 my-agent.yaml</code></pre>
 
 <p>Opens your default browser to Oracle IDCS for sign-in:</p>
 
-<pre><code class="language-bash"># Internal (Oracle employee)
+<pre><code class="language-bash"># External (default)
 cagent login oca
 
-# External
-cagent login oca --mode=external</code></pre>
+# Internal (Oracle employee)
+cagent login oca --mode=internal</code></pre>
 
 <h3>Headless / Device Code Flow</h3>
 
@@ -63,8 +63,8 @@ cagent login oca --mode=external</code></pre>
 
 <pre><code class="language-bash">cagent login oca --method=headless
 
-# External + headless
-cagent login oca --mode=external --method=headless</code></pre>
+# Internal + headless
+cagent login oca --mode=internal --method=headless</code></pre>
 
 <h3>CI/CD (Pre-obtained Token)</h3>
 
@@ -96,7 +96,7 @@ cagent run my-agent.yaml</code></pre>
   <thead><tr><th>Variable</th><th>Description</th><th>Default</th></tr></thead>
   <tbody>
     <tr><td><code>OCA_ACCESS_TOKEN</code></td><td>Pre-obtained access token (skips login)</td><td>—</td></tr>
-    <tr><td><code>OCA_MODE</code></td><td>Authentication mode: <code>internal</code> or <code>external</code></td><td><code>internal</code></td></tr>
+    <tr><td><code>OCA_MODE</code></td><td>Authentication mode: <code>external</code> or <code>internal</code></td><td><code>external</code></td></tr>
     <tr><td><code>OCA_AUTH_FLOW</code></td><td>Auth method: <code>headless</code> or <code>browser</code></td><td><code>browser</code></td></tr>
     <tr><td><code>OCA_CLIENT_ID</code></td><td>IDCS client ID (overrides the active mode's default)</td><td>(mode-dependent)</td></tr>
     <tr><td><code>OCA_IDCS_URL</code></td><td>IDCS base URL (overrides the active mode's default)</td><td>(mode-dependent)</td></tr>
@@ -110,7 +110,7 @@ cagent run my-agent.yaml</code></pre>
 <table>
   <thead><tr><th>Flag</th><th>Description</th><th>Env Var</th></tr></thead>
   <tbody>
-    <tr><td><code>--mode</code></td><td>Mode: <code>internal</code> (Oracle employees) or <code>external</code></td><td><code>OCA_MODE</code></td></tr>
+    <tr><td><code>--mode</code></td><td>Mode: <code>external</code> (default) or <code>internal</code> (Oracle employees)</td><td><code>OCA_MODE</code></td></tr>
     <tr><td><code>--method</code></td><td>Auth method: <code>browser</code> or <code>headless</code></td><td><code>OCA_AUTH_FLOW</code></td></tr>
     <tr><td><code>--client-id</code></td><td>IDCS client ID</td><td><code>OCA_CLIENT_ID</code></td></tr>
     <tr><td><code>--idcs-url</code></td><td>IDCS base URL</td><td><code>OCA_IDCS_URL</code></td></tr>
@@ -125,8 +125,8 @@ cagent run my-agent.yaml</code></pre>
 
 <h3>Via Environment Variables</h3>
 
-<pre><code class="language-bash"># Use external mode with custom overrides
-export OCA_MODE="external"
+<pre><code class="language-bash"># Use internal mode with custom overrides
+export OCA_MODE="internal"
 export OCA_CLIENT_ID="my-custom-client-id"
 export OCA_IDCS_URL="https://idcs-my-tenancy.identity.oraclecloud.com"
 export OCA_ENDPOINT="https://my-endpoint.oraclecloud.com/20250206/app/litellm/"
@@ -134,7 +134,7 @@ cagent login oca</code></pre>
 
 <h3>Via CLI Flags</h3>
 
-<pre><code class="language-bash">cagent login oca --mode=external \
+<pre><code class="language-bash">cagent login oca --mode=internal \
   --client-id=my-custom-client-id \
   --idcs-url=https://idcs-my-tenancy.identity.oraclecloud.com \
   --endpoint=https://my-endpoint.oraclecloud.com/20250206/app/litellm/</code></pre>
@@ -147,7 +147,7 @@ cagent login oca</code></pre>
     model: oca/gpt-4.1
     base_url: https://my-endpoint.oraclecloud.com/20250206/app/litellm/
     provider_opts:
-      mode: external
+      mode: internal
       client_id: my-custom-client-id
       idcs_base_url: https://idcs-my-tenancy.identity.oraclecloud.com
       scope: openid offline_access</code></pre>
@@ -157,7 +157,7 @@ cagent login oca</code></pre>
 <table>
   <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
   <tbody>
-    <tr><td><code>mode</code></td><td>string</td><td><code>internal</code></td><td>Authentication mode: <code>internal</code> or <code>external</code></td></tr>
+    <tr><td><code>mode</code></td><td>string</td><td><code>external</code></td><td>Authentication mode: <code>external</code> or <code>internal</code></td></tr>
     <tr><td><code>client_id</code></td><td>string</td><td>(mode-dependent)</td><td>IDCS client ID</td></tr>
     <tr><td><code>idcs_base_url</code></td><td>string</td><td>(mode-dependent)</td><td>IDCS base URL (all OAuth endpoints derived from this)</td></tr>
     <tr><td><code>litellm_base_url</code></td><td>string</td><td>(mode-dependent)</td><td>LiteLLM endpoint URL</td></tr>
@@ -167,7 +167,7 @@ cagent login oca</code></pre>
 
 <div class="callout callout-tip">
   <div class="callout-title">No configuration needed for most users</div>
-  <p>The built-in defaults work out of the box for both internal and external users. Just run <code>cagent login oca</code> (or <code>cagent login oca --mode=external</code>) and you're ready to go. The environment variables and provider_opts are only needed for custom enterprise IDCS deployments.</p>
+  <p>The built-in defaults work out of the box for both external and internal users. Just run <code>cagent login oca</code> (or <code>cagent login oca --mode=internal</code> for Oracle employees) and you're ready to go. The environment variables and provider_opts are only needed for custom enterprise IDCS deployments.</p>
 </div>
 
 <div class="callout callout-info">

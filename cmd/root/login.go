@@ -41,8 +41,8 @@ func newLoginOCACmd() *cobra.Command {
 		Long: `Authenticate with Oracle Code Assist using OAuth2.
 
 Modes:
-  internal   For Oracle employees (default)
-  external   For non-Oracle users
+  external   For non-Oracle users (default)
+  internal   For Oracle employees
 
 By default, opens a browser for PKCE authentication.
 Use --method=headless for environments without a browser (SSH, containers).
@@ -62,7 +62,7 @@ Precedence: flags > env vars > defaults`,
 		},
 	}
 
-	cmd.Flags().StringVar(&flags.mode, "mode", "", "Authentication mode: internal (Oracle employees) or external (env: OCA_MODE)")
+	cmd.Flags().StringVar(&flags.mode, "mode", "", "Authentication mode: external (default) or internal (Oracle employees) (env: OCA_MODE)")
 	cmd.Flags().StringVar(&flags.method, "method", "", "Authentication method: browser (PKCE) or headless (device code)")
 	cmd.Flags().StringVar(&flags.clientID, "client-id", "", "IDCS client ID (env: OCA_CLIENT_ID)")
 	cmd.Flags().StringVar(&flags.idcsURL, "idcs-url", "", "IDCS base URL (env: OCA_IDCS_URL)")

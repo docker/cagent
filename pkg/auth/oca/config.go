@@ -78,9 +78,9 @@ func DefaultExternalProfile() IDCSProfile {
 // DefaultIDCSConfig returns the default IDCS configuration with both profiles.
 // Environment variables override the hardcoded defaults for the active profile.
 func DefaultIDCSConfig() IDCSConfig {
-	mode := ModeInternal
-	if v := os.Getenv(EnvMode); v == ModeExternal {
-		mode = ModeExternal
+	mode := ModeExternal
+	if v := os.Getenv(EnvMode); v == ModeInternal {
+		mode = ModeInternal
 	}
 
 	cfg := IDCSConfig{

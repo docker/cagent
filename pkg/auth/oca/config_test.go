@@ -32,19 +32,7 @@ func TestDefaultIDCSConfig(t *testing.T) {
 	}
 }
 
-func TestDefaultIDCSConfig_DefaultsToInternal(t *testing.T) {
-	cfg := DefaultIDCSConfig()
-	if cfg.Mode != ModeInternal {
-		t.Errorf("Mode = %q, want %q", cfg.Mode, ModeInternal)
-	}
-	p := cfg.ActiveProfile()
-	if p.ClientID != "a8331954c0cf48ba99b5dd223a14c6ea" {
-		t.Errorf("ClientID = %q, want internal default", p.ClientID)
-	}
-}
-
-func TestDefaultIDCSConfig_ExternalMode(t *testing.T) {
-	t.Setenv(EnvMode, ModeExternal)
+func TestDefaultIDCSConfig_DefaultsToExternal(t *testing.T) {
 	cfg := DefaultIDCSConfig()
 	if cfg.Mode != ModeExternal {
 		t.Errorf("Mode = %q, want %q", cfg.Mode, ModeExternal)
@@ -53,8 +41,20 @@ func TestDefaultIDCSConfig_ExternalMode(t *testing.T) {
 	if p.ClientID != "c1aba3deed5740659981a752714eba33" {
 		t.Errorf("ClientID = %q, want external default", p.ClientID)
 	}
-	if p.IDCSBaseURL != "https://login-ext.identity.oraclecloud.com" {
-		t.Errorf("IDCSBaseURL = %q, want external default", p.IDCSBaseURL)
+}
+
+func TestDefaultIDCSConfig_InternalMode(t *testing.T) {
+	t.Setenv(EnvMode, ModeInternal)
+	cfg := DefaultIDCSConfig()
+	if cfg.Mode != ModeInternal {
+		t.Errorf("Mode = %q, want %q", cfg.Mode, ModeInternal)
+	}
+	p := cfg.ActiveProfile()
+	if p.ClientID != "a8331954c0cf48ba99b5dd223a14c6ea" {
+		t.Errorf("ClientID = %q, want internal default", p.ClientID)
+	}
+	if p.IDCSBaseURL != "https://idcs-9dc693e80d9b469480d7afe00e743931.identity.oraclecloud.com" {
+		t.Errorf("IDCSBaseURL = %q, want internal default", p.IDCSBaseURL)
 	}
 }
 
