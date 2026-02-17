@@ -7,6 +7,5 @@
 !./**/*.css
 !./**/*.go
 !./**/*.txt
-!/pkg/config/default-agent.yaml
-!/pkg/config/coder-agent.yaml
+!/pkg/config/builtin-agents/*.yaml
 !/pkg/tui/styles/themes/*.yaml

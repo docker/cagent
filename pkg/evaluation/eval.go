@@ -397,8 +397,8 @@ func (r *Runner) runCagentInContainer(ctx context.Context, imageID string, quest
 	}
 
 	// When a setup script is provided, mount it into the container and
-	// override the entrypoint to run it before cagent exec.
-	// The default entrypoint is: /run.sh /cagent exec --yolo --json
+	// override the entrypoint to run it before cagent run --exec.
+	// The default entrypoint is: /run.sh /cagent run --exec --yolo --json
 	// /run.sh starts dockerd then exec's "$@".
 	if setup != "" {
 		setupFile := filepath.Join(os.TempDir(), fmt.Sprintf("cagent-eval-setup-%d.sh", uuid.New().ID()))
@@ -416,8 +416,8 @@ func (r *Runner) runCagentInContainer(ctx context.Context, imageID string, quest
 	args = append(args, imageID)
 
 	if setup != "" {
-		// Run setup script, then cagent exec with the original arguments.
-		args = append(args, "sh", "-c", "sh /setup.sh && exec /cagent exec --yolo --json \"$@\"", "--", "/configs/"+agentFile)
+		// Run setup script, then cagent run --exec with the original arguments.
+		args = append(args, "sh", "-c", "sh /setup.sh && exec /cagent run --exec --yolo --json \"$@\"", "--", "/configs/"+agentFile)
 	} else {
 		args = append(args, "/configs/"+agentFile)
 	}

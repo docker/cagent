@@ -32,12 +32,11 @@ func newAPICmd() *cobra.Command {
 	var flags apiFlags
 
 	cmd := &cobra.Command{
-		Use:     "api <agent-file>|<agents-dir>",
-		Short:   "Start the cagent API server",
-		Long:    `Start the API server that exposes the agent via a cagent-specific HTTP API`,
-		GroupID: "server",
-		Args:    cobra.ExactArgs(1),
-		RunE:    flags.runAPICommand,
+		Use:   "api <agent-file>|<agents-dir>",
+		Short: "Start the cagent API server",
+		Long:  `Start the API server that exposes the agent via a cagent-specific HTTP API`,
+		Args:  cobra.ExactArgs(1),
+		RunE:  flags.runAPICommand,
 	}
 
 	cmd.PersistentFlags().StringVarP(&flags.listenAddr, "listen", "l", "127.0.0.1:8080", "Address to listen on")
@@ -86,7 +85,7 @@ func monitorStdin(ctx context.Context, cancel context.CancelFunc, stdin *os.File
 }
 
 func (f *apiFlags) runAPICommand(cmd *cobra.Command, args []string) error {
-	telemetry.TrackCommand("api", args)
+	telemetry.TrackCommand("serve", append([]string{"api"}, args...))
 
 	ctx := cmd.Context()
 
@@ -123,7 +122,7 @@ func (f *apiFlags) runAPICommand(cmd *cobra.Command, args []string) error {
 	// Start recording proxy if --record is specified
 	if _, recordCleanup, err := setupRecordingProxy(f.recordPath, &f.runConfig); err != nil {
 		return err
-	} else if recordCleanup != nil {
+	} else {
 		defer func() {
 			if err := recordCleanup(); err != nil {
 				slog.Error("Failed to cleanup recording proxy", "error", err)
@@ -135,14 +134,10 @@ func (f *apiFlags) runAPICommand(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--pull-interval flag can only be used with OCI references, not local files")
 	}
 
-	ln, err := server.Listen(ctx, f.listenAddr)
+	ln, err := listenAndCloseOnCancel(ctx, f.listenAddr)
 	if err != nil {
-		return fmt.Errorf("failed to listen on %s: %w", f.listenAddr, err)
+		return err
 	}
-	go func() {
-		<-ctx.Done()
-		_ = ln.Close()
-	}()
 
 	out.Println("Listening on", ln.Addr().String())
 

@@ -2,6 +2,7 @@ package session
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -144,9 +145,7 @@ func cloneStringMap(src map[string]string) map[string]string {
 		return nil
 	}
 	dst := make(map[string]string, len(src))
-	for key, val := range src {
-		dst[key] = val
-	}
+	maps.Copy(dst, src)
 	return dst
 }
 

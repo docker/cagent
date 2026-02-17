@@ -17,6 +17,7 @@ import (
 	"github.com/docker/cagent/pkg/api"
 	"github.com/docker/cagent/pkg/config"
 	"github.com/docker/cagent/pkg/session"
+	"github.com/docker/cagent/pkg/upstream"
 )
 
 type Server struct {
@@ -27,6 +28,7 @@ type Server struct {
 func New(ctx context.Context, sessionStore session.Store, runConfig *config.RuntimeConfig, refreshInterval time.Duration, agentSources config.Sources) (*Server, error) {
 	e := echo.New()
 	e.Use(middleware.RequestLogger())
+	e.Use(echo.WrapMiddleware(upstream.Handler))
 
 	s := &Server{
 		e:  e,

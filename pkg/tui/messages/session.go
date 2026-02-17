@@ -68,6 +68,9 @@ type (
 	// ClearQueueMsg clears all queued messages.
 	ClearQueueMsg struct{}
 
+	// ToggleSplitDiffMsg toggles split diff view mode.
+	ToggleSplitDiffMsg struct{}
+
 	// SendMsg contains the content sent to the agent.
 	SendMsg struct {
 		Content     string       // Full content sent to the agent (with file contents expanded)

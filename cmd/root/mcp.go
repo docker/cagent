@@ -1,13 +1,10 @@
 package root
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 
 	"github.com/docker/cagent/pkg/config"
 	"github.com/docker/cagent/pkg/mcp"
-	"github.com/docker/cagent/pkg/server"
 	"github.com/docker/cagent/pkg/telemetry"
 )
 
@@ -25,13 +22,12 @@ func newMCPCmd() *cobra.Command {
 		Use:   "mcp <agent-file>|<registry-ref>",
 		Short: "Start an agent as an MCP (Model Context Protocol) server",
 		Long:  "Start an MCP server that exposes the agent via the Model Context Protocol. By default, uses stdio transport. Use --http to start a streaming HTTP server instead.",
-		Example: `  cagent mcp ./agent.yaml
-  cagent mcp ./team.yaml
-  cagent mcp agentcatalog/pirate
-  cagent mcp ./agent.yaml --http --listen 127.0.0.1:9090`,
-		Args:    cobra.ExactArgs(1),
-		GroupID: "server",
-		RunE:    flags.runMCPCommand,
+		Example: `  cagent serve mcp ./agent.yaml
+  cagent serve mcp ./team.yaml
+  cagent serve mcp agentcatalog/pirate
+  cagent serve mcp ./agent.yaml --http --listen 127.0.0.1:9090`,
+		Args: cobra.ExactArgs(1),
+		RunE: flags.runMCPCommand,
 	}
 
 	cmd.PersistentFlags().StringVarP(&flags.agentName, "agent", "a", "", "Name of the agent to run (all agents if not specified)")
@@ -43,7 +39,7 @@ func newMCPCmd() *cobra.Command {
 }
 
 func (f *mcpFlags) runMCPCommand(cmd *cobra.Command, args []string) error {
-	telemetry.TrackCommand("mcp", args)
+	telemetry.TrackCommand("serve", append([]string{"mcp"}, args...))
 
 	ctx := cmd.Context()
 	agentFilename := args[0]
@@ -52,15 +48,10 @@ func (f *mcpFlags) runMCPCommand(cmd *cobra.Command, args []string) error {
 		return mcp.StartMCPServer(ctx, agentFilename, f.agentName, &f.runConfig)
 	}
 
-	// Listen as early as possible
-	ln, err := server.Listen(ctx, f.listenAddr)
+	ln, err := listenAndCloseOnCancel(ctx, f.listenAddr)
 	if err != nil {
-		return fmt.Errorf("failed to listen on %s: %w", f.listenAddr, err)
+		return err
 	}
-	go func() {
-		<-ctx.Done()
-		_ = ln.Close()
-	}()
 
 	return mcp.StartHTTPServer(ctx, agentFilename, f.agentName, &f.runConfig, ln)
 }

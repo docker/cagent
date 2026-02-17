@@ -19,76 +19,88 @@ func ConvertParametersToSchema(params any) (shared.FunctionParameters, error) {
 	return fixSchemaArrayItems(removeFormatFields(makeAllRequired(p))), nil
 }
 
-// makeAllRequired make all the parameters "required"
-// because that's what the Response API wants, now.
-func makeAllRequired(schema shared.FunctionParameters) shared.FunctionParameters {
-	if schema == nil {
-		return makeAllRequired(map[string]any{"type": "object", "properties": map[string]any{}})
-	}
+// walkSchema calls fn on the given schema node, then recursively walks into
+// properties, anyOf/oneOf/allOf variants, and array items.
+func walkSchema(schema map[string]any, fn func(map[string]any)) {
+	fn(schema)
 
-	properties, ok := schema["properties"].(map[string]any)
-	if !ok {
-		return schema
-	}
-
-	reallyRequired := map[string]bool{}
-	if required, ok := schema["required"].([]any); ok {
-		for _, name := range required {
-			reallyRequired[name.(string)] = true
-		}
-	}
-
-	// We can't use a nil 'required' attribute
-	newRequired := []any{}
-
-	// Sort property names for deterministic output
-	propNames := slices.Sorted(maps.Keys(properties))
-
-	for _, propName := range propNames {
-		newRequired = append(newRequired, propName)
-		if reallyRequired[propName] {
-			continue
-		}
-
-		// Make its type nullable
-		if propMap, ok := properties[propName].(map[string]any); ok {
-			if typeValue, ok := propMap["type"].(string); ok {
-				propMap["type"] = []string{typeValue, "null"}
+	if properties, ok := schema["properties"].(map[string]any); ok {
+		for _, v := range properties {
+			if sub, ok := v.(map[string]any); ok {
+				walkSchema(sub, fn)
 			}
 		}
 	}
 
-	schema["required"] = newRequired
-	schema["additionalProperties"] = false
+	for _, keyword := range []string{"anyOf", "oneOf", "allOf"} {
+		if variants, ok := schema[keyword].([]any); ok {
+			for _, v := range variants {
+				if sub, ok := v.(map[string]any); ok {
+					walkSchema(sub, fn)
+				}
+			}
+		}
+	}
+
+	if items, ok := schema["items"].(map[string]any); ok {
+		walkSchema(items, fn)
+	}
+}
+
+// makeAllRequired makes all object properties "required" throughout the schema,
+// because that's what the OpenAI Response API demands.
+// Properties that were not originally required are made nullable.
+func makeAllRequired(schema shared.FunctionParameters) shared.FunctionParameters {
+	if schema == nil {
+		schema = map[string]any{"type": "object", "properties": map[string]any{}}
+	}
+
+	walkSchema(schema, func(node map[string]any) {
+		properties, ok := node["properties"].(map[string]any)
+		if !ok {
+			return
+		}
+
+		originallyRequired := map[string]bool{}
+		if required, ok := node["required"].([]any); ok {
+			for _, name := range required {
+				originallyRequired[name.(string)] = true
+			}
+		}
+
+		newRequired := []any{}
+		for _, propName := range slices.Sorted(maps.Keys(properties)) {
+			newRequired = append(newRequired, propName)
+
+			// Make newly-required properties nullable
+			if !originallyRequired[propName] {
+				if propMap, ok := properties[propName].(map[string]any); ok {
+					if t, ok := propMap["type"].(string); ok {
+						propMap["type"] = []string{t, "null"}
+					}
+				}
+			}
+		}
+
+		node["required"] = newRequired
+		node["additionalProperties"] = false
+	})
+
 	return schema
 }
 
-// removeFormatFields removes the "format" field from all properties in the schema, recursively.
+// removeFormatFields removes the "format" field from all nodes in the schema.
 // OpenAI does not support the JSON Schema "format" keyword (e.g. "uri", "email", "date").
 func removeFormatFields(schema shared.FunctionParameters) shared.FunctionParameters {
 	if schema == nil {
 		return nil
 	}
 
-	removeFormatFieldsRecursive(schema)
+	walkSchema(schema, func(node map[string]any) {
+		delete(node, "format")
+	})
 
 	return schema
-}
-
-func removeFormatFieldsRecursive(schema map[string]any) {
-	delete(schema, "format")
-
-	if properties, ok := schema["properties"].(map[string]any); ok {
-		for _, propValue := range properties {
-			if prop, ok := propValue.(map[string]any); ok {
-				removeFormatFieldsRecursive(prop)
-			}
-		}
-	}
-
-	if items, ok := schema["items"].(map[string]any); ok {
-		removeFormatFieldsRecursive(items)
-	}
 }
 
 // In Docker Desktop 4.52, the MCP Gateway produces an invalid tools shema for `mcp-config-set`.

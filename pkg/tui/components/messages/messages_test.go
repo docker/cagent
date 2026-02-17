@@ -1,6 +1,7 @@
 package messages
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -33,7 +34,7 @@ func TestViewDoesNotWrapWideLines(t *testing.T) {
 	m.views = append(m.views, m.createMessageView(msg))
 
 	out := m.View()
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		assert.LessOrEqual(t, ansi.StringWidth(line), 20)
 	}
 }
@@ -1106,11 +1107,8 @@ func TestBindingsIncludesEditKeyWhenUserMessageSelected(t *testing.T) {
 	// Find the 'e' binding - should be present when user message is selected
 	var foundE bool
 	for _, b := range bindings {
-		for _, k := range b.Keys() {
-			if k == "e" {
-				foundE = true
-				break
-			}
+		if slices.Contains(b.Keys(), "e") {
+			foundE = true
 		}
 	}
 	assert.True(t, foundE, "Bindings should include 'e' key when user message is selected")
@@ -1136,11 +1134,8 @@ func TestBindingsExcludesEditKeyWhenAssistantMessageSelected(t *testing.T) {
 	// Find the 'e' binding - should NOT be present when assistant message is selected
 	var foundE bool
 	for _, b := range bindings {
-		for _, k := range b.Keys() {
-			if k == "e" {
-				foundE = true
-				break
-			}
+		if slices.Contains(b.Keys(), "e") {
+			foundE = true
 		}
 	}
 	assert.False(t, foundE, "Bindings should NOT include 'e' key when assistant message is selected")

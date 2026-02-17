@@ -7,16 +7,16 @@
 
 <div class="callout callout-tip">
   <div class="callout-title">💡 Tip</div>
-  <p>For CLI commands related to distribution, see <a href="#features/cli" onclick="event.preventDefault(); navigate('features/cli')">CLI Reference</a> (<code>cagent push</code>, <code>cagent pull</code>, <code>cagent alias</code>).</p>
+  <p>For CLI commands related to distribution, see <a href="#features/cli" onclick="event.preventDefault(); navigate('features/cli')">CLI Reference</a> (<code>cagent share push</code>, <code>cagent share pull</code>, <code>cagent alias</code>).</p>
 </div>
 
 <h2>Pushing Agents</h2>
 
 <pre><code class="language-bash"># Push to Docker Hub
-$ cagent push ./agent.yaml docker.io/username/my-agent:latest
+$ cagent share push ./agent.yaml docker.io/username/my-agent:latest
 
 # Push to GitHub Container Registry
-$ cagent push ./agent.yaml ghcr.io/username/my-agent:v1.0</code></pre>
+$ cagent share push ./agent.yaml ghcr.io/username/my-agent:v1.0</code></pre>
 
 <h2>Pulling Agents</h2>
 
@@ -74,7 +74,7 @@ $ cagent api docker.io/username/agent:latest --pull-interval 10</code></pre>
 $ docker login docker.io
 
 # Now push/pull works with private repos
-$ cagent push ./agent.yaml docker.io/myorg/private-agent:latest
+$ cagent share push ./agent.yaml docker.io/myorg/private-agent:latest
 $ cagent run docker.io/myorg/private-agent:latest</code></pre>
 
 <div class="callout callout-info">

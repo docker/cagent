@@ -29,6 +29,7 @@ func newDebugCmd() *cobra.Command {
 		Short:   "Debug tools",
 		GroupID: "advanced",
 	}
+	cmd.Hidden = true
 
 	cmd.AddCommand(&cobra.Command{
 		Use:   "config <agent-file>|<registry-ref>",
@@ -56,15 +57,10 @@ func newDebugCmd() *cobra.Command {
 	return cmd
 }
 
-// resolveSource resolves an agent file reference to a config source.
-func (f *debugFlags) resolveSource(agentFilename string) (config.Source, error) {
-	return config.Resolve(agentFilename, f.runConfig.EnvProvider())
-}
-
 // loadTeam loads an agent team from the given agent file and returns
 // a cleanup function that must be deferred by the caller.
 func (f *debugFlags) loadTeam(ctx context.Context, agentFilename string, opts ...teamloader.Opt) (*team.Team, func(), error) {
-	agentSource, err := f.resolveSource(agentFilename)
+	agentSource, err := config.Resolve(agentFilename, f.runConfig.EnvProvider())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -86,7 +82,7 @@ func (f *debugFlags) loadTeam(ctx context.Context, agentFilename string, opts ..
 func (f *debugFlags) runDebugConfigCommand(cmd *cobra.Command, args []string) error {
 	telemetry.TrackCommand("debug", append([]string{"config"}, args...))
 
-	agentSource, err := f.resolveSource(args[0])
+	agentSource, err := config.Resolve(args[0], f.runConfig.EnvProvider())
 	if err != nil {
 		return err
 	}

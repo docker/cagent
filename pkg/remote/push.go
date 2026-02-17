@@ -38,7 +38,7 @@ func Push(reference string) error {
 
 	// Wrap as a spec-compliant OCI artifact so the pushed manifest includes
 	// artifactType and an empty config descriptor.
-	img = content.NewArtifactImage(img, "application/vnd.docker.cagent.config.v1+json")
+	img = content.NewArtifactImage(img, "application/vnd.docker.agent.config.v1+json")
 
 	ref, err := name.ParseReference(reference)
 	if err != nil {

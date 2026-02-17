@@ -549,8 +549,9 @@ func scanSession(scanner interface {
 	var branchParentID sql.NullString
 	var branchParentPosition sql.NullInt64
 	var branchCreatedAt sql.NullString
+	var splitDiffView sql.NullBool // column kept for backward compat, value ignored
 
-	err := scanner.Scan(&sessionID, &toolsApprovedStr, &inputTokensStr, &outputTokensStr, &titleStr, &costStr, &sendUserMessageStr, &maxIterationsStr, &workingDir, &createdAtStr, &starredStr, &permissionsJSON, &agentModelOverridesJSON, &customModelsUsedJSON, &thinkingStr, &parentID, &branchParentID, &branchParentPosition, &branchCreatedAt)
+	err := scanner.Scan(&sessionID, &toolsApprovedStr, &inputTokensStr, &outputTokensStr, &titleStr, &costStr, &sendUserMessageStr, &maxIterationsStr, &workingDir, &createdAtStr, &starredStr, &permissionsJSON, &agentModelOverridesJSON, &customModelsUsedJSON, &thinkingStr, &parentID, &branchParentID, &branchParentPosition, &branchCreatedAt, &splitDiffView)
 	if err != nil {
 		return nil, err
 	}
@@ -671,7 +672,7 @@ func (s *SQLiteSessionStore) GetSession(ctx context.Context, id string) (*Sessio
 	}
 
 	row := s.db.QueryRowContext(ctx,
-		"SELECT id, tools_approved, input_tokens, output_tokens, title, cost, send_user_message, max_iterations, working_dir, created_at, starred, permissions, agent_model_overrides, custom_models_used, thinking, parent_id, branch_parent_session_id, branch_parent_position, branch_created_at FROM sessions WHERE id = ?", id)
+		"SELECT id, tools_approved, input_tokens, output_tokens, title, cost, send_user_message, max_iterations, working_dir, created_at, starred, permissions, agent_model_overrides, custom_models_used, thinking, parent_id, branch_parent_session_id, branch_parent_position, branch_created_at, split_diff_view FROM sessions WHERE id = ?", id)
 
 	sess, err := scanSession(row)
 	if err != nil {
@@ -787,7 +788,7 @@ func (s *SQLiteSessionStore) loadSessionItemsWith(ctx context.Context, q querier
 // loadSessionWith loads a session using the provided querier.
 func (s *SQLiteSessionStore) loadSessionWith(ctx context.Context, q querier, id string) (*Session, error) {
 	row := q.QueryRowContext(ctx,
-		"SELECT id, tools_approved, input_tokens, output_tokens, title, cost, send_user_message, max_iterations, working_dir, created_at, starred, permissions, agent_model_overrides, custom_models_used, thinking, parent_id, branch_parent_session_id, branch_parent_position, branch_created_at FROM sessions WHERE id = ?", id)
+		"SELECT id, tools_approved, input_tokens, output_tokens, title, cost, send_user_message, max_iterations, working_dir, created_at, starred, permissions, agent_model_overrides, custom_models_used, thinking, parent_id, branch_parent_session_id, branch_parent_position, branch_created_at, split_diff_view FROM sessions WHERE id = ?", id)
 
 	sess, err := scanSession(row)
 	if err != nil {
@@ -842,7 +843,7 @@ func (s *SQLiteSessionStore) loadMessagesFromLegacyColumn(ctx context.Context, s
 // GetSessions retrieves all root sessions (excludes sub-sessions)
 func (s *SQLiteSessionStore) GetSessions(ctx context.Context) ([]*Session, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, tools_approved, input_tokens, output_tokens, title, cost, send_user_message, max_iterations, working_dir, created_at, starred, permissions, agent_model_overrides, custom_models_used, thinking, parent_id, branch_parent_session_id, branch_parent_position, branch_created_at FROM sessions WHERE parent_id IS NULL OR parent_id = '' ORDER BY created_at DESC")
+		"SELECT id, tools_approved, input_tokens, output_tokens, title, cost, send_user_message, max_iterations, working_dir, created_at, starred, permissions, agent_model_overrides, custom_models_used, thinking, parent_id, branch_parent_session_id, branch_parent_position, branch_created_at, split_diff_view FROM sessions WHERE parent_id IS NULL OR parent_id = '' ORDER BY created_at DESC")
 	if err != nil {
 		return nil, err
 	}

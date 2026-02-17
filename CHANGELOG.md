@@ -3,6 +3,177 @@
 All notable changes to this project will be documented in this file.
 
 
+## [v1.23.3] - 2026-02-16
+
+This release adds Docker CLI plugin support and improves TUI performance by making model reasoning checks asynchronous.
+
+## What's New
+- Adds support for using cagent as a Docker CLI plugin with `docker agent` command (no functional changes to existing `cagent` command)
+- Handles Windows .exe binary suffix for CLI plugin compatibility
+
+## Improvements
+- Makes model reasoning support checks asynchronous to prevent TUI freezing (previously could block for up to 30 seconds)
+- Threads context.Context through modelsdev store API to allow proper cancellation and deadline propagation
+
+## Technical Changes
+- Renames cagent OCI annotation to `io.docker.agent.version` while maintaining backward compatibility with the old annotation
+- Updates config media type to use `docker.agent`
+- Adds TUI general guidelines to AGENTS.md documentation
+
+### Pull Requests
+
+- [#1745](https://github.com/docker/cagent/pull/1745) - Rename cagent OCI annotation, keep old one
+- [#1746](https://github.com/docker/cagent/pull/1746) - docs: update CHANGELOG.md for v1.23.2
+- [#1747](https://github.com/docker/cagent/pull/1747) - Thread context.Context through modelsdev store API
+- [#1748](https://github.com/docker/cagent/pull/1748) - Allow to use cagent binary as a docker cli plugin docker-agent. No functional change for cagent command.
+- [#1749](https://github.com/docker/cagent/pull/1749) - Move ModelSupportsReasoning calls to async bubbletea commands
+
+
+## [v1.23.2] - 2026-02-16
+
+This release adds header forwarding capabilities for toolsets and includes several bug fixes and code improvements.
+
+## What's New
+- Adds support for `${headers.NAME}` syntax to forward upstream API headers to toolsets, allowing toolset configurations to reference incoming HTTP request headers
+
+## Bug Fixes
+- Fixes race condition in isFirstRun using atomic file creation
+- Fixes nil pointer dereference when RateLimit is present without Usage
+- Fixes double-counting of session costs with cumulative usage providers
+- Fixes Ctrl+K key binding conflict in session browser by reassigning CopyID to Ctrl+Y
+- Fixes model selection functionality
+
+## Improvements
+- Adds input validation and audit logging to shell tool
+- Adds input validation and error handling to RunBangCommand
+
+## Technical Changes
+- Extracts shared helpers for command-based providers to reduce code duplication
+- Removes duplication from config.Resolv
+- Moves GetUserSettings() from pkg/config to pkg/userconfig as Get()
+- Removes redundant Reader interface from pkg/config
+- Fixes leaked os.Root handle in fileSource.Read
+- Makes small improvements to cmd/root
+
+### Pull Requests
+
+- [#1725](https://github.com/docker/cagent/pull/1725) - Support ${headers.NAME} syntax to forward upstream API headers to toolsets
+- [#1727](https://github.com/docker/cagent/pull/1727) - docs: update CHANGELOG.md for v1.23.1
+- [#1729](https://github.com/docker/cagent/pull/1729) - Cleanup config code
+- [#1730](https://github.com/docker/cagent/pull/1730) - refactor(environment): extract shared helpers for command-based providers
+- [#1731](https://github.com/docker/cagent/pull/1731) - Daily fixes
+- [#1732](https://github.com/docker/cagent/pull/1732) - Fix two issues with costs
+- [#1734](https://github.com/docker/cagent/pull/1734) - Small improvements to cmd/root
+- [#1740](https://github.com/docker/cagent/pull/1740) - Fix model switcher
+- [#1741](https://github.com/docker/cagent/pull/1741) - fix(#1741): resolve Ctrl+K key binding conflict in session browser
+- [#1742](https://github.com/docker/cagent/pull/1742) - fix(#1741): resolve Ctrl+K key binding conflict in session browser
+
+
+## [v1.23.1] - 2026-02-13
+
+This release introduces a new OpenAPI toolset for automatic API integration, task management capabilities, and several improvements to message handling and testing infrastructure.
+
+## What's New
+
+- Adds Tasks toolset with support for priorities and dependencies
+- Adds OpenAPI built-in toolset type that automatically converts OpenAPI specifications into usable tools
+- Adds support for custom telemetry tags via `TELEMETRY_TAGS` environment variable
+
+## Improvements
+
+- Preserves line breaks and indentation in welcome messages for better formatting
+- Updates documentation links to point to GitHub Pages instead of code repository
+
+## Bug Fixes
+
+- Fixes recursive enforcement of required properties in OpenAI tool schemas (resolves Chrome MCP compatibility with OpenAI 5.2)
+- Returns error when no messages are available after conversion instead of sending invalid requests
+
+## Technical Changes
+
+- Replaces time.Sleep in tests with deterministic synchronization for faster, more reliable testing
+- Refactors models store implementation
+- Adds .idea/ directory to gitignore
+- Removes fake models.dev and unused code
+
+### Pull Requests
+
+- [#1704](https://github.com/docker/cagent/pull/1704) - Tasks toolset
+- [#1710](https://github.com/docker/cagent/pull/1710) - fix: recursively enforce required properties in OpenAI tool schemas
+- [#1714](https://github.com/docker/cagent/pull/1714) - docs: update CHANGELOG.md for v1.23.0
+- [#1718](https://github.com/docker/cagent/pull/1718) - preserve line breaks and indentation in welcome messages
+- [#1719](https://github.com/docker/cagent/pull/1719) - Add openapi built-in toolset type
+- [#1720](https://github.com/docker/cagent/pull/1720) - return error if no messages are available after conversion
+- [#1721](https://github.com/docker/cagent/pull/1721) - Refactor models store
+- [#1722](https://github.com/docker/cagent/pull/1722) - Replace time.Sleep in tests with deterministic synchronization
+- [#1723](https://github.com/docker/cagent/pull/1723) - Allow passing in custom tags to telemetry
+- [#1724](https://github.com/docker/cagent/pull/1724) - Speed up fallback tests
+- [#1726](https://github.com/docker/cagent/pull/1726) - Update documentation links to GitHub Pages
+
+
+## [v1.23.0] - 2026-02-12
+
+This release improves TUI display accuracy, enhances API security defaults, and fixes several memory leaks and session handling issues.
+
+## What's New
+
+- Adds optional setup script support for evaluation sessions to prepare container environments before agent execution
+- Adds user_prompt tools to the planner for interactive user questions
+
+## Improvements
+
+- Makes session compaction non-blocking with spinner feedback instead of blocking the TUI render thread
+- Returns error responses for unknown tool calls instead of silently skipping them
+- Strips null values from MCP tool call arguments to fix compatibility with models like GPT-5.2
+- Improves error handling and logging in evaluation judge with better error propagation and structured logging
+
+## Bug Fixes
+
+- Fixes incorrect tool count display in TUI when running in --remote mode
+- Fixes tick leak that caused ~10% CPU usage when assistant finished answering
+- Fixes session store leak and removes redundant session store methods
+- Fixes A2A agent card advertising unroutable wildcard address by using localhost
+- Fixes potential goroutine leak in monitorStdin
+- Fixes Agents.UnmarshalYAML to properly reject unknown fields in agent configurations
+- Persists tool call error state in session messages so failed tool calls maintain error status when sessions are reloaded
+
+## Technical Changes
+
+- Removes CORS middleware from 'cagent api' command
+- Changes default binding from 0.0.0.0 to 127.0.0.1:8080 for 'cagent api', 'cagent a2a' and 'cagent mcp' commands
+- Uses different default ports for better security
+- Lists valid versions in unsupported config version error messages
+- Adds the summary message as a user message during session compaction
+- Propagates cleanup errors from fakeCleanup and recordCleanup functions
+- Logs errors on log file close instead of discarding them
+
+### Pull Requests
+
+- [#1648](https://github.com/docker/cagent/pull/1648) - fix: show correct tool count in TUI when running in --remote mode
+- [#1657](https://github.com/docker/cagent/pull/1657) - Better default security for cagent api|mcp|a2a
+- [#1663](https://github.com/docker/cagent/pull/1663) - docs: update CHANGELOG.md for v1.22.0
+- [#1668](https://github.com/docker/cagent/pull/1668) - Session store cleanup
+- [#1669](https://github.com/docker/cagent/pull/1669) - Fix tick leak
+- [#1673](https://github.com/docker/cagent/pull/1673) - eval: add optional setup script support for eval sessions
+- [#1684](https://github.com/docker/cagent/pull/1684) - Fix Agents.UnmarshalYAML to reject unknown fields
+- [#1685](https://github.com/docker/cagent/pull/1685) - Fix A2A agent card advertising unroutable wildcard address
+- [#1686](https://github.com/docker/cagent/pull/1686) - Close the session
+- [#1687](https://github.com/docker/cagent/pull/1687) - Make /compact non-blocking with spinner feedback
+- [#1688](https://github.com/docker/cagent/pull/1688) - Remove redundant stdin nil check in api command
+- [#1689](https://github.com/docker/cagent/pull/1689) - Return error response for unknown tool calls instead of silently skipping
+- [#1692](https://github.com/docker/cagent/pull/1692) - Add documentation gh-pages
+- [#1693](https://github.com/docker/cagent/pull/1693) - Add the summary message as a user message
+- [#1694](https://github.com/docker/cagent/pull/1694) - Add more documentation
+- [#1696](https://github.com/docker/cagent/pull/1696) - Fix MCP tool calls with gpt 5.2
+- [#1697](https://github.com/docker/cagent/pull/1697) - Bump Go to 1.26.0
+- [#1699](https://github.com/docker/cagent/pull/1699) - Fix issues found by the review agent
+- [#1700](https://github.com/docker/cagent/pull/1700) - List valid versions in unsupported config version error
+- [#1703](https://github.com/docker/cagent/pull/1703) - Bump direct Go dependencies
+- [#1705](https://github.com/docker/cagent/pull/1705) - Improve the Planner
+- [#1706](https://github.com/docker/cagent/pull/1706) - Improve error handling and logging in evaluation judge
+- [#1711](https://github.com/docker/cagent/pull/1711) - Persist tool call error state in session messages
+
+
 ## [v1.22.0] - 2026-02-09
 
 This release enhances the chat experience with history search functionality and improves file attachment handling, along with multi-turn conversation support for command-line operations.
@@ -375,3 +546,11 @@ This release improves the terminal user interface with better error handling and
 [v1.21.0]: https://github.com/docker/cagent/releases/tag/v1.21.0
 
 [v1.22.0]: https://github.com/docker/cagent/releases/tag/v1.22.0
+
+[v1.23.0]: https://github.com/docker/cagent/releases/tag/v1.23.0
+
+[v1.23.1]: https://github.com/docker/cagent/releases/tag/v1.23.1
+
+[v1.23.2]: https://github.com/docker/cagent/releases/tag/v1.23.2
+
+[v1.23.3]: https://github.com/docker/cagent/releases/tag/v1.23.3

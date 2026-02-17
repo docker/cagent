@@ -53,8 +53,7 @@ func OpenDB(path string) (*sql.DB, error) {
 
 // IsCantOpenError checks if the error is a SQLite CANTOPEN error (code 14).
 func IsCantOpenError(err error) bool {
-	var sqliteErr *sqlite.Error
-	if errors.As(err, &sqliteErr) {
+	if sqliteErr, ok := errors.AsType[*sqlite.Error](err); ok {
 		return sqliteErr.Code() == sqlite3.SQLITE_CANTOPEN
 	}
 	return false
@@ -63,8 +62,7 @@ func IsCantOpenError(err error) bool {
 // IsNoSuchColumnError checks if the error is due to a missing column in SQLite.
 // This typically happens when querying a column that doesn't exist in the schema.
 func IsNoSuchColumnError(err error) bool {
-	var sqliteErr *sqlite.Error
-	if errors.As(err, &sqliteErr) {
+	if sqliteErr, ok := errors.AsType[*sqlite.Error](err); ok {
 		// SQLITE_ERROR (1) is the generic SQL error code used for "no such column"
 		return sqliteErr.Code() == sqlite3.SQLITE_ERROR
 	}

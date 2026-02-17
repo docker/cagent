@@ -97,7 +97,9 @@
           ]
         }
       },
-      "required": ["base_url"],
+      "required": [
+        "base_url"
+      ],
       "additionalProperties": false
     },
     "AgentConfig": {
@@ -324,8 +326,14 @@
             "type": "string"
           },
           "examples": [
-            ["anthropic/claude-sonnet-4-0", "openai/gpt-4o"],
-            ["backup_model", "openai/gpt-5-mini"]
+            [
+              "anthropic/claude-sonnet-4-0",
+              "openai/gpt-4o"
+            ],
+            [
+              "backup_model",
+              "openai/gpt-5-mini"
+            ]
           ]
         },
         "retries": {
@@ -612,9 +620,20 @@
             "type": "string"
           },
           "examples": [
-            ["shell:cmd=ls*", "shell:cmd=git status*", "shell:cmd=go test*"],
-            ["mcp:github:get_*", "mcp:github:list_*"],
-            ["think", "create_todo*", "list_todos"]
+            [
+              "shell:cmd=ls*",
+              "shell:cmd=git status*",
+              "shell:cmd=go test*"
+            ],
+            [
+              "mcp:github:get_*",
+              "mcp:github:list_*"
+            ],
+            [
+              "think",
+              "create_todo*",
+              "list_todos"
+            ]
           ]
         },
         "deny": {
@@ -624,9 +643,17 @@
             "type": "string"
           },
           "examples": [
-            ["shell:cmd=rm -rf*", "shell:cmd=sudo*"],
-            ["shell:cmd=git push --force*", "shell:cmd=git reset --hard*"],
-            ["mcp:github:delete_*"]
+            [
+              "shell:cmd=rm -rf*",
+              "shell:cmd=sudo*"
+            ],
+            [
+              "shell:cmd=git push --force*",
+              "shell:cmd=git reset --hard*"
+            ],
+            [
+              "mcp:github:delete_*"
+            ]
           ]
         }
       },
@@ -646,12 +673,14 @@
             "memory",
             "filesystem",
             "shell",
+            "tasks",
             "todo",
             "fetch",
             "api",
             "a2a",
             "lsp",
-            "user_prompt"
+            "user_prompt",
+            "openapi"
           ]
         },
         "instruction": {
@@ -750,7 +779,10 @@
           ],
           "examples": [
             true,
-            ["read_file", "write_file"]
+            [
+              "read_file",
+              "write_file"
+            ]
           ]
         },
         "timeout": {
@@ -760,8 +792,15 @@
         },
         "url": {
           "type": "string",
-          "description": "URL for the a2a tool",
+          "description": "URL for the a2a or openapi tool",
           "format": "uri"
+        },
+        "headers": {
+          "type": "object",
+          "description": "HTTP headers for API requests (supports ${env.VAR} interpolation)",
+          "additionalProperties": {
+            "type": "string"
+          }
         },
         "name": {
           "type": "string",
@@ -808,13 +847,18 @@
           "properties": {
             "type": {
               "enum": [
-                "shell",
-                "filesystem",
-                "todo",
+                "mcp",
+                "script",
                 "think",
                 "memory",
-                "script",
+                "filesystem",
+                "shell",
+                "tasks",
+                "todo",
                 "fetch",
+                "api",
+                "a2a",
+                "lsp",
                 "user_prompt"
               ]
             }
@@ -858,6 +902,22 @@
               "properties": {
                 "type": {
                   "const": "a2a"
+                }
+              }
+            },
+            {
+              "required": [
+                "url"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "properties": {
+                "type": {
+                  "const": "openapi"
                 }
               }
             },
@@ -918,9 +978,18 @@
           },
           "minItems": 1,
           "examples": [
-            [".", "/tmp"],
-            ["./src", "./config:ro"],
-            ["/data:rw", "/secrets:ro"]
+            [
+              ".",
+              "/tmp"
+            ],
+            [
+              "./src",
+              "./config:ro"
+            ],
+            [
+              "/data:rw",
+              "/secrets:ro"
+            ]
           ]
         }
       },

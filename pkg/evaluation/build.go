@@ -82,8 +82,7 @@ func (r *Runner) buildEvalImage(ctx context.Context, workingDir string) (string,
 
 	output, err := cmd.Output()
 	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 			return "", fmt.Errorf("docker build failed: %s", string(exitErr.Stderr))
 		}
 		return "", fmt.Errorf("docker build failed: %w", err)

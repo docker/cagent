@@ -5,8 +5,10 @@ import (
 	_ "embed"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/google/go-containerregistry/pkg/name"
@@ -16,10 +18,10 @@ import (
 	"github.com/docker/cagent/pkg/userconfig"
 )
 
-//go:embed default-agent.yaml
+//go:embed builtin-agents/default.yaml
 var defaultAgent []byte
 
-//go:embed coder-agent.yaml
+//go:embed builtin-agents/coder.yaml
 var coderAgent []byte
 
 // builtinAgents maps built-in agent names to their embedded YAML configurations.
@@ -30,11 +32,7 @@ var builtinAgents = map[string][]byte{
 
 // BuiltinAgentNames returns the names of all built-in agents.
 func BuiltinAgentNames() []string {
-	names := make([]string, 0, len(builtinAgents))
-	for name := range builtinAgents {
-		names = append(names, name)
-	}
-	return names
+	return slices.Sorted(maps.Keys(builtinAgents))
 }
 
 // ResolveAlias resolves an agent reference and returns the alias if it exists and has options.
@@ -55,76 +53,29 @@ func ResolveAlias(agentFilename string) *userconfig.Alias {
 	return alias
 }
 
-// GetUserSettings returns the global user settings from the config file.
-// Returns an empty Settings if the config file doesn't exist or has no settings.
-func GetUserSettings() *userconfig.Settings {
-	cfg, err := userconfig.Load()
-	if err != nil {
-		return &userconfig.Settings{}
-	}
-	return cfg.GetSettings()
-}
-
 // ResolveSources resolves an agent file reference (local file, URL, or OCI image) to sources.
 // If envProvider is non-nil, it will be used to look up GITHUB_TOKEN for authentication
 // when fetching from GitHub URLs.
 // For OCI references, always checks remote for updates but falls back to local cache if offline.
 func ResolveSources(agentsPath string, envProvider environment.Provider) (Sources, error) {
-	// Handle URL references first (before resolve() which converts to absolute path)
-	if IsURLReference(agentsPath) {
-		return map[string]Source{
-			agentsPath: NewURLSource(agentsPath, envProvider),
-		}, nil
-	}
-
 	resolvedPath, err := resolve(agentsPath)
 	if err != nil {
+		// resolve() only fails for non-OCI, non-URL, non-builtin references
+		// that can't be made absolute. Try OCI as last resort.
 		if IsOCIReference(agentsPath) {
-			return map[string]Source{
-				reference.OciRefToFilename(agentsPath): NewOCISource(agentsPath),
-			}, nil
+			return singleSource(reference.OciRefToFilename(agentsPath), NewOCISource(agentsPath)), nil
 		}
 		return nil, err
 	}
 
-	if data, ok := builtinAgents[resolvedPath]; ok {
-		return map[string]Source{
-			resolvedPath: NewBytesSource(resolvedPath, data),
-		}, nil
-	}
-
-	if isLocalFile(resolvedPath) {
-		return map[string]Source{
-			fileNameWithoutExt(resolvedPath): NewFileSource(resolvedPath),
-		}, nil
-	}
-
+	// Only directories need special handling to enumerate YAML files.
 	if dirExists(resolvedPath) {
-		sources := make(Sources)
-		entries, err := os.ReadDir(resolvedPath)
-		if err != nil {
-			return nil, fmt.Errorf("reading agents directory %s: %w", resolvedPath, err)
-		}
-		for _, entry := range entries {
-			if entry.IsDir() {
-				continue
-			}
-			ext := strings.ToLower(filepath.Ext(entry.Name()))
-			if ext != ".yaml" && ext != ".yml" {
-				continue
-			}
-			a := filepath.Join(resolvedPath, entry.Name())
-			sources[fileNameWithoutExt(a)], err = Resolve(a, envProvider)
-			if err != nil {
-				return nil, err
-			}
-		}
-		return sources, nil
+		return resolveDirectory(resolvedPath, envProvider)
 	}
 
-	return map[string]Source{
-		reference.OciRefToFilename(resolvedPath): NewOCISource(resolvedPath),
-	}, nil
+	// For all other reference types, delegate to resolveOne.
+	key, source := resolveOne(resolvedPath, envProvider)
+	return singleSource(key, source), nil
 }
 
 // Resolve resolves an agent file reference (local file, URL, or OCI image) to a source.
@@ -140,19 +91,55 @@ func Resolve(agentFilename string, envProvider environment.Provider) (Source, er
 		return nil, err
 	}
 
-	if data, ok := builtinAgents[resolvedPath]; ok {
-		return NewBytesSource(resolvedPath, data), nil
+	_, source := resolveOne(resolvedPath, envProvider)
+	return source, nil
+}
+
+// resolveOne maps a resolved path to the appropriate Source and a key for use
+// in Sources maps. The path must already be resolved via resolve().
+// This is the single place that decides which source type a reference maps to.
+// To add a new source type, add a case here.
+func resolveOne(resolvedPath string, envProvider environment.Provider) (string, Source) {
+	switch {
+	case builtinAgents[resolvedPath] != nil:
+		return resolvedPath, NewBytesSource(resolvedPath, builtinAgents[resolvedPath])
+	case IsURLReference(resolvedPath):
+		return resolvedPath, NewURLSource(resolvedPath, envProvider)
+	case isLocalFile(resolvedPath):
+		return fileNameWithoutExt(resolvedPath), NewFileSource(resolvedPath)
+	default:
+		return reference.OciRefToFilename(resolvedPath), NewOCISource(resolvedPath)
+	}
+}
+
+// resolveDirectory enumerates YAML files in a directory and resolves each one.
+func resolveDirectory(dirPath string, envProvider environment.Provider) (Sources, error) {
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("reading agents directory %s: %w", dirPath, err)
 	}
 
-	if IsURLReference(resolvedPath) {
-		return NewURLSource(resolvedPath, envProvider), nil
+	sources := make(Sources)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(entry.Name()))
+		if ext != ".yaml" && ext != ".yml" {
+			continue
+		}
+		a := filepath.Join(dirPath, entry.Name())
+		sources[fileNameWithoutExt(a)], err = Resolve(a, envProvider)
+		if err != nil {
+			return nil, err
+		}
 	}
+	return sources, nil
+}
 
-	if isLocalFile(resolvedPath) {
-		return NewFileSource(resolvedPath), nil
-	}
-
-	return NewOCISource(resolvedPath), nil
+// singleSource wraps a single source in a Sources map.
+func singleSource(key string, source Source) Sources {
+	return Sources{key: source}
 }
 
 // resolve resolves an agent reference, handling aliases and defaults

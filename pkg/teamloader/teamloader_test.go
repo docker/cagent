@@ -17,21 +17,8 @@ import (
 	"github.com/docker/cagent/pkg/config/latest"
 	"github.com/docker/cagent/pkg/environment"
 	"github.com/docker/cagent/pkg/model/provider/dmr"
-	"github.com/docker/cagent/pkg/modelsdev"
 	"github.com/docker/cagent/pkg/tools"
 )
-
-// TestMain sets up the test environment for all tests in this package.
-func TestMain(m *testing.M) {
-	store, err := modelsdev.NewStore()
-	if err != nil {
-		os.Exit(1)
-	}
-	store.SetDatabaseForTesting(&modelsdev.Database{
-		Providers: make(map[string]modelsdev.Provider),
-	})
-	os.Exit(m.Run())
-}
 
 // skipExamples contains example files that require cloud-specific configurations
 // (e.g., AWS profiles, GCP credentials) that can't be mocked with dummy env vars.
@@ -152,7 +139,7 @@ func TestLoadExamples(t *testing.T) {
 func TestLoadDefaultAgent(t *testing.T) {
 	t.Parallel()
 
-	agentSource, err := config.Resolve("../../pkg/config/default-agent.yaml", nil)
+	agentSource, err := config.Resolve("default", nil)
 	require.NoError(t, err)
 
 	runConfig := &config.RuntimeConfig{

@@ -330,7 +330,7 @@ jobs:
           curl -fsSL https://get.cagent.dev | sh
           
           # Run the review
-          cagent exec reviewer.yaml --yolo \
+          cagent run --exec reviewer.yaml --yolo \
             "Review PR #${{ github.event.pull_request.number }}"</code></pre>
 
 <p>With a simple reviewer agent:</p>

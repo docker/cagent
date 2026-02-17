@@ -171,9 +171,11 @@ func (m *mockProviderWithError) BaseConfig() base.Config { return base.Config{} 
 
 func (m *mockProviderWithError) MaxTokens() int { return 0 }
 
-type mockModelStore struct{}
+type mockModelStore struct {
+	ModelStore
+}
 
-func (m mockModelStore) GetModel(context.Context, string) (*modelsdev.Model, error) {
+func (m mockModelStore) GetModel(_ context.Context, _ string) (*modelsdev.Model, error) {
 	return nil, nil
 }
 
@@ -238,7 +240,7 @@ func clearTimestamps(event Event) {
 
 	// Use reflection to find and clear Timestamp in embedded AgentContext
 	v := reflect.ValueOf(event)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 	if v.Kind() != reflect.Struct {
@@ -577,7 +579,8 @@ func TestStartBackgroundRAGInit_StopsForwardingAfterContextCancel(t *testing.T) 
 	// Cancel the context and ensure no further events are forwarded.
 	cancel()
 
-	// Give the forwarder time to observe cancellation.
+	// Brief yield to allow the forwarder goroutine to observe cancellation.
+	// This is a timing-based negative test: we verify no event is forwarded.
 	time.Sleep(10 * time.Millisecond)
 
 	// Emit another event; it should NOT be forwarded.
@@ -673,9 +676,12 @@ func (p *queueProvider) BaseConfig() base.Config { return base.Config{} }
 
 func (p *queueProvider) MaxTokens() int { return 0 }
 
-type mockModelStoreWithLimit struct{ limit int }
+type mockModelStoreWithLimit struct {
+	ModelStore
+	limit int
+}
 
-func (m mockModelStoreWithLimit) GetModel(context.Context, string) (*modelsdev.Model, error) {
+func (m mockModelStoreWithLimit) GetModel(_ context.Context, _ string) (*modelsdev.Model, error) {
 	return &modelsdev.Model{Limit: modelsdev.Limit{Context: m.limit}, Cost: &modelsdev.Cost{}}, nil
 }
 

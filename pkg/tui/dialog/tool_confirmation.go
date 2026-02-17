@@ -13,6 +13,7 @@ import (
 	"github.com/docker/cagent/pkg/tui/components/messages"
 	"github.com/docker/cagent/pkg/tui/core"
 	"github.com/docker/cagent/pkg/tui/core/layout"
+	tuimessages "github.com/docker/cagent/pkg/tui/messages"
 	"github.com/docker/cagent/pkg/tui/service"
 	"github.com/docker/cagent/pkg/tui/styles"
 	"github.com/docker/cagent/pkg/tui/types"
@@ -240,8 +241,7 @@ func (d *toolConfirmationDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 			return d, cmd
 		}
 
-	case tea.MouseWheelMsg:
-		// Forward mouse wheel events to scroll view
+	case tuimessages.WheelCoalescedMsg:
 		updatedScrollView, cmd := d.scrollView.Update(msg)
 		d.scrollView = updatedScrollView.(messages.Model)
 		return d, cmd

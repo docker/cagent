@@ -172,6 +172,7 @@ type CurrentAgentInfo struct {
 
 type ModelStore interface {
 	GetModel(ctx context.Context, modelID string) (*modelsdev.Model, error)
+	GetDatabase(ctx context.Context) (*modelsdev.Database, error)
 }
 
 // RAGInitializer is implemented by runtimes that support background RAG initialization.
@@ -1093,9 +1094,9 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 						Cost:  messageCost,
 						Model: messageModel,
 					}
-				}
-				if res.RateLimit != nil {
-					msgUsage.RateLimit = *res.RateLimit
+					if res.RateLimit != nil {
+						msgUsage.RateLimit = *res.RateLimit
+					}
 				}
 
 				addAgentMessage(sess, a, &assistantMessage, events)
@@ -1270,6 +1271,7 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 	var actualModelEventEmitted bool
 	var messageUsage *chat.Usage
 	var messageRateLimit *chat.RateLimit
+	var prevStreamCost float64 // cost contributed by previous usage emission in this stream
 
 	modelID := getAgentModelID(a)
 	toolCallIndex := make(map[string]int)   // toolCallID -> index in toolCalls slice
@@ -1292,11 +1294,12 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 			messageUsage = response.Usage
 
 			if m != nil && m.Cost != nil {
-				cost := float64(response.Usage.InputTokens)*m.Cost.Input +
+				streamCost := (float64(response.Usage.InputTokens)*m.Cost.Input +
 					float64(response.Usage.OutputTokens)*m.Cost.Output +
 					float64(response.Usage.CachedInputTokens)*m.Cost.CacheRead +
-					float64(response.Usage.CacheWriteTokens)*m.Cost.CacheWrite
-				sess.Cost += cost / 1e6
+					float64(response.Usage.CacheWriteTokens)*m.Cost.CacheWrite) / 1e6
+				sess.Cost += streamCost - prevStreamCost
+				prevStreamCost = streamCost
 			}
 
 			sess.InputTokens = response.Usage.InputTokens + response.Usage.CachedInputTokens + response.Usage.CacheWriteTokens
@@ -1667,6 +1670,7 @@ func (r *LocalRuntime) executeToolWithHandler(
 		Role:       chat.MessageRoleTool,
 		Content:    content,
 		ToolCallID: toolCall.ID,
+		IsError:    res.IsError,
 		CreatedAt:  time.Now().Format(time.RFC3339),
 	}
 	addAgentMessage(sess, a, &toolResponseMsg, events)
@@ -1763,6 +1767,7 @@ func (r *LocalRuntime) addToolErrorResponse(_ context.Context, sess *session.Ses
 		Role:       chat.MessageRoleTool,
 		Content:    errorMsg,
 		ToolCallID: toolCall.ID,
+		IsError:    true,
 		CreatedAt:  time.Now().Format(time.RFC3339),
 	}
 	addAgentMessage(sess, a, &toolResponseMsg, events)

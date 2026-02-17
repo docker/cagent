@@ -47,7 +47,7 @@ type Model interface {
 	SetTokenUsage(event *runtime.TokenUsageEvent)
 	SetTodos(result *tools.ToolCallResult) error
 	SetMode(mode Mode)
-	SetAgentInfo(agentName, model, description string)
+	SetAgentInfo(agentName, model, description string) tea.Cmd
 	SetTeamInfo(availableAgents []runtime.AgentDetails)
 	SetAgentSwitching(switching bool)
 	SetToolsetInfo(availableTools int, loading bool)
@@ -89,10 +89,10 @@ type Model interface {
 	UpdateTitleInput(msg tea.Msg) tea.Cmd
 	// SetTitleRegenerating sets the title regeneration state and returns a command to start/stop spinner
 	SetTitleRegenerating(regenerating bool) tea.Cmd
-	// ScrollByWheel applies a wheel delta to the sidebar scrollbar.
-	ScrollByWheel(delta int)
 	// IsScrollbarDragging returns true when the scrollbar thumb is being dragged.
 	IsScrollbarDragging() bool
+	// Cleanup cancels any in-flight async operations.
+	Cleanup()
 }
 
 // ragIndexingState tracks per-strategy indexing progress
@@ -142,6 +142,8 @@ type model struct {
 	editingTitle       bool     // true when inline title editing is active
 	titleInput         textinput.Model
 	lastTitleClickTime time.Time // for double-click detection on title
+
+	cancelReasoningCheck context.CancelFunc // cancels the in-flight ModelSupportsReasoning call
 
 	// Render cache to avoid re-rendering sections on every frame during scroll
 	cachedLines          []string // Cached rendered lines
@@ -248,12 +250,31 @@ func (m *model) SetTodos(result *tools.ToolCallResult) error {
 	return m.todoComp.SetTodos(result)
 }
 
+// reasoningSupportResultMsg carries the async result of a ModelSupportsReasoning check.
+type reasoningSupportResultMsg struct {
+	modelID   string
+	supported bool
+}
+
+// checkReasoningSupportCmd returns a tea.Cmd that checks reasoning support asynchronously.
+func checkReasoningSupportCmd(ctx context.Context, modelID string) tea.Cmd {
+	return func() tea.Msg {
+		supported := modelsdev.ModelSupportsReasoning(ctx, modelID)
+		return reasoningSupportResultMsg{modelID: modelID, supported: supported}
+	}
+}
+
 // SetAgentInfo sets the current agent information and updates the model in availableAgents
-func (m *model) SetAgentInfo(agentName, modelID, description string) {
+func (m *model) SetAgentInfo(agentName, modelID, description string) tea.Cmd {
 	m.currentAgent = agentName
 	m.agentModel = modelID
 	m.agentDescription = description
-	m.reasoningSupported = modelsdev.ModelSupportsReasoning(context.Background(), modelID)
+
+	if m.cancelReasoningCheck != nil {
+		m.cancelReasoningCheck()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.cancelReasoningCheck = cancel
 
 	// Update the provider and model in availableAgents for the current agent.
 	// This is important when fallback models from different providers are used.
@@ -272,6 +293,7 @@ func (m *model) SetAgentInfo(agentName, modelID, description string) {
 		}
 	}
 	m.invalidateCache()
+	return checkReasoningSupportCmd(ctx, modelID)
 }
 
 // SetTeamInfo sets the available agents in the team
@@ -325,13 +347,6 @@ func (m *model) SetTitleRegenerating(regenerating bool) tea.Cmd {
 
 func (m *model) IsScrollbarDragging() bool {
 	return m.scrollview.IsDragging()
-}
-
-func (m *model) ScrollByWheel(delta int) {
-	if m.mode != ModeVertical || delta == 0 {
-		return
-	}
-	m.scrollview.ScrollBy(delta)
 }
 
 // ClickResult indicates what was clicked in the sidebar
@@ -435,6 +450,15 @@ func (m *model) LoadFromSession(sess *session.Session) {
 	// Load starred status
 	m.sessionStarred = sess.Starred
 
+	// Load working directory from session
+	if sess.WorkingDir != "" {
+		wd := sess.WorkingDir
+		if homeDir := paths.GetHomeDir(); homeDir != "" && strings.HasPrefix(wd, homeDir) {
+			wd = "~" + wd[len(homeDir):]
+		}
+		m.workingDirectory = wd
+	}
+
 	// Session has content if it has messages or token usage
 	m.sessionHasContent = len(sess.Messages) > 0 || sess.InputTokens > 0 || sess.OutputTokens > 0
 
@@ -489,7 +513,7 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		cmd := m.SetSize(msg.Width, msg.Height)
 		return m, cmd
-	case tea.MouseClickMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg, tea.MouseWheelMsg:
+	case tea.MouseClickMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg, messages.WheelCoalescedMsg:
 		if m.mode == ModeVertical {
 			_, cmd := m.scrollview.Update(msg)
 			return m, cmd
@@ -594,9 +618,15 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		m.invalidateCache()
 		m.stopSpinner() // Will only stop if no other state needs it
 		return m, nil
-	case *runtime.AgentInfoEvent:
-		m.SetAgentInfo(msg.AgentName, msg.Model, msg.Description)
+	case reasoningSupportResultMsg:
+		if msg.modelID == m.agentModel {
+			m.reasoningSupported = msg.supported
+			m.invalidateCache()
+		}
 		return m, nil
+	case *runtime.AgentInfoEvent:
+		cmd := m.SetAgentInfo(msg.AgentName, msg.Model, msg.Description)
+		return m, cmd
 	case *runtime.TeamInfoEvent:
 		m.SetTeamInfo(msg.AvailableAgents)
 		return m, nil
@@ -632,6 +662,9 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 			state.spinner.Stop()
 			delete(m.ragIndexing, k)
 		}
+		m.invalidateCache()
+		return m, nil
+	case messages.SessionToggleChangedMsg:
 		m.invalidateCache()
 		return m, nil
 	case messages.ThemeChangedMsg:
@@ -728,11 +761,8 @@ func (m *model) computeCollapsedViewModel(contentWidth int) CollapsedViewModel {
 	star := m.starIndicator()
 
 	var titleWithStar string
-	var editing bool
 	switch {
 	case m.editingTitle:
-		editing = true
-		// Width was pre-calculated in SetSize, just render
 		titleWithStar = star + m.titleInput.View()
 	case m.titleRegenerating:
 		titleWithStar = star + m.spinner.View() + styles.MutedStyle.Render(" Generating title…")
@@ -753,10 +783,10 @@ func (m *model) computeCollapsedViewModel(contentWidth int) CollapsedViewModel {
 	usageWidth := lipgloss.Width(vm.UsageSummary)
 
 	// Title and indicator fit on one line if:
-	// - editing mode (input is constrained to fit), OR
+	// - editing mode (input is constrained to fit in collapsed mode), OR
 	// - no working indicator AND title fits, OR
 	// - both fit together with gap
-	vm.TitleAndIndicatorOnOneLine = editing ||
+	vm.TitleAndIndicatorOnOneLine = m.editingTitle ||
 		(vm.WorkingIndicator == "" && titleWidth <= contentWidth) ||
 		(vm.WorkingIndicator != "" && titleWidth+minGap+wiWidth <= contentWidth)
 	vm.WdAndUsageOnOneLine = wdWidth+minGap+usageWidth <= contentWidth
@@ -766,10 +796,7 @@ func (m *model) computeCollapsedViewModel(contentWidth int) CollapsedViewModel {
 
 // CollapsedHeight returns the number of lines needed for collapsed mode.
 func (m *model) CollapsedHeight(outerWidth int) int {
-	contentWidth := outerWidth - m.layoutCfg.PaddingLeft - m.layoutCfg.PaddingRight
-	if contentWidth < 1 {
-		contentWidth = 1
-	}
+	contentWidth := max(outerWidth-m.layoutCfg.PaddingLeft-m.layoutCfg.PaddingRight, 1)
 	return m.computeCollapsedViewModel(contentWidth).LineCount()
 }
 
@@ -1130,7 +1157,7 @@ func (m *model) toolsetInfo(contentWidth int) string {
 		{m.sessionState.YoloMode(), "YOLO mode enabled", "^y"},
 		{m.sessionState.Thinking() && m.reasoningSupported, "Thinking enabled", "/think"},
 		{m.sessionState.HideToolResults(), "Tool output hidden", "^o"},
-		{m.sessionState.SplitDiffView(), "Split Diff View enabled", "^t"},
+		{m.sessionState.SplitDiffView(), "Split Diff View", "/split-diff"},
 	}
 
 	for _, toggle := range toggles {
@@ -1189,21 +1216,18 @@ func (m *model) SetSize(width, height int) tea.Cmd {
 	return nil
 }
 
-// updateTitleInputWidth pre-calculates the title input width based on current dimensions.
-// This avoids setting width during View(), keeping View() pure.
+// updateTitleInputWidth sets the title input viewport width.
+// In vertical mode the input is wide enough to show the full text — the tab
+// body's lipgloss Width wraps it visually. In collapsed mode the input is
+// constrained to the single available line so it scrolls horizontally instead.
 func (m *model) updateTitleInputWidth() {
-	starWidth := lipgloss.Width(m.starIndicator())
-
-	// Calculate content width (without scrollbar for simplicity - editing usually doesn't need scrollbar)
-	contentWidth := m.contentWidth(false)
-
-	// Account for star indicator width and leave room for cursor
-	inputWidth := contentWidth - starWidth - 1
-	if inputWidth < 10 {
-		inputWidth = 10 // Minimum usable width
+	if m.mode == ModeCollapsed {
+		starWidth := lipgloss.Width(m.starIndicator())
+		inputWidth := m.contentWidth(false) - starWidth
+		m.titleInput.SetWidth(max(10, inputWidth))
+	} else {
+		m.titleInput.SetWidth(m.titleInput.CharLimit)
 	}
-
-	m.titleInput.SetWidth(inputWidth)
 }
 
 // SetPosition sets the absolute position of the component on screen
@@ -1305,16 +1329,7 @@ func (m *model) HandleTitleClick() bool {
 func (m *model) BeginTitleEdit() {
 	m.editingTitle = true
 	m.titleInput.SetValue(m.sessionTitle)
-
-	// Calculate and set the input width based on current sidebar width
-	contentWidth := m.contentWidth(false)
-	starWidth := lipgloss.Width(m.starIndicator())
-	inputWidth := contentWidth - starWidth - 1
-	if inputWidth < 10 {
-		inputWidth = 10 // Minimum usable width
-	}
-	m.titleInput.SetWidth(inputWidth)
-
+	m.updateTitleInputWidth()
 	m.titleInput.Focus()
 	m.titleInput.CursorEnd()
 	m.invalidateCache()
@@ -1350,4 +1365,12 @@ func (m *model) UpdateTitleInput(msg tea.Msg) tea.Cmd {
 	m.titleInput, cmd = m.titleInput.Update(msg)
 	m.invalidateCache() // Input changes affect rendering
 	return cmd
+}
+
+// Cleanup cancels any in-flight async operations.
+func (m *model) Cleanup() {
+	if m.cancelReasoningCheck != nil {
+		m.cancelReasoningCheck()
+		m.cancelReasoningCheck = nil
+	}
 }

@@ -87,6 +87,12 @@ func TestSessionBrowserNavigationWithCtrl(t *testing.T) {
 	updated, _ = d.Update(ctrlK)
 	d = updated.(*sessionBrowserDialog)
 	require.Equal(t, 0, d.selected, "selection should be 0 after ctrl+k")
+
+	// Verify ctrl+y is bound to CopyID and doesn't collide with Up.
+	// We only assert key matching here to avoid clipboard side-effects in tests.
+	ctrlY := tea.KeyPressMsg{Code: 'y', Mod: tea.ModCtrl}
+	require.True(t, key.Matches(ctrlY, d.keyMap.CopyID), "ctrl+y should match keyMap.CopyID")
+	require.False(t, key.Matches(ctrlY, d.keyMap.Up), "ctrl+y should not match keyMap.Up")
 }
 
 func TestSessionBrowserViewShowsSelection(t *testing.T) {

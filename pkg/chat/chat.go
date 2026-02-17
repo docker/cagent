@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -73,6 +74,9 @@ type Message struct {
 
 	// For Role=tool prompts this should be set to the ID given in the assistant's prior request to call a tool.
 	ToolCallID string `json:"tool_call_id,omitempty"`
+
+	// IsError indicates the tool call failed (only for Role=tool messages).
+	IsError bool `json:"is_error,omitempty"`
 
 	CreatedAt string `json:"created_at,omitempty"`
 
@@ -336,10 +340,8 @@ func isTextByContent(filePath string) bool {
 	data := buf[:n]
 
 	// Check for null bytes (strong binary indicator)
-	for _, b := range data {
-		if b == 0 {
-			return false
-		}
+	if slices.Contains(data, 0) {
+		return false
 	}
 
 	// Check if the content is valid UTF-8

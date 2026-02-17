@@ -44,8 +44,9 @@ func initOTelSDK(ctx context.Context) (err error) {
 	}
 
 	// Configure tracer provider
-	var tracerProviderOpts []trace.TracerProviderOption
-	tracerProviderOpts = append(tracerProviderOpts, trace.WithResource(res))
+	tracerProviderOpts := []trace.TracerProviderOption{
+		trace.WithResource(res),
+	}
 
 	if traceExporter != nil {
 		tracerProviderOpts = append(tracerProviderOpts,

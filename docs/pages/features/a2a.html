@@ -3,7 +3,7 @@
 
 <h2>Overview</h2>
 
-<p>The <code>cagent a2a</code> command starts an A2A server that exposes your agents using the <a href="https://google.github.io/A2A/" target="_blank" rel="noopener noreferrer">A2A protocol</a>. This enables communication between cagent and other agent frameworks that support A2A.</p>
+<p>The <code>cagent serve a2a</code> command starts an A2A server that exposes your agents using the <a href="https://google.github.io/A2A/" target="_blank" rel="noopener noreferrer">A2A protocol</a>. This enables communication between cagent and other agent frameworks that support A2A.</p>
 
 <div class="callout callout-warning">
   <div class="callout-title">⚠️ Early support</div>
@@ -13,13 +13,13 @@
 <h2>Usage</h2>
 
 <pre><code class="language-bash"># Start A2A server for an agent
-$ cagent a2a ./agent.yaml
+$ cagent serve a2a ./agent.yaml
 
 # Specify a custom address
-$ cagent a2a ./agent.yaml --listen 127.0.0.1:9000
+$ cagent serve a2a ./agent.yaml --listen 127.0.0.1:9000
 
 # Use an agent from the catalog
-$ cagent a2a agentcatalog/pirate</code></pre>
+$ cagent serve a2a agentcatalog/pirate</code></pre>
 
 <h2>Features</h2>
 

@@ -50,7 +50,12 @@ colors:
   selected: "#434c5e"
   selected_fg: "#ffffff"
   suggestion_ghost: "#616e88"
-  tab_bg: "#3b4252"
+  tab_bg: "#2e3440"
+  tab_active_bg: "#434c5e"
+  tab_active_fg: "#eceff4"
+  tab_inactive_fg: "#616e88"
+  tab_border: "#88c0d0"
+
   placeholder: "#616e88"
   
   # Badge colors

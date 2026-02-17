@@ -41,19 +41,19 @@ $ cagent run agent.yaml --prompt-file ./context.md  # include file as context
 # Queue multiple messages (processed in sequence)
 $ cagent run agent.yaml "question 1" "question 2" "question 3"</code></pre>
 
-<h3><code>cagent exec</code></h3>
+<h3><code>cagent run --exec</code></h3>
 <p>Run an agent in non-interactive (headless) mode. No TUI — output goes to stdout.</p>
 
-<pre><code class="language-bash">$ cagent exec [config] [message...] [flags]</code></pre>
+<pre><code class="language-bash">$ cagent run --exec [config] [message...] [flags]</code></pre>
 
 <pre><code class="language-bash"># One-shot task
-$ cagent exec agent.yaml "Create a Dockerfile for a Python Flask app"
+$ cagent run --exec agent.yaml "Create a Dockerfile for a Python Flask app"
 
 # With auto-approve
-$ cagent exec agent.yaml --yolo "Set up CI/CD pipeline"
+$ cagent run --exec agent.yaml --yolo "Set up CI/CD pipeline"
 
 # Multi-turn conversation
-$ cagent exec agent.yaml "question 1" "question 2" "question 3"</code></pre>
+$ cagent run --exec agent.yaml "question 1" "question 2" "question 3"</code></pre>
 
 <h3><code>cagent new</code></h3>
 <p>Interactively generate a new agent configuration file.</p>
@@ -87,14 +87,14 @@ $ cagent mcp agentcatalog/coder</code></pre>
 
 <p>See <a href="#features/mcp-mode" onclick="event.preventDefault(); navigate('features/mcp-mode')">MCP Mode</a> for detailed setup.</p>
 
-<h3><code>cagent a2a</code></h3>
+<h3><code>cagent serve a2a</code></h3>
 <p>Start an A2A (Agent-to-Agent) protocol server.</p>
 
-<pre><code class="language-bash">$ cagent a2a [config] [flags]
+<pre><code class="language-bash">$ cagent serve a2a [config] [flags]
 
 # Examples
-$ cagent a2a agent.yaml
-$ cagent a2a agent.yaml --listen 127.0.0.1:9000</code></pre>
+$ cagent serve a2a agent.yaml
+$ cagent serve a2a agent.yaml --listen 127.0.0.1:9000</code></pre>
 
 <h3><code>cagent acp</code></h3>
 <p>Start an ACP (Agent Client Protocol) server over stdio. This allows external clients to interact with your agents using the ACP protocol.</p>
@@ -106,14 +106,14 @@ $ cagent acp agent.yaml</code></pre>
 
 <p>See <a href="#features/acp" onclick="event.preventDefault(); navigate('features/acp')">ACP</a> for details on the Agent Client Protocol.</p>
 
-<h3><code>cagent push</code> / <code>cagent pull</code></h3>
-<p>Distribute agents via OCI registries.</p>
+<h3><code>cagent share push</code> / <code>cagent pull</code></h3>
+<p>Share agents via OCI registries.</p>
 
 <pre><code class="language-bash"># Push an agent
-$ cagent push ./agent.yaml docker.io/username/my-agent:latest
+$ cagent share push ./agent.yaml docker.io/username/my-agent:latest
 
 # Pull an agent
-$ cagent pull docker.io/username/my-agent:latest</code></pre>
+$ cagent share pull docker.io/username/my-agent:latest</code></pre>
 
 <p>See <a href="#concepts/distribution" onclick="event.preventDefault(); navigate('concepts/distribution')">Agent Distribution</a> for full registry workflow details.</p>
 
@@ -126,15 +126,6 @@ $ cagent pull docker.io/username/my-agent:latest</code></pre>
 $ cagent eval agent.yaml ./evals -c 8              # 8 concurrent evaluations
 $ cagent eval agent.yaml --keep-containers         # Keep containers for debugging
 $ cagent eval agent.yaml --only "auth*"            # Only run matching evals</code></pre>
-
-<h3><code>cagent build</code></h3>
-<p>Build agent configuration into a distributable format.</p>
-
-<pre><code class="language-bash">$ cagent build [config] [flags]
-
-# Examples
-$ cagent build agent.yaml
-$ cagent build agent.yaml -o ./dist</code></pre>
 
 <h3><code>cagent alias</code></h3>
 <p>Manage agent aliases for quick access.</p>

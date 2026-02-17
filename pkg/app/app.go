@@ -306,9 +306,13 @@ func (a *App) Run(ctx context.Context, cancel context.CancelFunc, message string
 			a.session.AddMessage(session.UserMessage(message))
 		}
 		for event := range a.runtime.RunStream(ctx, a.session) {
-			// If context is cancelled, continue draining but don't forward events.
-			// This prevents the runtime from blocking on event sends.
+			// If context is cancelled, continue draining but don't forward events
+			// — except StreamStoppedEvent, which must always propagate so the
+			// supervisor can mark the session as no longer running.
 			if ctx.Err() != nil {
+				if _, ok := event.(*runtime.StreamStoppedEvent); ok {
+					a.sendEvent(context.Background(), event)
+				}
 				continue
 			}
 
@@ -429,9 +433,13 @@ func (a *App) RunWithMessage(ctx context.Context, cancel context.CancelFunc, msg
 	go func() {
 		a.session.AddMessage(msg)
 		for event := range a.runtime.RunStream(ctx, a.session) {
-			// If context is cancelled, continue draining but don't forward events.
-			// This prevents the runtime from blocking on event sends.
+			// If context is cancelled, continue draining but don't forward events
+			// — except StreamStoppedEvent, which must always propagate so the
+			// supervisor can mark the session as no longer running.
 			if ctx.Err() != nil {
+				if _, ok := event.(*runtime.StreamStoppedEvent); ok {
+					a.sendEvent(context.Background(), event)
+				}
 				continue
 			}
 
@@ -446,11 +454,24 @@ func (a *App) RunWithMessage(ctx context.Context, cancel context.CancelFunc, msg
 }
 
 func (a *App) RunBangCommand(ctx context.Context, command string) {
-	out, _ := exec.CommandContext(ctx, "/bin/sh", "-c", command).CombinedOutput()
-	a.events <- runtime.ShellOutput("$ " + command + "\n" + string(out))
+	command = strings.TrimSpace(command)
+	if command == "" {
+		a.events <- runtime.ShellOutput("Error: empty command")
+		return
+	}
+
+	out, err := exec.CommandContext(ctx, "/bin/sh", "-c", command).CombinedOutput()
+	output := "$ " + command + "\n" + string(out)
+	if err != nil && len(out) == 0 {
+		output = "$ " + command + "\nError: " + err.Error()
+	}
+	a.events <- runtime.ShellOutput(output)
 }
 
-func (a *App) Subscribe(ctx context.Context, program *tea.Program) {
+// SubscribeWith subscribes to app events using a custom send function.
+// This allows callers to wrap or transform messages before sending them
+// to the Bubble Tea program (e.g. to tag events with a session ID for routing).
+func (a *App) SubscribeWith(ctx context.Context, send func(tea.Msg)) {
 	throttledChan := a.throttleEvents(ctx, a.events)
 	for {
 		select {
@@ -461,7 +482,7 @@ func (a *App) Subscribe(ctx context.Context, program *tea.Program) {
 				return
 			}
 
-			program.Send(msg)
+			send(msg)
 		}
 	}
 }
@@ -489,6 +510,7 @@ func (a *App) NewSession() {
 			session.WithThinking(a.session.Thinking),
 			session.WithToolsApproved(a.session.ToolsApproved),
 			session.WithHideToolResults(a.session.HideToolResults),
+			session.WithWorkingDir(a.session.WorkingDir),
 		)
 	}
 	a.session = session.New(opts...)

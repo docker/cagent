@@ -37,7 +37,7 @@ func routableAddr(addr string) string {
 }
 
 func Run(ctx context.Context, agentFilename, agentName string, runConfig *config.RuntimeConfig, ln net.Listener) error {
-	slog.Debug("Starting A2A server", "agent", agentName, "addr", ln.Addr().String())
+	slog.Debug("Starting A2A server", "source", agentFilename, "agent", agentName, "addr", ln.Addr().String())
 
 	agentSource, err := config.Resolve(agentFilename, nil)
 	if err != nil {

@@ -63,14 +63,12 @@ func extractHTTPStatusCode(err error) int {
 	}
 
 	// Check Anthropic SDK error type (public)
-	var anthropicErr *anthropic.Error
-	if errors.As(err, &anthropicErr) {
+	if anthropicErr, ok := errors.AsType[*anthropic.Error](err); ok {
 		return anthropicErr.StatusCode
 	}
 
 	// Check Google Gemini SDK error type (public)
-	var geminiErr *genai.APIError
-	if errors.As(err, &geminiErr) {
+	if geminiErr, ok := errors.AsType[*genai.APIError](err); ok {
 		return geminiErr.Code
 	}
 
@@ -152,8 +150,7 @@ func isRetryableModelError(err error) bool {
 	}
 
 	// Check for network errors
-	var netErr net.Error
-	if errors.As(err, &netErr) {
+	if netErr, ok := errors.AsType[net.Error](err); ok {
 		// Timeout errors are retryable
 		if netErr.Timeout() {
 			slog.Debug("Network timeout error, retryable", "error", err)

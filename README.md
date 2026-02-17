@@ -69,17 +69,17 @@ More examples in the [`examples/`](examples/README.md) directory.
 
 ## Documentation
 
-📖 **[Full documentation](docs/)**
+📖 **[Full documentation](https://docker.github.io/cagent/)**
 
-- [Installation](docs/index.html#getting-started/installation) · [Quick Start](docs/index.html#getting-started/quickstart)
-- [Agents](docs/index.html#concepts/agents) · [Models](docs/index.html#concepts/models) · [Tools](docs/index.html#concepts/tools) · [Multi-Agent](docs/index.html#concepts/multi-agent)
-- [Configuration Reference](docs/index.html#configuration/overview)
-- [TUI](docs/index.html#features/tui) · [CLI](docs/index.html#features/cli) · [MCP Mode](docs/index.html#features/mcp-mode) · [RAG](docs/index.html#features/rag)
-- [Model Providers](docs/index.html#providers/overview) · [Docker Model Runner](docs/index.html#providers/dmr)
+- [Installation](https://docker.github.io/cagent/#getting-started/installation) · [Quick Start](https://docker.github.io/cagent/#getting-started/quickstart)
+- [Agents](https://docker.github.io/cagent/#concepts/agents) · [Models](https://docker.github.io/cagent/#concepts/models) · [Tools](https://docker.github.io/cagent/#concepts/tools) · [Multi-Agent](https://docker.github.io/cagent/#concepts/multi-agent)
+- [Configuration Reference](https://docker.github.io/cagent/#configuration/overview)
+- [TUI](https://docker.github.io/cagent/#features/tui) · [CLI](https://docker.github.io/cagent/#features/cli) · [MCP Mode](https://docker.github.io/cagent/#features/mcp-mode) · [RAG](https://docker.github.io/cagent/#features/rag)
+- [Model Providers](https://docker.github.io/cagent/#providers/overview) · [Docker Model Runner](https://docker.github.io/cagent/#providers/dmr)
 
 ## Contributing
 
-Read the [Contributing guide](docs/#community/contributing) to get started. We use `cagent` to build `cagent`:
+Read the [Contributing guide](https://docker.github.io/cagent/#community/contributing) to get started. We use `cagent` to build `cagent`:
 
 ```sh
 cagent run ./golang_developer.yaml
@@ -87,7 +87,7 @@ cagent run ./golang_developer.yaml
 
 ## Telemetry
 
-We collect anonymous usage data to improve the tool. See [Telemetry](docs/#community/telemetry).
+We collect anonymous usage data to improve the tool. See [Telemetry](https://docker.github.io/cagent/#community/telemetry).
 
 ## Community
 

@@ -837,7 +837,7 @@ func TestFastRendererFixedWidthRectangle(t *testing.T) {
 	out, err := r.Render(input)
 	require.NoError(t, err)
 
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		assert.Equal(t, 30, runewidth.StringWidth(stripANSI(line)))
 	}
 }
@@ -1483,7 +1483,7 @@ func TestFastRendererDeeplyNestedBlockquotes(t *testing.T) {
 
 	// No literal > symbols should appear in the text content
 	// (they should all be consumed as blockquote markers)
-	for _, line := range strings.Split(plain, "\n") {
+	for line := range strings.SplitSeq(plain, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed != "" {
 			assert.NotRegexp(t, `^>`, trimmed, "Line should not start with literal >: %q", trimmed)
@@ -1580,10 +1580,10 @@ func TestFastRendererCodeBlockWhitespaceWrap(t *testing.T) {
 	require.NoError(t, err)
 
 	plain := stripANSI(result)
-	lines := strings.Split(plain, "\n")
+	lines := strings.SplitSeq(plain, "\n")
 
 	// If wrapping occurred, it should have wrapped at a space
-	for _, line := range lines {
+	for line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if trimmed != "" && len(trimmed) > 1 {
 			// Line shouldn't end mid-word (unless the word itself is longer than width)
@@ -1676,8 +1676,8 @@ func TestFastRendererTableSeparatorStyling(t *testing.T) {
 	require.NoError(t, err)
 
 	// The separator line should have styling applied (same as other table elements)
-	lines := strings.Split(result, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(result, "\n")
+	for line := range lines {
 		plainLine := stripANSI(line)
 		if strings.Contains(plainLine, "─") {
 			// Separator line should have ANSI styling
@@ -1700,10 +1700,7 @@ func splitIntoStreamingChunks(content string) []string {
 
 	for i < len(content) {
 		chunkSize := chunkSizes[sizeIdx%len(chunkSizes)]
-		end := i + chunkSize
-		if end > len(content) {
-			end = len(content)
-		}
+		end := min(i+chunkSize, len(content))
 		chunks = append(chunks, content[i:end])
 		i = end
 		sizeIdx++

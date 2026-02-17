@@ -76,6 +76,14 @@ func WithModel(model string) Opt {
 	}
 }
 
+func WithModelName(name string) Opt {
+	return func(o *HTTPOptions) {
+		if name != "" {
+			o.Header.Set("X-Cagent-Model-Name", name)
+		}
+	}
+}
+
 func WithQuery(query url.Values) Opt {
 	return func(o *HTTPOptions) {
 		o.Query = query

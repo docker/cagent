@@ -55,6 +55,7 @@ func PackageFileAsOCIToStore(ctx context.Context, agentSource config.Source, art
 	// Prepare OCI annotations
 	annotations := map[string]string{
 		"io.docker.cagent.version":             version.Version,
+		"io.docker.agent.version":              version.Version,
 		"org.opencontainers.image.created":     time.Now().Format(time.RFC3339),
 		"org.opencontainers.image.description": fmt.Sprintf("OCI artifact containing %s", filepath.Base(agentSource.Name())),
 	}
@@ -76,7 +77,7 @@ func PackageFileAsOCIToStore(ctx context.Context, agentSource config.Source, art
 
 	// Convert to OCI manifest format to support annotations
 	img = mutate.MediaType(img, types.OCIManifestSchema1)
-	img = mutate.ConfigMediaType(img, "application/vnd.docker.cagent.config.v1+json")
+	img = mutate.ConfigMediaType(img, "application/vnd.docker.agent.config.v1+json")
 	img = mutate.Annotations(img, annotations).(v1.Image)
 
 	digest, err := store.StoreArtifact(img, artifactRef)

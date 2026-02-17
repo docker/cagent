@@ -628,20 +628,6 @@ func (e *editor) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		e.textarea.SetWidth(msg.Width - 2)
 		return e, nil
 
-	// Handle mouse events
-	case tea.MouseWheelMsg:
-		// Forward mouse wheel as cursor movements to textarea for scrolling
-		// This bypasses history navigation and allows viewport scrolling
-		switch msg.Button.String() {
-		case "wheelup":
-			// Move cursor up (scrolls viewport if needed)
-			e.textarea.CursorUp()
-		case "wheeldown":
-			// Move cursor down (scrolls viewport if needed)
-			e.textarea.CursorDown()
-		}
-		return e, nil
-
 	case tea.MouseClickMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
 		var cmd tea.Cmd
 		e.textarea, cmd = e.textarea.Update(msg)
@@ -1163,7 +1149,7 @@ func (e *editor) getPasteCompletionItems() []completion.Item {
 func (e *editor) View() string {
 	view := e.textarea.View()
 
-	if e.hasSuggestion && e.suggestion != "" {
+	if e.textarea.Focused() && e.hasSuggestion && e.suggestion != "" {
 		view = e.applySuggestionOverlay(view)
 	}
 
@@ -1258,6 +1244,7 @@ func (e *editor) Focus() tea.Cmd {
 // Blur removes focus from the component
 func (e *editor) Blur() tea.Cmd {
 	e.textarea.Blur()
+	e.clearSuggestion()
 	return nil
 }
 

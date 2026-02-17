@@ -81,13 +81,13 @@ $ cagent run agent.yaml</code></pre>
 
 <h2>Non-Interactive Mode</h2>
 
-<p>Use <code>cagent exec</code> for one-shot tasks:</p>
+<p>Use <code>cagent run --exec</code> for one-shot tasks:</p>
 
 <pre><code class="language-bash"># Ask a single question
-$ cagent exec agent.yaml "Create a Dockerfile for a Node.js app"
+$ cagent run --exec agent.yaml "Create a Dockerfile for a Node.js app"
 
 # Pipe input
-$ cat error.log | cagent exec agent.yaml "What's wrong in this log?"</code></pre>
+$ cat error.log | cagent run --exec agent.yaml "What's wrong in this log?"</code></pre>
 
 <h2>Add More Power</h2>
 

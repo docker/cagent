@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/docker/cagent/pkg/tui/components/scrollbar"
+	"github.com/docker/cagent/pkg/tui/messages"
 )
 
 // ScrollKeyMap defines which keys trigger scroll actions.
@@ -190,6 +191,12 @@ func (m *Model) Update(msg tea.Msg) (handled bool, cmd tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.MouseClickMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
 		return m.UpdateMouse(msg)
+
+	case messages.WheelCoalescedMsg:
+		if msg.Delta != 0 {
+			m.ScrollBy(msg.Delta * m.wheelStep)
+			return true, nil
+		}
 
 	case tea.MouseWheelMsg:
 		switch msg.Button.String() {

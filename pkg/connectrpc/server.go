@@ -24,6 +24,7 @@ import (
 	"github.com/docker/cagent/pkg/server"
 	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/tools"
+	"github.com/docker/cagent/pkg/upstream"
 )
 
 // Server implements the Connect-RPC AgentService.
@@ -44,7 +45,8 @@ func (s *Server) Handler() http.Handler {
 
 	path, handler := cagentv1connect.NewAgentServiceHandler(s)
 	mux.Handle(path, handler)
-	return h2c.NewHandler(mux, &http2.Server{})
+
+	return upstream.Handler(h2c.NewHandler(mux, &http2.Server{}))
 }
 
 // Serve starts the Connect-RPC server on the given listener.

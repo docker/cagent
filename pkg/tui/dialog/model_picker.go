@@ -291,8 +291,8 @@ func validateCustomModelSpec(spec string) error {
 	}
 
 	// Handle alloy specs (comma-separated)
-	parts := strings.Split(spec, ",")
-	for _, part := range parts {
+	parts := strings.SplitSeq(spec, ",")
+	for part := range parts {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
