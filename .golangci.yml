@@ -3,30 +3,62 @@ run:
   tests: true
 linters:
   enable:
+    - asasalint
+    - asciicheck
+    - bidichk
     - containedctx
     - copyloopvar
+    - decorder
     - depguard
+    - dogsled
+    - durationcheck
     - errcheck
+    - errname
+    - errorlint
+    - exptostd
+    - fatcontext
+    - forbidigo
     - ginkgolinter
+    - gocheckcompilerdirectives
+    - gochecknoinits
+    - gochecksumtype
     - gocritic
+    - gomoddirectives
+    - gomodguard
+    - goprintffuncname
     - govet
+    - grouper
+    - iface
     - importas # Enforces consistent import aliases.
+    - inamedparam
     - ineffassign
     - intrange
+    - iotamixing
+    - loggercheck
     - misspell
+    - mirror
     - nakedret
     - nolintlint
+    - nosprintfhostport
+    - nilnesserr
+    - predeclared
+    - reassign
+    - recvcheck
     - revive
+    - rowserrcheck
+    - sloglint
     - staticcheck
+    - testableexamples
     - testifylint
     - thelper
     - unconvert
     - unparam
     - unused
     - usestdlibvars
-    - forbidigo
-    - iotamixing
-    - gochecknoinits
+    - unqueryvet
+    - usetesting
+    - whitespace
+    - wastedassign
   settings:
     forbidigo:
       forbid:
@@ -63,6 +95,9 @@ linters:
           deny:
             - pkg: github.com/stretchr/testify
               desc: don't use testify in production code
+    gomoddirectives:
+      replace-allow-list:
+        - github.com/charmbracelet/ultraviolet
     gocritic:
       disabled-checks:
         - dupImport

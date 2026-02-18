@@ -3,6 +3,7 @@ package strategy
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -96,7 +97,7 @@ func (d *bm25DB) AddDocument(ctx context.Context, doc database.Document) error {
 		fmt.Sprintf("SELECT 1 FROM %s WHERE source_path = ? AND chunk_index = ?", d.docsTable),
 		doc.SourcePath, doc.ChunkIndex).Scan(&exists)
 
-	if err != nil && err != sql.ErrNoRows {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("failed to check existing document: %w", err)
 	}
 

@@ -38,7 +38,11 @@ func (c *Client) createBetaStream(
 		return nil, err
 	}
 
-	converted := convertBetaMessages(messages)
+	converted, err := c.convertBetaMessages(ctx, messages)
+	if err != nil {
+		slog.Error("Failed to convert messages for Anthropic Beta request", "error", err)
+		return nil, err
+	}
 	if err := validateAnthropicSequencingBeta(converted); err != nil {
 		slog.Warn("Invalid message sequencing for Anthropic Beta API detected, attempting self-repair", "error", err)
 		converted = repairAnthropicSequencingBeta(converted)
@@ -47,8 +51,23 @@ func (c *Client) createBetaStream(
 			return nil, err
 		}
 	}
+	if len(converted) == 0 {
+		return nil, errors.New("no messages to send after conversion: all messages were filtered out")
+	}
 
 	sys := extractBetaSystemBlocks(messages)
+
+	// Check if messages contain file attachments to include the files-api beta header
+	needsFilesAPI := hasFileAttachments(messages)
+
+	betas := []anthropic.AnthropicBeta{
+		anthropic.AnthropicBetaInterleavedThinking2025_05_14,
+		"fine-grained-tool-streaming-2025-05-14",
+	}
+	if needsFilesAPI {
+		betas = append(betas, filesAPIBeta)
+		slog.Debug("Anthropic Beta API: Including files-api beta header for file attachments")
+	}
 
 	params := anthropic.BetaMessageNewParams{
 		Model:     anthropic.Model(c.ModelConfig.Model),
@@ -56,7 +75,7 @@ func (c *Client) createBetaStream(
 		System:    sys,
 		Messages:  converted,
 		Tools:     allTools,
-		Betas:     []anthropic.AnthropicBeta{anthropic.AnthropicBetaInterleavedThinking2025_05_14, "fine-grained-tool-streaming-2025-05-14"},
+		Betas:     betas,
 	}
 
 	// Apply structured output configuration
@@ -66,8 +85,10 @@ func (c *Client) createBetaStream(
 		// Add structured outputs beta header
 		params.Betas = append(params.Betas, "structured-outputs-2025-11-13")
 
-		// Configure output format using the SDK helper
-		params.OutputFormat = anthropic.BetaJSONSchemaOutputFormat(structuredOutput.Schema)
+		// Configure output format using the SDK helper via OutputConfig
+		params.OutputConfig = anthropic.BetaOutputConfigParam{
+			Format: anthropic.BetaJSONSchemaOutputFormat(structuredOutput.Schema),
+		}
 	}
 
 	// Configure thinking if not explicitly disabled via /think command
@@ -342,8 +363,10 @@ func (c *Client) Rerank(ctx context.Context, query string, documents []types.Doc
 		Messages:  msgs,
 		// Enable structured outputs beta.
 		Betas: []anthropic.AnthropicBeta{"structured-outputs-2025-11-13"},
-		// Enforce schema for the output JSON.
-		OutputFormat: anthropic.BetaJSONSchemaOutputFormat(schema),
+		// Enforce schema for the output JSON via OutputConfig.
+		OutputConfig: anthropic.BetaOutputConfigParam{
+			Format: anthropic.BetaJSONSchemaOutputFormat(schema),
+		},
 	}
 
 	// Apply user-configured sampling settings if specified.

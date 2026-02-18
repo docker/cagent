@@ -87,6 +87,12 @@ func TestSessionBrowserNavigationWithCtrl(t *testing.T) {
 	updated, _ = d.Update(ctrlK)
 	d = updated.(*sessionBrowserDialog)
 	require.Equal(t, 0, d.selected, "selection should be 0 after ctrl+k")
+
+	// Verify ctrl+y is bound to CopyID and doesn't collide with Up.
+	// We only assert key matching here to avoid clipboard side-effects in tests.
+	ctrlY := tea.KeyPressMsg{Code: 'y', Mod: tea.ModCtrl}
+	require.True(t, key.Matches(ctrlY, d.keyMap.CopyID), "ctrl+y should match keyMap.CopyID")
+	require.False(t, key.Matches(ctrlY, d.keyMap.Up), "ctrl+y should not match keyMap.Up")
 }
 
 func TestSessionBrowserViewShowsSelection(t *testing.T) {
@@ -170,7 +176,7 @@ func TestSessionBrowserScrolling(t *testing.T) {
 	// Set a small window size to force scrolling
 	d.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
 
-	maxVisible := d.pageSize()
+	maxVisible := d.scrollview.VisibleHeight()
 	t.Logf("Max visible items: %d", maxVisible)
 
 	// Navigate down past the visible area
@@ -185,11 +191,12 @@ func TestSessionBrowserScrolling(t *testing.T) {
 	// Call View() to trigger offset adjustment (like the TUI does)
 	view := d.View()
 
-	t.Logf("Selected: %d, Offset: %d", d.selected, d.offset)
+	scrollOffset := d.scrollview.ScrollOffset()
+	t.Logf("Selected: %d, ScrollOffset: %d", d.selected, scrollOffset)
 
-	// The offset should have adjusted so selected is visible
-	require.LessOrEqual(t, d.offset, d.selected, "offset should be <= selected")
-	require.Less(t, d.selected, d.offset+maxVisible, "selected should be within visible range")
+	// The scroll offset should have adjusted so selected is visible
+	require.LessOrEqual(t, scrollOffset, d.selected, "scroll offset should be <= selected")
+	require.Less(t, d.selected, scrollOffset+maxVisible, "selected should be within visible range")
 
 	// Verify the view shows the selected session
 	expectedTitle := fmt.Sprintf("Session %d", d.selected+1)

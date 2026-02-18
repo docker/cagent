@@ -193,13 +193,13 @@ func getDMRFallbackURLs(containerized bool) []string {
 		// Inside a container: try Docker internal hostnames and bridge gateway
 		return []string{
 			fmt.Sprintf("http://%s%s/v1/", dmrModelRunnerInternal, dmrInferencePrefix),
-			fmt.Sprintf("http://%s:%s%s/v1/", dmrHostDockerInternal, dmrDefaultPort, dmrInferencePrefix),
-			fmt.Sprintf("http://%s:%s%s/v1/", dmrDockerBridgeGateway, dmrDefaultPort, dmrInferencePrefix),
+			"http://" + net.JoinHostPort(dmrHostDockerInternal, dmrDefaultPort) + dmrInferencePrefix + "/v1/",
+			"http://" + net.JoinHostPort(dmrDockerBridgeGateway, dmrDefaultPort) + dmrInferencePrefix + "/v1/",
 		}
 	}
 	// On the host: only localhost makes sense as a fallback
 	return []string{
-		fmt.Sprintf("http://%s:%s%s/v1/", dmrLocalhost, dmrDefaultPort, dmrInferencePrefix),
+		"http://" + net.JoinHostPort(dmrLocalhost, dmrDefaultPort) + dmrInferencePrefix + "/v1/",
 	}
 }
 
@@ -691,7 +691,7 @@ func (c *Client) Rerank(ctx context.Context, query string, documents []types.Doc
 		Usage struct {
 			PromptTokens int `json:"prompt_tokens"`
 			TotalTokens  int `json:"total_tokens"`
-		} `json:"usage,omitempty"`
+		} `json:"usage"`
 	}
 
 	reqBody := rerankRequest{

@@ -60,7 +60,8 @@ func TestConvertBetaMessages_MergesConsecutiveToolMessages(t *testing.T) {
 	}
 
 	// Convert to Beta format
-	betaMessages := convertBetaMessages(messages)
+	betaMessages, err := testClient().convertBetaMessages(t.Context(), messages)
+	require.NoError(t, err)
 
 	require.Len(t, betaMessages, 4, "Should have 4 messages after conversion")
 
@@ -83,7 +84,7 @@ func TestConvertBetaMessages_MergesConsecutiveToolMessages(t *testing.T) {
 	assert.Contains(t, toolResultIDs, "tool_call_2")
 
 	// Most importantly: validate that the sequence is valid for Anthropic API
-	err := validateAnthropicSequencingBeta(betaMessages)
+	err = validateAnthropicSequencingBeta(betaMessages)
 	require.NoError(t, err, "Converted messages should pass Anthropic sequencing validation")
 }
 
@@ -119,11 +120,12 @@ func TestConvertBetaMessages_SingleToolMessage(t *testing.T) {
 		},
 	}
 
-	betaMessages := convertBetaMessages(messages)
+	betaMessages, err := testClient().convertBetaMessages(t.Context(), messages)
+	require.NoError(t, err)
 	require.Len(t, betaMessages, 4)
 
 	// Validate sequence
-	err := validateAnthropicSequencingBeta(betaMessages)
+	err = validateAnthropicSequencingBeta(betaMessages)
 	require.NoError(t, err)
 }
 
@@ -179,9 +181,10 @@ func TestConvertBetaMessages_NonConsecutiveToolMessages(t *testing.T) {
 		},
 	}
 
-	betaMessages := convertBetaMessages(messages)
+	betaMessages, err := testClient().convertBetaMessages(t.Context(), messages)
+	require.NoError(t, err)
 
 	// Validate the entire sequence
-	err := validateAnthropicSequencingBeta(betaMessages)
+	err = validateAnthropicSequencingBeta(betaMessages)
 	require.NoError(t, err, "Messages with non-consecutive tool calls should still validate")
 }

@@ -54,6 +54,9 @@ type Session struct {
 	// Title is the title of the session, set by the runtime
 	Title string `json:"title"`
 
+	// Evals contains evaluation criteria for this session (used by eval framework)
+	Evals *EvalCriteria `json:"evals,omitempty"`
+
 	// Messages holds the conversation history (messages and sub-sessions)
 	Messages []Item `json:"messages"`
 
@@ -101,6 +104,16 @@ type Session struct {
 	// CustomModelsUsed tracks custom models (provider/model format) used during this session.
 	// These are shown in the model picker for easy re-selection.
 	CustomModelsUsed []string `json:"custom_models_used,omitempty"`
+
+	// BranchParentSessionID indicates this session was branched from another session.
+	BranchParentSessionID string `json:"branch_parent_session_id,omitempty"`
+
+	// BranchParentPosition is the parent session item position where this branch occurred.
+	// Only set when BranchParentSessionID is non-empty.
+	BranchParentPosition *int `json:"branch_parent_position,omitempty"`
+
+	// BranchCreatedAt is the time when this branch session was created.
+	BranchCreatedAt *time.Time `json:"branch_created_at,omitempty"`
 
 	// ParentID indicates this is a sub-session created by task transfer.
 	// Sub-sessions are not persisted as standalone entries; they are embedded
@@ -189,6 +202,14 @@ func NewSubSessionItem(subSession *Session) Item {
 	return Item{SubSession: subSession}
 }
 
+// EvalCriteria contains the evaluation criteria for a session.
+type EvalCriteria struct {
+	Relevance  []string `json:"relevance"`             // Statements that should be true about the response
+	WorkingDir string   `json:"working_dir,omitempty"` // Subdirectory under evals/working_dirs/
+	Size       string   `json:"size,omitempty"`        // Expected response size: S, M, L, XL
+	Setup      string   `json:"setup,omitempty"`       // Optional sh script to run in the container before cagent run --exec
+}
+
 // Session helper methods
 
 // AddMessage adds a message to the session
@@ -253,7 +274,11 @@ func (s *Session) GetLastUserMessageContent() string {
 }
 
 // GetLastUserMessages returns up to n most recent user messages, ordered from oldest to newest.
+// Returns nil if n <= 0.
 func (s *Session) GetLastUserMessages(n int) []string {
+	if n <= 0 {
+		return nil
+	}
 	messages := s.GetAllMessages()
 	var userMessages []string
 	for i := range messages {
@@ -425,7 +450,7 @@ func buildInvariantSystemMessages(a *agent.Agent) []chat.Message {
 	var messages []chat.Message
 
 	if a.HasSubAgents() {
-		subAgents := append(a.SubAgents(), a.Parents()...)
+		subAgents := a.SubAgents()
 
 		var text strings.Builder
 		var validAgentIDs []string
@@ -574,7 +599,7 @@ func buildSessionSummaryMessages(s *Session) ([]chat.Message, int) {
 
 	if lastSummaryIndex >= 0 && lastSummaryIndex < len(s.Messages) {
 		messages = append(messages, chat.Message{
-			Role:      chat.MessageRoleSystem,
+			Role:      chat.MessageRoleUser,
 			Content:   "Session Summary: " + s.Messages[lastSummaryIndex].Summary,
 			CreatedAt: time.Now().Format(time.RFC3339),
 		})

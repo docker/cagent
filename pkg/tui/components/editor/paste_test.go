@@ -124,9 +124,10 @@ func TestCollectAttachments_WithPastes(t *testing.T) {
 	input := "Hello " + att.placeholder + " world"
 	result := e.collectAttachments(input)
 
-	// Content should be in the attachments map keyed by placeholder
-	require.NotNil(t, result)
-	assert.Equal(t, content, result[att.placeholder])
+	// Paste content should be in the attachment's inline Content field
+	require.Len(t, result, 1)
+	assert.Equal(t, content, result[0].Content)
+	assert.Empty(t, result[0].FilePath, "paste attachments should not have a file path")
 	assert.NoFileExists(t, att.path, "paste file should be removed after collection")
 	assert.Empty(t, e.attachments, "attachments should be cleared")
 }

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>cagent – Documentation</title>
+  <meta name="description" content="Build, run, and share AI agents with cagent – a powerful multi-agent system by Docker.">
+
+  <!-- OpenGraph -->
+  <meta property="og:title" content="cagent – Documentation">
+  <meta property="og:description" content="Build, run, and share AI agents with cagent – a powerful multi-agent system by Docker.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="">
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <!-- Prism.js syntax highlighting (YAML, bash, JSON, Go, JavaScript) -->
+  <link href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet">
+
+  <link rel="stylesheet" href="css/style.css">
+
+  <!-- Favicon: Docker-inspired agent icon -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='none'%3E%3Crect x='15' y='35' width='70' height='45' rx='10' fill='%231a56db'/%3E%3Ccircle cx='37' cy='57' r='7' fill='white'/%3E%3Ccircle cx='63' cy='57' r='7' fill='white'/%3E%3Ccircle cx='37' cy='57' r='3' fill='%231a56db'/%3E%3Ccircle cx='63' cy='57' r='3' fill='%231a56db'/%3E%3Crect x='30' y='20' width='8' height='20' rx='4' fill='%231a56db'/%3E%3Crect x='62' y='20' width='8' height='20' rx='4' fill='%231a56db'/%3E%3C/svg%3E">
+</head>
+<body>
+
+  <!-- Skip to content (accessibility) -->
+  <a href="#page-content" class="skip-link">Skip to content</a>
+
+  <!-- Header -->
+  <header class="header" role="banner">
+    <div class="header-inner">
+      <a href="#home" class="header-logo" aria-label="cagent docs home">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="11" width="18" height="10" rx="2"/>
+          <circle cx="9" cy="16" r="1.5" fill="currentColor"/>
+          <circle cx="15" cy="16" r="1.5" fill="currentColor"/>
+          <path d="M8 11V7a4 4 0 0 1 8 0v4"/>
+          <path d="M5 11V9"/>
+          <path d="M19 11V9"/>
+        </svg>
+        <span>cagent <span style="font-weight:400;color:var(--text-muted);font-size:0.85rem;">docs</span></span>
+      </a>
+
+      <div class="header-actions">
+        <div class="header-search">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="search-input" placeholder="Search docs… ⌘K" readonly aria-label="Search documentation">
+        </div>
+
+        <button class="btn-icon" onclick="toggleTheme()" title="Toggle theme" aria-label="Toggle dark/light theme">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+
+        <a href="https://github.com/docker/cagent" target="_blank" rel="noopener" class="github-link" title="GitHub" aria-label="View cagent on GitHub">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Sidebar -->
+  <nav class="sidebar" id="sidebar" role="navigation" aria-label="Documentation navigation"></nav>
+
+  <!-- Sidebar toggle (mobile) -->
+  <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation menu">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+  </button>
+
+  <!-- Main -->
+  <main class="main" role="main">
+    <div class="content" id="page-content">
+      <p style="color:var(--text-muted);">Loading…</p>
+    </div>
+  </main>
+
+  <!-- Search overlay -->
+  <div class="search-overlay" id="search-overlay" role="dialog" aria-label="Search documentation" aria-modal="true">
+    <div class="search-modal">
+      <input type="text" id="search-modal-input" placeholder="Search documentation…" aria-label="Search query">
+      <div class="search-results" id="search-results" role="listbox" aria-label="Search results"></div>
+    </div>
+  </div>
+
+  <!-- Prism.js syntax highlighting (manual mode — we trigger after page load) -->
+  <script>window.Prism = window.Prism || {}; Prism.manual = true;</script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-yaml.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-json.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-go.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-javascript.min.js"></script>
+
+  <script src="js/app.js"></script>
+</body>
+</html>

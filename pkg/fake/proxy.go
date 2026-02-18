@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -214,6 +215,9 @@ func DefaultMatcher(onError func(err error)) recorder.MatcherFunc {
 	// Normalize max_tokens/max_output_tokens/maxOutputTokens field (varies based on models.dev
 	// cache state and provider cloning behavior). Handles both snake_case and camelCase variants.
 	maxTokensRegex := regexp.MustCompile(`"(?:max_(?:output_)?tokens|maxOutputTokens)":\d+,?`)
+	// Normalize Gemini thinkingConfig (varies based on provider defaults for thinking budget).
+	// This handles both camelCase (API) variants of the thinkingConfig field.
+	thinkingConfigRegex := regexp.MustCompile(`"thinkingConfig":\{[^}]*\},?`)
 
 	return func(r *http.Request, i cassette.Request) bool {
 		if r.Body == nil || r.Body == http.NoBody {
@@ -241,8 +245,10 @@ func DefaultMatcher(onError func(err error)) recorder.MatcherFunc {
 		// Normalize dynamic fields for matching
 		normalizedReq := callIDRegex.ReplaceAllString(string(reqBody), "call_ID")
 		normalizedReq = maxTokensRegex.ReplaceAllString(normalizedReq, "")
+		normalizedReq = thinkingConfigRegex.ReplaceAllString(normalizedReq, "")
 		normalizedCassette := callIDRegex.ReplaceAllString(i.Body, "call_ID")
 		normalizedCassette = maxTokensRegex.ReplaceAllString(normalizedCassette, "")
+		normalizedCassette = thinkingConfigRegex.ReplaceAllString(normalizedCassette, "")
 
 		return normalizedReq == normalizedCassette
 	}
@@ -423,7 +429,7 @@ func StreamCopy(c echo.Context, resp *http.Response) error {
 			}
 			if result.err != nil {
 				// io.EOF or context canceled means normal completion
-				if result.err == io.EOF || ctx.Err() != nil {
+				if errors.Is(result.err, io.EOF) || ctx.Err() != nil {
 					return nil
 				}
 				slog.ErrorContext(ctx, "stream read error", "error", result.err)

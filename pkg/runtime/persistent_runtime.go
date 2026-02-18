@@ -93,7 +93,7 @@ func (r *PersistentRuntime) handleEvent(ctx context.Context, sess *session.Sessi
 		streaming.agentName = ""
 		streaming.messageID = 0
 
-		if _, err := r.sessionStore.AddMessage(ctx, e.SessionID, session.UserMessage(e.Message)); err != nil {
+		if _, err := r.sessionStore.AddMessage(ctx, e.SessionID, session.UserMessage(e.Message, e.MultiContent...)); err != nil {
 			slog.Warn("Failed to persist user message", "session_id", e.SessionID, "error", err)
 		}
 

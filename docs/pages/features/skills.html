@@ -1,0 +1,124 @@
+<h1>Skills</h1>
+<p class="subtitle">Skills provide specialized instructions that agents can load on demand when a task matches a skill's description.</p>
+
+<h2>How Skills Work</h2>
+
+<ol>
+  <li>cagent scans standard directories for <code>SKILL.md</code> files</li>
+  <li>Skill metadata (name, description) is injected into the agent's system prompt</li>
+  <li>When a user request matches a skill, the agent reads the full instructions</li>
+  <li>The agent follows the skill's detailed instructions to complete the task</li>
+</ol>
+
+<h2>Enabling Skills</h2>
+
+<pre><code class="language-yaml">agents:
+  root:
+    model: openai/gpt-4o
+    instruction: You are a helpful assistant.
+    skills: true
+    toolsets:
+      - type: filesystem  # required for reading skill files</code></pre>
+
+<div class="callout callout-tip">
+  <div class="callout-title">💡 Tip</div>
+  <p>Skills are perfect for encoding team-specific workflows (PR review, deployment, coding standards) that apply across projects.</p>
+</div>
+
+<h2>SKILL.md Format</h2>
+
+<pre><code class="language-yaml">---
+name: create-dockerfile
+description: Create optimized Dockerfiles for applications
+license: Apache-2.0
+metadata:
+  author: my-org
+  version: "1.0"
+---
+
+# Creating Dockerfiles
+
+When asked to create a Dockerfile:
+
+1. Analyze the application type and language
+2. Use multi-stage builds for compiled languages
+3. Minimize image size by using slim base images
+4. Follow security best practices (non-root user, etc.)</code></pre>
+
+<h2>Search Paths</h2>
+
+<p>Skills are discovered from these locations (later overrides earlier):</p>
+
+<h3>Global</h3>
+<table>
+  <thead><tr><th>Path</th><th>Search Type</th></tr></thead>
+  <tbody>
+    <tr><td><code>~/.codex/skills/</code></td><td>Recursive (searches all subdirectories)</td></tr>
+    <tr><td><code>~/.claude/skills/</code></td><td>Flat (immediate children only)</td></tr>
+    <tr><td><code>~/.agents/skills/</code></td><td>Recursive (searches all subdirectories)</td></tr>
+  </tbody>
+</table>
+
+<h3>Project (from git root to current directory)</h3>
+<table>
+  <thead><tr><th>Path</th><th>Search Type</th></tr></thead>
+  <tbody>
+    <tr><td><code>.claude/skills/</code></td><td>Flat (cwd only)</td></tr>
+    <tr><td><code>.agents/skills/</code></td><td>Flat (each directory from git root to cwd)</td></tr>
+  </tbody>
+</table>
+
+<h2>Invoking Skills</h2>
+
+<p>Skills can be invoked in multiple ways:</p>
+
+<ul>
+  <li><strong>Automatic:</strong> The agent detects when your request matches a skill's description and loads it automatically</li>
+  <li><strong>Explicit:</strong> Reference the skill name in your prompt: "Use the create-dockerfile skill to..."</li>
+  <li><strong>Slash command:</strong> Use <code>/{skill-name}</code> to invoke a skill directly</li>
+</ul>
+
+<pre><code class="language-bash"># In the TUI, invoke skill directly:
+/create-dockerfile
+
+# Or mention it in your message:
+"Create a dockerfile for my Python app (use the create-dockerfile skill)"</code></pre>
+
+<h2>Precedence</h2>
+
+<p>When multiple skills share the same name:</p>
+
+<ol>
+  <li>Global skills load first</li>
+  <li>Project skills load next, from git root toward current directory</li>
+  <li>Skills closer to the current directory override those further away</li>
+</ol>
+
+<h2>Creating a Skill</h2>
+
+<pre><code class="language-bash"># Create the skill directory
+$ mkdir -p ~/.agents/skills/create-dockerfile
+
+# Write the SKILL.md file
+$ cat > ~/.agents/skills/create-dockerfile/SKILL.md << 'EOF'
+---
+name: create-dockerfile
+description: Create optimized Dockerfiles for applications
+---
+
+# Creating Dockerfiles
+
+When asked to create a Dockerfile:
+
+1. Analyze the application type and language
+2. Use multi-stage builds for compiled languages
+3. Use slim base images to minimize size
+4. Run as non-root user for security
+EOF</code></pre>
+
+<p>The skill will automatically be available to any agent with <code>skills: true</code>.</p>
+
+<div class="callout callout-info">
+  <div class="callout-title">ℹ️ See also</div>
+  <p>Skills are enabled in the <a href="#configuration/agents" onclick="event.preventDefault(); navigate('configuration/agents')">Agent Config</a> with the <code>skills: true</code> property. For tool-based capabilities, see <a href="#concepts/tools" onclick="event.preventDefault(); navigate('concepts/tools')">Tools</a>.</p>
+</div>

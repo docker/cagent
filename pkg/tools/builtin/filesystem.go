@@ -299,7 +299,6 @@ func (t *FilesystemTool) executePostEditCommands(ctx context.Context, filePath s
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("post-edit command failed for %s: %w", filePath, err)
 		}
-
 	}
 	return nil
 }

@@ -18,8 +18,8 @@ type RemoteClient interface {
 	// CreateSession creates a new session
 	CreateSession(ctx context.Context, sessTemplate *session.Session) (*session.Session, error)
 
-	// ResumeSession resumes a paused session with an optional rejection reason
-	ResumeSession(ctx context.Context, id, confirmation, reason string) error
+	// ResumeSession resumes a paused session with optional rejection reason or tool name
+	ResumeSession(ctx context.Context, id, confirmation, reason, toolName string) error
 
 	// ResumeElicitation sends an elicitation response
 	ResumeElicitation(ctx context.Context, sessionID string, action tools.ElicitationAction, content map[string]any) error
@@ -32,6 +32,9 @@ type RemoteClient interface {
 
 	// UpdateSessionTitle updates the title of a session
 	UpdateSessionTitle(ctx context.Context, sessionID, title string) error
+
+	// GetAgentToolCount returns the number of tools available for an agent
+	GetAgentToolCount(ctx context.Context, agentFilename, agentName string) (int, error)
 }
 
 // Verify that both clients implement RemoteClient

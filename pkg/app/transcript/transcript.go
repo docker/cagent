@@ -87,7 +87,7 @@ func toJSONString(builder *strings.Builder, in string) {
 	if err := json.Unmarshal([]byte(in), &content); err == nil {
 		if formatted, err := json.MarshalIndent(content, "", "  "); err == nil {
 			builder.WriteString("```json\n")
-			builder.WriteString(string(formatted))
+			builder.Write(formatted)
 			builder.WriteString("\n```\n")
 		} else {
 			builder.WriteString(in)

@@ -1,0 +1,152 @@
+<h1>Sandbox Mode</h1>
+<p class="subtitle">Run shell commands in an isolated Docker container for enhanced security.</p>
+
+<h2>Overview</h2>
+
+<p>Sandbox mode runs shell tool commands inside a Docker container instead of directly on the host system. This provides an additional layer of isolation, limiting the potential impact of unintended or malicious commands.</p>
+
+<div class="callout callout-info">
+  <div class="callout-title">ℹ️ Requirements</div>
+  <p>Sandbox mode requires Docker to be installed and running on the host system.</p>
+</div>
+
+<h2>Configuration</h2>
+
+<pre><code class="language-yaml">agents:
+  root:
+    model: openai/gpt-4o
+    description: Agent with sandboxed shell
+    instruction: You are a helpful assistant.
+    toolsets:
+      - type: shell
+    sandbox:
+      image: alpine:latest    # Docker image to use
+      paths:                  # Directories to mount
+        - "."                 # Current directory (read-write)
+        - "/data:ro"          # Read-only mount</code></pre>
+
+<h2>Properties</h2>
+
+<table>
+  <thead><tr><th>Property</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>image</code></td><td>string</td><td><code>alpine:latest</code></td><td>Docker image to use for the sandbox container</td></tr>
+    <tr><td><code>paths</code></td><td>array</td><td><code>[]</code></td><td>Host paths to mount into the container</td></tr>
+  </tbody>
+</table>
+
+<h2>Path Mounting</h2>
+
+<p>Paths can be specified with optional access modes:</p>
+
+<table>
+  <thead><tr><th>Format</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>/path</code></td><td>Mount with read-write access (default)</td></tr>
+    <tr><td><code>/path:rw</code></td><td>Explicitly read-write</td></tr>
+    <tr><td><code>/path:ro</code></td><td>Read-only mount</td></tr>
+    <tr><td><code>.</code></td><td>Current working directory</td></tr>
+    <tr><td><code>./relative</code></td><td>Relative path (resolved from working directory)</td></tr>
+  </tbody>
+</table>
+
+<p>Paths are mounted at the same location inside the container as on the host, so file paths in commands work the same way.</p>
+
+<h2>Example: Development Agent</h2>
+
+<pre><code class="language-yaml">agents:
+  developer:
+    model: anthropic/claude-sonnet-4-0
+    description: Development agent with sandboxed shell
+    instruction: |
+      You are a software developer. Use the shell tool to run
+      build commands and tests. Your shell runs in a sandbox.
+    toolsets:
+      - type: shell
+      - type: filesystem
+    sandbox:
+      image: node:20-alpine    # Node.js environment
+      paths:
+        - "."                  # Project directory
+        - "/tmp:rw"            # Temp directory for builds</code></pre>
+
+<h2>How It Works</h2>
+
+<ol>
+  <li>When the agent first uses the shell tool, cagent starts a Docker container</li>
+  <li>The container runs with the specified image and mounted paths</li>
+  <li>Shell commands execute inside the container via <code>docker exec</code></li>
+  <li>The container persists for the session (commands share state)</li>
+  <li>When the session ends, the container is automatically stopped and removed</li>
+</ol>
+
+<h2>Container Configuration</h2>
+
+<p>Sandbox containers are started with these Docker options:</p>
+
+<ul>
+  <li><code>--rm</code> — Automatically remove when stopped</li>
+  <li><code>--init</code> — Use init process for proper signal handling</li>
+  <li><code>--network host</code> — Share host network (commands can access network)</li>
+  <li>Environment variables from host are forwarded to container</li>
+</ul>
+
+<h2>Orphan Container Cleanup</h2>
+
+<p>If cagent crashes or is killed, sandbox containers may be left running. cagent automatically cleans up orphaned containers from previous runs when it starts. Containers are identified by labels and the PID of the cagent process that created them.</p>
+
+<h2>Choosing an Image</h2>
+
+<p>Select a Docker image that has the tools your agent needs:</p>
+
+<table>
+  <thead><tr><th>Use Case</th><th>Suggested Image</th></tr></thead>
+  <tbody>
+    <tr><td>General scripting</td><td><code>alpine:latest</code></td></tr>
+    <tr><td>Node.js development</td><td><code>node:20-alpine</code></td></tr>
+    <tr><td>Python development</td><td><code>python:3.12-alpine</code></td></tr>
+    <tr><td>Go development</td><td><code>golang:1.23-alpine</code></td></tr>
+    <tr><td>Full Linux environment</td><td><code>ubuntu:24.04</code></td></tr>
+  </tbody>
+</table>
+
+<div class="callout callout-tip">
+  <div class="callout-title">💡 Custom Images</div>
+  <p>For complex setups, build a custom Docker image with all required tools pre-installed. This avoids installation time during agent execution.</p>
+</div>
+
+<div class="callout callout-warning">
+  <div class="callout-title">⚠️ Limitations</div>
+  <ul>
+    <li>Only the <code>shell</code> tool runs in the sandbox; other tools (filesystem, MCP) run on the host</li>
+    <li>Host network access means network-based attacks are still possible</li>
+    <li>Mounted paths are accessible according to their access mode</li>
+    <li>Container starts fresh each session (no persistence between sessions)</li>
+  </ul>
+</div>
+
+<h2>Combining with Permissions</h2>
+
+<p>For defense in depth, combine sandbox mode with <a href="#configuration/permissions" onclick="event.preventDefault(); navigate('configuration/permissions')">permissions</a>:</p>
+
+<pre><code class="language-yaml">agents:
+  root:
+    model: openai/gpt-4o
+    description: Secure development agent
+    instruction: You are a helpful assistant.
+    toolsets:
+      - type: shell
+      - type: filesystem
+    sandbox:
+      image: node:20-alpine
+      paths:
+        - ".:rw"
+    permissions:
+      allow:
+        - "shell:cmd=npm*"
+        - "shell:cmd=node*"
+        - "shell:cmd=ls*"
+      deny:
+        - "shell:cmd=sudo*"
+        - "shell:cmd=curl*"
+        - "shell:cmd=wget*"</code></pre>

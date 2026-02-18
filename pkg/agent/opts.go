@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"time"
+
 	"github.com/docker/cagent/pkg/config/latest"
 	"github.com/docker/cagent/pkg/config/types"
 	"github.com/docker/cagent/pkg/model/provider"
@@ -53,6 +55,30 @@ func WithName(name string) Opt {
 func WithModel(model provider.Provider) Opt {
 	return func(a *Agent) {
 		a.models = append(a.models, model)
+	}
+}
+
+// WithFallbackModel adds a fallback model to try if the primary model fails.
+// For retryable errors (5xx, timeouts), the same model is retried with backoff.
+// For non-retryable errors (429), we immediately move to the next model in the chain.
+func WithFallbackModel(model provider.Provider) Opt {
+	return func(a *Agent) {
+		a.fallbackModels = append(a.fallbackModels, model)
+	}
+}
+
+// WithFallbackRetries sets the number of retries per fallback model with exponential backoff.
+func WithFallbackRetries(retries int) Opt {
+	return func(a *Agent) {
+		a.fallbackRetries = retries
+	}
+}
+
+// WithFallbackCooldown sets the duration to stick with a successful fallback model
+// before retrying the primary. Only applies after a non-retryable error (e.g., 429).
+func WithFallbackCooldown(cooldown time.Duration) Opt {
+	return func(a *Agent) {
+		a.fallbackCooldown = cooldown
 	}
 }
 

@@ -17,13 +17,7 @@ import (
 // either set directly on the model or inherited from a custom provider definition.
 // This is necessary because external providers (like Azure Foundry) may use the alias
 // names directly as deployment names rather than the pinned version names.
-func ResolveModelAliases(ctx context.Context, cfg *latest.Config) {
-	store, err := modelsdev.NewStore()
-	if err != nil {
-		slog.Debug("Failed to create modelsdev store for alias resolution", "error", err)
-		return
-	}
-
+func ResolveModelAliases(ctx context.Context, cfg *latest.Config, store *modelsdev.Store) {
 	// Resolve model aliases in the models section
 	for name, modelCfg := range cfg.Models {
 		// Skip alias resolution for models with custom base_url (direct or via provider)

@@ -11,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/docker/cagent/pkg/tools"
+	"github.com/docker/cagent/pkg/upstream"
 )
 
 type remoteMCPClient struct {
@@ -124,35 +125,11 @@ func (c *remoteMCPClient) Initialize(ctx context.Context, _ *mcp.InitializeReque
 	return session.InitializeResult(), nil
 }
 
-// headerTransport is a RoundTripper that adds custom headers to all requests
-type headerTransport struct {
-	base    http.RoundTripper
-	headers map[string]string
-}
-
-func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	// Clone the request to avoid modifying the original
-	req = req.Clone(req.Context())
-
-	// Add custom headers
-	for key, value := range t.headers {
-		req.Header.Set(key, value)
-	}
-
-	return t.base.RoundTrip(req)
-}
-
-// createHTTPClient creates an HTTP client with custom headers and OAuth support
+// createHTTPClient creates an HTTP client with custom headers and OAuth support.
+// Header values may contain ${headers.NAME} placeholders that are resolved
+// at request time from upstream headers stored in the request context.
 func (c *remoteMCPClient) createHTTPClient() *http.Client {
-	transport := http.DefaultTransport
-
-	// Add custom headers first
-	if len(c.headers) > 0 {
-		transport = &headerTransport{
-			base:    transport,
-			headers: c.headers,
-		}
-	}
+	transport := c.headerTransport()
 
 	// Then wrap with OAuth support
 	transport = &oauthTransport{
@@ -166,6 +143,13 @@ func (c *remoteMCPClient) createHTTPClient() *http.Client {
 	return &http.Client{
 		Transport: transport,
 	}
+}
+
+func (c *remoteMCPClient) headerTransport() http.RoundTripper {
+	if len(c.headers) > 0 {
+		return upstream.NewHeaderTransport(http.DefaultTransport, c.headers)
+	}
+	return http.DefaultTransport
 }
 
 func (c *remoteMCPClient) Close(context.Context) error {

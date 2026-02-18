@@ -187,3 +187,233 @@ func TestHistory_LatestMatch(t *testing.T) {
 	// Exact match doesn't count (must extend prefix)
 	assert.Empty(t, h.LatestMatch("goodbye"))
 }
+
+func TestHistory_FindPrevContains(t *testing.T) {
+	t.Parallel()
+
+	t.Run("empty history", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		h, err := New(WithBaseDir(tmpDir))
+		require.NoError(t, err)
+
+		msg, idx, ok := h.FindPrevContains("test", len(h.Messages))
+		assert.False(t, ok)
+		assert.Empty(t, msg)
+		assert.Equal(t, -1, idx)
+	})
+
+	t.Run("empty query matches latest", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		h, err := New(WithBaseDir(tmpDir))
+		require.NoError(t, err)
+
+		require.NoError(t, h.Add("first"))
+		require.NoError(t, h.Add("second"))
+		require.NoError(t, h.Add("third"))
+
+		msg, idx, ok := h.FindPrevContains("", len(h.Messages))
+		assert.True(t, ok)
+		assert.Equal(t, "third", msg)
+		assert.Equal(t, 2, idx)
+	})
+
+	t.Run("substring match", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		h, err := New(WithBaseDir(tmpDir))
+		require.NoError(t, err)
+
+		require.NoError(t, h.Add("deploy staging"))
+		require.NoError(t, h.Add("run tests"))
+		require.NoError(t, h.Add("deploy production"))
+
+		msg, idx, ok := h.FindPrevContains("deploy", len(h.Messages))
+		assert.True(t, ok)
+		assert.Equal(t, "deploy production", msg)
+		assert.Equal(t, 2, idx)
+	})
+
+	t.Run("case insensitive match", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		h, err := New(WithBaseDir(tmpDir))
+		require.NoError(t, err)
+
+		require.NoError(t, h.Add("Deploy Staging"))
+		require.NoError(t, h.Add("run tests"))
+
+		msg, idx, ok := h.FindPrevContains("deploy", len(h.Messages))
+		assert.True(t, ok)
+		assert.Equal(t, "Deploy Staging", msg)
+		assert.Equal(t, 0, idx)
+	})
+
+	t.Run("cycling through matches", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		h, err := New(WithBaseDir(tmpDir))
+		require.NoError(t, err)
+
+		require.NoError(t, h.Add("deploy v1"))
+		require.NoError(t, h.Add("run tests"))
+		require.NoError(t, h.Add("deploy v2"))
+		require.NoError(t, h.Add("check logs"))
+		require.NoError(t, h.Add("deploy v3"))
+
+		// First match: most recent
+		msg, idx, ok := h.FindPrevContains("deploy", len(h.Messages))
+		assert.True(t, ok)
+		assert.Equal(t, "deploy v3", msg)
+		assert.Equal(t, 4, idx)
+
+		// Cycle to next older match
+		msg, idx, ok = h.FindPrevContains("deploy", idx)
+		assert.True(t, ok)
+		assert.Equal(t, "deploy v2", msg)
+		assert.Equal(t, 2, idx)
+
+		// Cycle to oldest match
+		msg, idx, ok = h.FindPrevContains("deploy", idx)
+		assert.True(t, ok)
+		assert.Equal(t, "deploy v1", msg)
+		assert.Equal(t, 0, idx)
+
+		// No more matches
+		_, _, ok = h.FindPrevContains("deploy", idx)
+		assert.False(t, ok)
+	})
+
+	t.Run("no match", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		h, err := New(WithBaseDir(tmpDir))
+		require.NoError(t, err)
+
+		require.NoError(t, h.Add("hello"))
+		require.NoError(t, h.Add("world"))
+
+		msg, idx, ok := h.FindPrevContains("xyz", len(h.Messages))
+		assert.False(t, ok)
+		assert.Empty(t, msg)
+		assert.Equal(t, -1, idx)
+	})
+
+	t.Run("from out of bounds", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		h, err := New(WithBaseDir(tmpDir))
+		require.NoError(t, err)
+
+		require.NoError(t, h.Add("hello"))
+
+		msg, idx, ok := h.FindPrevContains("hello", 100)
+		assert.True(t, ok)
+		assert.Equal(t, "hello", msg)
+		assert.Equal(t, 0, idx)
+	})
+}
+
+func TestHistory_FindNextContains(t *testing.T) {
+	t.Parallel()
+
+	t.Run("basic forward search", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		h, err := New(WithBaseDir(tmpDir))
+		require.NoError(t, err)
+
+		require.NoError(t, h.Add("deploy v1"))
+		require.NoError(t, h.Add("run tests"))
+		require.NoError(t, h.Add("deploy v2"))
+
+		msg, idx, ok := h.FindNextContains("deploy", -1)
+		assert.True(t, ok)
+		assert.Equal(t, "deploy v1", msg)
+		assert.Equal(t, 0, idx)
+	})
+
+	t.Run("sequential forward search", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		h, err := New(WithBaseDir(tmpDir))
+		require.NoError(t, err)
+
+		require.NoError(t, h.Add("echo 1"))
+		require.NoError(t, h.Add("echo 2"))
+		require.NoError(t, h.Add("echo 3"))
+
+		msg, idx, ok := h.FindNextContains("echo", -1)
+		assert.True(t, ok)
+		assert.Equal(t, "echo 1", msg)
+		assert.Equal(t, 0, idx)
+
+		msg, idx, ok = h.FindNextContains("echo", idx)
+		assert.True(t, ok)
+		assert.Equal(t, "echo 2", msg)
+		assert.Equal(t, 1, idx)
+
+		msg, idx, ok = h.FindNextContains("echo", idx)
+		assert.True(t, ok)
+		assert.Equal(t, "echo 3", msg)
+		assert.Equal(t, 2, idx)
+
+		_, _, ok = h.FindNextContains("echo", idx)
+		assert.False(t, ok)
+	})
+
+	t.Run("no match", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		h, err := New(WithBaseDir(tmpDir))
+		require.NoError(t, err)
+
+		require.NoError(t, h.Add("hello"))
+
+		msg, idx, ok := h.FindNextContains("xyz", -1)
+		assert.False(t, ok)
+		assert.Empty(t, msg)
+		assert.Equal(t, -1, idx)
+	})
+
+	t.Run("empty history", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		h, err := New(WithBaseDir(tmpDir))
+		require.NoError(t, err)
+
+		_, _, ok := h.FindNextContains("test", -1)
+		assert.False(t, ok)
+	})
+
+	t.Run("case insensitive", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		h, err := New(WithBaseDir(tmpDir))
+		require.NoError(t, err)
+
+		require.NoError(t, h.Add("Deploy Staging"))
+
+		msg, _, ok := h.FindNextContains("deploy", -1)
+		assert.True(t, ok)
+		assert.Equal(t, "Deploy Staging", msg)
+	})
+}
+
+func TestHistory_SetCurrent(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	h, err := New(WithBaseDir(tmpDir))
+	require.NoError(t, err)
+
+	require.NoError(t, h.Add("first"))
+	require.NoError(t, h.Add("second"))
+	require.NoError(t, h.Add("third"))
+
+	h.SetCurrent(1)
+	assert.Equal(t, "first", h.Previous())
+
+	h.SetCurrent(2)
+	assert.Empty(t, h.Next())
+}

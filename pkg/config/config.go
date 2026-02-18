@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/url"
 	"slices"
 	"strings"
@@ -15,11 +16,7 @@ import (
 	"github.com/docker/cagent/pkg/environment"
 )
 
-type Reader interface {
-	Read(ctx context.Context) ([]byte, error)
-}
-
-func Load(ctx context.Context, source Reader) (*latest.Config, error) {
+func Load(ctx context.Context, source Source) (*latest.Config, error) {
 	data, err := source.Read(ctx)
 	if err != nil {
 		return nil, err
@@ -73,9 +70,10 @@ func CheckRequiredEnvVars(ctx context.Context, cfg *latest.Config, modelsGateway
 }
 
 func parseCurrentVersion(data []byte, version string) (any, error) {
-	parser, found := Parsers()[version]
+	parsers := Parsers()
+	parser, found := parsers[version]
 	if !found {
-		return nil, fmt.Errorf("unsupported config version: %v", version)
+		return nil, fmt.Errorf("unsupported config version: %v (valid versions: %s)", version, strings.Join(slices.Sorted(maps.Keys(parsers)), ", "))
 	}
 	return parser(data)
 }
@@ -105,7 +103,7 @@ func validateConfig(cfg *latest.Config) error {
 	for name := range cfg.Models {
 		if cfg.Models[name].ParallelToolCalls == nil {
 			m := cfg.Models[name]
-			m.ParallelToolCalls = boolPtr(true)
+			m.ParallelToolCalls = new(true)
 			cfg.Models[name] = m
 		}
 	}
@@ -132,10 +130,6 @@ func validateConfig(cfg *latest.Config) error {
 	}
 
 	return nil
-}
-
-func boolPtr(b bool) *bool {
-	return &b
 }
 
 // providerAPITypes are the allowed values for api_type in provider configs

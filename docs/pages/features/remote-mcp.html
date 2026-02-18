@@ -1,0 +1,163 @@
+<h1>Remote MCP Servers</h1>
+<p class="subtitle">Connect cagent to cloud services via remote MCP servers with built-in OAuth authentication.</p>
+
+<h2>Overview</h2>
+
+<p>cagent supports connecting to remote MCP servers over <strong>SSE</strong> (Server-Sent Events) and <strong>Streamable HTTP</strong> transports. Many popular services offer MCP endpoints with OAuth — cagent handles the authentication flow automatically.</p>
+
+<pre><code class="language-yaml">toolsets:
+  - type: mcp
+    remote:
+      url: "https://mcp.linear.app/sse"
+      transport_type: "sse"</code></pre>
+
+<div class="callout callout-tip">
+  <div class="callout-title">💡 OAuth flow</div>
+  <p>When you connect to a remote MCP server that requires OAuth, cagent opens your browser automatically for authentication. Tokens are cached for subsequent sessions.</p>
+</div>
+
+<h2>Configuration</h2>
+
+<pre><code class="language-yaml">toolsets:
+  - type: mcp
+    remote:
+      url: "https://mcp.example.com/sse"
+      transport_type: "sse"          # or "streamable"
+      headers:
+        Authorization: "Bearer token" # optional: static auth</code></pre>
+
+<p>For full configuration details, see the <a href="#configuration/tools" onclick="event.preventDefault(); navigate('configuration/tools')">Tool Config</a> page.</p>
+
+<h2>Project Management &amp; Collaboration</h2>
+
+<table>
+  <thead><tr><th>Service</th><th>URL</th><th>Transport</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td>Asana</td><td><code>https://mcp.asana.com/sse</code></td><td>sse</td><td>Task and project management</td></tr>
+    <tr><td>Atlassian</td><td><code>https://mcp.atlassian.com/v1/sse</code></td><td>sse</td><td>Jira, Confluence integration</td></tr>
+    <tr><td>Linear</td><td><code>https://mcp.linear.app/sse</code></td><td>sse</td><td>Issue tracking and project management</td></tr>
+    <tr><td>Monday.com</td><td><code>https://mcp.monday.com/sse</code></td><td>sse</td><td>Work management platform</td></tr>
+    <tr><td>Intercom</td><td><code>https://mcp.intercom.com/sse</code></td><td>sse</td><td>Customer communication platform</td></tr>
+  </tbody>
+</table>
+
+<h2>Development &amp; Infrastructure</h2>
+
+<table>
+  <thead><tr><th>Service</th><th>URL</th><th>Transport</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td>GitHub</td><td><code>https://api.githubcopilot.com/mcp</code></td><td>sse</td><td>Version control and collaboration</td></tr>
+    <tr><td>Buildkite</td><td><code>https://mcp.buildkite.com/mcp</code></td><td>streamable</td><td>CI/CD platform</td></tr>
+    <tr><td>Netlify</td><td><code>https://netlify-mcp.netlify.app/mcp</code></td><td>streamable</td><td>Web hosting and deployment</td></tr>
+    <tr><td>Vercel</td><td><code>https://mcp.vercel.com/</code></td><td>sse</td><td>Web deployment platform</td></tr>
+    <tr><td>Cloudflare Bindings</td><td><code>https://bindings.mcp.cloudflare.com/sse</code></td><td>sse</td><td>Edge computing resources</td></tr>
+    <tr><td>Cloudflare Observability</td><td><code>https://observability.mcp.cloudflare.com/sse</code></td><td>sse</td><td>Monitoring and analytics</td></tr>
+    <tr><td>Grafbase</td><td><code>https://api.grafbase.com/mcp</code></td><td>streamable</td><td>GraphQL backend platform</td></tr>
+    <tr><td>Neon</td><td><code>https://mcp.neon.tech/sse</code></td><td>sse</td><td>Serverless Postgres database</td></tr>
+    <tr><td>Prisma</td><td><code>https://mcp.prisma.io/mcp</code></td><td>streamable</td><td>Database ORM and toolkit</td></tr>
+    <tr><td>Sentry</td><td><code>https://mcp.sentry.dev/sse</code></td><td>sse</td><td>Error tracking and monitoring</td></tr>
+  </tbody>
+</table>
+
+<h2>Content &amp; Media</h2>
+
+<table>
+  <thead><tr><th>Service</th><th>URL</th><th>Transport</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td>Canva</td><td><code>https://mcp.canva.com/mcp</code></td><td>streamable</td><td>Design and graphics platform</td></tr>
+    <tr><td>Cloudinary</td><td><code>https://asset-management.mcp.cloudinary.com/sse</code></td><td>sse</td><td>Media management and optimization</td></tr>
+    <tr><td>InVideo</td><td><code>https://mcp.invideo.io/sse</code></td><td>sse</td><td>Video creation platform</td></tr>
+    <tr><td>Webflow</td><td><code>https://mcp.webflow.com/sse</code></td><td>sse</td><td>Website builder and CMS</td></tr>
+    <tr><td>Wix</td><td><code>https://mcp.wix.com/sse</code></td><td>sse</td><td>Website builder platform</td></tr>
+    <tr><td>Notion</td><td><code>https://mcp.notion.com/sse</code></td><td>sse</td><td>Documentation and knowledge base</td></tr>
+  </tbody>
+</table>
+
+<h2>Communication &amp; Voice</h2>
+
+<table>
+  <thead><tr><th>Service</th><th>URL</th><th>Transport</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td>Fireflies</td><td><code>https://api.fireflies.ai/mcp</code></td><td>streamable</td><td>Meeting transcription</td></tr>
+    <tr><td>Listenetic</td><td><code>https://mcp.listenetic.com/v1/mcp</code></td><td>streamable</td><td>Audio intelligence platform</td></tr>
+    <tr><td>Carbonvoice</td><td><code>https://mcp.carbonvoice.app</code></td><td>sse</td><td>Voice communication tools</td></tr>
+    <tr><td>Telnyx</td><td><code>https://api.telnyx.com/v2/mcp</code></td><td>streamable</td><td>Communications platform</td></tr>
+    <tr><td>Dialer</td><td><code>https://getdialer.app/sse</code></td><td>sse</td><td>Phone communication tools</td></tr>
+  </tbody>
+</table>
+
+<h2>Storage &amp; File Management</h2>
+
+<table>
+  <thead><tr><th>Service</th><th>URL</th><th>Transport</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td>Box</td><td><code>https://mcp.box.com</code></td><td>sse</td><td>Cloud content management</td></tr>
+    <tr><td>Egnyte</td><td><code>https://mcp-server.egnyte.com/sse</code></td><td>sse</td><td>Enterprise file sharing</td></tr>
+  </tbody>
+</table>
+
+<h2>Business &amp; Finance</h2>
+
+<table>
+  <thead><tr><th>Service</th><th>URL</th><th>Transport</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td>PayPal</td><td><code>https://mcp.paypal.com/sse</code></td><td>sse</td><td>Payment processing</td></tr>
+    <tr><td>Plaid</td><td><code>https://api.dashboard.plaid.com/mcp/sse</code></td><td>sse</td><td>Financial data integration</td></tr>
+    <tr><td>Square</td><td><code>https://mcp.squareup.com/sse</code></td><td>sse</td><td>Payment processing</td></tr>
+    <tr><td>Close</td><td><code>https://mcp.close.com/mcp</code></td><td>streamable</td><td>CRM platform</td></tr>
+    <tr><td>Dodo Payments</td><td><code>https://mcp.dodopayments.com/sse</code></td><td>sse</td><td>Payment processing</td></tr>
+  </tbody>
+</table>
+
+<h2>Analytics &amp; Data</h2>
+
+<table>
+  <thead><tr><th>Service</th><th>URL</th><th>Transport</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td>ThoughtSpot</td><td><code>https://agent.thoughtspot.app/mcp</code></td><td>streamable</td><td>Analytics and BI platform</td></tr>
+    <tr><td>Meta Ads</td><td><code>https://mcp.pipeboard.co/meta-ads-mcp</code></td><td>streamable</td><td>Facebook advertising analytics</td></tr>
+  </tbody>
+</table>
+
+<h2>Utilities &amp; Tools</h2>
+
+<table>
+  <thead><tr><th>Service</th><th>URL</th><th>Transport</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td>Apify</td><td><code>https://mcp.apify.com</code></td><td>sse</td><td>Web scraping and automation</td></tr>
+    <tr><td>SimpleScraper</td><td><code>https://mcp.simplescraper.io/mcp</code></td><td>streamable</td><td>Web scraping tool</td></tr>
+    <tr><td>GlobalPing</td><td><code>https://mcp.globalping.dev/sse</code></td><td>sse</td><td>Network diagnostics</td></tr>
+    <tr><td>Jam</td><td><code>https://mcp.jam.dev/mcp</code></td><td>streamable</td><td>Bug reporting and collaboration</td></tr>
+  </tbody>
+</table>
+
+<h2>Example: Multi-Service Agent</h2>
+
+<p>Combine multiple remote MCP servers in a single agent:</p>
+
+<pre><code class="language-yaml">agents:
+  root:
+    model: anthropic/claude-sonnet-4-0
+    instruction: |
+      You help manage projects and deployments.
+    toolsets:
+      - type: mcp
+        remote:
+          url: "https://mcp.linear.app/sse"
+          transport_type: "sse"
+        instruction: Use Linear for issue tracking.
+      - type: mcp
+        remote:
+          url: "https://api.githubcopilot.com/mcp"
+          transport_type: "sse"
+        instruction: Use GitHub for code and PRs.
+      - type: mcp
+        remote:
+          url: "https://mcp.vercel.com/"
+          transport_type: "sse"
+        instruction: Use Vercel for deployments.</code></pre>
+
+<div class="callout callout-info">
+  <div class="callout-title">ℹ️ Growing list</div>
+  <p>This list is updated as more services add MCP support. If a service you use isn't listed, check their documentation — many providers are adding MCP endpoints regularly.</p>
+</div>

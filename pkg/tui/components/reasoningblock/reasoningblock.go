@@ -103,6 +103,7 @@ type Model struct {
 	contentItems        []contentItem // Ordered sequence of reasoning and tool calls
 	toolEntries         []toolEntry   // All tool entries (referenced by contentItems)
 	expanded            bool
+	selected            bool
 	width               int
 	height              int
 	sessionState        *service.SessionState
@@ -357,6 +358,19 @@ func (m *Model) SetExpanded(expanded bool) {
 	m.expanded = expanded
 }
 
+// SetSelected sets the selected state for visual highlighting.
+func (m *Model) SetSelected(selected bool) {
+	m.selected = selected
+}
+
+// messageStyle returns the appropriate style based on selection state.
+func (m *Model) messageStyle() lipgloss.Style {
+	if m.selected {
+		return styles.SelectedMessageStyle
+	}
+	return styles.AssistantMessageStyle
+}
+
 // Init initializes the component.
 func (m *Model) Init() tea.Cmd {
 	var cmds []tea.Cmd
@@ -595,7 +609,7 @@ func (m *Model) renderHeader(expanded bool) string {
 		}
 	}
 
-	return styles.AssistantMessageStyle.Render(badge + indicator + toolInfo)
+	return m.messageStyle().Render(badge + indicator + toolInfo)
 }
 
 // renderReasoningChunk renders a single reasoning chunk with styling.
@@ -610,7 +624,7 @@ func (m *Model) renderReasoningChunk(text string) string {
 	clean := strings.TrimRight(ansi.Strip(rendered), "\n\r\t ")
 	styled := styles.MutedStyle.Italic(true).Render(clean)
 
-	return styles.AssistantMessageStyle.Render(styled)
+	return m.messageStyle().Render(styled)
 }
 
 // renderReasoningPreviewWithTruncationInfo renders the last N lines of reasoning
@@ -650,7 +664,7 @@ func (m *Model) renderReasoningPreviewWithTruncationInfo() (string, bool) {
 	}
 
 	preview := strings.Join(styledLines, "\n")
-	return styles.AssistantMessageStyle.Render(preview), reasoningTruncated
+	return m.messageStyle().Render(preview), reasoningTruncated
 }
 
 // IsHeaderLine returns true if the given line index is the header (line 0).

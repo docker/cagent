@@ -14,7 +14,6 @@ import (
 	"github.com/docker/cagent/pkg/config/latest"
 	"github.com/docker/cagent/pkg/js"
 	"github.com/docker/cagent/pkg/tools"
-	"github.com/docker/cagent/pkg/useragent"
 )
 
 type APITool struct {
@@ -56,35 +55,31 @@ func (t *APITool) callTool(ctx context.Context, toolCall tools.ToolCall) (*tools
 		}
 		jsonData, err := json.Marshal(params)
 		if err != nil {
-			return nil, fmt.Errorf("failed to marshal request body: %v", err)
+			return nil, fmt.Errorf("failed to marshal request body: %w", err)
 		}
 		reqBody = bytes.NewReader(jsonData)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, t.config.Method, endpoint, reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %v", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("User-Agent", useragent.Header)
+	setHeaders(req, t.config.Headers)
 	if t.config.Method == http.MethodPost {
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	for key, value := range t.config.Headers {
-		req.Header.Set(key, value)
-	}
-
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %v", err)
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	maxSize := int64(1 << 20)
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxSize))
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %v", err)
+		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	return tools.ResultSuccess(limitOutput(string(body))), nil

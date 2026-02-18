@@ -14,6 +14,7 @@ import (
 	"github.com/docker/cagent/pkg/chat"
 	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/tui/components/notification"
+	"github.com/docker/cagent/pkg/tui/components/scrollview"
 	"github.com/docker/cagent/pkg/tui/core"
 	"github.com/docker/cagent/pkg/tui/core/layout"
 	"github.com/docker/cagent/pkg/tui/styles"
@@ -22,25 +23,25 @@ import (
 // costDialog displays detailed cost breakdown for a session.
 type costDialog struct {
 	BaseDialog
-	session *session.Session
-	keyMap  costDialogKeyMap
-	offset  int
+	session    *session.Session
+	keyMap     costDialogKeyMap
+	scrollview *scrollview.Model
 }
 
 type costDialogKeyMap struct {
-	Close, Copy, Up, Down, PageUp, PageDown key.Binding
+	Close, Copy key.Binding
 }
 
 func NewCostDialog(sess *session.Session) Dialog {
 	return &costDialog{
 		session: sess,
+		scrollview: scrollview.New(
+			scrollview.WithKeyMap(scrollview.ReadOnlyScrollKeyMap()),
+			scrollview.WithReserveScrollbarSpace(true),
+		),
 		keyMap: costDialogKeyMap{
-			Close:    key.NewBinding(key.WithKeys("esc", "enter", "q"), key.WithHelp("Esc", "close")),
-			Copy:     key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "copy")),
-			Up:       key.NewBinding(key.WithKeys("up", "k")),
-			Down:     key.NewBinding(key.WithKeys("down", "j")),
-			PageUp:   key.NewBinding(key.WithKeys("pgup")),
-			PageDown: key.NewBinding(key.WithKeys("pgdown")),
+			Close: key.NewBinding(key.WithKeys("esc", "enter", "q"), key.WithHelp("Esc", "close")),
+			Copy:  key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "copy")),
 		},
 	}
 }
@@ -50,6 +51,10 @@ func (d *costDialog) Init() tea.Cmd {
 }
 
 func (d *costDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
+	if handled, cmd := d.scrollview.Update(msg); handled {
+		return d, cmd
+	}
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		cmd := d.SetSize(msg.Width, msg.Height)
@@ -62,22 +67,6 @@ func (d *costDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		case key.Matches(msg, d.keyMap.Copy):
 			_ = clipboard.WriteAll(d.renderPlainText())
 			return d, notification.SuccessCmd("Cost details copied to clipboard.")
-		case key.Matches(msg, d.keyMap.Up):
-			d.offset = max(0, d.offset-1)
-		case key.Matches(msg, d.keyMap.Down):
-			d.offset++
-		case key.Matches(msg, d.keyMap.PageUp):
-			d.offset = max(0, d.offset-d.pageSize())
-		case key.Matches(msg, d.keyMap.PageDown):
-			d.offset += d.pageSize()
-		}
-
-	case tea.MouseWheelMsg:
-		switch msg.Button.String() {
-		case "wheelup":
-			d.offset = max(0, d.offset-1)
-		case "wheeldown":
-			d.offset++
 		}
 	}
 	return d, nil
@@ -86,13 +75,8 @@ func (d *costDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 func (d *costDialog) dialogSize() (dialogWidth, maxHeight, contentWidth int) {
 	dialogWidth = d.ComputeDialogWidth(70, 50, 80)
 	maxHeight = min(d.Height()*70/100, 40)
-	contentWidth = d.ContentWidth(dialogWidth, 2)
+	contentWidth = d.ContentWidth(dialogWidth, 2) - d.scrollview.ReservedCols()
 	return dialogWidth, maxHeight, contentWidth
-}
-
-func (d *costDialog) pageSize() int {
-	_, maxHeight, _ := d.dialogSize()
-	return max(1, maxHeight-10)
 }
 
 func (d *costDialog) Position() (row, col int) {
@@ -261,29 +245,20 @@ func (d *costDialog) applyScrolling(allLines []string, contentWidth, maxHeight i
 
 	visibleLines := max(1, maxHeight-headerLines-footerLines-4)
 	contentLines := allLines[headerLines:]
-	totalContentLines := len(contentLines)
 
-	// Clamp offset
-	maxOffset := max(0, totalContentLines-visibleLines)
-	d.offset = min(d.offset, maxOffset)
+	regionWidth := contentWidth + d.scrollview.ReservedCols()
+	d.scrollview.SetSize(regionWidth, visibleLines)
 
-	// Extract visible portion
-	endIdx := min(d.offset+visibleLines, totalContentLines)
-	parts := append(allLines[:headerLines], contentLines[d.offset:endIdx]...)
+	// Set scrollview position for mouse hit-testing (auto-computed from dialog position)
+	// Y offset: border(1) + padding(1) + headerLines(3) = 5
+	dialogRow, dialogCol := d.Position()
+	d.scrollview.SetPosition(dialogCol+3, dialogRow+2+headerLines)
 
-	// Scroll indicator
-	if totalContentLines > visibleLines {
-		scrollInfo := fmt.Sprintf("[%d-%d of %d]", d.offset+1, endIdx, totalContentLines)
-		if d.offset > 0 {
-			scrollInfo = "↑ " + scrollInfo
-		}
-		if endIdx < totalContentLines {
-			scrollInfo += " ↓"
-		}
-		parts = append(parts, styles.MutedStyle.Render(scrollInfo))
-	}
+	d.scrollview.SetContent(contentLines, len(contentLines))
 
-	parts = append(parts, "", RenderHelpKeys(contentWidth, "↑↓", "scroll", "c", "copy", "Esc", "close"))
+	scrollableContent := d.scrollview.View()
+	parts := append(allLines[:headerLines], scrollableContent)
+	parts = append(parts, "", RenderHelpKeys(regionWidth, "↑↓", "scroll", "c", "copy", "Esc", "close"))
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 

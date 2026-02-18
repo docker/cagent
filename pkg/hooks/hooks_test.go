@@ -143,12 +143,12 @@ func TestOutputShouldContinue(t *testing.T) {
 		},
 		{
 			name:     "continue true",
-			output:   Output{Continue: ptrBool(true)},
+			output:   Output{Continue: new(true)},
 			expected: true,
 		},
 		{
 			name:     "continue false",
-			output:   Output{Continue: ptrBool(false)},
+			output:   Output{Continue: new(false)},
 			expected: false,
 		},
 	}
@@ -508,8 +508,4 @@ func TestExecuteHooksWithContextCancellation(t *testing.T) {
 	require.NoError(t, err)
 	// Should be allowed because the hook timed out (non-blocking error)
 	assert.True(t, result.Allowed)
-}
-
-func ptrBool(b bool) *bool {
-	return &b
 }

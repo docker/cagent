@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
 
@@ -170,9 +171,11 @@ func (m *mockProviderWithError) BaseConfig() base.Config { return base.Config{} 
 
 func (m *mockProviderWithError) MaxTokens() int { return 0 }
 
-type mockModelStore struct{}
+type mockModelStore struct {
+	ModelStore
+}
 
-func (m mockModelStore) GetModel(context.Context, string) (*modelsdev.Model, error) {
+func (m mockModelStore) GetModel(_ context.Context, _ string) (*modelsdev.Model, error) {
 	return nil, nil
 }
 
@@ -209,6 +212,52 @@ func hasEventType(t *testing.T, events []Event, target Event) bool {
 	return false
 }
 
+// assertEventsEqual compares two event slices, ignoring timestamps.
+// Timestamps are inherently non-deterministic in tests.
+func assertEventsEqual(t *testing.T, expected, actual []Event) {
+	t.Helper()
+
+	require.Len(t, actual, len(expected), "event count mismatch")
+
+	for i := range expected {
+		expectedType := reflect.TypeOf(expected[i])
+		actualType := reflect.TypeOf(actual[i])
+		assert.Equal(t, expectedType, actualType, "event type mismatch at index %d", i)
+
+		// Clear timestamps for comparison
+		clearTimestamps(expected[i])
+		clearTimestamps(actual[i])
+
+		assert.Equal(t, expected[i], actual[i], "event content mismatch at index %d", i)
+	}
+}
+
+// clearTimestamps sets Timestamp fields to zero value in events for comparison.
+func clearTimestamps(event Event) {
+	if event == nil {
+		return
+	}
+
+	// Use reflection to find and clear Timestamp in embedded AgentContext
+	v := reflect.ValueOf(event)
+	if v.Kind() == reflect.Pointer {
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return
+	}
+
+	field := v.FieldByName("AgentContext")
+	if !field.IsValid() || field.Kind() != reflect.Struct {
+		return
+	}
+
+	timestampField := field.FieldByName("Timestamp")
+	if timestampField.IsValid() && timestampField.CanSet() {
+		timestampField.Set(reflect.Zero(timestampField.Type()))
+	}
+}
+
 func TestSimple(t *testing.T) {
 	stream := newStreamBuilder().
 		AddContent("Hello").
@@ -231,7 +280,7 @@ func TestSimple(t *testing.T) {
 		AgentInfo("root", "test/mock-model", "", ""),
 		TeamInfo([]AgentDetails{{Name: "root", Provider: "test", Model: "mock-model"}}, "root"),
 		ToolsetInfo(0, false, "root"),
-		UserMessage("Hi", sess.ID),
+		UserMessage("Hi", sess.ID, nil, 0),
 		StreamStarted(sess.ID, "root"),
 		AgentChoice("root", "Hello"),
 		MessageAdded(sess.ID, msgAdded.Message, "root"),
@@ -242,7 +291,7 @@ func TestSimple(t *testing.T) {
 		StreamStopped(sess.ID, "root"),
 	}
 
-	require.Equal(t, expectedEvents, events)
+	assertEventsEqual(t, expectedEvents, events)
 }
 
 func TestMultipleContentChunks(t *testing.T) {
@@ -269,7 +318,7 @@ func TestMultipleContentChunks(t *testing.T) {
 		AgentInfo("root", "test/mock-model", "", ""),
 		TeamInfo([]AgentDetails{{Name: "root", Provider: "test", Model: "mock-model"}}, "root"),
 		ToolsetInfo(0, false, "root"),
-		UserMessage("Please greet me", sess.ID),
+		UserMessage("Please greet me", sess.ID, nil, 0),
 		StreamStarted(sess.ID, "root"),
 		AgentChoice("root", "Hello "),
 		AgentChoice("root", "there, "),
@@ -284,7 +333,7 @@ func TestMultipleContentChunks(t *testing.T) {
 		StreamStopped(sess.ID, "root"),
 	}
 
-	require.Equal(t, expectedEvents, events)
+	assertEventsEqual(t, expectedEvents, events)
 }
 
 func TestWithReasoning(t *testing.T) {
@@ -309,7 +358,7 @@ func TestWithReasoning(t *testing.T) {
 		AgentInfo("root", "test/mock-model", "", ""),
 		TeamInfo([]AgentDetails{{Name: "root", Provider: "test", Model: "mock-model"}}, "root"),
 		ToolsetInfo(0, false, "root"),
-		UserMessage("Hi", sess.ID),
+		UserMessage("Hi", sess.ID, nil, 0),
 		StreamStarted(sess.ID, "root"),
 		AgentChoiceReasoning("root", "Let me think about this..."),
 		AgentChoiceReasoning("root", " I should respond politely."),
@@ -322,7 +371,7 @@ func TestWithReasoning(t *testing.T) {
 		StreamStopped(sess.ID, "root"),
 	}
 
-	require.Equal(t, expectedEvents, events)
+	assertEventsEqual(t, expectedEvents, events)
 }
 
 func TestMixedContentAndReasoning(t *testing.T) {
@@ -348,7 +397,7 @@ func TestMixedContentAndReasoning(t *testing.T) {
 		AgentInfo("root", "test/mock-model", "", ""),
 		TeamInfo([]AgentDetails{{Name: "root", Provider: "test", Model: "mock-model"}}, "root"),
 		ToolsetInfo(0, false, "root"),
-		UserMessage("Hi there", sess.ID),
+		UserMessage("Hi there", sess.ID, nil, 0),
 		StreamStarted(sess.ID, "root"),
 		AgentChoiceReasoning("root", "The user wants a greeting"),
 		AgentChoice("root", "Hello!"),
@@ -362,7 +411,7 @@ func TestMixedContentAndReasoning(t *testing.T) {
 		StreamStopped(sess.ID, "root"),
 	}
 
-	require.Equal(t, expectedEvents, events)
+	assertEventsEqual(t, expectedEvents, events)
 }
 
 func TestToolCallSequence(t *testing.T) {
@@ -530,7 +579,8 @@ func TestStartBackgroundRAGInit_StopsForwardingAfterContextCancel(t *testing.T) 
 	// Cancel the context and ensure no further events are forwarded.
 	cancel()
 
-	// Give the forwarder time to observe cancellation.
+	// Brief yield to allow the forwarder goroutine to observe cancellation.
+	// This is a timing-based negative test: we verify no event is forwarded.
 	time.Sleep(10 * time.Millisecond)
 
 	// Emit another event; it should NOT be forwarded.
@@ -626,9 +676,12 @@ func (p *queueProvider) BaseConfig() base.Config { return base.Config{} }
 
 func (p *queueProvider) MaxTokens() int { return 0 }
 
-type mockModelStoreWithLimit struct{ limit int }
+type mockModelStoreWithLimit struct {
+	ModelStore
+	limit int
+}
 
-func (m mockModelStoreWithLimit) GetModel(context.Context, string) (*modelsdev.Model, error) {
+func (m mockModelStoreWithLimit) GetModel(_ context.Context, _ string) (*modelsdev.Model, error) {
 	return &modelsdev.Model{Limit: modelsdev.Limit{Context: m.limit}, Cost: &modelsdev.Cost{}}, nil
 }
 
@@ -815,20 +868,16 @@ func TestSummarize_EmptySession(t *testing.T) {
 	require.Contains(t, warningMsg, "empty", "warning message should mention empty session")
 }
 
-func TestProcessToolCalls_UnknownTool_NoToolResultMessage(t *testing.T) {
-	// Build a runtime with a simple agent but no tools registered matching the call
+func TestProcessToolCalls_UnknownTool_ReturnsErrorResponse(t *testing.T) {
 	root := agent.New("root", "You are a test agent", agent.WithModel(&mockProvider{}))
 	tm := team.New(team.WithAgents(root))
 
 	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
-
-	// Register default tools (contains only transfer_task) to ensure unknown tool isn't matched
 	rt.registerDefaultTools()
 
 	sess := session.New(session.WithUserMessage("Start"))
 
-	// Simulate a model-issued tool call to a non-existent tool
 	calls := []tools.ToolCall{{
 		ID:       "tool-unknown-1",
 		Type:     "function",
@@ -836,23 +885,20 @@ func TestProcessToolCalls_UnknownTool_NoToolResultMessage(t *testing.T) {
 	}}
 
 	events := make(chan Event, 10)
-
-	// No agentTools provided and runtime toolMap doesn't have this tool name
 	rt.processToolCalls(t.Context(), sess, calls, nil, events)
-
-	// Drain events channel
 	close(events)
 	for range events {
 	}
 
-	var sawToolMsg bool
+	// The model must receive an error tool response so it can self-correct.
+	var toolContent string
 	for _, it := range sess.Messages {
 		if it.IsMessage() && it.Message.Message.Role == chat.MessageRoleTool && it.Message.Message.ToolCallID == "tool-unknown-1" {
-			sawToolMsg = true
-			break
+			toolContent = it.Message.Message.Content
 		}
 	}
-	require.False(t, sawToolMsg, "no tool result should be added for unknown tool; this reproduces invalid sequencing state")
+	require.NotEmpty(t, toolContent, "expected an error tool response for unknown tools")
+	assert.Contains(t, toolContent, "not available")
 }
 
 func TestEmitStartupInfo(t *testing.T) {
@@ -895,7 +941,7 @@ func TestEmitStartupInfo(t *testing.T) {
 		ToolsetInfo(0, false, "startup-test-agent"), // No tools configured
 	}
 
-	require.Equal(t, expectedEvents, collectedEvents)
+	assertEventsEqual(t, expectedEvents, collectedEvents)
 
 	// Test that calling EmitStartupInfo again doesn't emit duplicate events
 	events2 := make(chan Event, 10)
@@ -1316,4 +1362,76 @@ func TestToolRejectionWithoutReason(t *testing.T) {
 	require.True(t, toolResponse.Result.IsError, "expected tool result to be an error")
 	require.Equal(t, "The user rejected the tool call.", toolResponse.Response)
 	require.NotContains(t, toolResponse.Response, "Reason:")
+}
+
+func TestTransferTaskRejectsNonSubAgent(t *testing.T) {
+	// root has librarian as sub-agent but NOT planner.
+	// planner exists in the team. transfer_task to planner should be rejected.
+	prov := &mockProvider{id: "test/mock-model", stream: &mockStream{}}
+
+	librarian := agent.New("librarian", "Library agent", agent.WithModel(prov))
+	root := agent.New("root", "Root agent", agent.WithModel(prov))
+	planner := agent.New("planner", "Planner agent", agent.WithModel(prov))
+
+	agent.WithSubAgents(librarian)(root)
+
+	tm := team.New(team.WithAgents(root, planner, librarian))
+
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	require.NoError(t, err)
+
+	sess := session.New(session.WithUserMessage("Test"))
+	evts := make(chan Event, 128)
+
+	toolCall := tools.ToolCall{
+		ID:   "call_1",
+		Type: "function",
+		Function: tools.FunctionCall{
+			Name:      "transfer_task",
+			Arguments: `{"agent":"planner","task":"do something","expected_output":""}`,
+		},
+	}
+
+	result, err := rt.handleTaskTransfer(t.Context(), sess, toolCall, evts)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.IsError, "transfer to non-sub-agent should return an error result")
+	assert.Contains(t, result.Output, "cannot transfer task to planner")
+	assert.Contains(t, result.Output, "librarian")
+	assert.Equal(t, "root", rt.currentAgent, "current agent should remain root")
+}
+
+func TestTransferTaskAllowsSubAgent(t *testing.T) {
+	// Verify that transfer_task to a valid sub-agent is NOT rejected by the validation.
+	// We can't fully run the child session without a real model, so we just confirm
+	// it gets past validation (it will fail later due to mock stream being empty,
+	// which is fine — we only care that it's not blocked by the sub-agent check).
+	prov := &mockProvider{id: "test/mock-model", stream: newStreamBuilder().AddContent("done").AddStopWithUsage(10, 5).Build()}
+
+	librarian := agent.New("librarian", "Library agent", agent.WithModel(prov))
+	root := agent.New("root", "Root agent", agent.WithModel(prov))
+
+	agent.WithSubAgents(librarian)(root)
+
+	tm := team.New(team.WithAgents(root, librarian))
+
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	require.NoError(t, err)
+
+	sess := session.New(session.WithUserMessage("Test"), session.WithToolsApproved(true))
+	evts := make(chan Event, 128)
+
+	toolCall := tools.ToolCall{
+		ID:   "call_1",
+		Type: "function",
+		Function: tools.FunctionCall{
+			Name:      "transfer_task",
+			Arguments: `{"agent":"librarian","task":"find a book","expected_output":"book title"}`,
+		},
+	}
+
+	result, err := rt.handleTaskTransfer(t.Context(), sess, toolCall, evts)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.IsError, "transfer to valid sub-agent should succeed")
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/docker/cagent/pkg/chat"
 	"github.com/docker/cagent/pkg/config/latest"
 	"github.com/docker/cagent/pkg/session"
+	"github.com/docker/cagent/pkg/sessiontitle"
 	"github.com/docker/cagent/pkg/team"
 	"github.com/docker/cagent/pkg/tools"
 	"github.com/docker/cagent/pkg/tools/mcp"
@@ -102,7 +103,19 @@ func (r *RemoteRuntime) EmitStartupInfo(ctx context.Context, events chan Event) 
 
 	events <- AgentInfo(r.currentAgent, cfg.Model, cfg.Description, cfg.WelcomeMessage)
 	events <- TeamInfo(r.agentDetailsFromConfig(ctx), r.currentAgent)
-	events <- ToolsetInfo(len(cfg.Toolsets), false, r.currentAgent)
+
+	// Emit a loading indicator while we fetch the real tool count from the server.
+	if len(cfg.Toolsets) > 0 {
+		events <- ToolsetInfo(0, true, r.currentAgent)
+	}
+
+	toolCount, err := r.client.GetAgentToolCount(ctx, r.agentFilename, r.currentAgent)
+	if err != nil {
+		slog.Warn("Failed to get agent tool count", "error", err)
+		return
+	}
+
+	events <- ToolsetInfo(toolCount, false, r.currentAgent)
 }
 
 func (r *RemoteRuntime) agentDetailsFromConfig(ctx context.Context) []AgentDetails {
@@ -198,14 +211,14 @@ func (r *RemoteRuntime) Run(ctx context.Context, sess *session.Session) ([]sessi
 
 // Resume allows resuming execution after user confirmation
 func (r *RemoteRuntime) Resume(ctx context.Context, req ResumeRequest) {
-	slog.Debug("Resuming remote runtime", "agent", r.currentAgent, "type", req.Type, "reason", req.Reason, "session_id", r.sessionID)
+	slog.Debug("Resuming remote runtime", "agent", r.currentAgent, "type", req.Type, "reason", req.Reason, "tool_name", req.ToolName, "session_id", r.sessionID)
 
 	if r.sessionID == "" {
 		slog.Error("Cannot resume: no session ID available")
 		return
 	}
 
-	if err := r.client.ResumeSession(ctx, r.sessionID, string(req.Type), req.Reason); err != nil {
+	if err := r.client.ResumeSession(ctx, r.sessionID, string(req.Type), req.Reason, req.ToolName); err != nil {
 		slog.Error("Failed to resume remote session", "error", err, "session_id", r.sessionID)
 	}
 }
@@ -420,12 +433,40 @@ func (r *RemoteRuntime) PermissionsInfo() *PermissionsInfo {
 func (r *RemoteRuntime) ResetStartupInfo() {
 }
 
+// CurrentAgentSkillsEnabled returns whether skills are enabled for the current agent.
+// It reads the agent config from the remote API to determine the skills setting.
+func (r *RemoteRuntime) CurrentAgentSkillsEnabled() bool {
+	cfg := r.readCurrentAgentConfig(context.Background())
+	return cfg.Skills != nil && *cfg.Skills
+}
+
 // UpdateSessionTitle updates the title of the current session on the remote server.
-func (r *RemoteRuntime) UpdateSessionTitle(ctx context.Context, title string) error {
+func (r *RemoteRuntime) UpdateSessionTitle(ctx context.Context, sess *session.Session, title string) error {
+	sess.Title = title
 	if r.sessionID == "" {
 		return fmt.Errorf("cannot update session title: no session ID available")
 	}
 	return r.client.UpdateSessionTitle(ctx, r.sessionID, title)
+}
+
+// CurrentMCPPrompts is not supported on remote runtimes.
+func (r *RemoteRuntime) CurrentMCPPrompts(context.Context) map[string]mcp.PromptInfo {
+	return make(map[string]mcp.PromptInfo)
+}
+
+// ExecuteMCPPrompt is not supported on remote runtimes.
+func (r *RemoteRuntime) ExecuteMCPPrompt(context.Context, string, map[string]string) (string, error) {
+	return "", fmt.Errorf("MCP prompts are not supported by remote runtimes")
+}
+
+// TitleGenerator is not supported on remote runtimes (titles are generated server-side).
+func (r *RemoteRuntime) TitleGenerator() *sessiontitle.Generator {
+	return nil
+}
+
+// Close is a no-op for remote runtimes.
+func (r *RemoteRuntime) Close() error {
+	return nil
 }
 
 var _ Runtime = (*RemoteRuntime)(nil)

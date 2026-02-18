@@ -1,0 +1,116 @@
+<h1>Models</h1>
+<p class="subtitle">Models are the AI brains behind your agents. cagent supports multiple providers and flexible configuration.</p>
+
+<h2>Inline vs. Named Models</h2>
+
+<p>There are two ways to assign a model to an agent:</p>
+
+<h3>Inline (Quick)</h3>
+
+<p>Use the <code>provider/model</code> shorthand directly in the agent definition:</p>
+
+<pre><code class="language-yaml">agents:
+  root:
+    model: openai/gpt-4o
+    instruction: You are a helpful assistant.</code></pre>
+
+<h3>Named (Full Control)</h3>
+
+<p>Define models in a <code>models</code> section and reference them by name:</p>
+
+<pre><code class="language-yaml">models:
+  claude:
+    provider: anthropic
+    model: claude-sonnet-4-0
+    max_tokens: 64000
+    temperature: 0.7
+
+agents:
+  root:
+    model: claude
+    instruction: You are a helpful assistant.</code></pre>
+
+<p>Named models let you configure temperature, token limits, thinking budgets, and other parameters. They're also reusable across multiple agents.</p>
+
+<h2>Supported Providers</h2>
+
+<table>
+  <thead>
+    <tr><th>Provider</th><th>Key</th><th>Example Models</th><th>API Key Env Var</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>OpenAI</td><td><code>openai</code></td><td>gpt-4o, gpt-5, gpt-5-mini</td><td><code>OPENAI_API_KEY</code></td></tr>
+    <tr><td>Anthropic</td><td><code>anthropic</code></td><td>claude-sonnet-4-0, claude-sonnet-4-5</td><td><code>ANTHROPIC_API_KEY</code></td></tr>
+    <tr><td>Google</td><td><code>google</code></td><td>gemini-2.5-flash, gemini-3-pro</td><td><code>GOOGLE_API_KEY</code></td></tr>
+    <tr><td>AWS Bedrock</td><td><code>amazon-bedrock</code></td><td>Claude, Nova, Llama models</td><td>AWS credentials</td></tr>
+    <tr><td>Docker Model Runner</td><td><code>dmr</code></td><td>ai/qwen3, ai/llama3.2</td><td>None (local)</td></tr>
+    <tr><td>Mistral</td><td><code>mistral</code></td><td>Mistral models</td><td><code>MISTRAL_API_KEY</code></td></tr>
+    <tr><td>xAI</td><td><code>xai</code></td><td>Grok models</td><td><code>XAI_API_KEY</code></td></tr>
+  </tbody>
+</table>
+
+<p>See the <a href="#providers/overview" onclick="event.preventDefault(); navigate('providers/overview')">Model Providers</a> section for detailed configuration guides.</p>
+
+<h2>Model Properties</h2>
+
+<table>
+  <thead>
+    <tr><th>Property</th><th>Type</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>provider</code></td><td>string</td><td>Provider identifier (required)</td></tr>
+    <tr><td><code>model</code></td><td>string</td><td>Model name (required)</td></tr>
+    <tr><td><code>temperature</code></td><td>float</td><td>Randomness: 0.0 (deterministic) to 1.0 (creative)</td></tr>
+    <tr><td><code>max_tokens</code></td><td>int</td><td>Maximum response length</td></tr>
+    <tr><td><code>top_p</code></td><td>float</td><td>Nucleus sampling: 0.0 to 1.0</td></tr>
+    <tr><td><code>frequency_penalty</code></td><td>float</td><td>Reduce repetition: 0.0 to 2.0</td></tr>
+    <tr><td><code>presence_penalty</code></td><td>float</td><td>Encourage topic diversity: 0.0 to 2.0</td></tr>
+    <tr><td><code>base_url</code></td><td>string</td><td>Custom API endpoint</td></tr>
+    <tr><td><code>thinking_budget</code></td><td>string/int</td><td>Reasoning effort configuration</td></tr>
+    <tr><td><code>provider_opts</code></td><td>object</td><td>Provider-specific options</td></tr>
+  </tbody>
+</table>
+
+<h2>Reasoning / Thinking Budget</h2>
+
+<p>Control how much the model "thinks" before responding:</p>
+
+<table>
+  <thead>
+    <tr><th>Provider</th><th>Format</th><th>Values</th><th>Default</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>OpenAI</td><td>string</td><td><code>minimal</code>, <code>low</code>, <code>medium</code>, <code>high</code></td><td><code>medium</code></td></tr>
+    <tr><td>Anthropic</td><td>int</td><td>1024–32768 tokens</td><td>8192</td></tr>
+    <tr><td>Gemini 2.5</td><td>int</td><td>0 (off), -1 (dynamic), or token count</td><td>-1 (dynamic)</td></tr>
+    <tr><td>Gemini 3</td><td>string</td><td><code>minimal</code>, <code>low</code>, <code>medium</code>, <code>high</code></td><td>varies</td></tr>
+    <tr><td>All</td><td>string/int</td><td><code>none</code> or <code>0</code> to disable</td><td>—</td></tr>
+  </tbody>
+</table>
+
+<pre><code class="language-yaml">models:
+  deep-thinker:
+    provider: anthropic
+    model: claude-sonnet-4-5
+    thinking_budget: 16384
+
+  fast-responder:
+    provider: openai
+    model: gpt-5-mini
+    thinking_budget: none  # disable thinking</code></pre>
+
+<div class="callout callout-info">
+  <div class="callout-title">ℹ️ Multi-provider teams</div>
+  <p>Different agents can use different providers in the same config. See <a href="#concepts/multi-agent" onclick="event.preventDefault(); navigate('concepts/multi-agent')">Multi-Agent</a> for patterns.</p>
+</div>
+
+<h2>Alloy Models</h2>
+
+<p>"Alloy models" let you use more than one model in the same conversation — cagent alternates between them to leverage the strengths of each:</p>
+
+<pre><code class="language-yaml">agents:
+  root:
+    model: anthropic/claude-sonnet-4-0,openai/gpt-5-mini
+    instruction: You are a helpful assistant.</code></pre>
+
+<p>Read more about the alloy model concept at <a href="https://xbow.com/blog/alloy-agents" target="_blank" rel="noopener noreferrer">xbow.com/blog/alloy-agents</a>.</p>

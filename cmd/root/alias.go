@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/docker/cagent/pkg/cli"
+	"github.com/docker/cagent/pkg/config"
 	"github.com/docker/cagent/pkg/paths"
 	"github.com/docker/cagent/pkg/telemetry"
 	"github.com/docker/cagent/pkg/userconfig"
@@ -121,10 +122,18 @@ func runAliasAddCommand(cmd *cobra.Command, args []string, flags *aliasAddFlags)
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Expand tilde in path if it's a local file path
+	// Expand tilde in path if present
 	absAgentPath, err := expandTilde(agentPath)
 	if err != nil {
 		return err
+	}
+
+	// Convert relative paths to absolute for local files (not OCI references or URLs)
+	if !config.IsOCIReference(absAgentPath) && !config.IsURLReference(absAgentPath) && !filepath.IsAbs(absAgentPath) {
+		absAgentPath, err = filepath.Abs(absAgentPath)
+		if err != nil {
+			return fmt.Errorf("failed to resolve absolute path: %w", err)
+		}
 	}
 
 	// Create alias with options

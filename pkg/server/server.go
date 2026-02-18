@@ -17,6 +17,7 @@ import (
 	"github.com/docker/cagent/pkg/api"
 	"github.com/docker/cagent/pkg/config"
 	"github.com/docker/cagent/pkg/session"
+	"github.com/docker/cagent/pkg/upstream"
 )
 
 type Server struct {
@@ -26,8 +27,8 @@ type Server struct {
 
 func New(ctx context.Context, sessionStore session.Store, runConfig *config.RuntimeConfig, refreshInterval time.Duration, agentSources config.Sources) (*Server, error) {
 	e := echo.New()
-	e.Use(middleware.CORS())
 	e.Use(middleware.RequestLogger())
+	e.Use(echo.WrapMiddleware(upstream.Handler))
 
 	s := &Server{
 		e:  e,
@@ -63,6 +64,9 @@ func New(ctx context.Context, sessionStore session.Store, runConfig *config.Runt
 	group.POST("/sessions/:id/agent/:agent", s.runAgent)
 	group.POST("/sessions/:id/agent/:agent/:agent_name", s.runAgent)
 	group.POST("/sessions/:id/elicitation", s.elicitation)
+
+	// Agent tool count
+	group.GET("/agents/:id/:agent_name/tools/count", s.getAgentToolCount)
 
 	// Health check endpoint
 	group.GET("/ping", func(c echo.Context) error {
@@ -206,7 +210,7 @@ func (s *Server) resumeSession(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("invalid request body: %v", err))
 	}
 
-	if err := s.sm.ResumeSession(c.Request().Context(), c.Param("id"), req.Confirmation, req.Reason); err != nil {
+	if err := s.sm.ResumeSession(c.Request().Context(), c.Param("id"), req.Confirmation, req.Reason, req.ToolName); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("failed to resume session: %v", err))
 	}
 
@@ -218,6 +222,15 @@ func (s *Server) toggleSessionYolo(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("failed to toggle session tool approval mode: %v", err))
 	}
 	return c.JSON(http.StatusOK, nil)
+}
+
+func (s *Server) getAgentToolCount(c echo.Context) error {
+	count, err := s.sm.GetAgentToolCount(c.Request().Context(), c.Param("id"), c.Param("agent_name"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("failed to get agent tool count: %v", err))
+	}
+
+	return c.JSON(http.StatusOK, map[string]int{"available_tools": count})
 }
 
 func (s *Server) toggleSessionThinking(c echo.Context) error {

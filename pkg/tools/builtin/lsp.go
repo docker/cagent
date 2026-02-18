@@ -851,8 +851,7 @@ func (h *lspHandler) stop(_ context.Context) error {
 	h.openFilesMu.Unlock()
 
 	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		if _, ok := errors.AsType[*exec.ExitError](err); ok {
 			return nil
 		}
 		return fmt.Errorf("LSP server exited with error: %w", err)
@@ -1718,8 +1717,8 @@ func (h *lspHandler) readMessageLocked() ([]byte, error) {
 		if line == "" {
 			break
 		}
-		if strings.HasPrefix(line, "Content-Length:") {
-			lengthStr := strings.TrimSpace(strings.TrimPrefix(line, "Content-Length:"))
+		if after, ok := strings.CutPrefix(line, "Content-Length:"); ok {
+			lengthStr := strings.TrimSpace(after)
 			contentLength, err = strconv.Atoi(lengthStr)
 			if err != nil {
 				return nil, fmt.Errorf("invalid Content-Length: %w", err)

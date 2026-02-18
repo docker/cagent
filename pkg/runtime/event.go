@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"cmp"
+	"time"
 
 	"github.com/docker/cagent/pkg/chat"
 	"github.com/docker/cagent/pkg/config/types"
@@ -13,28 +14,42 @@ type Event interface {
 	GetAgentName() string
 }
 
-// AgentContext carries optional agent attribution for an event.
+// AgentContext carries optional agent attribution and timestamp for an event.
 type AgentContext struct {
-	AgentName string `json:"agent_name,omitempty"`
+	AgentName string    `json:"agent_name,omitempty"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 // GetAgentName returns the agent name for events embedding AgentContext.
 func (a AgentContext) GetAgentName() string { return a.AgentName }
 
-// UserMessageEvent is sent when a user message is received
-type UserMessageEvent struct {
-	Type      string `json:"type"`
-	Message   string `json:"message"`
-	SessionID string `json:"session_id"`
+// newAgentContext creates a new AgentContext with the current timestamp.
+func newAgentContext(agentName string) AgentContext {
+	return AgentContext{AgentName: agentName, Timestamp: time.Now()}
 }
 
-func (e *UserMessageEvent) GetAgentName() string { return "" }
+// UserMessageEvent is sent when a user message is received
+type UserMessageEvent struct {
+	Type            string             `json:"type"`
+	Message         string             `json:"message"`
+	MultiContent    []chat.MessagePart `json:"multi_content,omitempty"`
+	SessionID       string             `json:"session_id"`
+	SessionPosition int                `json:"session_position"` // Index in session.Messages, -1 if unknown
+	AgentContext
+}
 
-func UserMessage(message, sessionID string) Event {
+func UserMessage(message, sessionID string, multiContent []chat.MessagePart, sessionPos ...int) Event {
+	pos := -1
+	if len(sessionPos) > 0 {
+		pos = sessionPos[0]
+	}
 	return &UserMessageEvent{
-		Type:      "user_message",
-		Message:   message,
-		SessionID: sessionID,
+		Type:            "user_message",
+		Message:         message,
+		MultiContent:    multiContent,
+		SessionID:       sessionID,
+		SessionPosition: pos,
+		AgentContext:    newAgentContext(""),
 	}
 }
 
@@ -51,7 +66,7 @@ func PartialToolCall(toolCall tools.ToolCall, toolDefinition tools.Tool, agentNa
 		Type:           "partial_tool_call",
 		ToolCall:       toolCall,
 		ToolDefinition: toolDefinition,
-		AgentContext:   AgentContext{AgentName: agentName},
+		AgentContext:   newAgentContext(agentName),
 	}
 }
 
@@ -68,7 +83,7 @@ func ToolCall(toolCall tools.ToolCall, toolDefinition tools.Tool, agentName stri
 		Type:           "tool_call",
 		ToolCall:       toolCall,
 		ToolDefinition: toolDefinition,
-		AgentContext:   AgentContext{AgentName: agentName},
+		AgentContext:   newAgentContext(agentName),
 	}
 }
 
@@ -84,7 +99,7 @@ func ToolCallConfirmation(toolCall tools.ToolCall, toolDefinition tools.Tool, ag
 		Type:           "tool_call_confirmation",
 		ToolCall:       toolCall,
 		ToolDefinition: toolDefinition,
-		AgentContext:   AgentContext{AgentName: agentName},
+		AgentContext:   newAgentContext(agentName),
 	}
 }
 
@@ -104,7 +119,7 @@ func ToolCallResponse(toolCall tools.ToolCall, toolDefinition tools.Tool, result
 		Response:       response,
 		Result:         result,
 		ToolDefinition: toolDefinition,
-		AgentContext:   AgentContext{AgentName: agentName},
+		AgentContext:   newAgentContext(agentName),
 	}
 }
 
@@ -118,7 +133,7 @@ func StreamStarted(sessionID, agentName string) Event {
 	return &StreamStartedEvent{
 		Type:         "stream_started",
 		SessionID:    sessionID,
-		AgentContext: AgentContext{AgentName: agentName},
+		AgentContext: newAgentContext(agentName),
 	}
 }
 
@@ -132,7 +147,7 @@ func AgentChoice(agentName, content string) Event {
 	return &AgentChoiceEvent{
 		Type:         "agent_choice",
 		Content:      content,
-		AgentContext: AgentContext{AgentName: agentName},
+		AgentContext: newAgentContext(agentName),
 	}
 }
 
@@ -146,7 +161,7 @@ func AgentChoiceReasoning(agentName, content string) Event {
 	return &AgentChoiceReasoningEvent{
 		Type:         "agent_choice_reasoning",
 		Content:      content,
-		AgentContext: AgentContext{AgentName: agentName},
+		AgentContext: newAgentContext(agentName),
 	}
 }
 
@@ -165,15 +180,15 @@ func Error(msg string) Event {
 
 type ShellOutputEvent struct {
 	Type   string `json:"type"`
-	Output string `json:"error"`
+	Output string `json:"output"`
+	AgentContext
 }
-
-func (e *ShellOutputEvent) GetAgentName() string { return "" }
 
 func ShellOutput(output string) Event {
 	return &ShellOutputEvent{
-		Type:   "shell",
-		Output: output,
+		Type:         "shell",
+		Output:       output,
+		AgentContext: newAgentContext(""),
 	}
 }
 
@@ -187,7 +202,34 @@ func Warning(message, agentName string) Event {
 	return &WarningEvent{
 		Type:         "warning",
 		Message:      message,
-		AgentContext: AgentContext{AgentName: agentName},
+		AgentContext: newAgentContext(agentName),
+	}
+}
+
+// ModelFallbackEvent is emitted when the runtime switches to a fallback model
+// after the previous model in the chain fails. This can happen due to:
+// - Retryable errors (5xx, timeouts) after exhausting retries
+// - Non-retryable errors (429, 4xx) which skip retries and move immediately to fallback
+type ModelFallbackEvent struct {
+	Type          string `json:"type"`
+	FailedModel   string `json:"failed_model"`
+	FallbackModel string `json:"fallback_model"`
+	Reason        string `json:"reason"`
+	Attempt       int    `json:"attempt"`      // Current attempt number (1-indexed)
+	MaxAttempts   int    `json:"max_attempts"` // Total attempts allowed for this model
+	AgentContext
+}
+
+// ModelFallback creates a new ModelFallbackEvent.
+func ModelFallback(agentName, failedModel, fallbackModel, reason string, attempt, maxAttempts int) Event {
+	return &ModelFallbackEvent{
+		Type:          "model_fallback",
+		FailedModel:   failedModel,
+		FallbackModel: fallbackModel,
+		Reason:        reason,
+		Attempt:       attempt,
+		MaxAttempts:   maxAttempts,
+		AgentContext:  AgentContext{AgentName: agentName},
 	}
 }
 
@@ -232,7 +274,7 @@ func TokenUsageWithMessage(sessionID, agentName string, inputTokens, outputToken
 			Cost:          cost,
 			LastMessage:   msgUsage,
 		},
-		AgentContext: AgentContext{AgentName: agentName},
+		AgentContext: newAgentContext(agentName),
 	}
 }
 
@@ -263,7 +305,7 @@ func SessionSummary(sessionID, summary, agentName string) Event {
 		Type:         "session_summary",
 		SessionID:    sessionID,
 		Summary:      summary,
-		AgentContext: AgentContext{AgentName: agentName},
+		AgentContext: newAgentContext(agentName),
 	}
 }
 
@@ -279,7 +321,7 @@ func SessionCompaction(sessionID, status, agentName string) Event {
 		Type:         "session_compaction",
 		SessionID:    sessionID,
 		Status:       status,
-		AgentContext: AgentContext{AgentName: agentName},
+		AgentContext: newAgentContext(agentName),
 	}
 }
 
@@ -293,7 +335,7 @@ func StreamStopped(sessionID, agentName string) Event {
 	return &StreamStoppedEvent{
 		Type:         "stream_stopped",
 		SessionID:    sessionID,
-		AgentContext: AgentContext{AgentName: agentName},
+		AgentContext: newAgentContext(agentName),
 	}
 }
 
@@ -318,7 +360,7 @@ func ElicitationRequest(message, mode string, schema any, url, elicitationID str
 		URL:           url,
 		ElicitationID: elicitationID,
 		Meta:          meta,
-		AgentContext:  AgentContext{AgentName: agentName},
+		AgentContext:  newAgentContext(agentName),
 	}
 }
 
@@ -332,7 +374,7 @@ func Authorization(confirmation tools.ElicitationAction, agentName string) Event
 	return &AuthorizationEvent{
 		Type:         "authorization_event",
 		Confirmation: confirmation,
-		AgentContext: AgentContext{AgentName: agentName},
+		AgentContext: newAgentContext(agentName),
 	}
 }
 
@@ -358,7 +400,7 @@ type MCPInitStartedEvent struct {
 func MCPInitStarted(agentName string) Event {
 	return &MCPInitStartedEvent{
 		Type:         "mcp_init_started",
-		AgentContext: AgentContext{AgentName: agentName},
+		AgentContext: newAgentContext(agentName),
 	}
 }
 
@@ -370,7 +412,7 @@ type MCPInitFinishedEvent struct {
 func MCPInitFinished(agentName string) Event {
 	return &MCPInitFinishedEvent{
 		Type:         "mcp_init_finished",
-		AgentContext: AgentContext{AgentName: agentName},
+		AgentContext: newAgentContext(agentName),
 	}
 }
 
@@ -391,7 +433,7 @@ func AgentInfo(agentName, model, description, welcomeMessage string) Event {
 		Model:          model,
 		Description:    description,
 		WelcomeMessage: welcomeMessage,
-		AgentContext:   AgentContext{AgentName: agentName},
+		AgentContext:   newAgentContext(agentName),
 	}
 }
 
@@ -417,7 +459,7 @@ func TeamInfo(availableAgents []AgentDetails, currentAgent string) Event {
 		Type:            "team_info",
 		AvailableAgents: availableAgents,
 		CurrentAgent:    currentAgent,
-		AgentContext:    AgentContext{AgentName: currentAgent},
+		AgentContext:    newAgentContext(currentAgent),
 	}
 }
 
@@ -436,7 +478,7 @@ func AgentSwitching(switching bool, fromAgent, toAgent string) Event {
 		Switching:    switching,
 		FromAgent:    fromAgent,
 		ToAgent:      toAgent,
-		AgentContext: AgentContext{AgentName: cmp.Or(toAgent, fromAgent)},
+		AgentContext: newAgentContext(cmp.Or(toAgent, fromAgent)),
 	}
 }
 
@@ -454,7 +496,7 @@ func ToolsetInfo(availableTools int, loading bool, agentName string) Event {
 		Type:           "toolset_info",
 		AvailableTools: availableTools,
 		Loading:        loading,
-		AgentContext:   AgentContext{AgentName: agentName},
+		AgentContext:   newAgentContext(agentName),
 	}
 }
 
@@ -471,7 +513,7 @@ func RAGIndexingStarted(ragName, strategyName, agentName string) Event {
 		Type:         "rag_indexing_started",
 		RAGName:      ragName,
 		StrategyName: strategyName,
-		AgentContext: AgentContext{AgentName: agentName},
+		AgentContext: newAgentContext(agentName),
 	}
 }
 
@@ -491,7 +533,7 @@ func RAGIndexingProgress(ragName, strategyName string, current, total int, agent
 		StrategyName: strategyName,
 		Current:      current,
 		Total:        total,
-		AgentContext: AgentContext{AgentName: agentName},
+		AgentContext: newAgentContext(agentName),
 	}
 }
 
@@ -507,7 +549,7 @@ func RAGIndexingCompleted(ragName, strategyName, agentName string) Event {
 		Type:         "rag_indexing_completed",
 		RAGName:      ragName,
 		StrategyName: strategyName,
-		AgentContext: AgentContext{AgentName: agentName},
+		AgentContext: newAgentContext(agentName),
 	}
 }
 
@@ -526,7 +568,7 @@ func HookBlocked(toolCall tools.ToolCall, toolDefinition tools.Tool, message, ag
 		ToolCall:       toolCall,
 		ToolDefinition: toolDefinition,
 		Message:        message,
-		AgentContext:   AgentContext{AgentName: agentName},
+		AgentContext:   newAgentContext(agentName),
 	}
 }
 
@@ -546,7 +588,7 @@ func MessageAdded(sessionID string, msg *session.Message, agentName string) Even
 		Type:         "message_added",
 		SessionID:    sessionID,
 		Message:      msg,
-		AgentContext: AgentContext{AgentName: agentName},
+		AgentContext: newAgentContext(agentName),
 	}
 }
 
@@ -566,6 +608,6 @@ func SubSessionCompleted(parentSessionID string, subSession any, agentName strin
 		Type:            "sub_session_completed",
 		ParentSessionID: parentSessionID,
 		SubSession:      subSession,
-		AgentContext:    AgentContext{AgentName: agentName},
+		AgentContext:    newAgentContext(agentName),
 	}
 }

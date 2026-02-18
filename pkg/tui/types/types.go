@@ -23,6 +23,8 @@ const (
 	MessageTypeLoading
 )
 
+const UserMessageEditLabel = "✎"
+
 // ToolStatus represents the status of a tool call
 type ToolStatus int
 
@@ -43,6 +45,9 @@ type Message struct {
 	ToolDefinition tools.Tool            // Definition of the tool being called
 	ToolStatus     ToolStatus            // Status for tool calls
 	ToolResult     *tools.ToolCallResult // Result of tool call (when completed)
+	// SessionPosition is the index of this message in session.Messages (when known).
+	// Used for operations like branching on edits.
+	SessionPosition *int
 }
 
 func Agent(typ MessageType, agentName, content string) *Message {

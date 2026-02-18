@@ -3,7 +3,6 @@ package dialog
 import (
 	"testing"
 
-	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -183,23 +182,18 @@ func TestModelPickerPageNavigation(t *testing.T) {
 	d.Init()
 	d.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
 
-	pageSize := d.pageSize()
-
-	// Page down
+	// Page down scrolls the viewport (handled by scrollview), not the selection
 	pageDownKey := tea.KeyPressMsg{Code: tea.KeyPgDown}
-	require.True(t, key.Matches(pageDownKey, d.keyMap.PageDown), "pagedown key should match")
-
 	updated, _ := d.Update(pageDownKey)
 	d = updated.(*modelPickerDialog)
-	require.Equal(t, pageSize, d.selected, "selection should advance by page size")
+	require.Equal(t, 0, d.selected, "selection should not move on page down (scrollview scrolls viewport)")
+	require.Positive(t, d.scrollview.ScrollOffset(), "scrollview should have scrolled")
 
-	// Page up
+	// Page up scrolls back
 	pageUpKey := tea.KeyPressMsg{Code: tea.KeyPgUp}
-	require.True(t, key.Matches(pageUpKey, d.keyMap.PageUp), "pageup key should match")
-
 	updated, _ = d.Update(pageUpKey)
 	d = updated.(*modelPickerDialog)
-	require.Equal(t, 0, d.selected, "selection should return to 0")
+	require.Equal(t, 0, d.scrollview.ScrollOffset(), "scrollview should scroll back to top")
 }
 
 func TestModelPickerEscape(t *testing.T) {
