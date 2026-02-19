@@ -86,6 +86,16 @@ func TestDefaultToRun(t *testing.T) {
 			args: []string{"./agent.yaml", "--yolo"},
 			want: []string{"run", "./agent.yaml", "--yolo"},
 		},
+		{
+			name: "__complete kept as-is for shell completion",
+			args: []string{"__complete", "run", ""},
+			want: []string{"__complete", "run", ""},
+		},
+		{
+			name: "__completeNoDesc kept as-is for shell completion",
+			args: []string{"__completeNoDesc", "run", ""},
+			want: []string{"__completeNoDesc", "run", ""},
+		},
 	}
 
 	for _, tt := range tests {
