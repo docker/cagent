@@ -215,10 +215,12 @@ func TestGetSessionSummaries(t *testing.T) {
 	assert.Equal(t, "session-2", summaries[0].ID)
 	assert.Equal(t, "Second Session", summaries[0].Title)
 	assert.Equal(t, session2Time, summaries[0].CreatedAt)
+	assert.Equal(t, 1, summaries[0].NumMessages)
 
 	assert.Equal(t, "session-1", summaries[1].ID)
 	assert.Equal(t, "First Session", summaries[1].Title)
 	assert.Equal(t, session1Time, summaries[1].CreatedAt)
+	assert.Equal(t, 1, summaries[1].NumMessages)
 }
 
 func TestBranchSessionCopiesPrefix(t *testing.T) {

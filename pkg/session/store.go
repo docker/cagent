@@ -71,6 +71,7 @@ type Summary struct {
 	CreatedAt             time.Time
 	Starred               bool
 	BranchParentSessionID string
+	NumMessages           int
 }
 
 // Store defines the interface for session storage
@@ -164,6 +165,7 @@ func (s *InMemorySessionStore) GetSessionSummaries(_ context.Context) ([]Summary
 			CreatedAt:             value.CreatedAt,
 			Starred:               value.Starred,
 			BranchParentSessionID: value.BranchParentSessionID,
+			NumMessages:           value.MessageCount(),
 		})
 		return true
 	})
@@ -878,7 +880,11 @@ func (s *SQLiteSessionStore) GetSessions(ctx context.Context) ([]*Session, error
 // This is much faster than GetSessions as it doesn't load message content.
 func (s *SQLiteSessionStore) GetSessionSummaries(ctx context.Context) ([]Summary, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, title, created_at, starred, branch_parent_session_id FROM sessions WHERE parent_id IS NULL OR parent_id = '' ORDER BY created_at DESC")
+		`SELECT s.id, s.title, s.created_at, s.starred, s.branch_parent_session_id,
+		        (SELECT COUNT(*) FROM session_items si WHERE si.session_id = s.id AND si.item_type = 'message')
+		 FROM sessions s
+		 WHERE s.parent_id IS NULL OR s.parent_id = ''
+		 ORDER BY s.created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -888,7 +894,8 @@ func (s *SQLiteSessionStore) GetSessionSummaries(ctx context.Context) ([]Summary
 	for rows.Next() {
 		var id, title, createdAtStr, starredStr string
 		var branchParentID sql.NullString
-		if err := rows.Scan(&id, &title, &createdAtStr, &starredStr, &branchParentID); err != nil {
+		var numMessages int
+		if err := rows.Scan(&id, &title, &createdAtStr, &starredStr, &branchParentID, &numMessages); err != nil {
 			return nil, err
 		}
 		createdAt, err := time.Parse(time.RFC3339, createdAtStr)
@@ -905,6 +912,7 @@ func (s *SQLiteSessionStore) GetSessionSummaries(ctx context.Context) ([]Summary
 			CreatedAt:             createdAt,
 			Starred:               starred,
 			BranchParentSessionID: branchParentID.String,
+			NumMessages:           numMessages,
 		})
 	}
 

@@ -317,13 +317,15 @@ func (d *sessionBrowserDialog) renderSession(sess session.Summary, selected bool
 		title = "Untitled"
 	}
 
+	suffix := fmt.Sprintf(" (%d) • %s", sess.NumMessages, d.timeAgo(sess.CreatedAt))
+
 	starWidth := 3
-	maxTitleLen := maxWidth - 25 - starWidth
+	maxTitleLen := max(1, maxWidth-len(suffix)-starWidth)
 	if len(title) > maxTitleLen {
 		title = title[:maxTitleLen-1] + "…"
 	}
 
-	return styles.StarIndicator(sess.Starred) + titleStyle.Render(title) + timeStyle.Render(" • "+d.timeAgo(sess.CreatedAt))
+	return styles.StarIndicator(sess.Starred) + titleStyle.Render(title) + timeStyle.Render(suffix)
 }
 
 func (d *sessionBrowserDialog) timeAgo(t time.Time) string {

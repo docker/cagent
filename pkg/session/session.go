@@ -418,6 +418,17 @@ func (s *Session) IsSubSession() bool {
 	return s.ParentID != ""
 }
 
+// MessageCount returns the number of items that contain a message.
+func (s *Session) MessageCount() int {
+	n := 0
+	for _, item := range s.Messages {
+		if item.IsMessage() {
+			n++
+		}
+	}
+	return n
+}
+
 // New creates a new agent session
 func New(opts ...Opt) *Session {
 	sessionID := uuid.New().String()
