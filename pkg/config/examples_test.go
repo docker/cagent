@@ -80,7 +80,7 @@ func TestParseExamples(t *testing.T) {
 
 func TestJsonSchemaWorksForExamples(t *testing.T) {
 	// Read json schema.
-	schemaFile, err := os.ReadFile(filepath.Join("..", "..", "cagent-schema.json"))
+	schemaFile, err := os.ReadFile(filepath.Join("..", "..", "agent-schema.json"))
 	require.NoError(t, err)
 
 	schema, err := gojsonschema.NewSchema(gojsonschema.NewBytesLoader(schemaFile))

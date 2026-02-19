@@ -264,7 +264,7 @@ for _, tt := range tests {
 - Add configuration support if needed
 - Consider both CLI and TUI interface impacts, along with API server impacts
 - Add tests alongside implementation (`*_test.go`)
-- Update `cagent-schema.json` if adding new config fields
+- Update `agent-schema.json` if adding new config fields
 
 ### Code Style and Conventions
 
@@ -730,7 +730,7 @@ animation.Unregister()
   - `examples/eval/` - Evaluation configurations
 - Root directory - Main project configurations (`Taskfile.yml`, `go.mod`, `.golangci.yml`)
 - `.github/workflows/ci.yml` - CI/CD pipeline
-- `cagent-schema.json` - JSON schema for agent configuration validation
+- `agent-schema.json` - JSON schema for agent configuration validation
 - `golang_developer.yaml` - Dogfooding agent for Docker `cagent` development
 
 ### Environment Variables
@@ -1041,4 +1041,4 @@ task push-image    # Build and push multi-platform
 | `pkg/tui/` | Terminal UI (Bubble Tea) |
 | `Taskfile.yml` | Build automation tasks |
 | `.golangci.yml` | Linter configuration |
-| `cagent-schema.json` | JSON schema for config validation |
+| `agent-schema.json` | JSON schema for config validation |

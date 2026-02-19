@@ -14,7 +14,7 @@ import (
 )
 
 // schemaFile is the path to the JSON schema file relative to the repo root.
-const schemaFile = "../../../cagent-schema.json"
+const schemaFile = "../../../agent-schema.json"
 
 // jsonSchema mirrors the subset of JSON Schema we need for comparison.
 type jsonSchema struct {
@@ -91,7 +91,7 @@ func sortedKeys(m map[string]bool) []string {
 }
 
 // TestSchemaMatchesGoTypes verifies that every JSON-tagged field in the Go
-// config structs has a corresponding property in cagent-schema.json (and
+// config structs has a corresponding property in agent-schema.json (and
 // vice-versa). This prevents the schema from silently drifting out of sync
 // with the Go types.
 func TestSchemaMatchesGoTypes(t *testing.T) {

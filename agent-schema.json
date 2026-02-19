@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://github.com/cagent/cagent/blob/main/cagent-schema.json",
+  "$id": "https://github.com/cagent/cagent/blob/main/agent-schema.json",
   "title": "Cagent Configuration",
   "description": "Configuration schema for Cagent v5",
   "type": "object",
