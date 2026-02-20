@@ -7,6 +7,11 @@ import (
 	previous "github.com/docker/cagent/pkg/config/v3"
 )
 
+func Register(parsers map[string]func([]byte) (any, error), upgraders *[]func(any, []byte) (any, error)) {
+	parsers[Version] = func(d []byte) (any, error) { return Parse(d) }
+	*upgraders = append(*upgraders, UpgradeIfNeeded)
+}
+
 func UpgradeIfNeeded(c any, raw []byte) (any, error) {
 	old, ok := c.(previous.Config)
 	if !ok {
