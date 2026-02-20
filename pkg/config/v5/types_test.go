@@ -133,7 +133,7 @@ agents:
     instructions: "You are a helpful assistant."
 `)
 
-	_, err := Parse(input)
+	_, err := parse(input)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "instructions")
 }
@@ -148,7 +148,7 @@ agents:
     instruction: "You are a helpful assistant."
 `)
 
-	cfg, err := Parse(input)
+	cfg, err := parse(input)
 	require.NoError(t, err)
 	require.Len(t, cfg.Agents, 1)
 	require.Equal(t, "root", cfg.Agents[0].Name)
