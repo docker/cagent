@@ -6,8 +6,8 @@ version: "4"
 
 models:
   default:
-    provider: google
-    model: gemini-2.5-pro
+    provider: openai
+    model: gpt-4o-mini
     max_tokens: 4096
 
 agents:
