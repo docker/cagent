@@ -2,7 +2,7 @@ package latest
 
 import (
 	"github.com/docker/cagent/pkg/config/types"
-	previous "github.com/docker/cagent/pkg/config/v5"
+	previous "github.com/docker/cagent/pkg/config/v4"
 )
 
 func UpgradeIfNeeded(c any, _ []byte) (any, error) {
