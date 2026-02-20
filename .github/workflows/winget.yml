@@ -3,6 +3,7 @@ name: winget
 on:
   release:
     types: [published]
+  workflow_dispatch:
 
 env:
   WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN }}
