@@ -25,10 +25,23 @@ workflow:
 **Behavior:**
 
 - `generator` runs first and completes.
-- `translator` receives `generator`'s output and processes it.
-- `publisher` receives `translator`'s output and finalizes.
+- `translator` receives `generator`'s output as context in its prompt and processes it.
+- `publisher` receives `translator`'s output as context and finalizes.
 
-**Output propagation:** Step `n` receives a single **previous output** (the last assistant message content from step `n-1`), exposed as `{{ $steps.<step_id>.output }}` or by position.
+**Output propagation:** Each step automatically receives **all prior step outputs** injected as context into its user message. The executor collects the last assistant message content from each completed step and formats it as a structured context block:
+
+```
+--- Prior Step Outputs ---
+
+[step_id (agent: generator)]:
+<generator's output>
+
+--- End Prior Step Outputs ---
+
+<original user prompt>
+```
+
+Outputs are also accessible via template expressions: `{{ $steps.<step_id>.output }}`.
 
 ---
 
@@ -95,9 +108,14 @@ workflow:
 
 **Behavior:**
 
-- Two `generator` agents run simultaneously.
+- Two `generator` agents run concurrently in separate goroutines.
 - Both must complete before `translator` starts.
-- `translator` receives **outputs from all parallel steps** (see "Output structure from parallel steps" below).
+- `translator` receives **outputs from all parallel steps** as context in its prompt (see "Output structure from parallel steps" below).
+
+**Concurrency safety:** Parallel steps use two mechanisms to avoid races:
+1. A **`runnerMu` mutex** on the executor serializes `SetCurrentAgent` + `RunStream` calls so each goroutine's internal runtime captures the correct agent name.
+2. Each parallel goroutine uses a **sub-session** (`ParentID` set), causing `PersistentRuntime` to skip all SQLite persistence for those sessions.
+3. The **`SQLiteSessionStore`** has a `sync.Mutex` on all write methods as an additional safety net.
 
 **Error handling:** If **any** agent in a parallel block fails, the **entire workflow** fails immediately (all-or-nothing). No partial success; this keeps data consistency and avoids downstream agents seeing incomplete data.
 
@@ -159,9 +177,22 @@ workflow:
 }
 ```
 
-- **Next step input:** The next agent receives a single **context message** (e.g. user or system) that includes this structure (e.g. serialized as JSON or YAML in the prompt), so the agent can see all parallel outputs.
+- **Next step input:** The next agent receives all parallel outputs injected as context in its user message:
+  ```
+  --- Prior Step Outputs ---
+
+  [par_gen/gen_1 (agent: generator)]:
+  <generator 1 output>
+
+  [par_gen/gen_2 (agent: generator)]:
+  <generator 2 output>
+
+  --- End Prior Step Outputs ---
+
+  <original user prompt>
+  ```
 - **Templates:** In conditions or in agent instructions, parallel outputs are accessed as:
-  - `{{ $steps.par_gen.outputs.gen_1.output }}`
+  - `{{ $steps.par_gen.outputs.gen_1.output }}` — output of parallel step `gen_1`
   - `{{ $steps.par_gen.outputs.gen_2.output }}`
   - Or by index: `{{ $steps.par_gen.outputs[0].output }}` (using `order` for deterministic indexing).
 
@@ -238,7 +269,13 @@ Workflow execution is **only** wired for **exec** mode. The `run` command (TUI) 
 ## Implementation Notes
 
 - **Types:** `pkg/workflow` holds workflow and step types (Config, Step, StepContext, loop counter, condition evaluation). No dependency on runtime or session to avoid import cycles.
-- **Executor:** `pkg/workflowrun` holds the executor: runs the workflow DAG (sequential/conditional/parallel), calls runtime `RunStream` per agent step, maintains step outputs and loop counters, evaluates conditions, and injects output context into sessions. Use `workflowrun.NewLocalExecutor(runtime)` and `Executor.Run(ctx, cfg, sess, events)`.
+  - `StepContext` is concurrency-safe (`sync.RWMutex`) and exposes a `Snapshot()` method for serialization/debugging.
+- **Executor:** `pkg/workflowrun` holds the executor: runs the workflow DAG (sequential/conditional/parallel), calls runtime `RunStream` per agent step, maintains step outputs and loop counters, evaluates conditions, and injects output context into sessions.
+  - Use `workflowrun.NewLocalExecutor(runtime)` and `Executor.Run(ctx, cfg, sess, events)` which returns `(*workflow.StepContext, error)`.
+  - After execution, the step context is printed to stderr as formatted JSON for debugging (`--- Step Context ---`).
+  - **Context propagation:** `buildPriorContext()` collects all prior step outputs and injects them as a structured text block into the next step's user message.
+  - **Parallel safety:** `runnerMu` serializes `SetCurrentAgent` + `RunStream` to prevent agent name races; sub-sessions skip SQLite persistence.
+- **Session Store:** `SQLiteSessionStore` has a `sync.Mutex` protecting all write methods (`AddMessage`, `UpdateMessage`, `AddSession`, `UpdateSession`, etc.) to prevent concurrent write panics.
 - **Config:** Workflow config lives in `pkg/config/latest` as `Config.Workflow` (type `*workflow.Config`). Validation in `validate.go` ensures agent names exist, step types are valid, and condition steps have a condition expression.
 - **CLI:** When `Config.Workflow` is set, `cagent exec` uses the workflow executor and streams events to stdout; `cagent run` (TUI) still uses single-agent mode.
 
