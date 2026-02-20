@@ -7,12 +7,14 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/tools"
 	"github.com/docker/cagent/pkg/tui/components/messages"
 	"github.com/docker/cagent/pkg/tui/core"
 	"github.com/docker/cagent/pkg/tui/core/layout"
+	tuimessages "github.com/docker/cagent/pkg/tui/messages"
 	"github.com/docker/cagent/pkg/tui/service"
 	"github.com/docker/cagent/pkg/tui/styles"
 	"github.com/docker/cagent/pkg/tui/types"
@@ -195,12 +197,45 @@ func (d *toolConfirmationDialog) Init() tea.Cmd {
 	return d.scrollView.Init()
 }
 
+// executeAction dispatches a confirmation action by key ("Y", "N", "T", "A").
+func (d *toolConfirmationDialog) executeAction(action string) (layout.Model, tea.Cmd) {
+	switch action {
+	case "Y":
+		return d, tea.Sequence(
+			core.CmdHandler(CloseDialogMsg{}),
+			core.CmdHandler(RuntimeResumeMsg{Request: runtime.ResumeApprove()}),
+		)
+	case "N":
+		return d, core.CmdHandler(OpenDialogMsg{
+			Model: NewToolRejectionReasonDialog(),
+		})
+	case "T":
+		return d, tea.Sequence(
+			core.CmdHandler(CloseDialogMsg{}),
+			core.CmdHandler(RuntimeResumeMsg{Request: runtime.ResumeApproveTool(d.permissionPattern)}),
+		)
+	case "A":
+		d.sessionState.SetYoloMode(true)
+		return d, tea.Sequence(
+			core.CmdHandler(CloseDialogMsg{}),
+			core.CmdHandler(RuntimeResumeMsg{Request: runtime.ResumeApproveSession()}),
+		)
+	}
+	return d, nil
+}
+
 // Update handles messages for the tool confirmation dialog
 func (d *toolConfirmationDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		cmd := d.SetSize(msg.Width, msg.Height)
 		return d, cmd
+
+	case tea.MouseClickMsg:
+		if msg.Button == tea.MouseLeft {
+			return d.handleMouseClick(msg)
+		}
+		return d, nil
 
 	case tea.KeyPressMsg:
 		if cmd := HandleQuit(msg); cmd != nil {
@@ -209,28 +244,13 @@ func (d *toolConfirmationDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 
 		switch {
 		case key.Matches(msg, d.keyMap.Yes):
-			return d, tea.Sequence(
-				core.CmdHandler(CloseDialogMsg{}),
-				core.CmdHandler(RuntimeResumeMsg{Request: runtime.ResumeApprove()}),
-			)
+			return d.executeAction("Y")
 		case key.Matches(msg, d.keyMap.No):
-			// Open the rejection reason dialog on top of this dialog
-			return d, core.CmdHandler(OpenDialogMsg{
-				Model: NewToolRejectionReasonDialog(),
-			})
+			return d.executeAction("N")
 		case key.Matches(msg, d.keyMap.All):
-			d.sessionState.SetYoloMode(true)
-			return d, tea.Sequence(
-				core.CmdHandler(CloseDialogMsg{}),
-				core.CmdHandler(RuntimeResumeMsg{Request: runtime.ResumeApproveSession()}),
-			)
+			return d.executeAction("A")
 		case key.Matches(msg, d.keyMap.ThisTool):
-			// Use the cached permission pattern
-			// For shell, this creates patterns like "shell:cmd=ls*"
-			return d, tea.Sequence(
-				core.CmdHandler(CloseDialogMsg{}),
-				core.CmdHandler(RuntimeResumeMsg{Request: runtime.ResumeApproveTool(d.permissionPattern)}),
-			)
+			return d.executeAction("T")
 		}
 
 		// Forward scrolling keys to the scroll view
@@ -240,11 +260,50 @@ func (d *toolConfirmationDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 			return d, cmd
 		}
 
-	case tea.MouseWheelMsg:
-		// Forward mouse wheel events to scroll view
+	case tuimessages.WheelCoalescedMsg:
 		updatedScrollView, cmd := d.scrollView.Update(msg)
 		d.scrollView = updatedScrollView.(messages.Model)
 		return d, cmd
+	}
+
+	return d, nil
+}
+
+// handleMouseClick handles mouse clicks on the action buttons (Y/N/T/A).
+func (d *toolConfirmationDialog) handleMouseClick(msg tea.MouseClickMsg) (layout.Model, tea.Cmd) {
+	dialogRow, dialogCol := d.Position()
+	renderedDialog := d.View()
+	dialogHeight := lipgloss.Height(renderedDialog)
+
+	// The options line is the last content line inside the dialog.
+	if msg.Y != ContentEndRow(dialogRow, dialogHeight) {
+		return d, nil
+	}
+
+	// Render the help keys and strip ANSI to get plain text for hit-testing.
+	_, contentWidth := d.dialogDimensions()
+	options := RenderHelpKeys(contentWidth, "Y", "yes", "N", "no", "T", d.alwaysAllowHelpText(), "A", "all tools")
+	optionsPlain := ansi.Strip(options)
+
+	// Content starts after left border + padding.
+	frameLeft := styles.DialogStyle.GetBorderLeftSize() + styles.DialogStyle.GetPaddingLeft()
+
+	// The help text is center-aligned within contentWidth.
+	plainLen := len(optionsPlain)
+	leadingSpaces := max(0, (contentWidth-plainLen)/2)
+	relX := msg.X - dialogCol - frameLeft - leadingSpaces
+	if relX < 0 || relX >= plainLen {
+		return d, nil
+	}
+
+	// Walk backward from the click position to find the nearest action key.
+	// The plain text looks like: "Y yes  N no  T always allow...  A all tools"
+	// Each region starts with its uppercase action key.
+	actionKeys := "YNTA"
+	for i := relX; i >= 0; i-- {
+		if strings.ContainsRune(actionKeys, rune(optionsPlain[i])) {
+			return d.executeAction(string(optionsPlain[i]))
+		}
 	}
 
 	return d, nil

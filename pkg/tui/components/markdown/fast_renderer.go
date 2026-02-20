@@ -546,10 +546,9 @@ func (p *parser) renderBlockquoteContent(lines []string, indent string, availabl
 
 			// Render the nested blockquote with additional indentation
 			nestedIndent := indent + spaces(p.styles.blockquoteIndent)
-			nestedWidth := availableWidth - p.styles.blockquoteIndent
-			if nestedWidth < 10 {
-				nestedWidth = 10 // Minimum content width
-			}
+			nestedWidth := max(availableWidth-p.styles.blockquoteIndent,
+				// Minimum content width
+				10)
 			p.renderBlockquoteContent(nestedLines, nestedIndent, nestedWidth)
 			continue
 		}
@@ -1395,10 +1394,7 @@ func (p *parser) renderListBlockquote(bulletWidth int) {
 	indent := spaces(bulletWidth)
 
 	// Calculate available width for blockquote content
-	availableWidth := p.width - bulletWidth - p.styles.blockquoteIndent
-	if availableWidth < 10 {
-		availableWidth = 10
-	}
+	availableWidth := max(p.width-bulletWidth-p.styles.blockquoteIndent, 10)
 
 	// Use renderBlockquoteContent for full support including nested code blocks
 	fullIndent := indent + spaces(p.styles.blockquoteIndent)
@@ -1430,10 +1426,9 @@ func (p *parser) renderListBlockquoteContent(lines []string, indent string, cont
 
 			// Render the nested blockquote with additional indentation
 			nestedIndent := indent + spaces(p.styles.blockquoteIndent)
-			nestedWidth := contentWidth - p.styles.blockquoteIndent
-			if nestedWidth < 10 {
-				nestedWidth = 10 // Minimum content width
-			}
+			nestedWidth := max(contentWidth-p.styles.blockquoteIndent,
+				// Minimum content width
+				10)
 			p.renderListBlockquoteContent(nestedLines, nestedIndent, nestedWidth)
 			continue
 		}
@@ -1879,10 +1874,9 @@ func (p *parser) renderCodeBlockWithIndent(code, lang, indent string, availableW
 		paddingRight = 0
 	}
 
-	contentWidth := availableWidth - paddingLeft - paddingRight
-	if contentWidth < 1 {
-		contentWidth = 1 // Minimum content width
-	}
+	contentWidth := max(availableWidth-paddingLeft-paddingRight,
+		// Minimum content width
+		1)
 
 	// Pre-compute padding strings (avoids repeated strings.Repeat calls)
 	paddingLeftStr := spaces(paddingLeft)
@@ -2053,10 +2047,7 @@ func writeSpaces(b *strings.Builder, n int) {
 		return
 	}
 	for n > 0 {
-		chunk := n
-		if chunk > len(spacesBuffer) {
-			chunk = len(spacesBuffer)
-		}
+		chunk := min(n, len(spacesBuffer))
 		b.WriteString(spacesBuffer[:chunk])
 		n -= chunk
 	}

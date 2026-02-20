@@ -10,7 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/docker/cagent/pkg/tui/components/scrollbar"
+	"github.com/docker/cagent/pkg/tui/components/scrollview"
 	"github.com/docker/cagent/pkg/tui/components/toolcommon"
 	"github.com/docker/cagent/pkg/tui/core"
 	"github.com/docker/cagent/pkg/tui/core/layout"
@@ -30,13 +30,12 @@ type ThemeChoice struct {
 // themePickerDialog is a dialog for selecting a theme.
 type themePickerDialog struct {
 	BaseDialog
-	textInput        textinput.Model
-	themes           []ThemeChoice
-	filtered         []ThemeChoice
-	selected         int
-	keyMap           commandPaletteKeyMap
-	scrollbar        *scrollbar.Model
-	needsScrollToSel bool
+	textInput  textinput.Model
+	themes     []ThemeChoice
+	filtered   []ThemeChoice
+	selected   int
+	keyMap     commandPaletteKeyMap
+	scrollview *scrollview.Model
 
 	// Double-click detection
 	lastClickTime  time.Time
@@ -93,7 +92,7 @@ func NewThemePickerDialog(themes []ThemeChoice, originalThemeRef string) Dialog 
 		themes:           themes,
 		filtered:         nil,
 		keyMap:           defaultCommandPaletteKeyMap(),
-		scrollbar:        scrollbar.New(),
+		scrollview:       scrollview.New(scrollview.WithReserveScrollbarSpace(true)),
 		originalThemeRef: originalThemeRef,
 	}
 
@@ -104,7 +103,7 @@ func NewThemePickerDialog(themes []ThemeChoice, originalThemeRef string) Dialog 
 	for i, t := range d.filtered {
 		if t.IsCurrent {
 			d.selected = i
-			d.needsScrollToSel = true // Scroll to current selection on open
+			d.scrollview.EnsureLineVisible(d.findSelectedLine(nil)) // Scroll to current selection on open
 			break
 		}
 	}
@@ -123,37 +122,51 @@ func (d *themePickerDialog) Init() tea.Cmd {
 }
 
 func (d *themePickerDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
+	// Scrollview handles mouse scrollbar, wheel, and pgup/pgdn/home/end
+	if handled, cmd := d.scrollview.Update(msg); handled {
+		return d, cmd
+	}
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		cmd := d.SetSize(msg.Width, msg.Height)
 		return d, cmd
 
 	case messages.ThemeChangedMsg:
-		// Theme changed (preview/hot reload) - update textinput styles
 		d.textInput.SetStyles(styles.DialogInputStyle)
 		return d, nil
 
 	case tea.PasteMsg:
-		// Forward paste to text input
 		var cmd tea.Cmd
 		d.textInput, cmd = d.textInput.Update(msg)
 		if selectionChanged := d.filterThemes(); selectionChanged {
-			d.needsScrollToSel = true
+			d.scrollview.EnsureLineVisible(d.findSelectedLine(nil))
 			return d, tea.Batch(cmd, d.emitPreview())
 		}
 		return d, cmd
 
 	case tea.MouseClickMsg:
-		return d.handleMouseClick(msg)
-
-	case tea.MouseMotionMsg:
-		return d.handleMouseMotion(msg)
-
-	case tea.MouseReleaseMsg:
-		return d.handleMouseRelease(msg)
-
-	case tea.MouseWheelMsg:
-		return d.handleMouseWheel(msg)
+		// Scrollbar clicks handled above; this handles list item clicks
+		if msg.Button == tea.MouseLeft {
+			if themeIdx := d.mouseYToThemeIndex(msg.Y); themeIdx >= 0 {
+				now := time.Now()
+				if themeIdx == d.lastClickIndex && now.Sub(d.lastClickTime) < styles.DoubleClickThreshold {
+					d.selected = themeIdx
+					d.lastClickTime = time.Time{}
+					cmd := d.handleSelection()
+					return d, cmd
+				}
+				oldSelected := d.selected
+				d.selected = themeIdx
+				d.lastClickTime = now
+				d.lastClickIndex = themeIdx
+				if d.selected != oldSelected {
+					cmd := d.emitPreview()
+					return d, cmd
+				}
+			}
+		}
+		return d, nil
 
 	case tea.KeyPressMsg:
 		if cmd := HandleQuit(msg); cmd != nil {
@@ -162,7 +175,6 @@ func (d *themePickerDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 
 		switch {
 		case key.Matches(msg, d.keyMap.Escape):
-			// Restore original theme on cancel
 			return d, tea.Sequence(
 				core.CmdHandler(CloseDialogMsg{}),
 				core.CmdHandler(messages.ThemeCancelPreviewMsg{OriginalRef: d.originalThemeRef}),
@@ -171,7 +183,7 @@ func (d *themePickerDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		case key.Matches(msg, d.keyMap.Up):
 			if d.selected > 0 {
 				d.selected--
-				d.needsScrollToSel = true
+				d.scrollview.EnsureLineVisible(d.findSelectedLine(nil))
 				cmd := d.emitPreview()
 				return d, cmd
 			}
@@ -180,33 +192,7 @@ func (d *themePickerDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		case key.Matches(msg, d.keyMap.Down):
 			if d.selected < len(d.filtered)-1 {
 				d.selected++
-				d.needsScrollToSel = true
-				cmd := d.emitPreview()
-				return d, cmd
-			}
-			return d, nil
-
-		case key.Matches(msg, d.keyMap.PageUp):
-			oldSelected := d.selected
-			d.selected -= d.pageSize()
-			if d.selected < 0 {
-				d.selected = 0
-			}
-			d.needsScrollToSel = true
-			if d.selected != oldSelected {
-				cmd := d.emitPreview()
-				return d, cmd
-			}
-			return d, nil
-
-		case key.Matches(msg, d.keyMap.PageDown):
-			oldSelected := d.selected
-			d.selected += d.pageSize()
-			if d.selected >= len(d.filtered) {
-				d.selected = max(0, len(d.filtered)-1)
-			}
-			d.needsScrollToSel = true
-			if d.selected != oldSelected {
+				d.scrollview.EnsureLineVisible(d.findSelectedLine(nil))
 				cmd := d.emitPreview()
 				return d, cmd
 			}
@@ -220,7 +206,7 @@ func (d *themePickerDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			d.textInput, cmd = d.textInput.Update(msg)
 			if selectionChanged := d.filterThemes(); selectionChanged {
-				d.needsScrollToSel = true
+				d.scrollview.EnsureLineVisible(d.findSelectedLine(nil))
 				return d, tea.Batch(cmd, d.emitPreview())
 			}
 			return d, cmd
@@ -230,107 +216,9 @@ func (d *themePickerDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	return d, nil
 }
 
-func (d *themePickerDialog) handleMouseClick(msg tea.MouseClickMsg) (layout.Model, tea.Cmd) {
-	// Check if click is on the scrollbar
-	if d.isMouseOnScrollbar(msg.X, msg.Y) {
-		sb, cmd := d.scrollbar.Update(msg)
-		d.scrollbar = sb
-		return d, cmd
-	}
-
-	// Check if click is on a theme in the list
-	if msg.Button == tea.MouseLeft {
-		if themeIdx := d.mouseYToThemeIndex(msg.Y); themeIdx >= 0 {
-			now := time.Now()
-
-			// Check for double-click
-			if themeIdx == d.lastClickIndex && now.Sub(d.lastClickTime) < styles.DoubleClickThreshold {
-				d.selected = themeIdx
-				d.lastClickTime = time.Time{}
-				cmd := d.handleSelection()
-				return d, cmd
-			}
-
-			// Single click: highlight and preview
-			oldSelected := d.selected
-			d.selected = themeIdx
-			d.lastClickTime = now
-			d.lastClickIndex = themeIdx
-
-			// Emit preview if selection changed
-			if d.selected != oldSelected {
-				cmd := d.emitPreview()
-				return d, cmd
-			}
-		}
-	}
-	return d, nil
-}
-
-func (d *themePickerDialog) handleMouseMotion(msg tea.MouseMotionMsg) (layout.Model, tea.Cmd) {
-	if d.scrollbar.IsDragging() {
-		sb, cmd := d.scrollbar.Update(msg)
-		d.scrollbar = sb
-		return d, cmd
-	}
-	return d, nil
-}
-
-func (d *themePickerDialog) handleMouseRelease(msg tea.MouseReleaseMsg) (layout.Model, tea.Cmd) {
-	if d.scrollbar.IsDragging() {
-		sb, cmd := d.scrollbar.Update(msg)
-		d.scrollbar = sb
-		return d, cmd
-	}
-	return d, nil
-}
-
-func (d *themePickerDialog) handleMouseWheel(msg tea.MouseWheelMsg) (layout.Model, tea.Cmd) {
-	if !d.isMouseInDialog(msg.X, msg.Y) {
-		return d, nil
-	}
-
-	buttonStr := msg.Button.String()
-	switch buttonStr {
-	case "wheelup":
-		d.scrollbar.ScrollUp()
-		d.scrollbar.ScrollUp()
-	case "wheeldown":
-		d.scrollbar.ScrollDown()
-		d.scrollbar.ScrollDown()
-	}
-	return d, nil
-}
-
-func (d *themePickerDialog) isMouseInDialog(x, y int) bool {
-	dialogRow, dialogCol := d.Position()
-	dialogWidth, maxHeight, _ := d.dialogSize()
-	return x >= dialogCol && x < dialogCol+dialogWidth &&
-		y >= dialogRow && y < dialogRow+maxHeight
-}
-
-func (d *themePickerDialog) isMouseOnScrollbar(x, y int) bool {
-	dialogWidth, maxHeight, _ := d.dialogSize()
-	maxItems := maxHeight - pickerListVerticalOverhead
-
-	// If the list fits, there is no scrollbar.
-	// Note: total lines include category separators (if any).
-	if d.totalLineCount() <= maxItems {
-		return false
-	}
-
-	dialogRow, dialogCol := d.Position()
-	scrollbarX := dialogCol + dialogWidth - pickerScrollbarXInset - scrollbar.Width
-	scrollbarY := dialogRow + pickerScrollbarYOffset
-
-	return x >= scrollbarX && x < scrollbarX+scrollbar.Width &&
-		y >= scrollbarY && y < scrollbarY+maxItems
-}
-
 func (d *themePickerDialog) mouseYToThemeIndex(y int) int {
 	dialogRow, _ := d.Position()
-	_, maxHeight, _ := d.dialogSize()
-	maxItems := maxHeight - pickerListVerticalOverhead
+	maxItems := d.scrollview.VisibleHeight()
 
 	listStartY := dialogRow + pickerListStartOffset
 	listEndY := listStartY + maxItems
@@ -340,7 +228,7 @@ func (d *themePickerDialog) mouseYToThemeIndex(y int) int {
 	}
 
 	lineInView := y - listStartY
-	scrollOffset := d.scrollbar.GetScrollOffset()
+	scrollOffset := d.scrollview.ScrollOffset()
 	actualLine := scrollOffset + lineInView
 
 	return d.lineToThemeIndex(actualLine)
@@ -379,17 +267,25 @@ func (d *themePickerDialog) emitPreview() tea.Cmd {
 const customThemesSeparatorLabel = "── Custom themes "
 
 func (d *themePickerDialog) dialogSize() (dialogWidth, maxHeight, contentWidth int) {
-	// Match the model picker sizing for consistent UI.
 	dialogWidth = max(min(d.Width()*pickerWidthPercent/100, pickerMaxWidth), pickerMinWidth)
 	maxHeight = min(d.Height()*pickerHeightPercent/100, pickerMaxHeight)
-	contentWidth = dialogWidth - pickerDialogPadding - scrollbar.Width - pickerScrollbarGap
+	contentWidth = dialogWidth - pickerDialogPadding - d.scrollview.ReservedCols()
 	return dialogWidth, maxHeight, contentWidth
 }
 
+// SetSize sets the dialog dimensions and configures the scrollview.
+func (d *themePickerDialog) SetSize(width, height int) tea.Cmd {
+	cmd := d.BaseDialog.SetSize(width, height)
+	_, maxHeight, contentWidth := d.dialogSize()
+	regionWidth := contentWidth + d.scrollview.ReservedCols()
+	visLines := max(1, maxHeight-pickerListVerticalOverhead)
+	d.scrollview.SetSize(regionWidth, visLines)
+	return cmd
+}
+
 func (d *themePickerDialog) View() string {
-	dialogWidth, maxHeight, contentWidth := d.dialogSize()
+	dialogWidth, _, contentWidth := d.dialogSize()
 	d.textInput.SetWidth(contentWidth)
-	maxItems := maxHeight - pickerListVerticalOverhead
 
 	// Build all theme lines
 	var allLines []string
@@ -417,74 +313,29 @@ func (d *themePickerDialog) View() string {
 		allLines = append(allLines, d.renderTheme(theme, i == d.selected, contentWidth))
 	}
 
-	totalLines := len(allLines)
-	visibleLines := maxItems
+	regionWidth := contentWidth + d.scrollview.ReservedCols()
 
-	// Update scrollbar dimensions
-	d.scrollbar.SetDimensions(visibleLines, totalLines)
-
-	// Auto-scroll to selection when keyboard navigation occurred
-	if d.needsScrollToSel {
-		selectedLine := d.findSelectedLine(allLines)
-		scrollOffset := d.scrollbar.GetScrollOffset()
-		if selectedLine < scrollOffset {
-			d.scrollbar.SetScrollOffset(selectedLine)
-		} else if selectedLine >= scrollOffset+visibleLines {
-			d.scrollbar.SetScrollOffset(selectedLine - visibleLines + 1)
-		}
-		d.needsScrollToSel = false
-	}
-
-	// Slice visible lines based on scroll offset
-	scrollOffset := d.scrollbar.GetScrollOffset()
-	visibleEnd := min(scrollOffset+visibleLines, totalLines)
-	visibleThemeLines := allLines[scrollOffset:visibleEnd]
-
-	// Pad with empty lines if content is shorter than visible area
-	for len(visibleThemeLines) < visibleLines {
-		visibleThemeLines = append(visibleThemeLines, "")
-	}
-
-	// Handle empty state
-	if len(d.filtered) == 0 {
-		visibleThemeLines = []string{"", styles.DialogContentStyle.
-			Italic(true).
-			Align(lipgloss.Center).
-			Width(contentWidth).
-			Render("No themes found")}
-		for len(visibleThemeLines) < visibleLines {
-			visibleThemeLines = append(visibleThemeLines, "")
-		}
-	}
-
-	// Build theme list with fixed width
-	themeListStyle := lipgloss.NewStyle().Width(contentWidth)
-	var fixedWidthLines []string
-	for _, line := range visibleThemeLines {
-		fixedWidthLines = append(fixedWidthLines, themeListStyle.Render(line))
-	}
-	themeListContent := strings.Join(fixedWidthLines, "\n")
-
-	// Set scrollbar position for mouse hit testing
+	// Set scrollview position for mouse hit-testing (auto-computed from dialog position)
 	dialogRow, dialogCol := d.Position()
-	scrollbarX := dialogCol + dialogWidth - pickerScrollbarXInset - scrollbar.Width
-	scrollbarY := dialogRow + pickerScrollbarYOffset
-	d.scrollbar.SetPosition(scrollbarX, scrollbarY)
+	d.scrollview.SetPosition(dialogCol+3, dialogRow+pickerListStartOffset)
 
-	// Get scrollbar view
-	scrollbarView := d.scrollbar.View()
+	d.scrollview.SetContent(allLines, len(allLines))
 
-	// Combine content with scrollbar
 	var scrollableContent string
-	gap := strings.Repeat(" ", pickerScrollbarGap)
-	if scrollbarView != "" {
-		scrollableContent = lipgloss.JoinHorizontal(lipgloss.Top, themeListContent, gap, scrollbarView)
+	if len(d.filtered) == 0 {
+		visLines := d.scrollview.VisibleHeight()
+		emptyLines := []string{"", styles.DialogContentStyle.
+			Italic(true).Align(lipgloss.Center).Width(contentWidth).
+			Render("No themes found")}
+		for len(emptyLines) < visLines {
+			emptyLines = append(emptyLines, "")
+		}
+		scrollableContent = d.scrollview.ViewWithLines(emptyLines)
 	} else {
-		scrollbarPlaceholder := strings.Repeat(" ", scrollbar.Width)
-		scrollableContent = lipgloss.JoinHorizontal(lipgloss.Top, themeListContent, gap, scrollbarPlaceholder)
+		scrollableContent = d.scrollview.View()
 	}
 
-	content := NewContent(contentWidth+pickerScrollbarGap+scrollbar.Width).
+	content := NewContent(regionWidth).
 		AddTitle("Select Theme").
 		AddSpace().
 		AddContent(d.textInput.View()).
@@ -569,11 +420,6 @@ func (d *themePickerDialog) renderTheme(theme ThemeChoice, selected bool, maxWid
 	return name
 }
 
-func (d *themePickerDialog) pageSize() int {
-	_, maxHeight, _ := d.dialogSize()
-	return max(1, maxHeight-pickerListVerticalOverhead)
-}
-
 func (d *themePickerDialog) Position() (row, col int) {
 	dialogWidth, maxHeight, _ := d.dialogSize()
 	return CenterPosition(d.Width(), d.Height(), dialogWidth, maxHeight)
@@ -612,8 +458,8 @@ func (d *themePickerDialog) filterThemes() (selectionChanged bool) {
 		}
 	}
 
-	// Reset scrollbar when filtering.
-	d.scrollbar.SetScrollOffset(0)
+	// Reset scroll when filtering.
+	d.scrollview.SetScrollOffset(0)
 
 	// Determine if selection changed.
 	newRef := ""
@@ -621,30 +467,6 @@ func (d *themePickerDialog) filterThemes() (selectionChanged bool) {
 		newRef = d.filtered[d.selected].Ref
 	}
 	return newRef != prevRef
-}
-
-// totalLineCount returns the total number of visible list lines, including category separators.
-func (d *themePickerDialog) totalLineCount() int {
-	if len(d.filtered) == 0 {
-		return 0
-	}
-
-	hasBuiltinThemes := false
-	hasCustomThemes := false
-	for _, t := range d.filtered {
-		if t.IsBuiltin {
-			hasBuiltinThemes = true
-		} else {
-			hasCustomThemes = true
-		}
-	}
-
-	sepCount := 0
-	if hasCustomThemes && hasBuiltinThemes {
-		sepCount++
-	}
-
-	return len(d.filtered) + sepCount
 }
 
 // lineToThemeIndex converts a line index (in the rendered list including separators)
@@ -683,7 +505,7 @@ func (d *themePickerDialog) lineToThemeIndex(lineIdx int) int {
 }
 
 // findSelectedLine returns the line index (including separators) that corresponds to the selected theme.
-func (d *themePickerDialog) findSelectedLine(allLines []string) int {
+func (d *themePickerDialog) findSelectedLine(_ []string) int {
 	if d.selected < 0 || d.selected >= len(d.filtered) {
 		return 0
 	}
@@ -715,5 +537,5 @@ func (d *themePickerDialog) findSelectedLine(allLines []string) int {
 		lineIndex++
 	}
 
-	return min(lineIndex, len(allLines)-1)
+	return lineIndex
 }

@@ -141,8 +141,10 @@ agents:
       Always ask clarifying questions to ensure you fully understand the user's needs before creating the plan.
       Once you have a clear understanding, analyze the existing code and create a detailed development plan in a markdown file. Do not write any code yourself.
       Once the plan is created, you will delegate tasks to the root agent. Make sure to provide the file name of the plan when delegating. Write the plan in the current directory.
+      Use the `user_prompt` tool to ask questions to the user. Prefer Multiple Choice Questions.
     toolsets:
       - type: filesystem
+      - type: user_prompt
     sub_agents:
       - root
 

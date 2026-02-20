@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"runtime/pprof"
+	"sync"
 
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
@@ -21,9 +22,12 @@ import (
 	"github.com/docker/cagent/pkg/paths"
 	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/session"
+	"github.com/docker/cagent/pkg/sessiontitle"
 	"github.com/docker/cagent/pkg/teamloader"
 	"github.com/docker/cagent/pkg/telemetry"
+	"github.com/docker/cagent/pkg/tui"
 	"github.com/docker/cagent/pkg/tui/styles"
+	"github.com/docker/cagent/pkg/userconfig"
 )
 
 type runExecFlags struct {
@@ -47,6 +51,7 @@ type runExecFlags struct {
 	forceTUI          bool
 
 	// Exec only
+	exec          bool
 	hideToolCalls bool
 	outputJSON    bool
 
@@ -58,18 +63,20 @@ func newRunCmd() *cobra.Command {
 	var flags runExecFlags
 
 	cmd := &cobra.Command{
-		Use:   "run [<agent-file>|<registry-ref>] [message|-]",
+		Use:   "run [<agent-file>|<registry-ref>] [message]...",
 		Short: "Run an agent",
 		Long:  "Run an agent with the specified configuration and prompt",
 		Example: `  cagent run ./agent.yaml
   cagent run ./team.yaml --agent root
   cagent run # built-in default agent
+  cagent run coder # built-in coding agent
   cagent run ./echo.yaml "INSTRUCTIONS"
+  cagent run ./echo.yaml "First question" "Follow-up question"
   echo "INSTRUCTIONS" | cagent run ./echo.yaml -
   cagent run ./agent.yaml --record  # Records session to auto-generated file`,
 		GroupID:           "core",
 		ValidArgsFunction: completeRunExec,
-		Args:              cobra.RangeArgs(0, 2),
+		Args:              cobra.ArbitraryArgs,
 		RunE:              flags.runRunCommand,
 	}
 
@@ -105,19 +112,28 @@ func addRunOrExecFlags(cmd *cobra.Command, flags *runExecFlags) {
 	cmd.PersistentFlags().BoolVar(&flags.forceTUI, "force-tui", false, "Force TUI mode even when not in a terminal")
 	_ = cmd.PersistentFlags().MarkHidden("force-tui")
 	cmd.MarkFlagsMutuallyExclusive("fake", "record")
+
+	// --exec only
+	cmd.PersistentFlags().BoolVar(&flags.exec, "exec", false, "Execute without a TUI")
+	cmd.PersistentFlags().BoolVar(&flags.hideToolCalls, "hide-tool-calls", false, "Hide the tool calls in the output")
+	cmd.PersistentFlags().BoolVar(&flags.outputJSON, "json", false, "Output results in JSON format")
 }
 
 func (f *runExecFlags) runRunCommand(cmd *cobra.Command, args []string) error {
-	telemetry.TrackCommand("run", args)
+	if f.exec {
+		telemetry.TrackCommand("exec", args)
+	} else {
+		telemetry.TrackCommand("run", args)
+	}
 
 	ctx := cmd.Context()
 	out := cli.NewPrinter(cmd.OutOrStdout())
 
-	tui := f.forceTUI || isatty.IsTerminal(os.Stdout.Fd())
-	return f.runOrExec(ctx, out, args, tui)
+	useTUI := !f.exec && (f.forceTUI || isatty.IsTerminal(os.Stdout.Fd()))
+	return f.runOrExec(ctx, out, args, useTUI)
 }
 
-func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []string, tui bool) error {
+func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []string, useTUI bool) error {
 	slog.Debug("Starting agent", "agent", f.agentName)
 
 	// Start CPU profiling if requested
@@ -126,11 +142,12 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 		if err != nil {
 			return fmt.Errorf("failed to create CPU profile: %w", err)
 		}
-		defer pf.Close()
 		if err := pprof.StartCPUProfile(pf); err != nil {
+			pf.Close()
 			return fmt.Errorf("failed to start CPU profile: %w", err)
 		}
 		defer pprof.StopCPUProfile()
+		defer pf.Close()
 		slog.Info("CPU profiling enabled", "file", f.cpuProfile)
 	}
 
@@ -158,7 +175,7 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 
 	// Apply global user settings first (lowest priority)
 	// User settings only apply if the flag wasn't explicitly set by the user
-	userSettings := config.GetUserSettings()
+	userSettings := userconfig.Get()
 	if userSettings.HideToolResults && !f.hideToolResults {
 		f.hideToolResults = true
 		slog.Debug("Applying user settings", "hide_tool_results", true)
@@ -200,50 +217,55 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 		return err
 	}
 	if cassettePath != "" {
-		defer recordCleanup()
+		defer func() {
+			if err := recordCleanup(); err != nil {
+				slog.Error("Failed to cleanup recording proxy", "error", err)
+			}
+		}()
 		out.Println("Recording mode enabled, cassette: " + cassettePath)
 	}
 
-	var (
-		rt      runtime.Runtime
-		sess    *session.Session
-		cleanup func()
-	)
+	// Remote runtime
 	if f.remoteAddress != "" {
-		rt, sess, err = f.createRemoteRuntimeAndSession(ctx, agentFileName)
+		rt, sess, err := f.createRemoteRuntimeAndSession(ctx, agentFileName)
 		if err != nil {
 			return err
 		}
-		cleanup = func() {} // Remote runtime doesn't need local cleanup
-	} else {
-		agentSource, err := config.Resolve(agentFileName, f.runConfig.EnvProvider())
-		if err != nil {
-			return err
-		}
+		return f.launchTUI(ctx, out, rt, sess, args, useTUI)
+	}
 
-		loadResult, err := f.loadAgentFrom(ctx, agentSource)
-		if err != nil {
-			return err
-		}
+	// Local runtime
+	agentSource, err := config.Resolve(agentFileName, f.runConfig.EnvProvider())
+	if err != nil {
+		return err
+	}
 
-		rt, sess, err = f.createLocalRuntimeAndSession(ctx, loadResult)
-		if err != nil {
-			return err
-		}
+	loadResult, err := f.loadAgentFrom(ctx, agentSource)
+	if err != nil {
+		return err
+	}
 
-		// Setup cleanup for local runtime
-		cleanup = func() {
-			// Use a fresh context for cleanup since the original may be canceled
+	rt, sess, err := f.createLocalRuntimeAndSession(ctx, loadResult)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := rt.Close(); err != nil {
+			slog.Error("Failed to close runtime", "error", err)
+		}
+	}()
+	var initialTeamCleanupOnce sync.Once
+	initialTeamCleanup := func() {
+		initialTeamCleanupOnce.Do(func() {
 			cleanupCtx := context.WithoutCancel(ctx)
 			if err := loadResult.Team.StopToolSets(cleanupCtx); err != nil {
 				slog.Error("Failed to stop tool sets", "error", err)
 			}
-		}
+		})
 	}
-	defer cleanup()
+	defer initialTeamCleanup()
 
-	// Apply theme before TUI starts
-	if tui {
+	if useTUI {
 		applyTheme()
 	}
 
@@ -252,11 +274,24 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 		return nil
 	}
 
-	if !tui {
+	if !useTUI {
 		return f.handleExecMode(ctx, out, rt, sess, args)
 	}
 
-	return f.handleRunMode(ctx, rt, sess, args)
+	opts, err := f.buildAppOpts(args)
+	if err != nil {
+		return err
+	}
+
+	var sessStore session.Store
+	switch typedRt := rt.(type) {
+	case *runtime.LocalRuntime:
+		sessStore = typedRt.SessionStore()
+	case *runtime.PersistentRuntime:
+		sessStore = typedRt.SessionStore()
+	}
+
+	return runTUI(ctx, rt, sess, f.createSessionSpawner(agentSource, sessStore), initialTeamCleanup, opts...)
 }
 
 func (f *runExecFlags) loadAgentFrom(ctx context.Context, agentSource config.Source) (*teamloader.LoadResult, error) {
@@ -266,51 +301,19 @@ func (f *runExecFlags) loadAgentFrom(ctx context.Context, agentSource config.Sou
 	if len(f.promptFiles) > 0 {
 		opts = append(opts, teamloader.WithPromptFiles(f.promptFiles))
 	}
-
-	result, err := teamloader.LoadWithConfig(ctx, agentSource, &f.runConfig, opts...)
-	if err != nil {
-		return nil, err
-	}
-
-	return result, nil
+	return teamloader.LoadWithConfig(ctx, agentSource, &f.runConfig, opts...)
 }
 
 func (f *runExecFlags) createRemoteRuntimeAndSession(ctx context.Context, originalFilename string) (runtime.Runtime, *session.Session, error) {
+	var (
+		client runtime.RemoteClient
+		err    error
+	)
 	if f.connectRPC {
-		return f.createConnectRPCRuntimeAndSession(ctx, originalFilename)
+		client, err = runtime.NewConnectRPCClient(f.remoteAddress)
+	} else {
+		client, err = runtime.NewClient(f.remoteAddress)
 	}
-	return f.createHTTPRuntimeAndSession(ctx, originalFilename)
-}
-
-func (f *runExecFlags) createConnectRPCRuntimeAndSession(ctx context.Context, originalFilename string) (runtime.Runtime, *session.Session, error) {
-	connectClient, err := runtime.NewConnectRPCClient(f.remoteAddress)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create connect-rpc client: %w", err)
-	}
-
-	sessTemplate := session.New(
-		session.WithToolsApproved(f.autoApprove),
-	)
-
-	sess, err := connectClient.CreateSession(ctx, sessTemplate)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	remoteRt, err := runtime.NewRemoteRuntime(connectClient,
-		runtime.WithRemoteCurrentAgent(f.agentName),
-		runtime.WithRemoteAgentFilename(originalFilename),
-	)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create connect-rpc remote runtime: %w", err)
-	}
-
-	slog.Debug("Using connect-rpc remote runtime", "address", f.remoteAddress, "agent", f.agentName)
-	return remoteRt, sess, nil
-}
-
-func (f *runExecFlags) createHTTPRuntimeAndSession(ctx context.Context, originalFilename string) (runtime.Runtime, *session.Session, error) {
-	remoteClient, err := runtime.NewClient(f.remoteAddress)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create remote client: %w", err)
 	}
@@ -319,12 +322,12 @@ func (f *runExecFlags) createHTTPRuntimeAndSession(ctx context.Context, original
 		session.WithToolsApproved(f.autoApprove),
 	)
 
-	sess, err := remoteClient.CreateSession(ctx, sessTemplate)
+	sess, err := client.CreateSession(ctx, sessTemplate)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	remoteRt, err := runtime.NewRemoteRuntime(remoteClient,
+	remoteRt, err := runtime.NewRemoteRuntime(client,
 		runtime.WithRemoteCurrentAgent(f.agentName),
 		runtime.WithRemoteAgentFilename(originalFilename),
 	)
@@ -332,7 +335,7 @@ func (f *runExecFlags) createHTTPRuntimeAndSession(ctx context.Context, original
 		return nil, nil, fmt.Errorf("failed to create remote runtime: %w", err)
 	}
 
-	slog.Debug("Using remote runtime", "address", f.remoteAddress, "agent", f.agentName)
+	slog.Debug("Using remote runtime", "address", f.remoteAddress, "agent", f.agentName, "connect_rpc", f.connectRPC)
 	return remoteRt, sess, nil
 }
 
@@ -403,12 +406,8 @@ func (f *runExecFlags) createLocalRuntimeAndSession(ctx context.Context, loadRes
 
 		slog.Debug("Loaded existing session", "session_id", resolvedID, "session_ref", f.sessionID, "agent", f.agentName)
 	} else {
-		sess = session.New(
-			session.WithMaxIterations(agent.MaxIterations()),
-			session.WithToolsApproved(f.autoApprove),
-			session.WithHideToolResults(f.hideToolResults),
-			session.WithThinking(agent.ThinkingConfigured()),
-		)
+		wd, _ := os.Getwd()
+		sess = session.New(f.buildSessionOpts(agent.MaxIterations(), agent.ThinkingConfigured(), wd)...)
 		// Session is stored lazily on first UpdateSession call (when content is added)
 		// This avoids creating empty sessions in the database
 		slog.Debug("Using local runtime", "agent", f.agentName, "thinking", agent.ThinkingConfigured())
@@ -418,12 +417,8 @@ func (f *runExecFlags) createLocalRuntimeAndSession(ctx context.Context, loadRes
 }
 
 func (f *runExecFlags) handleExecMode(ctx context.Context, out *cli.Printer, rt runtime.Runtime, sess *session.Session, args []string) error {
-	execArgs := []string{"exec"}
-	if len(args) == 2 {
-		execArgs = append(execArgs, args[1])
-	} else {
-		execArgs = append(execArgs, "Please proceed.")
-	}
+	// args[0] is the agent file; args[1:] are user messages for multi-turn conversation
+	userMessages := args[1:]
 
 	err := cli.Run(ctx, out, cli.Config{
 		AppName:        AppName,
@@ -431,9 +426,8 @@ func (f *runExecFlags) handleExecMode(ctx context.Context, out *cli.Printer, rt 
 		HideToolCalls:  f.hideToolCalls,
 		OutputJSON:     f.outputJSON,
 		AutoApprove:    f.autoApprove,
-	}, rt, sess, execArgs)
-	var cliErr cli.RuntimeError
-	if errors.As(err, &cliErr) {
+	}, rt, sess, userMessages)
+	if cliErr, ok := errors.AsType[cli.RuntimeError](err); ok {
 		return RuntimeError{Err: cliErr.Err}
 	}
 	return err
@@ -456,15 +450,40 @@ func readInitialMessage(args []string) (*string, error) {
 	return &args[1], nil
 }
 
-func (f *runExecFlags) handleRunMode(ctx context.Context, rt runtime.Runtime, sess *session.Session, args []string) error {
-	firstMessage, err := readInitialMessage(args)
+func (f *runExecFlags) launchTUI(ctx context.Context, out *cli.Printer, rt runtime.Runtime, sess *session.Session, args []string, useTUI bool) error {
+	if useTUI {
+		applyTheme()
+	}
+
+	if f.dryRun {
+		out.Println("Dry run mode enabled. Agent initialized but will not execute.")
+		return nil
+	}
+
+	if !useTUI {
+		return f.handleExecMode(ctx, out, rt, sess, args)
+	}
+
+	opts, err := f.buildAppOpts(args)
 	if err != nil {
 		return err
+	}
+
+	return runTUI(ctx, rt, sess, nil, nil, opts...)
+}
+
+func (f *runExecFlags) buildAppOpts(args []string) ([]app.Opt, error) {
+	firstMessage, err := readInitialMessage(args)
+	if err != nil {
+		return nil, err
 	}
 
 	var opts []app.Opt
 	if firstMessage != nil {
 		opts = append(opts, app.WithFirstMessage(*firstMessage))
+	}
+	if len(args) > 2 {
+		opts = append(opts, app.WithQueuedMessages(args[2:]))
 	}
 	if f.attachmentPath != "" {
 		opts = append(opts, app.WithFirstMessageAttachment(f.attachmentPath))
@@ -472,15 +491,89 @@ func (f *runExecFlags) handleRunMode(ctx context.Context, rt runtime.Runtime, se
 	if f.exitAfterResponse {
 		opts = append(opts, app.WithExitAfterFirstResponse())
 	}
+	return opts, nil
+}
 
-	return runTUI(ctx, rt, sess, opts...)
+// buildSessionOpts returns the canonical set of session options derived from
+// CLI flags and agent configuration. Both the initial session and spawned
+// sessions use this method so their options never drift apart.
+func (f *runExecFlags) buildSessionOpts(maxIterations int, thinking bool, workingDir string) []session.Opt {
+	return []session.Opt{
+		session.WithMaxIterations(maxIterations),
+		session.WithToolsApproved(f.autoApprove),
+		session.WithHideToolResults(f.hideToolResults),
+		session.WithThinking(thinking),
+		session.WithWorkingDir(workingDir),
+	}
+}
+
+// createSessionSpawner creates a function that can spawn new sessions with different working directories.
+func (f *runExecFlags) createSessionSpawner(agentSource config.Source, sessStore session.Store) tui.SessionSpawner {
+	return func(spawnCtx context.Context, workingDir string) (*app.App, *session.Session, func(), error) {
+		// Create a copy of the runtime config with the new working directory
+		runConfigCopy := f.runConfig.Clone()
+		runConfigCopy.WorkingDir = workingDir
+
+		// Load team with the new working directory
+		loadResult, err := teamloader.LoadWithConfig(spawnCtx, agentSource, runConfigCopy, teamloader.WithModelOverrides(f.modelOverrides))
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		team := loadResult.Team
+		agent, err := team.Agent(f.agentName)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		// Create model switcher config
+		modelSwitcherCfg := &runtime.ModelSwitcherConfig{
+			Models:             loadResult.Models,
+			Providers:          loadResult.Providers,
+			ModelsGateway:      runConfigCopy.ModelsGateway,
+			EnvProvider:        runConfigCopy.EnvProvider(),
+			AgentDefaultModels: loadResult.AgentDefaultModels,
+		}
+
+		// Create the local runtime
+		localRt, err := runtime.New(team,
+			runtime.WithSessionStore(sessStore),
+			runtime.WithCurrentAgent(f.agentName),
+			runtime.WithTracer(otel.Tracer(AppName)),
+			runtime.WithModelSwitcherConfig(modelSwitcherCfg),
+		)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		// Create a new session
+		newSess := session.New(f.buildSessionOpts(agent.MaxIterations(), agent.ThinkingConfigured(), workingDir)...)
+
+		// Create cleanup function
+		cleanup := func() {
+			cleanupCtx := context.WithoutCancel(spawnCtx)
+			_ = team.StopToolSets(cleanupCtx)
+		}
+
+		// Create the app
+		var appOpts []app.Opt
+		if pr, ok := localRt.(*runtime.PersistentRuntime); ok {
+			if model := pr.CurrentAgent().Model(); model != nil {
+				appOpts = append(appOpts, app.WithTitleGenerator(sessiontitle.New(model)))
+			}
+		}
+
+		a := app.New(spawnCtx, localRt, newSess, appOpts...)
+
+		return a, newSess, cleanup, nil
+	}
 }
 
 // applyTheme applies the theme from user config, or the built-in default.
 func applyTheme() {
 	// Resolve theme from user config > built-in default
 	themeRef := styles.DefaultThemeRef
-	if userSettings := config.GetUserSettings(); userSettings.Theme != "" {
+	if userSettings := userconfig.Get(); userSettings.Theme != "" {
 		themeRef = userSettings.Theme
 	}
 

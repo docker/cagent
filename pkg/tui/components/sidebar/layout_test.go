@@ -182,7 +182,7 @@ func BenchmarkSidebarVerticalView_Scroll(b *testing.B) {
 
 	for i := range b.N {
 		// Simulate scrolling by updating scroll offset
-		m.scrollbar.SetScrollOffset(i % 10)
+		m.scrollview.SetScrollOffset(i % 10)
 		_ = m.verticalView()
 	}
 }

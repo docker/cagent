@@ -26,35 +26,35 @@ func TestBuildConfig_Gemini25_ThinkingBudget(t *testing.T) {
 			name:                 "gemini-2.5-flash with dynamic thinking (-1)",
 			model:                "gemini-2.5-flash",
 			thinkingBudget:       &latest.ThinkingBudget{Tokens: -1},
-			expectThinkingBudget: ptr(int32(-1)),
+			expectThinkingBudget: new(int32(-1)),
 			expectThinkingLevel:  "",
 		},
 		{
 			name:                 "gemini-2.5-pro with dynamic thinking (-1)",
 			model:                "gemini-2.5-pro",
 			thinkingBudget:       &latest.ThinkingBudget{Tokens: -1},
-			expectThinkingBudget: ptr(int32(-1)),
+			expectThinkingBudget: new(int32(-1)),
 			expectThinkingLevel:  "",
 		},
 		{
 			name:                 "gemini-2.5-flash with specific token budget",
 			model:                "gemini-2.5-flash",
 			thinkingBudget:       &latest.ThinkingBudget{Tokens: 8192},
-			expectThinkingBudget: ptr(int32(8192)),
+			expectThinkingBudget: new(int32(8192)),
 			expectThinkingLevel:  "",
 		},
 		{
 			name:                 "gemini-2.5-flash with thinking disabled (0)",
 			model:                "gemini-2.5-flash",
 			thinkingBudget:       &latest.ThinkingBudget{Tokens: 0},
-			expectThinkingBudget: ptr(int32(0)),
+			expectThinkingBudget: new(int32(0)),
 			expectThinkingLevel:  "",
 		},
 		{
 			name:                 "gemini-2.5-flash-lite with dynamic thinking",
 			model:                "gemini-2.5-flash-lite",
 			thinkingBudget:       &latest.ThinkingBudget{Tokens: -1},
-			expectThinkingBudget: ptr(int32(-1)),
+			expectThinkingBudget: new(int32(-1)),
 			expectThinkingLevel:  "",
 		},
 	}
@@ -405,9 +405,4 @@ func TestBuildConfig_ThinkingNotSet(t *testing.T) {
 	require.NotNil(t, config.ThinkingConfig, "ThinkingConfig should be set from ThinkingBudget")
 	assert.True(t, config.ThinkingConfig.IncludeThoughts, "IncludeThoughts should be true")
 	assert.Equal(t, genai.ThinkingLevelHigh, config.ThinkingConfig.ThinkingLevel, "ThinkingLevel should match ThinkingBudget")
-}
-
-// ptr is a helper to create a pointer to an int32 value.
-func ptr(v int32) *int32 {
-	return &v
 }

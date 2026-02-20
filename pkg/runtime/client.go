@@ -79,6 +79,15 @@ func NewClient(baseURL string, opts ...ClientOption) (*Client, error) {
 			"agent_choice_reasoning": func() Event { return &AgentChoiceReasoningEvent{} },
 			"mcp_init_started":       func() Event { return &MCPInitStartedEvent{} },
 			"mcp_init_finished":      func() Event { return &MCPInitFinishedEvent{} },
+			"agent_info":             func() Event { return &AgentInfoEvent{} },
+			"team_info":              func() Event { return &TeamInfoEvent{} },
+			"toolset_info":           func() Event { return &ToolsetInfoEvent{} },
+			"agent_switching":        func() Event { return &AgentSwitchingEvent{} },
+			"warning":                func() Event { return &WarningEvent{} },
+			"hook_blocked":           func() Event { return &HookBlockedEvent{} },
+			"rag_indexing_started":   func() Event { return &RAGIndexingStartedEvent{} },
+			"rag_indexing_progress":  func() Event { return &RAGIndexingProgressEvent{} },
+			"rag_indexing_completed": func() Event { return &RAGIndexingCompletedEvent{} },
 		},
 	}
 
@@ -383,4 +392,18 @@ func (c *Client) ResumeElicitation(ctx context.Context, sessionID string, action
 func (c *Client) UpdateSessionTitle(ctx context.Context, sessionID, title string) error {
 	req := api.UpdateSessionTitleRequest{Title: title}
 	return c.doRequest(ctx, http.MethodPatch, "/api/sessions/"+sessionID+"/title", req, nil)
+}
+
+// GetAgentToolCount returns the number of tools available for an agent.
+func (c *Client) GetAgentToolCount(ctx context.Context, agentFilename, agentName string) (int, error) {
+	var resp struct {
+		AvailableTools int `json:"available_tools"`
+	}
+	endpoint := fmt.Sprintf("/api/agents/%s/%s/tools/count", url.PathEscape(agentFilename), url.PathEscape(agentName))
+	err := c.doRequest(ctx, http.MethodGet, endpoint, nil, &resp)
+	if err != nil {
+		return 0, err
+	}
+
+	return resp.AvailableTools, nil
 }

@@ -2,6 +2,7 @@ package latest
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"reflect"
 	"sort"
@@ -13,7 +14,7 @@ import (
 )
 
 // schemaFile is the path to the JSON schema file relative to the repo root.
-const schemaFile = "../../../cagent-schema.json"
+const schemaFile = "../../../agent-schema.json"
 
 // jsonSchema mirrors the subset of JSON Schema we need for comparison.
 type jsonSchema struct {
@@ -46,18 +47,14 @@ func (s jsonSchema) resolveRef(root jsonSchema) jsonSchema {
 // excluded. It recurses into anonymous (embedded) struct fields so that
 // promoted fields are included.
 func structJSONFields(t reflect.Type) map[string]bool {
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	fields := make(map[string]bool)
-	for i := range t.NumField() {
-		f := t.Field(i)
-
+	for f := range t.Fields() {
 		// Recurse into anonymous (embedded) structs.
 		if f.Anonymous {
-			for k, v := range structJSONFields(f.Type) {
-				fields[k] = v
-			}
+			maps.Copy(fields, structJSONFields(f.Type))
 			continue
 		}
 
@@ -94,7 +91,7 @@ func sortedKeys(m map[string]bool) []string {
 }
 
 // TestSchemaMatchesGoTypes verifies that every JSON-tagged field in the Go
-// config structs has a corresponding property in cagent-schema.json (and
+// config structs has a corresponding property in agent-schema.json (and
 // vice-versa). This prevents the schema from silently drifting out of sync
 // with the Go types.
 func TestSchemaMatchesGoTypes(t *testing.T) {
@@ -119,27 +116,27 @@ func TestSchemaMatchesGoTypes(t *testing.T) {
 
 	entries := []entry{
 		// Top-level Config
-		{reflect.TypeOf(Config{}), root, "Config (top-level)"},
+		{reflect.TypeFor[Config](), root, "Config (top-level)"},
 	}
 
 	// Definitions that map 1:1 to a Go struct.
 	definitionMap := map[string]reflect.Type{
-		"AgentConfig":           reflect.TypeOf(AgentConfig{}),
-		"FallbackConfig":        reflect.TypeOf(FallbackConfig{}),
-		"ModelConfig":           reflect.TypeOf(ModelConfig{}),
-		"Metadata":              reflect.TypeOf(Metadata{}),
-		"ProviderConfig":        reflect.TypeOf(ProviderConfig{}),
-		"Toolset":               reflect.TypeOf(Toolset{}),
-		"Remote":                reflect.TypeOf(Remote{}),
-		"SandboxConfig":         reflect.TypeOf(SandboxConfig{}),
-		"ScriptShellToolConfig": reflect.TypeOf(ScriptShellToolConfig{}),
-		"PostEditConfig":        reflect.TypeOf(PostEditConfig{}),
-		"PermissionsConfig":     reflect.TypeOf(PermissionsConfig{}),
-		"HooksConfig":           reflect.TypeOf(HooksConfig{}),
-		"HookMatcherConfig":     reflect.TypeOf(HookMatcherConfig{}),
-		"HookDefinition":        reflect.TypeOf(HookDefinition{}),
-		"RoutingRule":           reflect.TypeOf(RoutingRule{}),
-		"ApiConfig":             reflect.TypeOf(APIToolConfig{}),
+		"AgentConfig":           reflect.TypeFor[AgentConfig](),
+		"FallbackConfig":        reflect.TypeFor[FallbackConfig](),
+		"ModelConfig":           reflect.TypeFor[ModelConfig](),
+		"Metadata":              reflect.TypeFor[Metadata](),
+		"ProviderConfig":        reflect.TypeFor[ProviderConfig](),
+		"Toolset":               reflect.TypeFor[Toolset](),
+		"Remote":                reflect.TypeFor[Remote](),
+		"SandboxConfig":         reflect.TypeFor[SandboxConfig](),
+		"ScriptShellToolConfig": reflect.TypeFor[ScriptShellToolConfig](),
+		"PostEditConfig":        reflect.TypeFor[PostEditConfig](),
+		"PermissionsConfig":     reflect.TypeFor[PermissionsConfig](),
+		"HooksConfig":           reflect.TypeFor[HooksConfig](),
+		"HookMatcherConfig":     reflect.TypeFor[HookMatcherConfig](),
+		"HookDefinition":        reflect.TypeFor[HookDefinition](),
+		"RoutingRule":           reflect.TypeFor[RoutingRule](),
+		"ApiConfig":             reflect.TypeFor[APIToolConfig](),
 	}
 
 	for name, goType := range definitionMap {
@@ -159,13 +156,13 @@ func TestSchemaMatchesGoTypes(t *testing.T) {
 	}
 
 	inlines := []inlineEntry{
-		{reflect.TypeOf(StructuredOutput{}), []string{"AgentConfig", "structured_output"}, "StructuredOutput (AgentConfig.structured_output)"},
-		{reflect.TypeOf(RAGConfig{}), []string{"RAGConfig"}, "RAGConfig"},
-		{reflect.TypeOf(RAGToolConfig{}), []string{"RAGConfig", "tool"}, "RAGToolConfig (RAGConfig.tool)"},
-		{reflect.TypeOf(RAGResultsConfig{}), []string{"RAGConfig", "results"}, "RAGResultsConfig (RAGConfig.results)"},
-		{reflect.TypeOf(RAGFusionConfig{}), []string{"RAGConfig", "results", "fusion"}, "RAGFusionConfig (RAGConfig.results.fusion)"},
-		{reflect.TypeOf(RAGRerankingConfig{}), []string{"RAGConfig", "results", "reranking"}, "RAGRerankingConfig (RAGConfig.results.reranking)"},
-		{reflect.TypeOf(RAGChunkingConfig{}), []string{"RAGConfig", "strategies", "*", "chunking"}, "RAGChunkingConfig (RAGConfig.strategies[].chunking)"},
+		{reflect.TypeFor[StructuredOutput](), []string{"AgentConfig", "structured_output"}, "StructuredOutput (AgentConfig.structured_output)"},
+		{reflect.TypeFor[RAGConfig](), []string{"RAGConfig"}, "RAGConfig"},
+		{reflect.TypeFor[RAGToolConfig](), []string{"RAGConfig", "tool"}, "RAGToolConfig (RAGConfig.tool)"},
+		{reflect.TypeFor[RAGResultsConfig](), []string{"RAGConfig", "results"}, "RAGResultsConfig (RAGConfig.results)"},
+		{reflect.TypeFor[RAGFusionConfig](), []string{"RAGConfig", "results", "fusion"}, "RAGFusionConfig (RAGConfig.results.fusion)"},
+		{reflect.TypeFor[RAGRerankingConfig](), []string{"RAGConfig", "results", "reranking"}, "RAGRerankingConfig (RAGConfig.results.reranking)"},
+		{reflect.TypeFor[RAGChunkingConfig](), []string{"RAGConfig", "strategies", "*", "chunking"}, "RAGChunkingConfig (RAGConfig.strategies[].chunking)"},
 	}
 
 	for _, il := range inlines {

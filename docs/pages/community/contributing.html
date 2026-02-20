@@ -1,0 +1,135 @@
+<h1>Contributing</h1>
+<p class="subtitle">cagent is open source. Here's how to set up your development environment and contribute.</p>
+
+<h2>Development Setup</h2>
+
+<h3>Prerequisites</h3>
+
+<ul>
+  <li><a href="https://go.dev/dl/" target="_blank" rel="noopener noreferrer">Go 1.25</a> or higher</li>
+  <li>API key(s) for your chosen AI provider</li>
+  <li><a href="https://taskfile.dev/installation/" target="_blank" rel="noopener noreferrer">Task 3.44</a> or higher</li>
+  <li><a href="https://golangci-lint.run/docs/welcome/install/#binaries" target="_blank" rel="noopener noreferrer">golangci-lint</a></li>
+</ul>
+
+<div class="callout callout-info">
+  <div class="callout-title">ℹ️ Platform Support</div>
+  <p>macOS and Linux are fully supported for development. On Windows, use <code>task build-local</code> to build via Docker.</p>
+</div>
+
+<h3>Build from Source</h3>
+
+<pre><code class="language-bash"># Clone and build
+git clone https://github.com/docker/cagent.git
+cd cagent
+task build
+
+# Set API keys
+export OPENAI_API_KEY=your_key_here
+export ANTHROPIC_API_KEY=your_key_here
+
+# Run an example
+./bin/cagent run examples/code.yaml</code></pre>
+
+<h3>Development Commands</h3>
+
+<table>
+  <thead><tr><th>Command</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>task build</code></td><td>Build the binary to <code>./bin/cagent</code></td></tr>
+    <tr><td><code>task test</code></td><td>Run all tests (clears API keys for determinism)</td></tr>
+    <tr><td><code>task lint</code></td><td>Run golangci-lint</td></tr>
+    <tr><td><code>task format</code></td><td>Format code</td></tr>
+    <tr><td><code>task dev</code></td><td>Run lint, test, and build in sequence</td></tr>
+    <tr><td><code>task build-local</code></td><td>Build for local platform via Docker</td></tr>
+    <tr><td><code>task cross</code></td><td>Cross-platform builds (all architectures)</td></tr>
+  </tbody>
+</table>
+
+<h2>Dogfooding</h2>
+
+<p>Use cagent to work on cagent! The project includes a specialized developer agent:</p>
+
+<pre><code class="language-bash">$ cd cagent
+$ cagent run ./golang_developer.yaml</code></pre>
+
+<p>This agent is an expert Go developer that understands the cagent codebase. Ask it questions, request fixes, or have it implement features.</p>
+
+<h2>Core Concepts</h2>
+
+<ul>
+  <li><strong>Root Agent</strong> — Main entry point that coordinates the system</li>
+  <li><strong>Sub-Agents</strong> — Specialized agents for specific domains</li>
+  <li><strong>Tools</strong> — External capabilities via MCP</li>
+  <li><strong>Models</strong> — AI provider configurations</li>
+</ul>
+
+<h2>Code Style</h2>
+
+<p>The project uses <code>golangci-lint</code> with strict rules. As long as <code>task lint</code> passes, the code is stylistically acceptable.</p>
+
+<p>Key conventions:</p>
+
+<ul>
+  <li>Use <code>fmt.Errorf("context: %w", err)</code> for error wrapping</li>
+  <li>Always pass <code>context.Context</code> as the first parameter</li>
+  <li>Use <code>slog</code> for structured logging</li>
+  <li>Use functional options pattern for constructors</li>
+  <li>In tests: use <code>t.Context()</code>, <code>t.TempDir()</code>, <code>t.Setenv()</code>, and <code>t.Parallel()</code></li>
+</ul>
+
+<h2>Opening Issues</h2>
+
+<p>File issues on the <a href="https://github.com/docker/cagent/issues" target="_blank" rel="noopener noreferrer">GitHub issue tracker</a>. Please:</p>
+
+<div class="callout callout-info">
+  <div class="callout-title">ℹ️ See also</div>
+  <p><a href="#community/troubleshooting" onclick="event.preventDefault(); navigate('community/troubleshooting')">Troubleshooting</a> — Common issues and debug mode. <a href="#community/telemetry" onclick="event.preventDefault(); navigate('community/telemetry')">Telemetry</a> — What data is collected and how to opt out.</p>
+</div>
+
+<ul>
+  <li>Use the included issue template</li>
+  <li>Search for existing issues before creating new ones</li>
+  <li>Only use issues for bugs and feature requests (not support)</li>
+</ul>
+
+<h2>Submitting Pull Requests</h2>
+
+<ol>
+  <li><strong>Fork</strong> the repository and create a branch for your changes</li>
+  <li><strong>Write</strong> your code following the style and testing guidelines above</li>
+  <li><strong>Test</strong> your changes: run <code>task lint</code> and <code>task test</code></li>
+  <li><strong>Sign</strong> your commits with <code>git commit -s</code> (DCO required)</li>
+  <li><strong>Open a pull request</strong> against the <code>main</code> branch</li>
+</ol>
+
+<div class="callout callout-tip">
+  <div class="callout-title">💡 Tip</div>
+  <p>Use the dogfooding agent (<code>cagent run ./golang_developer.yaml</code>) to help write and review your changes before submitting.</p>
+</div>
+
+<h2>Sign Your Work</h2>
+
+<p>All contributions require a Developer Certificate of Origin (DCO) sign-off:</p>
+
+<pre><code class="language-bash"># Sign commits automatically
+git config user.name "Your Name"
+git config user.email "your.email@example.com"
+git commit -s -m "Your commit message"</code></pre>
+
+<h2>Community</h2>
+
+<p>Find us on <a href="https://dockercommunity.slack.com/archives/C09DASHHRU4" target="_blank" rel="noopener noreferrer">Slack</a> for questions and discussions.</p>
+
+<h2>Code of Conduct</h2>
+
+<p>We want to keep the cagent community welcoming, inclusive, and collaborative. Key guidelines:</p>
+
+<ul>
+  <li><strong>Be nice</strong> — Be courteous, respectful, and polite. No abuse of any kind will be tolerated.</li>
+  <li><strong>Encourage diversity</strong> — Make everyone feel welcome regardless of background.</li>
+  <li><strong>Keep it legal</strong> — Share only content you own and don't break the law.</li>
+  <li><strong>Stay on topic</strong> — Post to the correct channel and avoid off-topic discussions.</li>
+</ul>
+
+<p>The governance for this repository is handled by Docker Inc.</p>

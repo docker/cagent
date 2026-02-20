@@ -112,7 +112,12 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 
 	// Resolve model aliases (e.g., "claude-sonnet-4-5" -> "claude-sonnet-4-5-20250929")
 	// This ensures the sidebar and other UI elements show the actual model being used.
-	config.ResolveModelAliases(ctx, cfg)
+	modelsStore, err := modelsdev.NewStore()
+	if err != nil {
+		slog.Debug("Failed to create modelsdev store for alias resolution", "error", err)
+	} else {
+		config.ResolveModelAliases(ctx, cfg, modelsStore)
+	}
 
 	// Apply model overrides from CLI flags before checking required env vars
 	if err := config.ApplyModelOverrides(cfg, loadOpts.modelOverrides); err != nil {
@@ -187,8 +192,7 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 		if err != nil {
 			// Return auto model fallback errors and DMR not installed errors directly
 			// without wrapping to provide cleaner messages
-			var autoErr *config.AutoModelFallbackError
-			if errors.As(err, &autoErr) || errors.Is(err, dmr.ErrNotInstalled) {
+			if _, ok := errors.AsType[*config.AutoModelFallbackError](err); ok || errors.Is(err, dmr.ErrNotInstalled) {
 				return nil, err
 			}
 			return nil, fmt.Errorf("failed to get models: %w", err)
@@ -297,6 +301,7 @@ func getModelsForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentC
 				return nil, false, fmt.Errorf("model '%s' not found in configuration", name)
 			}
 		}
+		modelCfg.Name = name
 
 		// Check if thinking_budget was explicitly configured BEFORE provider defaults are applied.
 		// This is used to initialize session thinking state - thinking is only enabled by default
@@ -367,6 +372,7 @@ func getFallbackModelsForAgent(ctx context.Context, cfg *latest.Config, a *lates
 				Model:    modelName,
 			}
 		}
+		modelCfg.Name = name
 
 		// Use max_tokens from config if specified, otherwise look up from models.dev
 		maxTokens := &defaultMaxTokens

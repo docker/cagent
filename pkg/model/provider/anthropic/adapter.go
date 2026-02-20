@@ -45,8 +45,8 @@ func isContextLengthError(err error) bool {
 		return false
 	}
 
-	var apiErr *anthropic.Error
-	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusBadRequest {
+	apiErr, ok := errors.AsType[*anthropic.Error](err)
+	if !ok || apiErr.StatusCode != http.StatusBadRequest {
 		return false
 	}
 

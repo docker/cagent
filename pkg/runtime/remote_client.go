@@ -32,6 +32,9 @@ type RemoteClient interface {
 
 	// UpdateSessionTitle updates the title of a session
 	UpdateSessionTitle(ctx context.Context, sessionID, title string) error
+
+	// GetAgentToolCount returns the number of tools available for an agent
+	GetAgentToolCount(ctx context.Context, agentFilename, agentName string) (int, error)
 }
 
 // Verify that both clients implement RemoteClient

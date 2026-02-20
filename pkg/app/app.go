@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -33,6 +32,7 @@ type App struct {
 	session                *session.Session
 	firstMessage           *string
 	firstMessageAttach     string
+	queuedMessages         []string
 	events                 chan tea.Msg
 	throttleDuration       time.Duration
 	cancel                 context.CancelFunc
@@ -66,6 +66,15 @@ func WithExitAfterFirstResponse() Opt {
 	}
 }
 
+// WithQueuedMessages sets messages to be queued after the first message is sent.
+// These messages will be delivered to the TUI as SendMsg events, which the
+// chat page will queue and process sequentially after each agent response.
+func WithQueuedMessages(msgs []string) Opt {
+	return func(a *App) {
+		a.queuedMessages = msgs
+	}
+}
+
 // WithTitleGenerator sets the title generator for local title generation.
 // If not set, title generation will be handled by the runtime (for remote) or skipped.
 func WithTitleGenerator(gen *sessiontitle.Generator) Opt {
@@ -93,7 +102,7 @@ func New(ctx context.Context, rt runtime.Runtime, sess *session.Session, opts ..
 		startupEvents := make(chan runtime.Event, 10)
 		go func() {
 			defer close(startupEvents)
-			rt.EmitStartupInfo(ctx, startupEvents)
+			rt.EmitStartupInfo(ctx, sess, startupEvents)
 		}()
 		for event := range startupEvents {
 			select {
@@ -124,21 +133,36 @@ func (a *App) SendFirstMessage() tea.Cmd {
 		return nil
 	}
 
-	return func() tea.Msg {
-		// Use the shared PrepareUserMessage function for consistent attachment handling
-		userMsg := cli.PrepareUserMessage(context.Background(), a.runtime, *a.firstMessage, a.firstMessageAttach)
+	cmds := []tea.Cmd{
+		func() tea.Msg {
+			// Use the shared PrepareUserMessage function for consistent attachment handling
+			userMsg := cli.PrepareUserMessage(context.Background(), a.runtime, *a.firstMessage, a.firstMessageAttach)
 
-		// If the message has multi-content (attachments), we need to handle it specially
-		if len(userMsg.Message.MultiContent) > 0 {
-			return messages.SendAttachmentMsg{
-				Content: userMsg,
+			// If the message has multi-content (attachments), we need to handle it specially
+			if len(userMsg.Message.MultiContent) > 0 {
+				return messages.SendAttachmentMsg{
+					Content: userMsg,
+				}
 			}
-		}
 
-		return messages.SendMsg{
-			Content: userMsg.Message.Content,
-		}
+			return messages.SendMsg{
+				Content: userMsg.Message.Content,
+			}
+		},
 	}
+
+	// Queue additional messages to be sent after the first one.
+	// The TUI's message queue will hold them until the agent finishes
+	// processing the previous message.
+	for _, msg := range a.queuedMessages {
+		cmds = append(cmds, func() tea.Msg {
+			return messages.SendMsg{
+				Content: msg,
+			}
+		})
+	}
+
+	return tea.Sequence(cmds...)
 }
 
 // CurrentAgentCommands returns the commands for the active agent
@@ -235,11 +259,11 @@ func (a *App) ResolveCommand(ctx context.Context, userInput string) string {
 
 // EmitStartupInfo emits initial agent, team, and toolset information to the provided channel
 func (a *App) EmitStartupInfo(ctx context.Context, events chan runtime.Event) {
-	a.runtime.EmitStartupInfo(ctx, events)
+	a.runtime.EmitStartupInfo(ctx, a.session, events)
 }
 
 // Run one agent loop
-func (a *App) Run(ctx context.Context, cancel context.CancelFunc, message string, attachments map[string]string) {
+func (a *App) Run(ctx context.Context, cancel context.CancelFunc, message string, attachments []messages.Attachment) {
 	a.cancel = cancel
 
 	// If this is the first message and no title exists, start local title generation
@@ -250,98 +274,45 @@ func (a *App) Run(ctx context.Context, cancel context.CancelFunc, message string
 
 	go func() {
 		if len(attachments) > 0 {
-			// Strip attachment placeholders from the message text
-			// Placeholders are in the format @/path/to/file
-			cleanMessage := message
-			for placeholder := range attachments {
-				cleanMessage = strings.ReplaceAll(cleanMessage, placeholder, "")
-			}
-			cleanMessage = strings.TrimSpace(cleanMessage)
-			if cleanMessage == "" {
-				cleanMessage = "Please analyze this attached file."
+			// Build a single text string with the user's message and inlined text files.
+			// Keeping everything in one text block ensures the model sees file content
+			// together with the message, rather than as separate content blocks.
+			var textBuilder strings.Builder
+			textBuilder.WriteString(message)
+
+			// binaryParts holds non-text file parts (images, PDFs, etc.)
+			var binaryParts []chat.MessagePart
+
+			for _, att := range attachments {
+				switch {
+				case att.FilePath != "":
+					// File-reference attachment: read and classify from disk.
+					a.processFileAttachment(ctx, att, &textBuilder, &binaryParts)
+				case att.Content != "":
+					// Inline content attachment (e.g. pasted text).
+					a.processInlineAttachment(att, &textBuilder)
+				default:
+					slog.Debug("skipping attachment with no file path or content", "name", att.Name)
+				}
 			}
 
 			multiContent := []chat.MessagePart{
-				{
-					Type: chat.MessagePartTypeText,
-					Text: cleanMessage,
-				},
+				{Type: chat.MessagePartTypeText, Text: textBuilder.String()},
 			}
+			multiContent = append(multiContent, binaryParts...)
 
-			// Attachments are keyed by @filepath placeholder
-			// Extract the file path and add as file attachment for provider upload.
-			// Note: There is an inherent TOCTOU race between this validation and when
-			// the provider reads the file during upload. This validation catches common
-			// cases (deleted files, wrong paths) but files could still change before upload.
-			for placeholder := range attachments {
-				filePath := strings.TrimPrefix(placeholder, "@")
-				if filePath == "" {
-					slog.Debug("skipping attachment with empty file path", "placeholder", placeholder)
-					continue
-				}
-
-				// Convert to absolute path to ensure consistency with provider upload code
-				// and prevent issues if working directory changes between validation and upload
-				absPath, err := filepath.Abs(filePath)
-				if err != nil {
-					slog.Warn("skipping attachment: invalid path", "path", filePath, "error", err)
-					a.events <- runtime.Warning(fmt.Sprintf("Skipped attachment %s: invalid path", filePath), "")
-					continue
-				}
-
-				fi, err := os.Stat(absPath)
-				if err != nil {
-					var reason string
-					switch {
-					case os.IsNotExist(err):
-						reason = "file does not exist"
-					case os.IsPermission(err):
-						reason = "permission denied"
-					default:
-						reason = fmt.Sprintf("cannot access file: %v", err)
-					}
-					slog.Warn("skipping attachment", "path", absPath, "reason", reason)
-					a.events <- runtime.Warning(fmt.Sprintf("Skipped attachment %s: %s", filePath, reason), "")
-					continue
-				}
-
-				if !fi.Mode().IsRegular() {
-					slog.Warn("skipping attachment: not a regular file", "path", absPath, "mode", fi.Mode().String())
-					a.events <- runtime.Warning(fmt.Sprintf("Skipped attachment %s: not a regular file", filePath), "")
-					continue
-				}
-
-				const maxAttachmentSize = 100 * 1024 * 1024 // 100MB
-				if fi.Size() > maxAttachmentSize {
-					slog.Warn("skipping attachment: file too large", "path", absPath, "size", fi.Size(), "max", maxAttachmentSize)
-					a.events <- runtime.Warning(fmt.Sprintf("Skipped attachment %s: file too large (max 100MB)", filePath), "")
-					continue
-				}
-
-				mimeType := chat.DetectMimeType(absPath)
-				if !chat.IsSupportedMimeType(mimeType) {
-					slog.Warn("skipping attachment: unsupported file type", "path", absPath, "mime_type", mimeType)
-					a.events <- runtime.Warning(fmt.Sprintf("Skipped attachment %s: unsupported file type (supported: images, pdf, txt, md)", filePath), "")
-					continue
-				}
-
-				multiContent = append(multiContent, chat.MessagePart{
-					Type: chat.MessagePartTypeFile,
-					File: &chat.MessageFile{
-						Path:     absPath,
-						MimeType: mimeType,
-					},
-				})
-			}
-
-			a.session.AddMessage(session.UserMessage(cleanMessage, multiContent...))
+			a.session.AddMessage(session.UserMessage(message, multiContent...))
 		} else {
 			a.session.AddMessage(session.UserMessage(message))
 		}
 		for event := range a.runtime.RunStream(ctx, a.session) {
-			// If context is cancelled, continue draining but don't forward events.
-			// This prevents the runtime from blocking on event sends.
+			// If context is cancelled, continue draining but don't forward events
+			// — except StreamStoppedEvent, which must always propagate so the
+			// supervisor can mark the session as no longer running.
 			if ctx.Err() != nil {
+				if _, ok := event.(*runtime.StreamStoppedEvent); ok {
+					a.sendEvent(context.Background(), event)
+				}
 				continue
 			}
 
@@ -350,9 +321,92 @@ func (a *App) Run(ctx context.Context, cancel context.CancelFunc, message string
 				a.titleGenerating.Store(false)
 			}
 
-			a.events <- event
+			a.sendEvent(ctx, event)
 		}
 	}()
+}
+
+// processFileAttachment reads a file from disk, classifies it, and either
+// appends its text content to textBuilder or adds a binary part to binaryParts.
+func (a *App) processFileAttachment(ctx context.Context, att messages.Attachment, textBuilder *strings.Builder, binaryParts *[]chat.MessagePart) {
+	absPath := att.FilePath
+
+	fi, err := os.Stat(absPath)
+	if err != nil {
+		var reason string
+		switch {
+		case os.IsNotExist(err):
+			reason = "file does not exist"
+		case os.IsPermission(err):
+			reason = "permission denied"
+		default:
+			reason = fmt.Sprintf("cannot access file: %v", err)
+		}
+		slog.Warn("skipping attachment", "path", absPath, "reason", reason)
+		a.sendEvent(ctx, runtime.Warning(fmt.Sprintf("Skipped attachment %s: %s", att.Name, reason), ""))
+		return
+	}
+
+	if !fi.Mode().IsRegular() {
+		slog.Warn("skipping attachment: not a regular file", "path", absPath, "mode", fi.Mode().String())
+		a.sendEvent(ctx, runtime.Warning(fmt.Sprintf("Skipped attachment %s: not a regular file", att.Name), ""))
+		return
+	}
+
+	const maxAttachmentSize = 100 * 1024 * 1024 // 100MB
+	if fi.Size() > maxAttachmentSize {
+		slog.Warn("skipping attachment: file too large", "path", absPath, "size", fi.Size(), "max", maxAttachmentSize)
+		a.sendEvent(ctx, runtime.Warning(fmt.Sprintf("Skipped attachment %s: file too large (max 100MB)", att.Name), ""))
+		return
+	}
+
+	mimeType := chat.DetectMimeType(absPath)
+
+	switch {
+	case chat.IsTextFile(absPath):
+		if fi.Size() > chat.MaxInlineFileSize {
+			slog.Warn("skipping attachment: text file too large to inline", "path", absPath, "size", fi.Size(), "max", chat.MaxInlineFileSize)
+			a.sendEvent(ctx, runtime.Warning(fmt.Sprintf("Skipped attachment %s: text file too large to inline (max 5MB)", att.Name), ""))
+			return
+		}
+		content, err := chat.ReadFileForInline(absPath)
+		if err != nil {
+			slog.Warn("skipping attachment: failed to read file", "path", absPath, "error", err)
+			a.sendEvent(ctx, runtime.Warning(fmt.Sprintf("Skipped attachment %s: failed to read file", att.Name), ""))
+			return
+		}
+		textBuilder.WriteString("\n\n")
+		textBuilder.WriteString(content)
+
+	case chat.IsSupportedMimeType(mimeType):
+		*binaryParts = append(*binaryParts, chat.MessagePart{
+			Type: chat.MessagePartTypeFile,
+			File: &chat.MessageFile{
+				Path:     absPath,
+				MimeType: mimeType,
+			},
+		})
+
+	default:
+		slog.Warn("skipping attachment: unsupported file type", "path", absPath, "mime_type", mimeType)
+		a.sendEvent(ctx, runtime.Warning(fmt.Sprintf("Skipped attachment %s: unsupported file type", att.Name), ""))
+	}
+}
+
+// sendEvent sends an event to the TUI, respecting context cancellation to
+// avoid blocking on the channel when the consumer has stopped reading.
+func (a *App) sendEvent(ctx context.Context, event tea.Msg) {
+	select {
+	case a.events <- event:
+	case <-ctx.Done():
+	}
+}
+
+// processInlineAttachment handles content that is already in memory (e.g. pasted
+// text). The content is appended to textBuilder wrapped in an XML tag for context.
+func (a *App) processInlineAttachment(att messages.Attachment, textBuilder *strings.Builder) {
+	textBuilder.WriteString("\n\n")
+	fmt.Fprintf(textBuilder, "<attached_file path=%q>\n%s\n</attached_file>", att.Name, att.Content)
 }
 
 // RunWithMessage runs the agent loop with a pre-constructed message.
@@ -379,9 +433,13 @@ func (a *App) RunWithMessage(ctx context.Context, cancel context.CancelFunc, msg
 	go func() {
 		a.session.AddMessage(msg)
 		for event := range a.runtime.RunStream(ctx, a.session) {
-			// If context is cancelled, continue draining but don't forward events.
-			// This prevents the runtime from blocking on event sends.
+			// If context is cancelled, continue draining but don't forward events
+			// — except StreamStoppedEvent, which must always propagate so the
+			// supervisor can mark the session as no longer running.
 			if ctx.Err() != nil {
+				if _, ok := event.(*runtime.StreamStoppedEvent); ok {
+					a.sendEvent(context.Background(), event)
+				}
 				continue
 			}
 
@@ -390,17 +448,30 @@ func (a *App) RunWithMessage(ctx context.Context, cancel context.CancelFunc, msg
 				a.titleGenerating.Store(false)
 			}
 
-			a.events <- event
+			a.sendEvent(ctx, event)
 		}
 	}()
 }
 
 func (a *App) RunBangCommand(ctx context.Context, command string) {
-	out, _ := exec.CommandContext(ctx, "/bin/sh", "-c", command).CombinedOutput()
-	a.events <- runtime.ShellOutput("$ " + command + "\n" + string(out))
+	command = strings.TrimSpace(command)
+	if command == "" {
+		a.events <- runtime.ShellOutput("Error: empty command")
+		return
+	}
+
+	out, err := exec.CommandContext(ctx, "/bin/sh", "-c", command).CombinedOutput()
+	output := "$ " + command + "\n" + string(out)
+	if err != nil && len(out) == 0 {
+		output = "$ " + command + "\nError: " + err.Error()
+	}
+	a.events <- runtime.ShellOutput(output)
 }
 
-func (a *App) Subscribe(ctx context.Context, program *tea.Program) {
+// SubscribeWith subscribes to app events using a custom send function.
+// This allows callers to wrap or transform messages before sending them
+// to the Bubble Tea program (e.g. to tag events with a session ID for routing).
+func (a *App) SubscribeWith(ctx context.Context, send func(tea.Msg)) {
 	throttledChan := a.throttleEvents(ctx, a.events)
 	for {
 		select {
@@ -411,7 +482,7 @@ func (a *App) Subscribe(ctx context.Context, program *tea.Program) {
 				return
 			}
 
-			program.Send(msg)
+			send(msg)
 		}
 	}
 }
@@ -439,6 +510,7 @@ func (a *App) NewSession() {
 			session.WithThinking(a.session.Thinking),
 			session.WithToolsApproved(a.session.ToolsApproved),
 			session.WithHideToolResults(a.session.HideToolResults),
+			session.WithWorkingDir(a.session.WorkingDir),
 		)
 	}
 	a.session = session.New(opts...)
@@ -460,9 +532,10 @@ func (a *App) PermissionsInfo() *runtime.PermissionsInfo {
 	// Get session-level permissions
 	var sessionPerms *runtime.PermissionsInfo
 	if a.session != nil && a.session.Permissions != nil {
-		if len(a.session.Permissions.Allow) > 0 || len(a.session.Permissions.Deny) > 0 {
+		if len(a.session.Permissions.Allow) > 0 || len(a.session.Permissions.Ask) > 0 || len(a.session.Permissions.Deny) > 0 {
 			sessionPerms = &runtime.PermissionsInfo{
 				Allow: a.session.Permissions.Allow,
+				Ask:   a.session.Permissions.Ask,
 				Deny:  a.session.Permissions.Deny,
 			}
 		}
@@ -477,10 +550,12 @@ func (a *App) PermissionsInfo() *runtime.PermissionsInfo {
 	result := &runtime.PermissionsInfo{}
 	if sessionPerms != nil {
 		result.Allow = append(result.Allow, sessionPerms.Allow...)
+		result.Ask = append(result.Ask, sessionPerms.Ask...)
 		result.Deny = append(result.Deny, sessionPerms.Deny...)
 	}
 	if teamPerms != nil {
 		result.Allow = append(result.Allow, teamPerms.Allow...)
+		result.Ask = append(result.Ask, teamPerms.Ask...)
 		result.Deny = append(result.Deny, teamPerms.Deny...)
 	}
 
@@ -547,7 +622,7 @@ func (a *App) SetCurrentAgentModel(ctx context.Context, modelRef string) error {
 		startupEvents := make(chan runtime.Event, 10)
 		go func() {
 			defer close(startupEvents)
-			a.runtime.EmitStartupInfo(ctx, startupEvents)
+			a.runtime.EmitStartupInfo(ctx, a.session, startupEvents)
 		}()
 		for event := range startupEvents {
 			select {
@@ -667,15 +742,25 @@ func (a *App) ShouldExitAfterFirstResponse() bool {
 	return a.exitAfterFirstResponse
 }
 
-func (a *App) CompactSession(additionalPrompt string) {
-	if a.session != nil {
-		events := make(chan runtime.Event, 100)
-		a.runtime.Summarize(context.Background(), a.session, additionalPrompt, events)
-		close(events)
-		for event := range events {
-			a.events <- event
-		}
+func (a *App) CompactSession(ctx context.Context, additionalPrompt string) {
+	sess := a.session
+	if sess == nil {
+		return
 	}
+
+	go func() {
+		events := make(chan runtime.Event, 100)
+		go func() {
+			defer close(events)
+			a.runtime.Summarize(ctx, sess, additionalPrompt, events)
+		}()
+		for event := range events {
+			if ctx.Err() != nil {
+				return
+			}
+			a.sendEvent(ctx, event)
+		}
+	}()
 }
 
 func (a *App) PlainTextTranscript() string {
@@ -711,7 +796,7 @@ func (a *App) ReplaceSession(ctx context.Context, sess *session.Session) {
 		startupEvents := make(chan runtime.Event, 10)
 		go func() {
 			defer close(startupEvents)
-			a.runtime.EmitStartupInfo(ctx, startupEvents)
+			a.runtime.EmitStartupInfo(ctx, a.session, startupEvents)
 		}()
 		for event := range startupEvents {
 			select {
@@ -931,16 +1016,31 @@ func (a *App) generateTitle(ctx context.Context, userMessages []string) {
 
 	if a.titleGen == nil {
 		slog.Debug("No title generator available, skipping title generation")
+		// Emit empty title event so the UI clears any title-generation spinner
+		select {
+		case a.events <- runtime.SessionTitle(a.session.ID, ""):
+		case <-ctx.Done():
+		}
 		return
 	}
 
 	title, err := a.titleGen.Generate(ctx, a.session.ID, userMessages)
 	if err != nil {
 		slog.Error("Failed to generate session title", "session_id", a.session.ID, "error", err)
+		// Emit empty title event so the UI clears any title-generation spinner
+		select {
+		case a.events <- runtime.SessionTitle(a.session.ID, ""):
+		case <-ctx.Done():
+		}
 		return
 	}
 
 	if title == "" {
+		// Emit empty title event so the UI clears any title-generation spinner
+		select {
+		case a.events <- runtime.SessionTitle(a.session.ID, ""):
+		case <-ctx.Done():
+		}
 		return
 	}
 
@@ -950,7 +1050,10 @@ func (a *App) generateTitle(ctx context.Context, userMessages []string) {
 	}
 
 	// Emit the title event to update the UI
-	a.events <- runtime.SessionTitle(a.session.ID, title)
+	select {
+	case a.events <- runtime.SessionTitle(a.session.ID, title):
+	case <-ctx.Done():
+	}
 }
 
 // RegenerateSessionTitle triggers AI-based title regeneration for the current session.

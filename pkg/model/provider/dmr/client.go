@@ -691,7 +691,7 @@ func (c *Client) Rerank(ctx context.Context, query string, documents []types.Doc
 		Usage struct {
 			PromptTokens int `json:"prompt_tokens"`
 			TotalTokens  int `json:"total_tokens"`
-		} `json:"usage,omitempty"`
+		} `json:"usage"`
 	}
 
 	reqBody := rerankRequest{

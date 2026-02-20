@@ -24,8 +24,8 @@ func TestDetectMimeType(t *testing.T) {
 		{"image.webp", "image/webp"},
 		{"document.pdf", "application/pdf"},
 		{"readme.txt", "text/plain"},
-		{"readme.md", "text/markdown"},
-		{"readme.markdown", "text/markdown"},
+		{"readme.md", "text/plain"},
+		{"readme.markdown", "text/plain"},
 		// json and csv are treated as text/plain for provider compatibility
 		{"data.json", "text/plain"},
 		{"data.csv", "text/plain"},
@@ -69,7 +69,7 @@ func TestIsDocumentMime(t *testing.T) {
 	}{
 		{"application/pdf", true},
 		{"text/plain", true},
-		{"text/markdown", true},
+		{"text/markdown", false},
 		{"image/jpeg", false},
 		{"image/png", false},
 		{"application/octet-stream", false},
@@ -77,7 +77,7 @@ func TestIsDocumentMime(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.mimeType, func(t *testing.T) {
-			result := IsDocumentMime(tt.mimeType)
+			result := IsAnthropicDocumentMime(tt.mimeType)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -94,7 +94,7 @@ func TestIsSupportedMime(t *testing.T) {
 		{"image/webp", true},
 		{"application/pdf", true},
 		{"text/plain", true},
-		{"text/markdown", true},
+		{"text/markdown", false},
 		{"application/json", false},
 		{"application/octet-stream", false},
 	}

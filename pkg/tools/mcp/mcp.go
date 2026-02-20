@@ -218,6 +218,16 @@ func (ts *Toolset) callTool(ctx context.Context, toolCall tools.ToolCall) (*tool
 		return nil, fmt.Errorf("failed to parse tool arguments: %w", err)
 	}
 
+	// Strip null values from arguments. Some models (e.g. OpenAI) send explicit
+	// null for optional parameters, but MCP servers may reject them because
+	// null is not a valid value for the declared parameter type (e.g. string).
+	// Omitting the key is semantically equivalent to null for optional params.
+	for k, v := range args {
+		if v == nil {
+			delete(args, k)
+		}
+	}
+
 	request := &mcp.CallToolParams{}
 	request.Name = toolCall.Function.Name
 	request.Arguments = args

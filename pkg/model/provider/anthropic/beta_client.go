@@ -51,6 +51,9 @@ func (c *Client) createBetaStream(
 			return nil, err
 		}
 	}
+	if len(converted) == 0 {
+		return nil, errors.New("no messages to send after conversion: all messages were filtered out")
+	}
 
 	sys := extractBetaSystemBlocks(messages)
 

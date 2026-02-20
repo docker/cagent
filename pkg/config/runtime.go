@@ -2,6 +2,7 @@ package config
 
 import (
 	"log/slog"
+	"slices"
 	"sync"
 
 	"github.com/docker/cagent/pkg/config/latest"
@@ -25,9 +26,12 @@ type Config struct {
 }
 
 func (runConfig *RuntimeConfig) Clone() *RuntimeConfig {
-	return &RuntimeConfig{
+	clone := &RuntimeConfig{
 		Config: runConfig.Config,
 	}
+	clone.EnvFiles = slices.Clone(runConfig.EnvFiles)
+	clone.DefaultModel = runConfig.DefaultModel.Clone()
+	return clone
 }
 
 func (runConfig *RuntimeConfig) EnvProvider() environment.Provider {

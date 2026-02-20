@@ -27,15 +27,17 @@ func cagent(t *testing.T, command string, moreArgs ...string) string {
 	require.NoError(t, err)
 	args = append(args, "--env-from-file", dotEnv)
 
+	exec := (command == "run") && (len(moreArgs) > 0) && (moreArgs[0] == "--exec")
+
 	// Commands that talk to an AI model need a recording AI proxy.
-	needsProxy := command == "exec" || (command == "debug" && len(moreArgs) > 0 && moreArgs[0] == "title")
+	needsProxy := exec || (command == "debug" && len(moreArgs) > 0 && moreArgs[0] == "title")
 	if needsProxy {
 		svr, _ := startRecordingAIProxy(t)
 		args = append(args, "--models-gateway", svr.URL)
 	}
 
 	// The exec command needs a unique session DB per test.
-	if command == "exec" {
+	if exec {
 		sessionDB := filepath.Join(t.TempDir(), "session.db")
 		args = append(args, "--session-db", sessionDB)
 	}

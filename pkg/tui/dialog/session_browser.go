@@ -13,6 +13,7 @@ import (
 
 	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/tui/components/notification"
+	"github.com/docker/cagent/pkg/tui/components/scrollview"
 	"github.com/docker/cagent/pkg/tui/core"
 	"github.com/docker/cagent/pkg/tui/core/layout"
 	"github.com/docker/cagent/pkg/tui/messages"
@@ -23,8 +24,6 @@ import (
 type sessionBrowserKeyMap struct {
 	Up         key.Binding
 	Down       key.Binding
-	PageUp     key.Binding
-	PageDown   key.Binding
 	Enter      key.Binding
 	Escape     key.Binding
 	Star       key.Binding
@@ -32,21 +31,11 @@ type sessionBrowserKeyMap struct {
 	CopyID     key.Binding
 }
 
-// defaultSessionBrowserKeyMap returns default key bindings
-func defaultSessionBrowserKeyMap() sessionBrowserKeyMap {
-	base := defaultCommandPaletteKeyMap()
-	return sessionBrowserKeyMap{
-		Up:         base.Up,
-		Down:       base.Down,
-		PageUp:     base.PageUp,
-		PageDown:   base.PageDown,
-		Enter:      base.Enter,
-		Escape:     base.Escape,
-		Star:       key.NewBinding(key.WithKeys("s")),
-		FilterStar: key.NewBinding(key.WithKeys("f")),
-		CopyID:     key.NewBinding(key.WithKeys("c")),
-	}
-}
+// Session browser dialog dimension constants
+const (
+	sessionBrowserListOverhead = 12 // title(1) + space(1) + input(1) + separator(1) + separator(1) + id(1) + space(1) + help(1) + borders(2) + extra(2)
+	sessionBrowserListStartY   = 6  // border(1) + padding(1) + title(1) + space(1) + input(1) + separator(1)
+)
 
 type sessionBrowserDialog struct {
 	BaseDialog
@@ -54,10 +43,10 @@ type sessionBrowserDialog struct {
 	sessions   []session.Summary
 	filtered   []session.Summary
 	selected   int
-	offset     int                  // scroll offset for viewport
-	keyMap     sessionBrowserKeyMap // key bindings
-	openedAt   time.Time            // when dialog was opened, for stable time display
-	starFilter int                  // 0 = all, 1 = starred only, 2 = unstarred only
+	scrollview *scrollview.Model
+	keyMap     sessionBrowserKeyMap
+	openedAt   time.Time // when dialog was opened, for stable time display
+	starFilter int       // 0 = all, 1 = starred only, 2 = unstarred only
 }
 
 // NewSessionBrowserDialog creates a new session browser dialog
@@ -77,10 +66,19 @@ func NewSessionBrowserDialog(sessions []session.Summary) Dialog {
 	}
 
 	d := &sessionBrowserDialog{
-		textInput: ti,
-		sessions:  nonEmptySessions,
-		keyMap:    defaultSessionBrowserKeyMap(),
-		openedAt:  time.Now(),
+		textInput:  ti,
+		sessions:   nonEmptySessions,
+		scrollview: scrollview.New(scrollview.WithReserveScrollbarSpace(true)),
+		keyMap: sessionBrowserKeyMap{
+			Up:         key.NewBinding(key.WithKeys("up", "ctrl+k")),
+			Down:       key.NewBinding(key.WithKeys("down", "ctrl+j")),
+			Enter:      key.NewBinding(key.WithKeys("enter")),
+			Escape:     key.NewBinding(key.WithKeys("esc")),
+			Star:       key.NewBinding(key.WithKeys("ctrl+s")),
+			FilterStar: key.NewBinding(key.WithKeys("ctrl+f")),
+			CopyID:     key.NewBinding(key.WithKeys("ctrl+y")),
+		},
+		openedAt: time.Now(),
 	}
 	// Initialize filtered list
 	d.filterSessions()
@@ -92,13 +90,17 @@ func (d *sessionBrowserDialog) Init() tea.Cmd {
 }
 
 func (d *sessionBrowserDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
+	// Scrollview handles mouse click/motion/release, wheel, and pgup/pgdn/home/end
+	if handled, cmd := d.scrollview.Update(msg); handled {
+		return d, cmd
+	}
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		cmd := d.SetSize(msg.Width, msg.Height)
 		return d, cmd
 
 	case tea.PasteMsg:
-		// Forward paste to text input
 		var cmd tea.Cmd
 		d.textInput, cmd = d.textInput.Update(msg)
 		d.filterSessions()
@@ -116,26 +118,14 @@ func (d *sessionBrowserDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		case key.Matches(msg, d.keyMap.Up):
 			if d.selected > 0 {
 				d.selected--
+				d.scrollview.EnsureLineVisible(d.selected)
 			}
 			return d, nil
 
 		case key.Matches(msg, d.keyMap.Down):
 			if d.selected < len(d.filtered)-1 {
 				d.selected++
-			}
-			return d, nil
-
-		case key.Matches(msg, d.keyMap.PageUp):
-			d.selected -= d.pageSize()
-			if d.selected < 0 {
-				d.selected = 0
-			}
-			return d, nil
-
-		case key.Matches(msg, d.keyMap.PageDown):
-			d.selected += d.pageSize()
-			if d.selected >= len(d.filtered) {
-				d.selected = max(0, len(d.filtered)-1)
+				d.scrollview.EnsureLineVisible(d.selected)
 			}
 			return d, nil
 
@@ -151,7 +141,6 @@ func (d *sessionBrowserDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		case key.Matches(msg, d.keyMap.Star):
 			if d.selected >= 0 && d.selected < len(d.filtered) {
 				sessionID := d.filtered[d.selected].ID
-				// Toggle the starred state in our local data
 				for i := range d.sessions {
 					if d.sessions[i].ID == sessionID {
 						d.sessions[i].Starred = !d.sessions[i].Starred
@@ -169,7 +158,6 @@ func (d *sessionBrowserDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 			return d, nil
 
 		case key.Matches(msg, d.keyMap.FilterStar):
-			// Cycle through filter modes: all -> starred -> unstarred -> all
 			d.starFilter = (d.starFilter + 1) % 3
 			d.filterSessions()
 			return d, nil
@@ -198,19 +186,17 @@ func (d *sessionBrowserDialog) filterSessions() {
 
 	d.filtered = nil
 	for _, sess := range d.sessions {
-		// Apply star filter
 		switch d.starFilter {
-		case 1: // Starred only
+		case 1:
 			if !sess.Starred {
 				continue
 			}
-		case 2: // Unstarred only
+		case 2:
 			if sess.Starred {
 				continue
 			}
 		}
 
-		// Apply text search filter
 		if query != "" {
 			title := sess.Title
 			if title == "" {
@@ -227,48 +213,48 @@ func (d *sessionBrowserDialog) filterSessions() {
 	if d.selected >= len(d.filtered) {
 		d.selected = max(0, len(d.filtered)-1)
 	}
-	d.offset = 0
+	d.scrollview.SetScrollOffset(0)
 }
 
 func (d *sessionBrowserDialog) dialogSize() (dialogWidth, maxHeight, contentWidth int) {
-	dialogWidth = max(min(d.Width()*80/100, 80), 60)
+	dialogWidth = max(min(d.Width()*85/100, 96), 60)
 	maxHeight = min(d.Height()*70/100, 30)
-	contentWidth = dialogWidth - 6
+	contentWidth = dialogWidth - 6 - d.scrollview.ReservedCols()
 	return dialogWidth, maxHeight, contentWidth
 }
 
 func (d *sessionBrowserDialog) View() string {
-	dialogWidth, maxHeight, contentWidth := d.dialogSize()
-
+	dialogWidth, _, contentWidth := d.dialogSize()
 	d.textInput.SetWidth(contentWidth)
 
-	var sessionLines []string
-	maxItems := maxHeight - 10 // Reduced to make room for ID footer
-
-	// Adjust offset to keep selected item visible
-	if d.selected < d.offset {
-		d.offset = d.selected
-	} else if d.selected >= d.offset+maxItems {
-		d.offset = d.selected - maxItems + 1
+	// Build all session lines
+	var allLines []string
+	for i, sess := range d.filtered {
+		allLines = append(allLines, d.renderSession(sess, i == d.selected, contentWidth))
 	}
 
-	// Render visible items based on offset
-	visibleEnd := min(d.offset+maxItems, len(d.filtered))
-	for i := d.offset; i < visibleEnd; i++ {
-		sessionLines = append(sessionLines, d.renderSession(d.filtered[i], i == d.selected, contentWidth))
-	}
+	// Configure scrollview and let it handle slicing + rendering
+	regionWidth := contentWidth + d.scrollview.ReservedCols()
+	visibleLines := d.scrollview.VisibleHeight()
 
-	// Show indicator if there are more items
-	if visibleEnd < len(d.filtered) {
-		sessionLines = append(sessionLines, styles.MutedStyle.Render(fmt.Sprintf("  … and %d more", len(d.filtered)-visibleEnd)))
-	}
+	// Set scrollview position for mouse hit-testing (auto-computed from dialog position)
+	dialogRow, dialogCol := d.Position()
+	d.scrollview.SetPosition(dialogCol+3, dialogRow+sessionBrowserListStartY)
 
+	d.scrollview.SetContent(allLines, len(allLines))
+
+	var scrollableContent string
 	if len(d.filtered) == 0 {
-		sessionLines = append(sessionLines, "", styles.DialogContentStyle.
-			Italic(true).
-			Align(lipgloss.Center).
-			Width(contentWidth).
-			Render("No sessions found"))
+		// Empty state: render manually so "No sessions found" is centered
+		emptyLines := []string{"", styles.DialogContentStyle.
+			Italic(true).Align(lipgloss.Center).Width(contentWidth).
+			Render("No sessions found")}
+		for len(emptyLines) < visibleLines {
+			emptyLines = append(emptyLines, "")
+		}
+		scrollableContent = d.scrollview.ViewWithLines(emptyLines)
+	} else {
+		scrollableContent = d.scrollview.View()
 	}
 
 	// Build title with filter indicator
@@ -280,7 +266,6 @@ func (d *sessionBrowserDialog) View() string {
 		title = "Sessions " + styles.UnstarredStyle.Render("☆")
 	}
 
-	// Build filter description for help
 	var filterDesc string
 	switch d.starFilter {
 	case 0:
@@ -291,30 +276,34 @@ func (d *sessionBrowserDialog) View() string {
 		filterDesc = "☆ only"
 	}
 
-	// Build session ID footer for selected session
 	var idFooter string
 	if d.selected >= 0 && d.selected < len(d.filtered) {
 		idFooter = styles.MutedStyle.Render("ID: ") + styles.SecondaryStyle.Render(d.filtered[d.selected].ID)
 	}
 
-	content := NewContent(contentWidth).
+	content := NewContent(regionWidth).
 		AddTitle(title).
 		AddSpace().
 		AddContent(d.textInput.View()).
 		AddSeparator().
-		AddContent(strings.Join(sessionLines, "\n")).
+		AddContent(scrollableContent).
 		AddSeparator().
 		AddContent(idFooter).
 		AddSpace().
-		AddHelpKeys("↑/↓", "navigate", "s", "star", "f", filterDesc, "c", "copy id", "enter", "load", "esc", "close").
+		AddHelpKeys("↑/↓", "navigate", "ctrl+s", "star", "ctrl+f", filterDesc, "ctrl+y", "copy id", "enter", "load", "esc", "close").
 		Build()
 
 	return styles.DialogStyle.Width(dialogWidth).Render(content)
 }
 
-func (d *sessionBrowserDialog) pageSize() int {
-	_, maxHeight, _ := d.dialogSize()
-	return max(1, maxHeight-10) // Match maxItems calculation in View
+// SetSize sets the dialog dimensions and configures the scrollview region.
+func (d *sessionBrowserDialog) SetSize(width, height int) tea.Cmd {
+	cmd := d.BaseDialog.SetSize(width, height)
+	_, maxHeight, contentWidth := d.dialogSize()
+	regionWidth := contentWidth + d.scrollview.ReservedCols()
+	visibleLines := max(1, maxHeight-sessionBrowserListOverhead)
+	d.scrollview.SetSize(regionWidth, visibleLines)
+	return cmd
 }
 
 func (d *sessionBrowserDialog) renderSession(sess session.Summary, selected bool, maxWidth int) string {
@@ -328,14 +317,15 @@ func (d *sessionBrowserDialog) renderSession(sess session.Summary, selected bool
 		title = "Untitled"
 	}
 
-	// Account for star indicator in title length calculation
-	starWidth := 3                           // star indicator
-	maxTitleLen := maxWidth - 25 - starWidth // 25 for time + star
+	suffix := fmt.Sprintf(" (%d) • %s", sess.NumMessages, d.timeAgo(sess.CreatedAt))
+
+	starWidth := 3
+	maxTitleLen := max(1, maxWidth-len(suffix)-starWidth)
 	if len(title) > maxTitleLen {
 		title = title[:maxTitleLen-1] + "…"
 	}
 
-	return styles.StarIndicator(sess.Starred) + titleStyle.Render(title) + timeStyle.Render(" • "+d.timeAgo(sess.CreatedAt))
+	return styles.StarIndicator(sess.Starred) + titleStyle.Render(title) + timeStyle.Render(suffix)
 }
 
 func (d *sessionBrowserDialog) timeAgo(t time.Time) string {

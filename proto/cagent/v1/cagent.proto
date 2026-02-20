@@ -39,6 +39,11 @@ service AgentService {
   // RunAgent runs an agent loop and streams events.
   rpc RunAgent(RunAgentRequest) returns (stream Event);
 
+  // GetAgentToolCount returns the number of tools available for an agent.
+  // This is used by the remote TUI to display the tool count at startup
+  // without waiting for the first RunAgent call.
+  rpc GetAgentToolCount(GetAgentToolCountRequest) returns (GetAgentToolCountResponse);
+
   // Ping is a health check endpoint.
   rpc Ping(PingRequest) returns (PingResponse);
 }
@@ -499,6 +504,17 @@ message HookBlockedEvent {
 // ShellOutputEvent is sent for shell output.
 message ShellOutputEvent {
   string output = 1;
+}
+
+// GetAgentToolCountRequest is the request for GetAgentToolCount.
+message GetAgentToolCountRequest {
+  string id = 1;
+  string agent_name = 2;
+}
+
+// GetAgentToolCountResponse is the response for GetAgentToolCount.
+message GetAgentToolCountResponse {
+  int32 available_tools = 1;
 }
 
 // PingRequest is the request for Ping.

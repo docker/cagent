@@ -1,0 +1,73 @@
+<h1>Telemetry</h1>
+<p class="subtitle">cagent collects anonymous usage data to help improve the tool. Telemetry can be disabled at any time.</p>
+
+<p>On first startup, cagent displays a notice about telemetry collection so you're always informed. All events are processed synchronously when recorded.</p>
+
+<h2>Disabling Telemetry</h2>
+
+<pre><code class="language-bash"># Disable via environment variable
+$ TELEMETRY_ENABLED=false cagent run agent.yaml
+
+# Or export it in your shell profile
+$ export TELEMETRY_ENABLED=false</code></pre>
+
+<div class="callout callout-info">
+  <div class="callout-title">ℹ️ Default</div>
+  <p>Telemetry is <strong>enabled by default</strong>. Set <code>TELEMETRY_ENABLED=false</code> to opt out.</p>
+</div>
+
+<h2>What's Collected ✅</h2>
+
+<ul>
+  <li>Command names and success/failure status</li>
+  <li>Agent names and model types</li>
+  <li>Tool names and whether calls succeed or fail</li>
+  <li>Token counts (input/output totals) and estimated costs</li>
+  <li>Session metadata (durations, error counts)</li>
+</ul>
+
+<h2>What's NOT Collected ❌</h2>
+
+<ul>
+  <li>User input or prompts</li>
+  <li>Agent responses or generated content</li>
+  <li>File contents</li>
+  <li>API keys or credentials</li>
+  <li>Personally identifying information (PII)</li>
+</ul>
+
+<div class="callout callout-tip">
+  <div class="callout-title">💡 See events locally</div>
+  <p>Use <code>--debug</code> to see telemetry events printed to the debug log without sending them anywhere additional.</p>
+</div>
+
+<pre><code class="language-bash">$ cagent run agent.yaml --debug</code></pre>
+
+<h2>Event Types</h2>
+
+<p>The telemetry system uses structured, type-safe events:</p>
+
+<table>
+  <thead><tr><th>Event Type</th><th>What It Tracks</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Command</strong></td><td>CLI command execution with success status</td></tr>
+    <tr><td><strong>Tool</strong></td><td>Agent tool calls with timing and error information</td></tr>
+    <tr><td><strong>Token</strong></td><td>LLM token usage by model, session, and cost</td></tr>
+    <tr><td><strong>Session</strong></td><td>Agent session lifecycle with start/end events and aggregate metrics</td></tr>
+  </tbody>
+</table>
+
+<h2>For Developers</h2>
+
+<p>Telemetry is automatically wrapped around all commands. To record additional events, use the context-based API:</p>
+
+<pre><code class="language-bash">// Recommended: context-based telemetry (clean, testable)
+if telemetryClient := telemetry.FromContext(ctx); telemetryClient != nil {
+    telemetryClient.RecordToolCall(ctx, "filesystem", "session-id", "agentName", time.Millisecond*500, nil)
+    telemetryClient.RecordTokenUsage(ctx, "gpt-4", 100, 50, 0.01)
+}
+
+// Or use direct calls
+telemetry.TrackCommand("run", args)</code></pre>
+
+<p>Events are processed synchronously when <code>Track()</code> is called, sending HTTP requests immediately.</p>

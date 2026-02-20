@@ -22,7 +22,11 @@ type providerConfig struct {
 var cloudProviders = []providerConfig{
 	{"anthropic", []string{"ANTHROPIC_API_KEY"}, "ANTHROPIC_API_KEY"},
 	{"openai", []string{"OPENAI_API_KEY"}, "OPENAI_API_KEY"},
-	{"google", []string{"GOOGLE_API_KEY"}, "GOOGLE_API_KEY"},
+	{"google", []string{
+		"GOOGLE_API_KEY",
+		"GEMINI_API_KEY",
+		"GOOGLE_GENAI_USE_VERTEXAI",
+	}, "GOOGLE_API_KEY (or GEMINI_API_KEY, GOOGLE_GENAI_USE_VERTEXAI)"},
 	{"mistral", []string{"MISTRAL_API_KEY"}, "MISTRAL_API_KEY"},
 	{"amazon-bedrock", []string{
 		"AWS_BEARER_TOKEN_BEDROCK",

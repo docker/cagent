@@ -45,9 +45,9 @@ func setupFakeProxy(fakeResponses string, streamDelayMs int, runConfig *config.R
 // and normalizes the path by stripping any .yaml suffix.
 // Returns the cassette path (with .yaml extension) and a cleanup function.
 // The cleanup function must be called when done (typically via defer).
-func setupRecordingProxy(recordPath string, runConfig *config.RuntimeConfig) (cassettePath string, cleanup func(), err error) {
+func setupRecordingProxy(recordPath string, runConfig *config.RuntimeConfig) (cassettePath string, cleanup func() error, err error) {
 	if recordPath == "" {
-		return "", func() {}, nil
+		return "", func() error { return nil }, nil
 	}
 
 	// Handle auto-generated filename (from NoOptDefVal)
@@ -67,9 +67,5 @@ func setupRecordingProxy(recordPath string, runConfig *config.RuntimeConfig) (ca
 
 	slog.Info("Recording mode enabled", "cassette", cassettePath, "proxy", proxyURL)
 
-	return cassettePath, func() {
-		if err := cleanupFn(); err != nil {
-			slog.Error("Failed to cleanup recording proxy", "error", err)
-		}
-	}, nil
+	return cassettePath, cleanupFn, nil
 }

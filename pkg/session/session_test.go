@@ -1,9 +1,11 @@
 package session
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/docker/cagent/pkg/agent"
 	"github.com/docker/cagent/pkg/chat"
@@ -147,17 +149,17 @@ func TestGetMessagesWithSummary(t *testing.T) {
 		if msg.Role == chat.MessageRoleUser || msg.Role == chat.MessageRoleAssistant {
 			userAssistantMessages++
 		}
-		if msg.Role == chat.MessageRoleSystem && msg.Content == "Session Summary: This is a summary of the conversation so far" {
+		if msg.Role == chat.MessageRoleUser && msg.Content == "Session Summary: This is a summary of the conversation so far" {
 			summaryFound = true
 		}
 	}
 
 	// We should have:
-	// - 1 summary system message
+	// - 1 summary user message
 	// - 2 messages after the summary (user + assistant)
 	// - Various other system messages from agent setup
-	assert.True(t, summaryFound, "should include summary as system message")
-	assert.Equal(t, 2, userAssistantMessages, "should only include messages after summary")
+	assert.True(t, summaryFound, "should include summary as user message")
+	assert.Equal(t, 3, userAssistantMessages, "should only include messages after summary")
 }
 
 func TestGetMessages_Instructions(t *testing.T) {
@@ -216,107 +218,6 @@ func TestGetMessages_CacheControlWithSummary(t *testing.T) {
 
 	// Verify checkpoint #2 is on date
 	assert.Contains(t, messages[checkpointIndices[1]].Content, "Today's date", "checkpoint #2 should be on date message")
-}
-
-func TestUpdateLastAssistantMessageUsage(t *testing.T) {
-	testAgent := &agent.Agent{}
-
-	s := New()
-
-	// Add user message
-	s.AddMessage(NewAgentMessage(testAgent, &chat.Message{
-		Role:    chat.MessageRoleUser,
-		Content: "hello",
-	}))
-
-	// Add assistant message without usage
-	s.AddMessage(NewAgentMessage(testAgent, &chat.Message{
-		Role:    chat.MessageRoleAssistant,
-		Content: "response",
-	}))
-
-	// Update the last assistant message with usage data
-	usage := &chat.Usage{
-		InputTokens:       100,
-		OutputTokens:      50,
-		CachedInputTokens: 10,
-	}
-	s.UpdateLastAssistantMessageUsage(usage, 0.005, "gpt-4")
-
-	// Verify the update
-	messages := s.GetAllMessages()
-	assert.Len(t, messages, 2)
-
-	lastMsg := messages[1]
-	assert.Equal(t, chat.MessageRoleAssistant, lastMsg.Message.Role)
-	assert.NotNil(t, lastMsg.Message.Usage)
-	assert.Equal(t, int64(100), lastMsg.Message.Usage.InputTokens)
-	assert.Equal(t, int64(50), lastMsg.Message.Usage.OutputTokens)
-	assert.Equal(t, int64(10), lastMsg.Message.Usage.CachedInputTokens)
-	assert.InEpsilon(t, 0.005, lastMsg.Message.Cost, 0.0001)
-	assert.Equal(t, "gpt-4", lastMsg.Message.Model)
-}
-
-func TestUpdateLastAssistantMessageUsage_NoAssistantMessage(t *testing.T) {
-	testAgent := &agent.Agent{}
-
-	s := New()
-
-	// Add only user message
-	s.AddMessage(NewAgentMessage(testAgent, &chat.Message{
-		Role:    chat.MessageRoleUser,
-		Content: "hello",
-	}))
-
-	// Should not panic when no assistant message exists
-	usage := &chat.Usage{InputTokens: 100}
-	s.UpdateLastAssistantMessageUsage(usage, 0.01, "model")
-
-	// Verify nothing changed
-	messages := s.GetAllMessages()
-	assert.Len(t, messages, 1)
-	assert.Equal(t, chat.MessageRoleUser, messages[0].Message.Role)
-}
-
-func TestUpdateLastAssistantMessageUsage_UpdatesOnlyLast(t *testing.T) {
-	testAgent := &agent.Agent{}
-
-	s := New()
-
-	// Add multiple assistant messages
-	s.AddMessage(NewAgentMessage(testAgent, &chat.Message{
-		Role:    chat.MessageRoleAssistant,
-		Content: "first response",
-		Usage:   &chat.Usage{InputTokens: 10},
-	}))
-
-	s.AddMessage(NewAgentMessage(testAgent, &chat.Message{
-		Role:    chat.MessageRoleUser,
-		Content: "follow up",
-	}))
-
-	s.AddMessage(NewAgentMessage(testAgent, &chat.Message{
-		Role:    chat.MessageRoleAssistant,
-		Content: "second response",
-	}))
-
-	// Update usage - should only affect the last assistant message
-	usage := &chat.Usage{InputTokens: 200}
-	s.UpdateLastAssistantMessageUsage(usage, 0.02, "new-model")
-
-	// Verify only the last assistant message was updated
-	messages := s.GetAllMessages()
-	assert.Len(t, messages, 3)
-
-	// First assistant message should keep original usage
-	assert.NotNil(t, messages[0].Message.Usage)
-	assert.Equal(t, int64(10), messages[0].Message.Usage.InputTokens)
-
-	// Last assistant message should have new usage
-	assert.NotNil(t, messages[2].Message.Usage)
-	assert.Equal(t, int64(200), messages[2].Message.Usage.InputTokens)
-	assert.InEpsilon(t, 0.02, messages[2].Message.Cost, 0.0001)
-	assert.Equal(t, "new-model", messages[2].Message.Model)
 }
 
 func TestGetLastUserMessages(t *testing.T) {
@@ -393,4 +294,43 @@ func TestGetLastUserMessages(t *testing.T) {
 		assert.Equal(t, "First", msgs[0])
 		assert.Equal(t, "Third", msgs[1])
 	})
+}
+
+func TestTransferTaskPromptExcludesParents(t *testing.T) {
+	t.Parallel()
+
+	// Build hierarchy: planner -> root -> librarian
+	// root's sub-agents: [librarian]
+	// root's parents: [planner] (set by planner listing root as a sub-agent)
+	librarian := agent.New("librarian", "", agent.WithDescription("Library agent"))
+	root := agent.New("root", "You are the root agent",
+		agent.WithDescription("Root agent"),
+	)
+	planner := agent.New("planner", "",
+		agent.WithDescription("Planner agent"),
+	)
+	// Connect: root -> librarian (root has librarian as sub-agent)
+	agent.WithSubAgents(librarian)(root)
+	// Connect: planner -> root (planner has root as sub-agent, making root's parent = planner)
+	agent.WithSubAgents(root)(planner)
+
+	// Verify parent relationship was established
+	require.Len(t, root.Parents(), 1)
+	assert.Equal(t, "planner", root.Parents()[0].Name())
+
+	s := New()
+	messages := s.GetMessages(root)
+
+	// Find the system message about sub-agents
+	var subAgentMsg string
+	for _, msg := range messages {
+		if msg.Role == chat.MessageRoleSystem && strings.Contains(msg.Content, "transfer_task") {
+			subAgentMsg = msg.Content
+			break
+		}
+	}
+
+	require.NotEmpty(t, subAgentMsg, "should have a sub-agent system message")
+	assert.Contains(t, subAgentMsg, "librarian", "should list librarian as a valid sub-agent")
+	assert.NotContains(t, subAgentMsg, "planner", "should NOT list parent agent planner as a valid transfer target")
 }

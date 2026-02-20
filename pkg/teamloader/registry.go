@@ -59,6 +59,7 @@ func NewDefaultToolsetRegistry() *ToolsetRegistry {
 	r := NewToolsetRegistry()
 	// Register all built-in toolset creators
 	r.Register("todo", createTodoTool)
+	r.Register("tasks", createTasksTool)
 	r.Register("memory", createMemoryTool)
 	r.Register("think", createThinkTool)
 	r.Register("shell", createShellTool)
@@ -70,6 +71,7 @@ func NewDefaultToolsetRegistry() *ToolsetRegistry {
 	r.Register("a2a", createA2ATool)
 	r.Register("lsp", createLSPTool)
 	r.Register("user_prompt", createUserPromptTool)
+	r.Register("openapi", createOpenAPITool)
 	return r
 }
 
@@ -78,6 +80,32 @@ func createTodoTool(_ context.Context, toolset latest.Toolset, _ string, _ *conf
 		return builtin.NewSharedTodoTool(), nil
 	}
 	return builtin.NewTodoTool(), nil
+}
+
+func createTasksTool(_ context.Context, toolset latest.Toolset, parentDir string, runConfig *config.RuntimeConfig) (tools.ToolSet, error) {
+	toolsetPath := toolset.Path
+	if toolsetPath == "" {
+		toolsetPath = "tasks.json"
+	}
+
+	var basePath string
+	if filepath.IsAbs(toolsetPath) {
+		basePath = ""
+	} else if wd := runConfig.WorkingDir; wd != "" {
+		basePath = wd
+	} else {
+		basePath = parentDir
+	}
+
+	validatedPath, err := path.ValidatePathInDirectory(toolsetPath, basePath)
+	if err != nil {
+		return nil, fmt.Errorf("invalid tasks storage path: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(validatedPath), 0o700); err != nil {
+		return nil, fmt.Errorf("failed to create tasks storage directory: %w", err)
+	}
+
+	return builtin.NewTasksTool(validatedPath), nil
 }
 
 func createMemoryTool(_ context.Context, toolset latest.Toolset, parentDir string, runConfig *config.RuntimeConfig) (tools.ToolSet, error) {
@@ -267,7 +295,7 @@ func createMCPTool(ctx context.Context, toolset latest.Toolset, _ string, runCon
 func createA2ATool(ctx context.Context, toolset latest.Toolset, _ string, runConfig *config.RuntimeConfig) (tools.ToolSet, error) {
 	expander := js.NewJsExpander(runConfig.EnvProvider())
 
-	headers := expander.ExpandMap(ctx, toolset.APIConfig.Headers)
+	headers := expander.ExpandMap(ctx, toolset.Headers)
 
 	return a2a.NewToolset(toolset.Name, toolset.URL, headers), nil
 }
@@ -283,4 +311,13 @@ func createLSPTool(ctx context.Context, toolset latest.Toolset, _ string, runCon
 
 func createUserPromptTool(_ context.Context, _ latest.Toolset, _ string, _ *config.RuntimeConfig) (tools.ToolSet, error) {
 	return builtin.NewUserPromptTool(), nil
+}
+
+func createOpenAPITool(ctx context.Context, toolset latest.Toolset, _ string, runConfig *config.RuntimeConfig) (tools.ToolSet, error) {
+	expander := js.NewJsExpander(runConfig.EnvProvider())
+
+	specURL := expander.Expand(ctx, toolset.URL)
+	headers := expander.ExpandMap(ctx, toolset.Headers)
+
+	return builtin.NewOpenAPITool(specURL, headers), nil
 }

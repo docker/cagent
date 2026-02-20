@@ -78,10 +78,20 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 
 			backend = genai.BackendVertexAI
 			httpClient = nil // Use default client
+		} else if _, exist := env.Get(ctx, "GOOGLE_GENAI_USE_VERTEXAI"); exist {
+			project, _ = env.Get(ctx, "GOOGLE_CLOUD_PROJECT")
+			location, _ = env.Get(ctx, "GOOGLE_CLOUD_LOCATION")
+			backend = genai.BackendVertexAI
+			httpClient = nil // Use default client
 		} else {
-			apiKey, _ = env.Get(ctx, "GOOGLE_API_KEY")
+			if value, exist := env.Get(ctx, "GEMINI_API_KEY"); exist {
+				apiKey = value
+			}
+			if value, exist := env.Get(ctx, "GOOGLE_API_KEY"); exist {
+				apiKey = value
+			}
 			if apiKey == "" {
-				return nil, errors.New("GOOGLE_API_KEY environment variable is required")
+				return nil, errors.New("GOOGLE_API_KEY or GEMINI_API_KEY environment variable is required")
 			}
 
 			backend = genai.BackendGeminiAPI
@@ -130,6 +140,7 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 				httpclient.WithProxiedBaseURL(cmp.Or(cfg.BaseURL, "https://generativelanguage.googleapis.com/")),
 				httpclient.WithProvider(cfg.Provider),
 				httpclient.WithModel(cfg.Model),
+				httpclient.WithModelName(cfg.Name),
 				httpclient.WithQuery(url.Query()),
 			}
 			if globalOptions.GeneratingTitle() {
@@ -296,16 +307,16 @@ func (c *Client) buildConfig() *genai.GenerateContentConfig {
 		config.MaxOutputTokens = int32(*c.ModelConfig.MaxTokens)
 	}
 	if c.ModelConfig.Temperature != nil {
-		config.Temperature = genai.Ptr(float32(*c.ModelConfig.Temperature))
+		config.Temperature = new(float32(*c.ModelConfig.Temperature))
 	}
 	if c.ModelConfig.TopP != nil {
-		config.TopP = genai.Ptr(float32(*c.ModelConfig.TopP))
+		config.TopP = new(float32(*c.ModelConfig.TopP))
 	}
 	if c.ModelConfig.FrequencyPenalty != nil {
-		config.FrequencyPenalty = genai.Ptr(float32(*c.ModelConfig.FrequencyPenalty))
+		config.FrequencyPenalty = new(float32(*c.ModelConfig.FrequencyPenalty))
 	}
 	if c.ModelConfig.PresencePenalty != nil {
-		config.PresencePenalty = genai.Ptr(float32(*c.ModelConfig.PresencePenalty))
+		config.PresencePenalty = new(float32(*c.ModelConfig.PresencePenalty))
 	}
 
 	// Apply thinking configuration for Gemini models.
@@ -349,7 +360,7 @@ func (c *Client) buildConfig() *genai.GenerateContentConfig {
 			// Gemini 2.5 and older: ThinkingBudget=0 disables thinking.
 			config.ThinkingConfig = &genai.ThinkingConfig{
 				IncludeThoughts: false,
-				ThinkingBudget:  genai.Ptr(int32(0)),
+				ThinkingBudget:  new(int32(0)),
 			}
 			slog.Debug("Gemini thinking explicitly disabled via ModelOptions",
 				"model", c.ModelConfig.Model,
@@ -437,7 +448,7 @@ func (c *Client) applyGemini3ThinkingLevel(config *genai.GenerateContentConfig) 
 // applyGemini25ThinkingBudget applies token-based thinking for Gemini 2.5 and other models.
 func (c *Client) applyGemini25ThinkingBudget(config *genai.GenerateContentConfig) {
 	tokens := c.ModelConfig.ThinkingBudget.Tokens
-	config.ThinkingConfig.ThinkingBudget = genai.Ptr(int32(tokens))
+	config.ThinkingConfig.ThinkingBudget = new(int32(tokens))
 
 	switch tokens {
 	case 0:
@@ -650,7 +661,7 @@ func (c *Client) Rerank(ctx context.Context, query string, documents []types.Doc
 
 	// For reranking, default temperature to 0 for deterministic scoring if not explicitly set.
 	if c.ModelConfig.Temperature == nil {
-		cfg.Temperature = genai.Ptr(float32(0.0))
+		cfg.Temperature = new(float32(0.0))
 	}
 
 	// Disable thinking for reranking - we want quick, deterministic scoring

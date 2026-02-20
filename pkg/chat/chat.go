@@ -1,11 +1,21 @@
 package chat
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/docker/cagent/pkg/tools"
 )
+
+// MaxInlineFileSize is the maximum size of a text file that can be inlined
+// directly into a message. Files larger than this are skipped with a warning.
+// This is much smaller than the general upload limit because inline content
+// expands token usage significantly.
+const MaxInlineFileSize = 5 * 1024 * 1024 // 5MB
 
 type MessageRole string
 
@@ -64,6 +74,9 @@ type Message struct {
 
 	// For Role=tool prompts this should be set to the ID given in the assistant's prior request to call a tool.
 	ToolCallID string `json:"tool_call_id,omitempty"`
+
+	// IsError indicates the tool call failed (only for Role=tool messages).
+	IsError bool `json:"is_error,omitempty"`
 
 	CreatedAt string `json:"created_at,omitempty"`
 
@@ -162,8 +175,9 @@ type MessageStream interface {
 
 // DetectMimeType returns the MIME type for a file based on its extension.
 // This is the canonical implementation used across all packages for consistency.
-// Note: Only returns MIME types that are supported for file attachments.
-// Unsupported extensions return "application/octet-stream".
+// For binary file types (images, PDF), returns the specific MIME type.
+// For text-based files, returns "text/plain".
+// Unrecognized extensions return "application/octet-stream".
 func DetectMimeType(filePath string) string {
 	ext := strings.ToLower(filepath.Ext(filePath))
 	switch ext {
@@ -176,14 +190,13 @@ func DetectMimeType(filePath string) string {
 		return "image/gif"
 	case ".webp":
 		return "image/webp"
-	// Documents
+	// PDF
 	case ".pdf":
 		return "application/pdf"
-	case ".txt", ".json", ".csv":
-		return "text/plain"
-	case ".md", ".markdown":
-		return "text/markdown"
 	default:
+		if isTextExtension(ext) {
+			return "text/plain"
+		}
 		return "application/octet-stream"
 	}
 }
@@ -194,9 +207,143 @@ func IsSupportedMimeType(mimeType string) bool {
 	switch mimeType {
 	case "image/jpeg", "image/png", "image/gif", "image/webp":
 		return true
-	case "application/pdf", "text/plain", "text/markdown":
+	case "application/pdf", "text/plain":
 		return true
 	default:
 		return false
 	}
+}
+
+// IsTextFile determines if a file at the given path is a text file that should
+// be inlined into the message rather than uploaded via a provider's file API.
+// It first checks the file extension against a broad allowlist of known text
+// extensions. For unknown extensions, it falls back to reading the first 8KB
+// and checking if the content is valid UTF-8 with no null bytes.
+func IsTextFile(filePath string) bool {
+	ext := strings.ToLower(filepath.Ext(filePath))
+	if isTextExtension(ext) {
+		return true
+	}
+	// For unknown extensions, try byte-sniffing
+	return isTextByContent(filePath)
+}
+
+// ReadFileForInline reads a text file and wraps it in an XML-like tag with
+// the file path for context. Returns the formatted content and any error.
+func ReadFileForInline(filePath string) (string, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read file: %w", err)
+	}
+	return fmt.Sprintf("<attached_file path=%q>\n%s\n</attached_file>", filePath, string(data)), nil
+}
+
+// isTextExtension returns true for file extensions known to be text-based.
+// This includes programming languages, config files, markup, and data formats.
+func isTextExtension(ext string) bool {
+	switch ext {
+	// Plain text and documentation
+	case ".txt", ".text", ".log",
+		".md", ".markdown", ".mdown", ".mkd", ".mdx",
+		".rst", ".adoc", ".asciidoc",
+		".org", ".wiki", ".tex", ".latex",
+		// Web
+		".html", ".htm", ".xhtml", ".css", ".scss", ".sass", ".less",
+		".js", ".jsx", ".mjs", ".cjs",
+		".ts", ".tsx", ".mts", ".cts",
+		".vue", ".svelte", ".astro",
+		// Programming languages
+		".go", ".py", ".pyi", ".pyw",
+		".rb", ".rbw",
+		".rs",
+		".java", ".kt", ".kts", ".groovy", ".scala", ".clj", ".cljs",
+		".c", ".h", ".cpp", ".cc", ".cxx", ".hpp", ".hxx", ".hh",
+		".cs", ".fs", ".fsx",
+		".swift", ".m", ".mm",
+		".r", ".R",
+		".lua",
+		".pl", ".pm", ".perl",
+		".php",
+		".ex", ".exs",
+		".erl", ".hrl",
+		".hs", ".lhs",
+		".ml", ".mli",
+		".nim",
+		".zig",
+		".v", ".sv",
+		".dart",
+		".jl",
+		".d",
+		".pas", ".pp",
+		".lisp", ".cl", ".el",
+		".tcl",
+		".awk",
+		".sql",
+		// Shell and scripting
+		".sh", ".bash", ".zsh", ".fish", ".ksh", ".csh",
+		".ps1", ".psm1", ".psd1",
+		".bat", ".cmd",
+		// Data and config formats
+		".json", ".jsonl", ".ndjson", ".json5", ".jsonc",
+		".yaml", ".yml",
+		".toml",
+		".xml", ".xsl", ".xslt", ".xsd", ".dtd",
+		".csv", ".tsv",
+		".ini", ".cfg", ".conf", ".config",
+		".env", ".envrc",
+		".properties",
+		".plist",
+		".hcl", ".tf", ".tfvars",
+		// Build and project files
+		".makefile", ".mk",
+		".cmake",
+		".gradle",
+		".sbt",
+		".cabal",
+		".gemspec",
+		".podspec",
+		// Docker and container
+		".dockerfile",
+		".containerfile",
+		// Git
+		".gitignore", ".gitattributes", ".gitmodules",
+		// Editor and IDE config
+		".editorconfig",
+		".eslintrc", ".prettierrc", ".stylelintrc",
+		// Other
+		".proto", ".thrift", ".avsc",
+		".graphql", ".gql",
+		".svg",
+		".diff", ".patch":
+		return true
+	default:
+		return false
+	}
+}
+
+// isTextByContent reads the first 8KB of a file and checks if it looks like text.
+// A file is considered text if it's valid UTF-8 and contains no null bytes.
+func isTextByContent(filePath string) bool {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+
+	buf := make([]byte, 8*1024)
+	n, _ := f.Read(buf)
+	if n == 0 {
+		// Empty files are treated as text
+		return true
+	}
+
+	data := buf[:n]
+
+	// Check for null bytes (strong binary indicator)
+	if slices.Contains(data, 0) {
+		return false
+	}
+
+	// Check if the content is valid UTF-8
+	return utf8.Valid(data)
 }

@@ -55,16 +55,27 @@ func SaveRunSessions(ctx context.Context, run *EvalRun, outputDir string) (strin
 // SessionFromEvents reconstructs a session from raw container output events.
 // This parses the JSON events emitted by cagent --json and builds a session
 // with the conversation history.
-func SessionFromEvents(events []map[string]any, title, question string) *session.Session {
+func SessionFromEvents(events []map[string]any, title string, questions []string) *session.Session {
 	sess := session.New(
 		session.WithTitle(title),
 		session.WithToolsApproved(true),
 	)
 
-	// Add the user question as the first message
-	if question != "" {
-		sess.AddMessage(session.UserMessage(question))
+	// Add user questions as initial messages.
+	// For multi-turn evals, these are interleaved with agent responses
+	// as they appear in the event stream. The first question is added
+	// upfront; subsequent questions are inserted when a stream_stopped
+	// event indicates the agent finished processing the previous turn.
+	questionIdx := 0
+	addNextQuestion := func() {
+		if questionIdx < len(questions) {
+			sess.AddMessage(session.UserMessage(questions[questionIdx]))
+			questionIdx++
+		}
 	}
+
+	// Add the first question
+	addNextQuestion()
 
 	// Track current assistant message being built
 	var currentContent strings.Builder
@@ -225,6 +236,9 @@ func SessionFromEvents(events []map[string]any, title, question string) *session
 		case "stream_stopped":
 			// Flush final assistant message
 			flushAssistantMessage()
+
+			// In multi-turn evals, add the next user question after each turn
+			addNextQuestion()
 		}
 	}
 

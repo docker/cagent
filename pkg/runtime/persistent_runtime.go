@@ -93,7 +93,7 @@ func (r *PersistentRuntime) handleEvent(ctx context.Context, sess *session.Sessi
 		streaming.agentName = ""
 		streaming.messageID = 0
 
-		if _, err := r.sessionStore.AddMessage(ctx, e.SessionID, session.UserMessage(e.Message)); err != nil {
+		if _, err := r.sessionStore.AddMessage(ctx, e.SessionID, session.UserMessage(e.Message, e.MultiContent...)); err != nil {
 			slog.Warn("Failed to persist user message", "session_id", e.SessionID, "error", err)
 		}
 
@@ -130,7 +130,10 @@ func (r *PersistentRuntime) handleEvent(ctx context.Context, sess *session.Sessi
 		}
 
 	case *TokenUsageEvent:
-		if e.Usage != nil {
+		// Only persist token usage for the current session.
+		// During task transfers, sub-session events flow through but should
+		// not overwrite the parent session's token counts.
+		if e.Usage != nil && e.SessionID == sess.ID {
 			if err := r.sessionStore.UpdateSessionTokens(ctx, sess.ID, e.Usage.InputTokens, e.Usage.OutputTokens, e.Usage.Cost); err != nil {
 				slog.Warn("Failed to persist token usage", "session_id", sess.ID, "error", err)
 			}

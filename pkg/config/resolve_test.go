@@ -86,7 +86,8 @@ agents:
 }
 
 func TestResolveAgentFile_EmptyIsDefault(t *testing.T) {
-	t.Parallel()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 
 	resolved, err := resolve("")
 
@@ -95,12 +96,22 @@ func TestResolveAgentFile_EmptyIsDefault(t *testing.T) {
 }
 
 func TestResolveAgentFile_DefaultIsDefault(t *testing.T) {
-	t.Parallel()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 
 	resolved, err := resolve("default")
 
 	require.NoError(t, err)
 	assert.Equal(t, "default", resolved)
+}
+
+func TestResolveAgentFile_CoderIsCoder(t *testing.T) {
+	t.Parallel()
+
+	resolved, err := resolve("coder")
+
+	require.NoError(t, err)
+	assert.Equal(t, "coder", resolved)
 }
 
 func TestResolveAgentFile_ReplaceAliasWithActualFile(t *testing.T) {
@@ -305,6 +316,28 @@ func TestResolve_DefaultAliasOverride(t *testing.T) {
 	data, err := source.Read(t.Context())
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "Custom agent")
+}
+
+func TestResolve_CoderBuiltinAgent(t *testing.T) {
+	t.Parallel()
+
+	source, err := Resolve("coder", nil)
+	require.NoError(t, err)
+	assert.Equal(t, "coder", source.Name())
+
+	// Verify it reads the embedded coder agent config
+	data, err := source.Read(t.Context())
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "Coding Agent")
+}
+
+func TestBuiltinAgentNames(t *testing.T) {
+	t.Parallel()
+
+	names := BuiltinAgentNames()
+
+	assert.Contains(t, names, "default")
+	assert.Contains(t, names, "coder")
 }
 
 func TestResolve_DefaultAliasToOCIReference(t *testing.T) {
@@ -587,32 +620,4 @@ func TestResolveAlias_WithAllOptions(t *testing.T) {
 	assert.True(t, alias.Yolo)
 	assert.Equal(t, "anthropic/claude-sonnet-4-0", alias.Model)
 	assert.True(t, alias.HideToolResults)
-}
-
-func TestGetUserSettings_Empty(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	// No config file exists
-	settings := GetUserSettings()
-	require.NotNil(t, settings)
-	assert.False(t, settings.HideToolResults)
-}
-
-func TestGetUserSettings_WithHideToolResults(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	// Set up config with settings
-	cfg, err := userconfig.Load()
-	require.NoError(t, err)
-	cfg.Settings = &userconfig.Settings{
-		HideToolResults: true,
-	}
-	require.NoError(t, cfg.Save())
-
-	// Get settings
-	settings := GetUserSettings()
-	require.NotNil(t, settings)
-	assert.True(t, settings.HideToolResults)
 }

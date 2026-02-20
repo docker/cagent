@@ -11,6 +11,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/docker/cagent/pkg/tools"
 	"github.com/docker/cagent/pkg/tui/core/layout"
@@ -92,6 +93,11 @@ func (d *ElicitationDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			d.inputs[d.currentField], cmd = d.inputs[d.currentField].Update(msg)
 			return d, cmd
+		}
+		return d, nil
+	case tea.MouseClickMsg:
+		if msg.Button == tea.MouseLeft {
+			return d.handleMouseClick(msg)
 		}
 		return d, nil
 	case tea.KeyPressMsg:
@@ -421,6 +427,74 @@ func capitalizeFirst(s string) string {
 	runes := []rune(s)
 	runes[0] = unicode.ToUpper(runes[0])
 	return string(runes)
+}
+
+// handleMouseClick handles mouse click events for field focus and selection toggling.
+func (d *ElicitationDialog) handleMouseClick(msg tea.MouseClickMsg) (layout.Model, tea.Cmd) {
+	if len(d.fields) == 0 {
+		return d, nil
+	}
+
+	dialogRow, _ := d.Position()
+	dialogWidth := d.ComputeDialogWidth(70, 60, 90)
+	contentWidth := d.ContentWidth(dialogWidth, 2)
+
+	// Compute the Y offset where fields start by measuring the rendered header.
+	header := lipgloss.JoinVertical(lipgloss.Left,
+		styles.DialogTitleStyle.Width(contentWidth).Render("MCP Server Request"),
+		RenderSeparator(contentWidth),
+		styles.DialogContentStyle.Width(contentWidth).Render(d.message),
+		RenderSeparator(contentWidth),
+	)
+	y := ContentStartRow(dialogRow, header)
+
+	// Now iterate through fields to find which field/option was clicked.
+	clickY := msg.Y
+	for i, field := range d.fields {
+		labelY := y
+		y++ // label line
+
+		switch field.Type {
+		case "boolean":
+			if clickY >= y && clickY < y+2 {
+				d.focusField(i)
+				d.boolValues[i] = clickY == y // first option = Yes
+				delete(d.fieldErrors, i)
+				return d, nil
+			}
+			y += 2
+		case "enum":
+			numOptions := len(field.EnumValues)
+			if clickY >= y && clickY < y+numOptions {
+				d.focusField(i)
+				d.enumIndexes[i] = clickY - y
+				delete(d.fieldErrors, i)
+				return d, nil
+			}
+			y += numOptions
+		default:
+			if clickY == y {
+				d.focusField(i)
+				return d, nil
+			}
+			y++
+		}
+
+		// Click on the label line focuses the field
+		if clickY == labelY {
+			d.focusField(i)
+			return d, nil
+		}
+
+		if d.fieldErrors[i] != "" {
+			y++
+		}
+		if i < len(d.fields)-1 {
+			y++
+		}
+	}
+
+	return d, nil
 }
 
 func (d *ElicitationDialog) Position() (row, col int) {

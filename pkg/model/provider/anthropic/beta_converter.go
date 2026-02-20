@@ -263,7 +263,7 @@ func createBetaFileContentBlock(fileID, mimeType string) (anthropic.BetaContentB
 		}, nil
 	}
 
-	if IsDocumentMime(mimeType) {
+	if IsAnthropicDocumentMime(mimeType) {
 		return anthropic.BetaContentBlockParamUnion{
 			OfDocument: &anthropic.BetaRequestDocumentBlockParam{
 				Source: anthropic.BetaRequestDocumentBlockSourceUnionParam{

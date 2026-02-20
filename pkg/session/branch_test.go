@@ -90,30 +90,30 @@ func TestCloneSessionItem(t *testing.T) {
 	})
 }
 
-func TestBuildBranchedSession(t *testing.T) {
+func TestBranchSession(t *testing.T) {
 	t.Run("nil parent returns error", func(t *testing.T) {
-		_, err := buildBranchedSession(nil, 0)
+		_, err := BranchSession(nil, 0)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "parent session is nil")
 	})
 
 	t.Run("negative position returns error", func(t *testing.T) {
 		parent := &Session{Messages: []Item{NewMessageItem(UserMessage("test"))}}
-		_, err := buildBranchedSession(parent, -1)
+		_, err := BranchSession(parent, -1)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "out of range")
 	})
 
 	t.Run("position beyond messages returns error", func(t *testing.T) {
 		parent := &Session{Messages: []Item{NewMessageItem(UserMessage("test"))}}
-		_, err := buildBranchedSession(parent, 2)
+		_, err := BranchSession(parent, 2)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "out of range")
 	})
 
 	t.Run("position equal to messages length returns error", func(t *testing.T) {
 		parent := &Session{Messages: []Item{NewMessageItem(UserMessage("test"))}}
-		_, err := buildBranchedSession(parent, 1)
+		_, err := BranchSession(parent, 1)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "out of range")
 	})
@@ -129,7 +129,7 @@ func TestBuildBranchedSession(t *testing.T) {
 			},
 		}
 
-		branched, err := buildBranchedSession(parent, 2)
+		branched, err := BranchSession(parent, 2)
 		require.NoError(t, err)
 		assert.NotNil(t, branched)
 

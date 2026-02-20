@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/docker/cagent/pkg/chat"
@@ -60,10 +62,8 @@ func CatalogProviders() []string {
 // IsCatalogProvider returns true if the provider name is valid for the model catalog.
 func IsCatalogProvider(name string) bool {
 	// Check core providers
-	for _, p := range CoreProviders {
-		if p == name {
-			return true
-		}
+	if slices.Contains(CoreProviders, name) {
+		return true
 	}
 	// Check aliases with BaseURL
 	if alias, exists := Aliases[name]; exists && alias.BaseURL != "" {
@@ -218,9 +218,7 @@ func createDirectProvider(ctx context.Context, cfg *latest.ModelConfig, env envi
 		if enhancedCfg.ProviderOpts != nil {
 			// Copy to avoid mutating shared ProviderOpts in the original config
 			optsCopy := make(map[string]any, len(enhancedCfg.ProviderOpts))
-			for key, value := range enhancedCfg.ProviderOpts {
-				optsCopy[key] = value
-			}
+			maps.Copy(optsCopy, enhancedCfg.ProviderOpts)
 			delete(optsCopy, "interleaved_thinking")
 			enhancedCfg.ProviderOpts = optsCopy
 		}

@@ -38,7 +38,7 @@ models:
     model: claude-opus-4-6
   sonnet:
     provider: anthropic
-    model: claude-sonnet-4-5
+    model: claude-sonnet-4-6
   haiku:
     provider: anthropic
     model: claude-haiku-4-5

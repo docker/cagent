@@ -23,22 +23,21 @@ func newACPCmd() *cobra.Command {
 		Use:   "acp <agent-file>|<registry-ref>",
 		Short: "Start an agent as an ACP (Agent Client Protocol) server",
 		Long:  "Start an ACP server that exposes the agent via the Agent Client Protocol",
-		Example: `  cagent acp ./agent.yaml
-  cagent acp ./team.yaml
-  cagent acp agentcatalog/pirate`,
-		Args:    cobra.ExactArgs(1),
-		GroupID: "server",
-		RunE:    flags.runACPCommand,
+		Example: `  cagent serve acp ./agent.yaml
+  cagent serve acp ./team.yaml
+  cagent serve acp agentcatalog/pirate`,
+		Args: cobra.ExactArgs(1),
+		RunE: flags.runACPCommand,
 	}
 
-	addRuntimeConfigFlags(cmd, &flags.runConfig)
 	cmd.Flags().StringVarP(&flags.sessionDB, "session-db", "s", filepath.Join(paths.GetHomeDir(), ".cagent", "session.db"), "Path to the session database")
+	addRuntimeConfigFlags(cmd, &flags.runConfig)
 
 	return cmd
 }
 
 func (f *acpFlags) runACPCommand(cmd *cobra.Command, args []string) error {
-	telemetry.TrackCommand("acp", args)
+	telemetry.TrackCommand("serve", append([]string{"acp"}, args...))
 
 	ctx := cmd.Context()
 	agentFilename := args[0]

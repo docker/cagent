@@ -1,5 +1,3 @@
-version: "2"
-
 models:
   # Orchestrator - needs good reasoning for delegation
   claude-sonnet:
@@ -143,7 +141,7 @@ agents:
 
   security:
     model: openai-o3,claude-sonnet
-    description: Deep security vulnerability analysis (alloy: reasoning + broad knowledge)
+    description: "Deep security vulnerability analysis (alloy: reasoning + broad knowledge)"
     instruction: |
       You are a security expert scanning for vulnerabilities. Be thorough but precise.
 
@@ -207,7 +205,7 @@ agents:
 
   bugs:
     model: gemini-flash,claude-haiku
-    description: Logic errors, resource leaks, and concurrency bugs (alloy: speed + precision)
+    description: "Logic errors, resource leaks, and concurrency bugs (alloy: speed + precision)"
     instruction: |
       You are analyzing code for bugs that cause runtime errors or incorrect behavior.
 
@@ -280,7 +278,7 @@ agents:
 
       Before analyzing anything, read ALL existing markdown files in the repository:
       1. Use `directory_tree` to find all `.md` files
-      2. Read each markdown file (README.md, CONTRIBUTING.md, docs/*.md, etc.)
+      2. Read each markdown file (README.md, CONTRIBUTING.md, etc.)
       3. Understand what documentation already exists
 
       This context is essential - you need to know what's already documented before

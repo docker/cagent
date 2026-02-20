@@ -111,7 +111,12 @@ func addEnvVarsForModelConfig(model *latest.ModelConfig, customProviders map[str
 			requiredEnv["ANTHROPIC_API_KEY"] = true
 		case "google":
 			if model.ProviderOpts["project"] == nil && model.ProviderOpts["location"] == nil {
-				requiredEnv["GOOGLE_API_KEY"] = true
+				if os.Getenv("GOOGLE_GENAI_USE_VERTEXAI") != "" {
+					requiredEnv["GOOGLE_CLOUD_PROJECT"] = true
+					requiredEnv["GOOGLE_CLOUD_LOCATION"] = true
+				} else if _, exist := os.LookupEnv("GEMINI_API_KEY"); !exist {
+					requiredEnv["GOOGLE_API_KEY"] = true
+				}
 			}
 		case "mistral":
 			requiredEnv["MISTRAL_API_KEY"] = true

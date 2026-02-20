@@ -42,7 +42,7 @@ func TestParseExamples(t *testing.T) {
 		t.Run(file, func(t *testing.T) {
 			t.Parallel()
 
-			cfg, err := Load(t.Context(), testfileSource(file))
+			cfg, err := Load(t.Context(), NewFileSource(file))
 
 			require.NoError(t, err)
 			require.Equal(t, latest.Version, cfg.Version, "Version should be %d in %s", latest.Version, file)
@@ -80,7 +80,7 @@ func TestParseExamples(t *testing.T) {
 
 func TestJsonSchemaWorksForExamples(t *testing.T) {
 	// Read json schema.
-	schemaFile, err := os.ReadFile(filepath.Join("..", "..", "cagent-schema.json"))
+	schemaFile, err := os.ReadFile(filepath.Join("..", "..", "agent-schema.json"))
 	require.NoError(t, err)
 
 	schema, err := gojsonschema.NewSchema(gojsonschema.NewBytesLoader(schemaFile))

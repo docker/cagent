@@ -30,6 +30,13 @@ func completeAlias(toComplete string) ([]string, cobra.ShellCompDirective) {
 
 	var candidates []string
 
+	// Add matching built-in agent names
+	for _, name := range config.BuiltinAgentNames() {
+		if strings.HasPrefix(name, toComplete) {
+			candidates = append(candidates, name+"\tbuilt-in agent")
+		}
+	}
+
 	// Add matching aliases
 	cfg, err := userconfig.Load()
 	if err == nil {

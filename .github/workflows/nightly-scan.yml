@@ -58,7 +58,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         with:
           agent: ${{ github.workspace }}/.github/agents/nightly-scanner.yaml
-          prompt: "${{ inputs['dry-run'] && 'DRY RUN MODE: Do not create any issues. Just report what you would create.' || '' }}"
+          prompt: "${{ inputs['dry-run'] && 'DRY RUN MODE: Do not create any issues. Just report what you would create.' || 'Run the nightly scan as documented in your instructions.' }}"
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           google-api-key: ${{ secrets.GEMINI_API_KEY }}

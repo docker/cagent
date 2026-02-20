@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -298,11 +299,8 @@ func (fm *FileManager) Cleanup(ctx context.Context, ttl time.Duration) error {
 	// Collect paths to delete
 	var pathsToDelete []string
 	for path, k := range fm.paths {
-		for _, deletedKey := range keysToDelete {
-			if k == deletedKey {
-				pathsToDelete = append(pathsToDelete, path)
-				break
-			}
+		if slices.Contains(keysToDelete, k) {
+			pathsToDelete = append(pathsToDelete, path)
 		}
 	}
 
@@ -398,10 +396,10 @@ func IsImageMime(mimeType string) bool {
 	}
 }
 
-// IsDocumentMime returns true if the MIME type is a document type supported by Anthropic.
-func IsDocumentMime(mimeType string) bool {
+// IsAnthropicDocumentMime returns true if the MIME type is a document type supported by Anthropic.
+func IsAnthropicDocumentMime(mimeType string) bool {
 	switch mimeType {
-	case "application/pdf", "text/plain", "text/markdown":
+	case "application/pdf", "text/plain":
 		return true
 	default:
 		return false

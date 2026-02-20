@@ -113,8 +113,10 @@ type Runtime interface {
 	SetCurrentAgent(agentName string) error
 	// CurrentAgentTools returns the tools for the active agent
 	CurrentAgentTools(ctx context.Context) ([]tools.Tool, error)
-	// EmitStartupInfo emits initial agent, team, and toolset information for immediate display
-	EmitStartupInfo(ctx context.Context, events chan Event)
+	// EmitStartupInfo emits initial agent, team, and toolset information for immediate display.
+	// When sess is non-nil and contains token data, a TokenUsageEvent is also emitted
+	// so the UI can display context usage percentage on session restore.
+	EmitStartupInfo(ctx context.Context, sess *session.Session, events chan Event)
 	// ResetStartupInfo resets the startup info emission flag, allowing re-emission
 	ResetStartupInfo()
 	// RunStream starts the agent's interaction loop and returns a channel of events
@@ -133,7 +135,7 @@ type Runtime interface {
 	// Summarize generates a summary for the session
 	Summarize(ctx context.Context, sess *session.Session, additionalPrompt string, events chan Event)
 
-	// PermissionsInfo returns the team-level permission patterns (allow/deny).
+	// PermissionsInfo returns the team-level permission patterns (allow/ask/deny).
 	// Returns nil if no permissions are configured.
 	PermissionsInfo() *PermissionsInfo
 
@@ -153,11 +155,15 @@ type Runtime interface {
 	// TitleGenerator returns a generator for automatic session titles, or nil
 	// if the runtime does not support local title generation (e.g. remote runtimes).
 	TitleGenerator() *sessiontitle.Generator
+
+	// Close releases resources held by the runtime (e.g., session store connections).
+	Close() error
 }
 
-// PermissionsInfo contains the allow and deny patterns for tool permissions.
+// PermissionsInfo contains the allow, ask, and deny patterns for tool permissions.
 type PermissionsInfo struct {
 	Allow []string
+	Ask   []string
 	Deny  []string
 }
 
@@ -169,6 +175,7 @@ type CurrentAgentInfo struct {
 
 type ModelStore interface {
 	GetModel(ctx context.Context, modelID string) (*modelsdev.Model, error)
+	GetDatabase(ctx context.Context) (*modelsdev.Database, error)
 }
 
 // RAGInitializer is implemented by runtimes that support background RAG initialization.
@@ -374,15 +381,11 @@ func (r *LocalRuntime) forwardRAGEvents(ctx context.Context, ragManagers map[str
 						sendEvent(RAGIndexingCompleted(ragName, ragEvent.StrategyName, agentName))
 					case ragtypes.EventTypeUsage:
 						// Convert RAG usage to TokenUsageEvent so TUI displays it
-						sendEvent(TokenUsage(
-							"",
-							agentName,
-							ragEvent.TotalTokens, // input tokens (embeddings)
-							0,                    // output tokens (0 for embeddings)
-							ragEvent.TotalTokens, // context length
-							0,                    // context limit (not applicable)
-							ragEvent.Cost,
-						))
+						sendEvent(NewTokenUsageEvent("", agentName, &Usage{
+							InputTokens:   ragEvent.TotalTokens,
+							ContextLength: ragEvent.TotalTokens,
+							Cost:          ragEvent.Cost,
+						}))
 					case ragtypes.EventTypeError:
 						if ragEvent.Error != nil {
 							sendEvent(Error(fmt.Sprintf("RAG %s error: %v", ragName, ragEvent.Error)))
@@ -572,7 +575,7 @@ func (r *LocalRuntime) ExecuteMCPPrompt(ctx context.Context, promptName string, 
 			if textContent, ok := message.Content.(*mcp.TextContent); ok {
 				content.WriteString(textContent.Text)
 			} else {
-				content.WriteString(fmt.Sprintf("[Non-text content: %T]", message.Content))
+				fmt.Fprintf(&content, "[Non-text content: %T]", message.Content)
 			}
 		}
 		return content.String(), nil
@@ -671,6 +674,14 @@ func (r *LocalRuntime) SessionStore() session.Store {
 	return r.sessionStore
 }
 
+// Close releases resources held by the runtime, including the session store.
+func (r *LocalRuntime) Close() error {
+	if r.sessionStore != nil {
+		return r.sessionStore.Close()
+	}
+	return nil
+}
+
 // UpdateSessionTitle persists the session title via the session store.
 func (r *LocalRuntime) UpdateSessionTitle(ctx context.Context, sess *session.Session, title string) error {
 	sess.Title = title
@@ -689,6 +700,7 @@ func (r *LocalRuntime) PermissionsInfo() *PermissionsInfo {
 	}
 	return &PermissionsInfo{
 		Allow: permChecker.AllowPatterns(),
+		Ask:   permChecker.AskPatterns(),
 		Deny:  permChecker.DenyPatterns(),
 	}
 }
@@ -700,8 +712,10 @@ func (r *LocalRuntime) ResetStartupInfo() {
 	r.startupInfoEmitted = false
 }
 
-// EmitStartupInfo emits initial agent, team, and toolset information for immediate sidebar display
-func (r *LocalRuntime) EmitStartupInfo(ctx context.Context, events chan Event) {
+// EmitStartupInfo emits initial agent, team, and toolset information for immediate sidebar display.
+// When sess is non-nil and contains token data, a TokenUsageEvent is also emitted so that the
+// sidebar can display context usage percentage on session restore.
+func (r *LocalRuntime) EmitStartupInfo(ctx context.Context, sess *session.Session, events chan Event) {
 	// Prevent duplicate emissions
 	if r.startupInfoEmitted {
 		return
@@ -722,11 +736,30 @@ func (r *LocalRuntime) EmitStartupInfo(ctx context.Context, events chan Event) {
 
 	// Emit agent and team information immediately for fast sidebar display
 	// Use getEffectiveModelID to account for active fallback cooldowns
-	if !send(AgentInfo(a.Name(), r.getEffectiveModelID(a), a.Description(), a.WelcomeMessage())) {
+	modelID := r.getEffectiveModelID(a)
+	if !send(AgentInfo(a.Name(), modelID, a.Description(), a.WelcomeMessage())) {
 		return
 	}
 	if !send(TeamInfo(r.agentDetailsFromTeam(), r.currentAgent)) {
 		return
+	}
+
+	// When restoring a session that already has token data, emit a
+	// TokenUsageEvent so the sidebar can show the context usage percentage.
+	// The context limit comes from the model definition (models.dev), which
+	// is a model property — not persisted in the session.
+	//
+	// Use TotalCost (not OwnCost) because this is a restore/branch context:
+	// sub-sessions won't emit their own events, so the parent must include
+	// their costs.
+	if sess != nil && (sess.InputTokens > 0 || sess.OutputTokens > 0) {
+		var contextLimit int64
+		if m, err := r.modelsStore.GetModel(ctx, modelID); err == nil && m != nil {
+			contextLimit = int64(m.Limit.Context)
+		}
+		usage := SessionUsage(sess, contextLimit)
+		usage.Cost = sess.TotalCost()
+		send(NewTokenUsageEvent(sess.ID, r.currentAgent, usage))
 	}
 
 	// Emit agent warnings (if any) - these are quick
@@ -872,7 +905,8 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 
 		messages := sess.GetMessages(a)
 		if sess.SendUserMessage {
-			events <- UserMessage(messages[len(messages)-1].Content, sess.ID, len(sess.Messages)-1)
+			lastMsg := messages[len(messages)-1]
+			events <- UserMessage(lastMsg.Content, sess.ID, lastMsg.MultiContent, len(sess.Messages)-1)
 		}
 
 		events <- StreamStarted(sess.ID, a.Name())
@@ -986,9 +1020,9 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 			}
 
 			if m != nil && r.sessionCompaction {
-				if sess.InputTokens+sess.OutputTokens > int64(float64(contextLimit)*0.9) {
+				contextLength := sess.InputTokens + sess.OutputTokens
+				if contextLength > int64(float64(contextLimit)*0.9) {
 					r.Summarize(ctx, sess, "", events)
-					events <- TokenUsage(sess.ID, r.currentAgent, sess.InputTokens, sess.OutputTokens, sess.InputTokens+sess.OutputTokens, contextLimit, sess.Cost)
 				}
 			}
 
@@ -1081,9 +1115,9 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 						Cost:  messageCost,
 						Model: messageModel,
 					}
-				}
-				if res.RateLimit != nil {
-					msgUsage.RateLimit = *res.RateLimit
+					if res.RateLimit != nil {
+						msgUsage.RateLimit = *res.RateLimit
+					}
 				}
 
 				addAgentMessage(sess, a, &assistantMessage, events)
@@ -1092,7 +1126,9 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 				slog.Debug("Skipping empty assistant message (no content and no tool calls)", "agent", a.Name())
 			}
 
-			events <- TokenUsageWithMessage(sess.ID, r.currentAgent, sess.InputTokens, sess.OutputTokens, sess.InputTokens+sess.OutputTokens, contextLimit, sess.Cost, msgUsage)
+			usage := SessionUsage(sess, contextLimit)
+			usage.LastMessage = msgUsage
+			events <- NewTokenUsageEvent(sess.ID, r.currentAgent, usage)
 
 			r.processToolCalls(ctx, sess, res.Calls, agentTools, events)
 
@@ -1284,20 +1320,7 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 			// Capture usage once per stream
 			messageUsage = response.Usage
 
-			// Accumulate cost for the session using model pricing
-			if m != nil && m.Cost != nil {
-				cost := float64(response.Usage.InputTokens)*m.Cost.Input +
-					float64(response.Usage.OutputTokens)*m.Cost.Output +
-					float64(response.Usage.CachedInputTokens)*m.Cost.CacheRead +
-					float64(response.Usage.CacheWriteTokens)*m.Cost.CacheWrite
-				sess.Cost += cost / 1e6
-			}
-
-			// Persist token usage at the session level
-			// These values are used by the TUI to compute token usage %
-			sess.InputTokens = response.Usage.InputTokens +
-				response.Usage.CachedInputTokens +
-				response.Usage.CacheWriteTokens
+			sess.InputTokens = response.Usage.InputTokens + response.Usage.CachedInputTokens + response.Usage.CacheWriteTokens
 			sess.OutputTokens = response.Usage.OutputTokens
 
 			// Emit telemetry once per stream to avoid duplicate usage records
@@ -1305,13 +1328,7 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 			if m != nil {
 				modelName = m.Name
 			}
-			telemetry.RecordTokenUsage(
-				ctx,
-				modelName,
-				sess.InputTokens,
-				sess.OutputTokens,
-				sess.Cost,
-			)
+			telemetry.RecordTokenUsage(ctx, modelName, sess.InputTokens, sess.OutputTokens, sess.TotalCost())
 		}
 
 		if response.RateLimit != nil {
@@ -1442,7 +1459,7 @@ func (r *LocalRuntime) processToolCalls(ctx context.Context, sess *session.Sessi
 		agentToolMap[t.Name] = t
 	}
 
-	for i, toolCall := range calls {
+	for _, toolCall := range calls {
 		callCtx, callSpan := r.startSpan(ctx, "runtime.tool.call", trace.WithAttributes(
 			attribute.String("tool.name", toolCall.Function.Name),
 			attribute.String("tool.type", string(toolCall.Type)),
@@ -1453,33 +1470,31 @@ func (r *LocalRuntime) processToolCalls(ctx context.Context, sess *session.Sessi
 
 		slog.Debug("Processing tool call", "agent", a.Name(), "tool", toolCall.Function.Name, "session_id", sess.ID)
 
-		// Find the tool - first check runtime tools, then agent tools
-		var tool tools.Tool
-		var runTool func()
-
-		if def, exists := r.toolMap[toolCall.Function.Name]; exists {
-			// Validate that the tool is actually available to this agent
-			if _, available := agentToolMap[toolCall.Function.Name]; !available {
-				slog.Warn("Tool call rejected: tool not available to agent", "agent", a.Name(), "tool", toolCall.Function.Name, "session_id", sess.ID)
-				r.addToolErrorResponse(ctx, sess, toolCall, def.tool, events, a, fmt.Sprintf("Tool '%s' is not available to this agent (%s).", toolCall.Function.Name, a.Name()))
-				callSpan.SetStatus(codes.Error, "tool not available to agent")
-				callSpan.End()
-				continue
-			}
-			tool = def.tool
-			runTool = func() { r.runAgentTool(callCtx, def.handler, sess, toolCall, def.tool, events, a) }
-		} else if t, exists := agentToolMap[toolCall.Function.Name]; exists {
-			tool = t
-			runTool = func() { r.runTool(callCtx, t, toolCall, events, sess, a) }
-		} else {
-			// Tool not found - skip
-			callSpan.SetStatus(codes.Ok, "tool not found")
+		// Resolve the tool: it must be in the agent's tool set to be callable.
+		// After a handoff the model may hallucinate tools it saw in the
+		// conversation history from a previous agent; rejecting unknown
+		// tools with an error response lets it self-correct.
+		tool, available := agentToolMap[toolCall.Function.Name]
+		if !available {
+			slog.Warn("Tool call for unavailable tool", "agent", a.Name(), "tool", toolCall.Function.Name, "session_id", sess.ID)
+			errTool := tools.Tool{Name: toolCall.Function.Name}
+			r.addToolErrorResponse(ctx, sess, toolCall, errTool, events, a, fmt.Sprintf("Tool '%s' is not available. You can only use the tools provided to you.", toolCall.Function.Name))
+			callSpan.SetStatus(codes.Error, "tool not available")
 			callSpan.End()
 			continue
 		}
 
+		// Pick the handler: runtime-managed tools (transfer_task, handoff)
+		// have dedicated handlers; everything else goes through the toolset.
+		var runTool func()
+		if def, exists := r.toolMap[toolCall.Function.Name]; exists {
+			runTool = func() { r.runAgentTool(callCtx, def.handler, sess, toolCall, tool, events, a) }
+		} else {
+			runTool = func() { r.runTool(callCtx, tool, toolCall, events, sess, a) }
+		}
+
 		// Execute tool with approval check
-		canceled := r.executeWithApproval(callCtx, sess, toolCall, tool, events, a, runTool, calls[i+1:])
+		canceled := r.executeWithApproval(callCtx, sess, toolCall, tool, events, a, runTool)
 		if canceled {
 			callSpan.SetStatus(codes.Ok, "tool call canceled by user")
 			callSpan.End()
@@ -1496,18 +1511,10 @@ func (r *LocalRuntime) processToolCalls(ctx context.Context, sess *session.Sessi
 //
 // The approval flow considers (in order):
 //
-//  1. Session-level permissions (if configured) - pattern-based Allow/Deny rules
+//  1. Session-level permissions (if configured) - pattern-based Allow/Ask/Deny rules
 //  2. Team-level permissions config - checked second
-//  3. sess.ToolsApproved (--yolo flag) - auto-approve all
-//  4. tool.Annotations.ReadOnlyHint - auto-approve read-only tools
-//  5. Default: ask for user confirmation
-//
-// Example session permissions configuration:
-//
-//	sess.Permissions = &session.PermissionsConfig{
-//	    Allow: []string{"read_*", "think"},  // auto-approve matching tools
-//	    Deny:  []string{"shell", "exec_*"},  // block matching tools
-//	}
+//  3. sess.ToolsApproved (--yolo flag) or read-only hint - auto-approve
+//  4. Default: ask for user confirmation
 func (r *LocalRuntime) executeWithApproval(
 	ctx context.Context,
 	sess *session.Session,
@@ -1516,7 +1523,6 @@ func (r *LocalRuntime) executeWithApproval(
 	events chan Event,
 	a *agent.Agent,
 	runTool func(),
-	remainingCalls []tools.ToolCall,
 ) (canceled bool) {
 	toolName := toolCall.Function.Name
 
@@ -1529,62 +1535,88 @@ func (r *LocalRuntime) executeWithApproval(
 		}
 	}
 
-	// 1. Check session-level permissions first (if configured)
-	if sess.Permissions != nil {
-		sessionChecker := permissions.NewChecker(&latest.PermissionsConfig{
-			Allow: sess.Permissions.Allow,
-			Deny:  sess.Permissions.Deny,
-		})
-		decision := sessionChecker.CheckWithArgs(toolName, toolArgs)
-		switch decision {
+	// Collect permission checkers in priority order (session first, then team)
+	checkers := r.permissionCheckers(sess)
+
+	for _, pc := range checkers {
+		switch pc.checker.CheckWithArgs(toolName, toolArgs) {
 		case permissions.Deny:
-			slog.Debug("Tool denied by session permissions", "tool", toolName, "session_id", sess.ID)
-			r.addToolErrorResponse(ctx, sess, toolCall, tool, events, a, fmt.Sprintf("Tool '%s' is denied by session permissions.", toolName))
+			slog.Debug("Tool denied by permissions", "tool", toolName, "source", pc.source, "session_id", sess.ID)
+			r.addToolErrorResponse(ctx, sess, toolCall, tool, events, a, fmt.Sprintf("Tool '%s' is denied by %s.", toolName, pc.source))
 			return false
 		case permissions.Allow:
-			slog.Debug("Tool auto-approved by session permissions", "tool", toolName, "session_id", sess.ID)
+			slog.Debug("Tool auto-approved by permissions", "tool", toolName, "source", pc.source, "session_id", sess.ID)
 			runTool()
 			return false
+		case permissions.ForceAsk:
+			slog.Debug("Tool requires confirmation (ask pattern)", "tool", toolName, "source", pc.source, "session_id", sess.ID)
+			return r.askUserForConfirmation(ctx, sess, toolCall, tool, events, a, runTool)
 		case permissions.Ask:
-			// Fall through to team permissions
+			// No explicit match at this level; fall through to next checker
 		}
 	}
 
-	// 2. Check team-level permissions config
-	if permChecker := r.team.Permissions(); permChecker != nil {
-		decision := permChecker.CheckWithArgs(toolName, toolArgs)
-		switch decision {
-		case permissions.Deny:
-			slog.Debug("Tool denied by team permissions config", "tool", toolName, "session_id", sess.ID)
-			r.addToolErrorResponse(ctx, sess, toolCall, tool, events, a, fmt.Sprintf("Tool '%s' is denied by permissions configuration.", toolName))
-			return false
-		case permissions.Allow:
-			slog.Debug("Tool auto-approved by team permissions config", "tool", toolName, "session_id", sess.ID)
-			runTool()
-			return false
-		case permissions.Ask:
-			// Fall through to normal approval flow
-		}
-	}
-
-	// 3. Check --yolo flag or read-only hint
+	// No permission rule matched. Auto-approve if --yolo flag is set or the tool is read-only.
 	if sess.ToolsApproved || tool.Annotations.ReadOnlyHint {
 		runTool()
 		return false
 	}
 
-	// Ask user for confirmation
-	slog.Debug("Tools not approved, waiting for resume", "tool", toolCall.Function.Name, "session_id", sess.ID)
+	// Default: ask the user for confirmation
+	return r.askUserForConfirmation(ctx, sess, toolCall, tool, events, a, runTool)
+}
+
+// permissionChecker pairs a checker with a human-readable source label.
+type permissionChecker struct {
+	checker *permissions.Checker
+	source  string
+}
+
+// permissionCheckers returns the ordered list of permission checkers to evaluate.
+func (r *LocalRuntime) permissionCheckers(sess *session.Session) []permissionChecker {
+	var checkers []permissionChecker
+	if sess.Permissions != nil {
+		checkers = append(checkers, permissionChecker{
+			checker: permissions.NewChecker(&latest.PermissionsConfig{
+				Allow: sess.Permissions.Allow,
+				Ask:   sess.Permissions.Ask,
+				Deny:  sess.Permissions.Deny,
+			}),
+			source: "session permissions",
+		})
+	}
+	if tc := r.team.Permissions(); tc != nil {
+		checkers = append(checkers, permissionChecker{
+			checker: tc,
+			source:  "permissions configuration",
+		})
+	}
+	return checkers
+}
+
+// askUserForConfirmation sends a confirmation event and waits for user response.
+// It bypasses all auto-approval logic (read-only hints, yolo flag, etc.).
+func (r *LocalRuntime) askUserForConfirmation(
+	ctx context.Context,
+	sess *session.Session,
+	toolCall tools.ToolCall,
+	tool tools.Tool,
+	events chan Event,
+	a *agent.Agent,
+	runTool func(),
+) (canceled bool) {
+	toolName := toolCall.Function.Name
+	slog.Debug("Tools not approved, waiting for resume", "tool", toolName, "session_id", sess.ID)
 	events <- ToolCallConfirmation(toolCall, tool, a.Name())
 
 	select {
 	case req := <-r.resumeChan:
 		switch req.Type {
 		case ResumeTypeApprove:
-			slog.Debug("Resume signal received, approving tool", "tool", toolCall.Function.Name, "session_id", sess.ID)
+			slog.Debug("Resume signal received, approving tool", "tool", toolName, "session_id", sess.ID)
 			runTool()
 		case ResumeTypeApproveSession:
-			slog.Debug("Resume signal received, approving session", "tool", toolCall.Function.Name, "session_id", sess.ID)
+			slog.Debug("Resume signal received, approving session", "tool", toolName, "session_id", sess.ID)
 			sess.ToolsApproved = true
 			runTool()
 		case ResumeTypeApproveTool:
@@ -1602,7 +1634,7 @@ func (r *LocalRuntime) executeWithApproval(
 			slog.Debug("Resume signal received, approving tool permanently", "tool", approvedTool, "session_id", sess.ID)
 			runTool()
 		case ResumeTypeReject:
-			slog.Debug("Resume signal received, rejecting tool", "tool", toolCall.Function.Name, "session_id", sess.ID, "reason", req.Reason)
+			slog.Debug("Resume signal received, rejecting tool", "tool", toolName, "session_id", sess.ID, "reason", req.Reason)
 			rejectMsg := "The user rejected the tool call."
 			if strings.TrimSpace(req.Reason) != "" {
 				rejectMsg += " Reason: " + strings.TrimSpace(req.Reason)
@@ -1611,11 +1643,8 @@ func (r *LocalRuntime) executeWithApproval(
 		}
 		return false
 	case <-ctx.Done():
-		slog.Debug("Context cancelled while waiting for resume", "tool", toolCall.Function.Name, "session_id", sess.ID)
+		slog.Debug("Context cancelled while waiting for resume", "tool", toolName, "session_id", sess.ID)
 		r.addToolErrorResponse(ctx, sess, toolCall, tool, events, a, "The tool call was canceled by the user.")
-		for _, remainingCall := range remainingCalls {
-			r.addToolErrorResponse(ctx, sess, remainingCall, tool, events, a, "The tool call was canceled by the user.")
-		}
 		return true
 	}
 }
@@ -1674,6 +1703,7 @@ func (r *LocalRuntime) executeToolWithHandler(
 		Role:       chat.MessageRoleTool,
 		Content:    content,
 		ToolCallID: toolCall.ID,
+		IsError:    res.IsError,
 		CreatedAt:  time.Now().Format(time.RFC3339),
 	}
 	addAgentMessage(sess, a, &toolResponseMsg, events)
@@ -1770,6 +1800,7 @@ func (r *LocalRuntime) addToolErrorResponse(_ context.Context, sess *session.Ses
 		Role:       chat.MessageRoleTool,
 		Content:    errorMsg,
 		ToolCallID: toolCall.ID,
+		IsError:    true,
 		CreatedAt:  time.Now().Format(time.RFC3339),
 	}
 	addAgentMessage(sess, a, &toolResponseMsg, events)
@@ -1795,6 +1826,22 @@ func (r *LocalRuntime) handleTaskTransfer(ctx context.Context, sess *session.Ses
 	}
 
 	a := r.CurrentAgent()
+
+	// Validate that the target agent is in the current agent's sub-agents list
+	subAgents := a.SubAgents()
+	if !slices.ContainsFunc(subAgents, func(sa *agent.Agent) bool { return sa.Name() == params.Agent }) {
+		var subAgentNames []string
+		for _, sa := range subAgents {
+			subAgentNames = append(subAgentNames, sa.Name())
+		}
+		var errorMsg string
+		if len(subAgentNames) > 0 {
+			errorMsg = fmt.Sprintf("Agent %s cannot transfer task to %s: target agent not in sub-agents list. Available sub-agent IDs are: %s", a.Name(), params.Agent, strings.Join(subAgentNames, ", "))
+		} else {
+			errorMsg = fmt.Sprintf("Agent %s cannot transfer task to %s: target agent not in sub-agents list. This agent has no sub-agents configured.", a.Name(), params.Agent)
+		}
+		return tools.ResultError(errorMsg), nil
+	}
 
 	// Span for task transfer (optional)
 	ctx, span := r.startSpan(ctx, "runtime.task_transfer", trace.WithAttributes(
@@ -1924,6 +1971,17 @@ func (r *LocalRuntime) handleHandoff(_ context.Context, _ *session.Session, tool
 // for the summarization (e.g., "focus on code changes" or "include action items").
 func (r *LocalRuntime) Summarize(ctx context.Context, sess *session.Session, additionalPrompt string, events chan Event) {
 	r.sessionCompactor.Compact(ctx, sess, additionalPrompt, events, r.currentAgent)
+
+	// Emit a TokenUsageEvent so the sidebar immediately reflects the
+	// compaction: tokens drop to the summary size, context % drops, and
+	// cost increases by the summary generation cost.
+	a := r.CurrentAgent()
+	modelID := r.getEffectiveModelID(a)
+	var contextLimit int64
+	if m, err := r.modelsStore.GetModel(ctx, modelID); err == nil && m != nil {
+		contextLimit = int64(m.Limit.Context)
+	}
+	events <- NewTokenUsageEvent(sess.ID, r.currentAgent, SessionUsage(sess, contextLimit))
 }
 
 // setElicitationEventsChannel sets the current events channel for elicitation requests

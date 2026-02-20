@@ -122,13 +122,14 @@ type Config struct {
 
 // Session helper functions
 
-func getFirstUserMessage(sess *session.Session) string {
+func getUserMessages(sess *session.Session) []string {
+	var messages []string
 	for _, msg := range sess.GetAllMessages() {
 		if msg.Message.Role == "user" {
-			return msg.Message.Content
+			messages = append(messages, msg.Message.Content)
 		}
 	}
-	return ""
+	return messages
 }
 
 func extractToolCalls(items []session.Item) []string {

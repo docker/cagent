@@ -1,0 +1,235 @@
+<h1>Configuration Overview</h1>
+<p class="subtitle">cagent uses YAML configuration files to define agents, models, tools, and their relationships.</p>
+
+<h2>File Structure</h2>
+
+<p>A cagent YAML config has these main sections:</p>
+
+<pre><code class="language-bash"># 1. Version — configuration schema version (optional but recommended)
+version: 5
+
+# 2. Metadata — optional agent metadata for distribution
+metadata:
+  author: my-org
+  description: My helpful agent
+  version: "1.0.0"
+
+# 3. Models — define AI models with their parameters
+models:
+  claude:
+    provider: anthropic
+    model: claude-sonnet-4-0
+    max_tokens: 64000
+
+# 4. Agents — define AI agents with their behavior
+agents:
+  root:
+    model: claude
+    description: A helpful assistant
+    instruction: You are helpful.
+    toolsets:
+      - type: think
+
+# 5. RAG — define retrieval-augmented generation sources (optional)
+rag:
+  docs:
+    docs: ["./docs"]
+    strategies:
+      - type: chunked-embeddings
+        model: openai/text-embedding-3-small
+
+# 6. Providers — optional custom provider definitions
+providers:
+  my_provider:
+    api_type: openai_chatcompletions
+    base_url: https://api.example.com/v1
+    token_key: MY_API_KEY
+
+# 7. Permissions — global tool permission rules (optional)
+permissions:
+  allow: ["read_*"]
+  deny: ["shell:cmd=sudo*"]</code></pre>
+
+<h2>Minimal Config</h2>
+
+<p>The simplest possible configuration — a single agent with an inline model:</p>
+
+<pre><code class="language-yaml">agents:
+  root:
+    model: openai/gpt-4o
+    description: A helpful assistant
+    instruction: You are a helpful assistant.</code></pre>
+
+<h2>Inline vs Named Models</h2>
+
+<p>Models can be referenced inline or defined in the <code>models</code> section:</p>
+
+<div class="cards">
+  <div class="card" style="cursor:default;">
+    <h3>Inline</h3>
+    <p>Quick and simple. Use <code>provider/model</code> syntax directly.</p>
+    <pre style="margin-top:12px"><code class="language-yaml">model: openai/gpt-4o</code></pre>
+  </div>
+  <div class="card" style="cursor:default;">
+    <h3>Named</h3>
+    <p>Full control over parameters. Reusable across agents.</p>
+    <pre style="margin-top:12px"><code class="language-yaml">model: my_claude</code></pre>
+  </div>
+</div>
+
+<h2>Config Sections</h2>
+
+<div class="cards">
+  <a class="card" href="#configuration/agents" onclick="event.preventDefault(); navigate('configuration/agents')">
+    <div class="card-icon">🤖</div>
+    <h3>Agent Config</h3>
+    <p>All agent properties: model, instruction, tools, sub-agents, permissions, hooks, and more.</p>
+  </a>
+  <a class="card" href="#configuration/models" onclick="event.preventDefault(); navigate('configuration/models')">
+    <div class="card-icon">🧠</div>
+    <h3>Model Config</h3>
+    <p>Provider setup, parameters, thinking budget, and provider-specific options.</p>
+  </a>
+  <a class="card" href="#configuration/tools" onclick="event.preventDefault(); navigate('configuration/tools')">
+    <div class="card-icon">🔧</div>
+    <h3>Tool Config</h3>
+    <p>Built-in tools, MCP tools, Docker MCP, LSP, API tools, and tool filtering.</p>
+  </a>
+</div>
+
+<h2>Advanced Configuration</h2>
+
+<div class="cards">
+  <a class="card" href="#configuration/hooks" onclick="event.preventDefault(); navigate('configuration/hooks')">
+    <div class="card-icon">⚡</div>
+    <h3>Hooks</h3>
+    <p>Run shell commands at lifecycle events like tool calls and session start/end.</p>
+  </a>
+  <a class="card" href="#configuration/permissions" onclick="event.preventDefault(); navigate('configuration/permissions')">
+    <div class="card-icon">🔐</div>
+    <h3>Permissions</h3>
+    <p>Control which tools auto-approve, require confirmation, or are blocked.</p>
+  </a>
+  <a class="card" href="#configuration/sandbox" onclick="event.preventDefault(); navigate('configuration/sandbox')">
+    <div class="card-icon">📦</div>
+    <h3>Sandbox Mode</h3>
+    <p>Run shell commands in an isolated Docker container for security.</p>
+  </a>
+  <a class="card" href="#configuration/structured-output" onclick="event.preventDefault(); navigate('configuration/structured-output')">
+    <div class="card-icon">📋</div>
+    <h3>Structured Output</h3>
+    <p>Constrain agent responses to match a specific JSON schema.</p>
+  </a>
+</div>
+
+<h2>Environment Variables</h2>
+
+<p>API keys and secrets are read from environment variables — never stored in config files:</p>
+
+<table>
+  <thead><tr><th>Variable</th><th>Provider</th></tr></thead>
+  <tbody>
+    <tr><td><code>OPENAI_API_KEY</code></td><td>OpenAI</td></tr>
+    <tr><td><code>ANTHROPIC_API_KEY</code></td><td>Anthropic</td></tr>
+    <tr><td><code>GOOGLE_API_KEY</code></td><td>Google Gemini</td></tr>
+    <tr><td><code>MISTRAL_API_KEY</code></td><td>Mistral</td></tr>
+    <tr><td><code>XAI_API_KEY</code></td><td>xAI</td></tr>
+    <tr><td><code>NEBIUS_API_KEY</code></td><td>Nebius</td></tr>
+  </tbody>
+</table>
+
+<div class="callout callout-warning">
+  <div class="callout-title">⚠️ Important</div>
+  <p>Model references are case-sensitive: <code>openai/gpt-4o</code> is not the same as <code>openai/GPT-4o</code>.</p>
+</div>
+
+<h2>Validation</h2>
+
+<p>cagent validates your configuration at startup:</p>
+
+<ul>
+  <li>All <code>sub_agents</code> must reference agents defined in the config</li>
+  <li>Named model references must exist in the <code>models</code> section</li>
+  <li>Provider names must be valid (<code>openai</code>, <code>anthropic</code>, <code>google</code>, <code>dmr</code>, etc.)</li>
+  <li>Required environment variables (API keys) must be set</li>
+  <li>Tool-specific fields are validated (e.g., <code>path</code> is only valid for <code>memory</code>)</li>
+</ul>
+
+<h2>JSON Schema</h2>
+
+<p>For editor autocompletion and validation, use the <a href="https://github.com/docker/cagent/blob/main/agent-schema.json" target="_blank" rel="noopener noreferrer">cagent JSON Schema</a>. Add this to the top of your YAML file:</p>
+
+<pre><code class="language-bash"># yaml-language-server: $schema=https://raw.githubusercontent.com/docker/cagent/main/agent-schema.json</code></pre>
+
+<h2>Config Versioning</h2>
+
+<p>cagent configs are versioned. The current version is <code>5</code>. Add the version at the top of your config:</p>
+
+<pre><code class="language-yaml">version: 5
+
+agents:
+  root:
+    model: openai/gpt-4o
+    # ...</code></pre>
+
+<p>When you load an older config, cagent automatically migrates it to the latest schema. It's recommended to include the version to ensure consistent behavior.</p>
+
+<h2>Metadata Section</h2>
+
+<p>Optional metadata for agent distribution via OCI registries:</p>
+
+<pre><code class="language-yaml">metadata:
+  author: my-org
+  license: Apache-2.0
+  description: A helpful coding assistant
+  readme: |  # Displayed in registries
+    This agent helps with coding tasks.
+  version: "1.0.0"</code></pre>
+
+<table>
+  <thead><tr><th>Field</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>author</code></td><td>Author or organization name</td></tr>
+    <tr><td><code>license</code></td><td>License identifier (e.g., Apache-2.0, MIT)</td></tr>
+    <tr><td><code>description</code></td><td>Short description for the agent</td></tr>
+    <tr><td><code>readme</code></td><td>Longer markdown description</td></tr>
+    <tr><td><code>version</code></td><td>Semantic version string</td></tr>
+  </tbody>
+</table>
+
+<p>See <a href="#concepts/distribution" onclick="event.preventDefault(); navigate('concepts/distribution')">Agent Distribution</a> for publishing agents to registries.</p>
+
+<h2>Custom Providers Section</h2>
+
+<p>Define reusable provider configurations for custom or self-hosted endpoints:</p>
+
+<pre><code class="language-yaml">providers:
+  azure:
+    api_type: openai_chatcompletions
+    base_url: https://my-resource.openai.azure.com/openai/deployments/gpt-4o
+    token_key: AZURE_OPENAI_API_KEY
+  
+  internal_llm:
+    api_type: openai_chatcompletions
+    base_url: https://llm.internal.company.com/v1
+    token_key: INTERNAL_API_KEY
+
+models:
+  azure_gpt:
+    provider: azure  # References the custom provider
+    model: gpt-4o
+
+agents:
+  root:
+    model: azure_gpt</code></pre>
+
+<table>
+  <thead><tr><th>Field</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>api_type</code></td><td>API schema: <code>openai_chatcompletions</code> (default) or <code>openai_responses</code></td></tr>
+    <tr><td><code>base_url</code></td><td>Base URL for the API endpoint</td></tr>
+    <tr><td><code>token_key</code></td><td>Environment variable name for the API token</td></tr>
+  </tbody>
+</table>
+
+<p>See <a href="#providers/custom" onclick="event.preventDefault(); navigate('providers/custom')">Custom Providers</a> for more details.</p>

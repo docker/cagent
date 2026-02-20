@@ -341,10 +341,10 @@ func TestBuildRuntimeFlagsFromModelConfig_LlamaCpp(t *testing.T) {
 	t.Parallel()
 
 	flags := buildRuntimeFlagsFromModelConfig("llama.cpp", &latest.ModelConfig{
-		Temperature:      floatPtr(0.6),
-		TopP:             floatPtr(0.95),
-		FrequencyPenalty: floatPtr(0.2),
-		PresencePenalty:  floatPtr(0.1),
+		Temperature:      new(0.6),
+		TopP:             new(0.95),
+		FrequencyPenalty: new(0.2),
+		PresencePenalty:  new(0.1),
 	})
 
 	assert.Equal(t, []string{"--temp", "0.6", "--top-p", "0.95", "--frequency-penalty", "0.2", "--presence-penalty", "0.1"}, flags)
@@ -354,9 +354,9 @@ func TestIntegrateFlagsWithProviderOptsOrder(t *testing.T) {
 	t.Parallel()
 
 	cfg := &latest.ModelConfig{
-		Temperature: floatPtr(0.6),
-		TopP:        floatPtr(0.9),
-		MaxTokens:   int64Ptr(4096),
+		Temperature: new(0.6),
+		TopP:        new(0.9),
+		MaxTokens:   new(int64(4096)),
 		ProviderOpts: map[string]any{
 			"runtime_flags": []string{"--threads", "6"},
 		},
@@ -389,19 +389,11 @@ func TestMergeRuntimeFlagsPreferUser_WarnsAndPrefersUser(t *testing.T) {
 	assert.Equal(t, []string{"--top-p", "0.8", "--temp", "0.7", "--threads", "8"}, merged)
 }
 
-func floatPtr(f float64) *float64 {
-	return &f
-}
-
-func int64Ptr(i int64) *int64 {
-	return &i
-}
-
 func TestParseDMRProviderOptsWithSpeculativeDecoding(t *testing.T) {
 	t.Parallel()
 
 	cfg := &latest.ModelConfig{
-		MaxTokens: int64Ptr(4096),
+		MaxTokens: new(int64(4096)),
 		ProviderOpts: map[string]any{
 			"speculative_draft_model":     "ai/qwen3:1B",
 			"speculative_num_tokens":      "5",
@@ -424,7 +416,7 @@ func TestParseDMRProviderOptsWithoutSpeculativeDecoding(t *testing.T) {
 	t.Parallel()
 
 	cfg := &latest.ModelConfig{
-		MaxTokens: int64Ptr(4096),
+		MaxTokens: new(int64(4096)),
 		ProviderOpts: map[string]any{
 			"runtime_flags": []string{"--threads", "8"},
 		},

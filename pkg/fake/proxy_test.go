@@ -234,8 +234,8 @@ func TestStreamCopy_ContextCancellation(t *testing.T) {
 		done <- StreamCopy(c, resp)
 	}()
 
-	// Give StreamCopy time to start and block on the read
-	time.Sleep(50 * time.Millisecond)
+	// Write some data to ensure StreamCopy is actively reading before we cancel
+	slowBody.data <- []byte("initial")
 
 	// Cancel the context - this should cause StreamCopy to return immediately
 	cancel()
@@ -328,8 +328,10 @@ func TestSimulatedStreamCopy_ContextCancellation(t *testing.T) {
 		done <- SimulatedStreamCopy(c, resp, 10*time.Millisecond)
 	}()
 
-	// Wait for data to be written
-	time.Sleep(50 * time.Millisecond)
+	// Wait until at least the first chunk has been written to the recorder
+	require.Eventually(t, func() bool {
+		return rec.Body.Len() > 0
+	}, time.Second, 5*time.Millisecond, "expected first chunk to be written")
 
 	// Cancel the context and close the body (simulating client disconnect)
 	cancel()

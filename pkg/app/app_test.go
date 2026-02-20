@@ -26,8 +26,10 @@ func (m *mockRuntime) SetCurrentAgent(name string) error { return nil }
 func (m *mockRuntime) CurrentAgentTools(ctx context.Context) ([]tools.Tool, error) {
 	return nil, nil
 }
-func (m *mockRuntime) EmitStartupInfo(ctx context.Context, events chan runtime.Event) {}
-func (m *mockRuntime) ResetStartupInfo()                                              {}
+
+func (m *mockRuntime) EmitStartupInfo(ctx context.Context, sess *session.Session, events chan runtime.Event) {
+}
+func (m *mockRuntime) ResetStartupInfo() {}
 func (m *mockRuntime) RunStream(ctx context.Context, sess *session.Session) <-chan runtime.Event {
 	ch := make(chan runtime.Event)
 	close(ch)
@@ -59,6 +61,7 @@ func (m *mockRuntime) UpdateSessionTitle(_ context.Context, sess *session.Sessio
 	return nil
 }
 func (m *mockRuntime) TitleGenerator() *sessiontitle.Generator { return nil }
+func (m *mockRuntime) Close() error                            { return nil }
 func (m *mockRuntime) Stop()                                   {}
 
 // Verify mockRuntime implements runtime.Runtime

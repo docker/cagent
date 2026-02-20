@@ -186,11 +186,11 @@ func (m *model) copySelectedMessageToClipboard() tea.Cmd {
 // copyTextToClipboard copies text to the system clipboard
 func copyTextToClipboard(text string) tea.Cmd {
 	return tea.Sequence(
-		tea.SetClipboard(text),
 		func() tea.Msg {
 			_ = clipboard.WriteAll(text)
 			return nil
 		},
+		tea.SetClipboard(text),
 		notification.SuccessCmd("Text copied to clipboard."),
 	)
 }

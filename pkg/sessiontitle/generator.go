@@ -173,8 +173,8 @@ func (g *Generator) Generate(ctx context.Context, sessionID string, userMessages
 // non-empty line and stripping any control characters that could break TUI rendering.
 func sanitizeTitle(title string) string {
 	// Split by newlines and take the first non-empty line
-	lines := strings.Split(title, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(title, "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		if line != "" {
 			// Remove any remaining carriage returns

@@ -118,6 +118,7 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 				httpclient.WithProxiedBaseURL(cmp.Or(cfg.BaseURL, "https://api.openai.com/v1")),
 				httpclient.WithProvider(cfg.Provider),
 				httpclient.WithModel(cfg.Model),
+				httpclient.WithModelName(cfg.Name),
 				httpclient.WithQuery(url.Query()),
 			}
 			if globalOptions.GeneratingTitle() {
@@ -128,6 +129,7 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 				option.WithAPIKey(authToken),
 				option.WithBaseURL(baseURL),
 				option.WithHTTPClient(httpclient.NewHTTPClient(httpOptions...)),
+				option.WithMiddleware(oaistream.ErrorBodyMiddleware()),
 			)
 
 			return &client, nil

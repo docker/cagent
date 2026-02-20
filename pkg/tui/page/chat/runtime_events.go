@@ -58,10 +58,10 @@ func (p *chatPage) handleRuntimeEvent(msg tea.Msg) (bool, tea.Cmd) {
 
 	case *runtime.ModelFallbackEvent:
 		// Update sidebar with the fallback model immediately so it reflects the switch
-		p.sidebar.SetAgentInfo(msg.AgentName, msg.FallbackModel, "")
+		sidebarCmd := p.sidebar.SetAgentInfo(msg.AgentName, msg.FallbackModel, "")
 		// Notify user when switching to a fallback model, include the reason
 		fallbackMsg := fmt.Sprintf("Model %s failed (%s), switching to %s", msg.FailedModel, msg.Reason, msg.FallbackModel)
-		return true, notification.WarningCmd(fallbackMsg)
+		return true, tea.Batch(sidebarCmd, notification.WarningCmd(fallbackMsg))
 
 	// ===== Stream Lifecycle Events =====
 	case *runtime.StreamStartedEvent:
@@ -102,9 +102,9 @@ func (p *chatPage) handleRuntimeEvent(msg tea.Msg) (bool, tea.Cmd) {
 		return true, nil
 
 	case *runtime.AgentInfoEvent:
-		p.sidebar.SetAgentInfo(msg.AgentName, msg.Model, msg.Description)
+		sidebarCmd := p.sidebar.SetAgentInfo(msg.AgentName, msg.Model, msg.Description)
 		p.messages.AddWelcomeMessage(msg.WelcomeMessage)
-		return true, nil
+		return true, sidebarCmd
 
 	case *runtime.TeamInfoEvent:
 		p.sidebar.SetTeamInfo(msg.AvailableAgents)
@@ -124,7 +124,12 @@ func (p *chatPage) handleRuntimeEvent(msg tea.Msg) (bool, tea.Cmd) {
 
 	case *runtime.SessionCompactionEvent:
 		if msg.Status == "completed" {
-			return true, notification.SuccessCmd("Session compacted successfully.")
+			return true, tea.Batch(
+				p.setWorking(false),
+				p.setPendingResponse(false),
+				notification.SuccessCmd("Session compacted successfully."),
+				p.messages.ScrollToBottom(),
+			)
 		}
 		return true, nil
 
@@ -159,10 +164,9 @@ func (p *chatPage) handleTokenUsage(msg *runtime.TokenUsageEvent) {
 	p.sidebar.SetTokenUsage(msg)
 	if msg.Usage != nil {
 		if sess := p.app.Session(); sess != nil {
-			// Update session-level totals
+			// Update session-level token counts (used for context % tracking)
 			sess.InputTokens = msg.Usage.InputTokens
 			sess.OutputTokens = msg.Usage.OutputTokens
-			sess.Cost = msg.Usage.Cost
 
 			// Track per-message usage for /cost dialog
 			if msg.Usage.LastMessage != nil {

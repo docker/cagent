@@ -2,6 +2,7 @@ package session
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -9,7 +10,9 @@ import (
 	"github.com/docker/cagent/pkg/tools"
 )
 
-func buildBranchedSession(parent *Session, branchAtPosition int) (*Session, error) {
+// BranchSession creates a new session branched from the parent at the given position.
+// Messages up to (but not including) branchAtPosition are deep-cloned into the new session.
+func BranchSession(parent *Session, branchAtPosition int) (*Session, error) {
 	if parent == nil {
 		return nil, fmt.Errorf("parent session is nil")
 	}
@@ -50,7 +53,7 @@ func cloneSessionItem(item Item) (Item, error) {
 		}
 		return Item{SubSession: clonedSub}, nil
 	case item.Summary != "":
-		return Item{Summary: item.Summary}, nil
+		return Item{Summary: item.Summary, Cost: item.Cost}, nil
 	default:
 		return Item{}, fmt.Errorf("cannot clone empty session item")
 	}
@@ -142,9 +145,7 @@ func cloneStringMap(src map[string]string) map[string]string {
 		return nil
 	}
 	dst := make(map[string]string, len(src))
-	for key, val := range src {
-		dst[key] = val
-	}
+	maps.Copy(dst, src)
 	return dst
 }
 
@@ -225,7 +226,6 @@ func recalculateSessionTotals(sess *Session) {
 
 	var inputTokens int64
 	var outputTokens int64
-	var cost float64
 
 	for _, msg := range sess.GetAllMessages() {
 		if msg.Message.Role != chat.MessageRoleAssistant {
@@ -235,22 +235,8 @@ func recalculateSessionTotals(sess *Session) {
 			inputTokens += msg.Message.Usage.InputTokens
 			outputTokens += msg.Message.Usage.OutputTokens
 		}
-		cost += msg.Message.Cost
 	}
 
 	sess.InputTokens = inputTokens
 	sess.OutputTokens = outputTokens
-	sess.Cost = cost
-}
-
-func collectSessionIDs(sess *Session, ids map[string]struct{}) {
-	if sess == nil || ids == nil {
-		return
-	}
-	ids[sess.ID] = struct{}{}
-	for _, item := range sess.Messages {
-		if item.SubSession != nil {
-			collectSessionIDs(item.SubSession, ids)
-		}
-	}
 }

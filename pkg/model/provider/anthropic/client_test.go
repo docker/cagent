@@ -1,6 +1,7 @@
 package anthropic
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -13,12 +14,73 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/docker/cagent/pkg/chat"
+	"github.com/docker/cagent/pkg/config/latest"
+	"github.com/docker/cagent/pkg/model/provider/base"
 	"github.com/docker/cagent/pkg/tools"
 )
 
 // testClient creates a minimal Client for testing convertMessages.
 func testClient() *Client {
 	return &Client{}
+}
+
+func TestCreateChatCompletionStream_ErrorOnEmptyMessages(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("request should not have been sent")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := &Client{
+		Config: base.Config{
+			ModelConfig: latest.ModelConfig{
+				Provider: "anthropic",
+				Model:    "claude-sonnet-4-5-20250929",
+			},
+		},
+		clientFn: func(_ context.Context) (anthropic.Client, error) {
+			return anthropic.NewClient(
+				option.WithAPIKey("test-key"),
+				option.WithBaseURL(server.URL),
+			), nil
+		},
+	}
+
+	tests := []struct {
+		name     string
+		messages []chat.Message
+	}{
+		{
+			name:     "nil messages",
+			messages: nil,
+		},
+		{
+			name:     "empty messages",
+			messages: []chat.Message{},
+		},
+		{
+			name: "only system messages",
+			messages: []chat.Message{
+				{Role: chat.MessageRoleSystem, Content: "You are helpful."},
+			},
+		},
+		{
+			name: "only whitespace content",
+			messages: []chat.Message{
+				{Role: chat.MessageRoleSystem, Content: "System prompt"},
+				{Role: chat.MessageRoleUser, Content: "   "},
+				{Role: chat.MessageRoleAssistant, Content: "  \t\n  "},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := client.CreateChatCompletionStream(t.Context(), tt.messages, nil)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "no messages to send after conversion")
+		})
+	}
 }
 
 func TestConvertMessages_SkipEmptySystemText(t *testing.T) {

@@ -4274,6 +4274,104 @@ func (x *ShellOutputEvent) GetOutput() string {
 	return ""
 }
 
+// GetAgentToolCountRequest is the request for GetAgentToolCount.
+type GetAgentToolCountRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	AgentName     string                 `protobuf:"bytes,2,opt,name=agent_name,json=agentName,proto3" json:"agent_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetAgentToolCountRequest) Reset() {
+	*x = GetAgentToolCountRequest{}
+	mi := &file_cagent_v1_cagent_proto_msgTypes[65]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetAgentToolCountRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetAgentToolCountRequest) ProtoMessage() {}
+
+func (x *GetAgentToolCountRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_cagent_v1_cagent_proto_msgTypes[65]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetAgentToolCountRequest.ProtoReflect.Descriptor instead.
+func (*GetAgentToolCountRequest) Descriptor() ([]byte, []int) {
+	return file_cagent_v1_cagent_proto_rawDescGZIP(), []int{65}
+}
+
+func (x *GetAgentToolCountRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *GetAgentToolCountRequest) GetAgentName() string {
+	if x != nil {
+		return x.AgentName
+	}
+	return ""
+}
+
+// GetAgentToolCountResponse is the response for GetAgentToolCount.
+type GetAgentToolCountResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	AvailableTools int32                  `protobuf:"varint,1,opt,name=available_tools,json=availableTools,proto3" json:"available_tools,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *GetAgentToolCountResponse) Reset() {
+	*x = GetAgentToolCountResponse{}
+	mi := &file_cagent_v1_cagent_proto_msgTypes[66]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetAgentToolCountResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetAgentToolCountResponse) ProtoMessage() {}
+
+func (x *GetAgentToolCountResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_cagent_v1_cagent_proto_msgTypes[66]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetAgentToolCountResponse.ProtoReflect.Descriptor instead.
+func (*GetAgentToolCountResponse) Descriptor() ([]byte, []int) {
+	return file_cagent_v1_cagent_proto_rawDescGZIP(), []int{66}
+}
+
+func (x *GetAgentToolCountResponse) GetAvailableTools() int32 {
+	if x != nil {
+		return x.AvailableTools
+	}
+	return 0
+}
+
 // PingRequest is the request for Ping.
 type PingRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -4283,7 +4381,7 @@ type PingRequest struct {
 
 func (x *PingRequest) Reset() {
 	*x = PingRequest{}
-	mi := &file_cagent_v1_cagent_proto_msgTypes[65]
+	mi := &file_cagent_v1_cagent_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4295,7 +4393,7 @@ func (x *PingRequest) String() string {
 func (*PingRequest) ProtoMessage() {}
 
 func (x *PingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_cagent_v1_cagent_proto_msgTypes[65]
+	mi := &file_cagent_v1_cagent_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4308,7 +4406,7 @@ func (x *PingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingRequest.ProtoReflect.Descriptor instead.
 func (*PingRequest) Descriptor() ([]byte, []int) {
-	return file_cagent_v1_cagent_proto_rawDescGZIP(), []int{65}
+	return file_cagent_v1_cagent_proto_rawDescGZIP(), []int{67}
 }
 
 // PingResponse is the response for Ping.
@@ -4321,7 +4419,7 @@ type PingResponse struct {
 
 func (x *PingResponse) Reset() {
 	*x = PingResponse{}
-	mi := &file_cagent_v1_cagent_proto_msgTypes[66]
+	mi := &file_cagent_v1_cagent_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4333,7 +4431,7 @@ func (x *PingResponse) String() string {
 func (*PingResponse) ProtoMessage() {}
 
 func (x *PingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_cagent_v1_cagent_proto_msgTypes[66]
+	mi := &file_cagent_v1_cagent_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4346,7 +4444,7 @@ func (x *PingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingResponse.ProtoReflect.Descriptor instead.
 func (*PingResponse) Descriptor() ([]byte, []int) {
-	return file_cagent_v1_cagent_proto_rawDescGZIP(), []int{66}
+	return file_cagent_v1_cagent_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *PingResponse) GetStatus() string {
@@ -4681,10 +4779,16 @@ const file_cagent_v1_cagent_proto_rawDesc = "" +
 	"\n" +
 	"agent_name\x18\x04 \x01(\tR\tagentName\"*\n" +
 	"\x10ShellOutputEvent\x12\x16\n" +
-	"\x06output\x18\x01 \x01(\tR\x06output\"\r\n" +
+	"\x06output\x18\x01 \x01(\tR\x06output\"I\n" +
+	"\x18GetAgentToolCountRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
+	"\n" +
+	"agent_name\x18\x02 \x01(\tR\tagentName\"D\n" +
+	"\x19GetAgentToolCountResponse\x12'\n" +
+	"\x0favailable_tools\x18\x01 \x01(\x05R\x0eavailableTools\"\r\n" +
 	"\vPingRequest\"&\n" +
 	"\fPingResponse\x12\x16\n" +
-	"\x06status\x18\x01 \x01(\tR\x06status2\xd1\a\n" +
+	"\x06status\x18\x01 \x01(\tR\x06status2\xb1\b\n" +
 	"\fAgentService\x12I\n" +
 	"\n" +
 	"ListAgents\x12\x1c.cagent.v1.ListAgentsRequest\x1a\x1d.cagent.v1.ListAgentsResponse\x12C\n" +
@@ -4698,7 +4802,8 @@ const file_cagent_v1_cagent_proto_rawDesc = "" +
 	"\x12ToggleToolApproval\x12$.cagent.v1.ToggleToolApprovalRequest\x1a%.cagent.v1.ToggleToolApprovalResponse\x12a\n" +
 	"\x12UpdateSessionTitle\x12$.cagent.v1.UpdateSessionTitleRequest\x1a%.cagent.v1.UpdateSessionTitleResponse\x12^\n" +
 	"\x11ResumeElicitation\x12#.cagent.v1.ResumeElicitationRequest\x1a$.cagent.v1.ResumeElicitationResponse\x12:\n" +
-	"\bRunAgent\x12\x1a.cagent.v1.RunAgentRequest\x1a\x10.cagent.v1.Event0\x01\x127\n" +
+	"\bRunAgent\x12\x1a.cagent.v1.RunAgentRequest\x1a\x10.cagent.v1.Event0\x01\x12^\n" +
+	"\x11GetAgentToolCount\x12#.cagent.v1.GetAgentToolCountRequest\x1a$.cagent.v1.GetAgentToolCountResponse\x127\n" +
 	"\x04Ping\x12\x16.cagent.v1.PingRequest\x1a\x17.cagent.v1.PingResponseB\x98\x01\n" +
 	"\rcom.cagent.v1B\vCagentProtoP\x01Z5github.com/docker/cagent/gen/proto/cagent/v1;cagentv1\xa2\x02\x03CXX\xaa\x02\tCagent.V1\xca\x02\tCagent\\V1\xe2\x02\x15Cagent\\V1\\GPBMetadata\xea\x02\n" +
 	"Cagent::V1b\x06proto3"
@@ -4715,7 +4820,7 @@ func file_cagent_v1_cagent_proto_rawDescGZIP() []byte {
 	return file_cagent_v1_cagent_proto_rawDescData
 }
 
-var file_cagent_v1_cagent_proto_msgTypes = make([]protoimpl.MessageInfo, 67)
+var file_cagent_v1_cagent_proto_msgTypes = make([]protoimpl.MessageInfo, 69)
 var file_cagent_v1_cagent_proto_goTypes = []any{
 	(*Agent)(nil),                      // 0: cagent.v1.Agent
 	(*ListAgentsRequest)(nil),          // 1: cagent.v1.ListAgentsRequest
@@ -4782,8 +4887,10 @@ var file_cagent_v1_cagent_proto_goTypes = []any{
 	(*RAGIndexingCompletedEvent)(nil),  // 62: cagent.v1.RAGIndexingCompletedEvent
 	(*HookBlockedEvent)(nil),           // 63: cagent.v1.HookBlockedEvent
 	(*ShellOutputEvent)(nil),           // 64: cagent.v1.ShellOutputEvent
-	(*PingRequest)(nil),                // 65: cagent.v1.PingRequest
-	(*PingResponse)(nil),               // 66: cagent.v1.PingResponse
+	(*GetAgentToolCountRequest)(nil),   // 65: cagent.v1.GetAgentToolCountRequest
+	(*GetAgentToolCountResponse)(nil),  // 66: cagent.v1.GetAgentToolCountResponse
+	(*PingRequest)(nil),                // 67: cagent.v1.PingRequest
+	(*PingResponse)(nil),               // 68: cagent.v1.PingResponse
 }
 var file_cagent_v1_cagent_proto_depIdxs = []int32{
 	0,  // 0: cagent.v1.ListAgentsResponse.agents:type_name -> cagent.v1.Agent
@@ -4850,21 +4957,23 @@ var file_cagent_v1_cagent_proto_depIdxs = []int32{
 	22, // 61: cagent.v1.AgentService.UpdateSessionTitle:input_type -> cagent.v1.UpdateSessionTitleRequest
 	24, // 62: cagent.v1.AgentService.ResumeElicitation:input_type -> cagent.v1.ResumeElicitationRequest
 	28, // 63: cagent.v1.AgentService.RunAgent:input_type -> cagent.v1.RunAgentRequest
-	65, // 64: cagent.v1.AgentService.Ping:input_type -> cagent.v1.PingRequest
-	2,  // 65: cagent.v1.AgentService.ListAgents:output_type -> cagent.v1.ListAgentsResponse
-	4,  // 66: cagent.v1.AgentService.GetAgent:output_type -> cagent.v1.GetAgentResponse
-	7,  // 67: cagent.v1.AgentService.ListSessions:output_type -> cagent.v1.ListSessionsResponse
-	13, // 68: cagent.v1.AgentService.GetSession:output_type -> cagent.v1.GetSessionResponse
-	15, // 69: cagent.v1.AgentService.CreateSession:output_type -> cagent.v1.CreateSessionResponse
-	17, // 70: cagent.v1.AgentService.DeleteSession:output_type -> cagent.v1.DeleteSessionResponse
-	19, // 71: cagent.v1.AgentService.ResumeSession:output_type -> cagent.v1.ResumeSessionResponse
-	21, // 72: cagent.v1.AgentService.ToggleToolApproval:output_type -> cagent.v1.ToggleToolApprovalResponse
-	23, // 73: cagent.v1.AgentService.UpdateSessionTitle:output_type -> cagent.v1.UpdateSessionTitleResponse
-	25, // 74: cagent.v1.AgentService.ResumeElicitation:output_type -> cagent.v1.ResumeElicitationResponse
-	29, // 75: cagent.v1.AgentService.RunAgent:output_type -> cagent.v1.Event
-	66, // 76: cagent.v1.AgentService.Ping:output_type -> cagent.v1.PingResponse
-	65, // [65:77] is the sub-list for method output_type
-	53, // [53:65] is the sub-list for method input_type
+	65, // 64: cagent.v1.AgentService.GetAgentToolCount:input_type -> cagent.v1.GetAgentToolCountRequest
+	67, // 65: cagent.v1.AgentService.Ping:input_type -> cagent.v1.PingRequest
+	2,  // 66: cagent.v1.AgentService.ListAgents:output_type -> cagent.v1.ListAgentsResponse
+	4,  // 67: cagent.v1.AgentService.GetAgent:output_type -> cagent.v1.GetAgentResponse
+	7,  // 68: cagent.v1.AgentService.ListSessions:output_type -> cagent.v1.ListSessionsResponse
+	13, // 69: cagent.v1.AgentService.GetSession:output_type -> cagent.v1.GetSessionResponse
+	15, // 70: cagent.v1.AgentService.CreateSession:output_type -> cagent.v1.CreateSessionResponse
+	17, // 71: cagent.v1.AgentService.DeleteSession:output_type -> cagent.v1.DeleteSessionResponse
+	19, // 72: cagent.v1.AgentService.ResumeSession:output_type -> cagent.v1.ResumeSessionResponse
+	21, // 73: cagent.v1.AgentService.ToggleToolApproval:output_type -> cagent.v1.ToggleToolApprovalResponse
+	23, // 74: cagent.v1.AgentService.UpdateSessionTitle:output_type -> cagent.v1.UpdateSessionTitleResponse
+	25, // 75: cagent.v1.AgentService.ResumeElicitation:output_type -> cagent.v1.ResumeElicitationResponse
+	29, // 76: cagent.v1.AgentService.RunAgent:output_type -> cagent.v1.Event
+	66, // 77: cagent.v1.AgentService.GetAgentToolCount:output_type -> cagent.v1.GetAgentToolCountResponse
+	68, // 78: cagent.v1.AgentService.Ping:output_type -> cagent.v1.PingResponse
+	66, // [66:79] is the sub-list for method output_type
+	53, // [53:66] is the sub-list for method input_type
 	53, // [53:53] is the sub-list for extension type_name
 	53, // [53:53] is the sub-list for extension extendee
 	0,  // [0:53] is the sub-list for field type_name
@@ -4912,7 +5021,7 @@ func file_cagent_v1_cagent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_cagent_v1_cagent_proto_rawDesc), len(file_cagent_v1_cagent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   67,
+			NumMessages:   69,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

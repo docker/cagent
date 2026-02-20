@@ -110,10 +110,7 @@ func (mv *messageModel) Render(width int) string {
 
 		// Create a top row with the icon pushed to the right edge
 		// This row replaces the top padding and becomes part of the content
-		topPadding := innerWidth - iconWidth
-		if topPadding < 0 {
-			topPadding = 0
-		}
+		topPadding := max(innerWidth-iconWidth, 0)
 		topRow := strings.Repeat(" ", topPadding) + editIcon
 
 		// Combine: icon row + content (icon row acts as the top padding)
@@ -151,7 +148,11 @@ func (mv *messageModel) Render(width int) string {
 		return styles.WarningStyle.Render("⚠ stream cancelled ⚠")
 	case types.MessageTypeWelcome:
 		messageStyle := styles.WelcomeMessageStyle
-		rendered, err := markdown.NewRenderer(width - messageStyle.GetHorizontalFrameSize()).Render(msg.Content)
+		// Convert explicit newlines to markdown hard line breaks (two trailing spaces)
+		// This preserves line breaks from YAML multiline syntax (|) while still
+		// allowing markdown formatting like **bold** and *italic*
+		content := preserveLineBreaks(msg.Content)
+		rendered, err := markdown.NewRenderer(width - messageStyle.GetHorizontalFrameSize()).Render(content)
 		if err != nil {
 			rendered = msg.Content
 		}
@@ -225,4 +226,39 @@ var ansiEscape = regexp.MustCompile("\x1b\\[[0-9;]*m")
 
 func stripANSI(s string) string {
 	return ansiEscape.ReplaceAllString(s, "")
+}
+
+// preserveLineBreaks preserves leading indentation by converting leading spaces
+// to non-breaking spaces (U+00A0) which won't be stripped by markdown parsers.
+// Line breaks are handled by glamour.WithPreservedNewLines().
+func preserveLineBreaks(s string) string {
+	if !strings.Contains(s, "\n") {
+		return preserveIndentation(s)
+	}
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		lines[i] = preserveIndentation(line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// preserveIndentation converts leading spaces in a line to non-breaking spaces (U+00A0).
+// This prevents markdown parsers from stripping leading whitespace while maintaining
+// the same visual appearance in terminal output.
+func preserveIndentation(line string) string {
+	if line == "" || line[0] != ' ' {
+		return line
+	}
+	leadingSpaces := 0
+	for _, c := range line {
+		if c == ' ' {
+			leadingSpaces++
+		} else {
+			break
+		}
+	}
+	if leadingSpaces == 0 {
+		return line
+	}
+	return strings.Repeat("\u00A0", leadingSpaces) + line[leadingSpaces:]
 }

@@ -394,3 +394,24 @@ func (sm *SessionManager) loadTeam(ctx context.Context, agentFilename string, ru
 
 	return teamloader.Load(ctx, agentSource, runConfig)
 }
+
+// GetAgentToolCount loads the agent's team and returns the number of
+// tools available to the given agent.
+func (sm *SessionManager) GetAgentToolCount(ctx context.Context, agentFilename, agentName string) (int, error) {
+	t, err := sm.loadTeam(ctx, agentFilename, sm.runConfig)
+	if err != nil {
+		return 0, err
+	}
+
+	a, err := t.Agent(agentName)
+	if err != nil {
+		return 0, err
+	}
+
+	agentTools, err := a.Tools(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get tools: %w", err)
+	}
+
+	return len(agentTools), nil
+}

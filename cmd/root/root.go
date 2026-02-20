@@ -9,8 +9,12 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
+	"github.com/docker/cli/cli-plugins/metadata"
+	"github.com/docker/cli/cli-plugins/plugin"
+	"github.com/docker/cli/cli/command"
 	"github.com/spf13/cobra"
 
 	"github.com/docker/cagent/pkg/environment"
@@ -28,6 +32,14 @@ type rootFlags struct {
 	logFile     io.Closer
 }
 
+func isDockerAgent() bool {
+	cliPluginBinary := "docker-agent"
+	if runtime.GOOS == "windows" {
+		cliPluginBinary += ".exe"
+	}
+	return len(os.Args) > 0 && strings.HasSuffix(os.Args[0], cliPluginBinary)
+}
+
 func NewRootCmd() *cobra.Command {
 	var flags rootFlags
 
@@ -35,7 +47,8 @@ func NewRootCmd() *cobra.Command {
 		Use:   "cagent",
 		Short: "cagent - AI agent runner",
 		Long:  "cagent is a command-line tool for running AI agents",
-		Example: `  cagent run ./agent.yaml
+		Example: `  cagent run
+  cagent run ./agent.yaml
   cagent run agentcatalog/pirate`,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			// Initialize logging before anything else so logs don't break TUI
@@ -65,7 +78,9 @@ func NewRootCmd() *cobra.Command {
 		},
 		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
 			if flags.logFile != nil {
-				_ = flags.logFile.Close()
+				if err := flags.logFile.Close(); err != nil {
+					slog.Error("Failed to close log file", "error", err)
+				}
 			}
 			return nil
 		},
@@ -84,26 +99,31 @@ func NewRootCmd() *cobra.Command {
 
 	cmd.AddCommand(newVersionCmd())
 	cmd.AddCommand(newRunCmd())
-	cmd.AddCommand(newExecCmd())
 	cmd.AddCommand(newNewCmd())
-	cmd.AddCommand(newAPICmd())
-	cmd.AddCommand(newACPCmd())
-	cmd.AddCommand(newMCPCmd())
-	cmd.AddCommand(newA2ACmd())
 	cmd.AddCommand(newEvalCmd())
-	cmd.AddCommand(newPushCmd())
-	cmd.AddCommand(newPullCmd())
+	cmd.AddCommand(newShareCmd())
 	cmd.AddCommand(newDebugCmd())
-	cmd.AddCommand(newFeedbackCmd())
-	cmd.AddCommand(newCatalogCmd())
-	cmd.AddCommand(newBuildCmd())
 	cmd.AddCommand(newAliasCmd())
-	cmd.AddCommand(newConfigCmd())
+	cmd.AddCommand(newServeCmd())
 
 	// Define groups
 	cmd.AddGroup(&cobra.Group{ID: "core", Title: "Core Commands:"})
 	cmd.AddGroup(&cobra.Group{ID: "advanced", Title: "Advanced Commands:"})
-	cmd.AddGroup(&cobra.Group{ID: "server", Title: "Server Commands:"})
+
+	if isDockerAgent() && !plugin.RunningStandalone() {
+		cmd.Use = "agent"
+		cmd.Short = "create or run AI agents"
+		cmd.Long = "create or run AI agents"
+		cmd.Example = `  docker agent run ./agent.yaml
+  docker agent run agentcatalog/pirate`
+	}
+	if isDockerAgent() && plugin.RunningStandalone() {
+		cmd.Use = "docker-agent"
+		cmd.Short = "create or run AI agents"
+		cmd.Long = "create or run AI agents"
+		cmd.Example = `  docker-agent run ./agent.yaml
+  docker-agent run agentcatalog/pirate`
+	}
 
 	return cmd
 }
@@ -134,40 +154,123 @@ We collect anonymous usage data to help improve cagent. To disable:
 	}
 
 	rootCmd := NewRootCmd()
-	rootCmd.SetArgs(args)
 	rootCmd.SetIn(stdin)
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(stderr)
+	setContextRecursive(ctx, rootCmd)
 
-	if err := rootCmd.ExecuteContext(ctx); err != nil {
-		envErr := &environment.RequiredEnvError{}
-		runtimeErr := RuntimeError{}
+	if plugin.RunningStandalone() {
+		// When no subcommand is given, default to "run".
+		rootCmd.SetArgs(defaultToRun(rootCmd, args))
 
-		switch {
-		case ctx.Err() != nil:
-			return ctx.Err()
-		case errors.As(err, &envErr):
-			fmt.Fprintln(stderr, "The following environment variables must be set:")
-			for _, v := range envErr.Missing {
-				fmt.Fprintf(stderr, " - %s\n", v)
-			}
-			fmt.Fprintln(stderr, "\nEither:\n - Set those environment variables before running cagent\n - Run cagent with --env-from-file\n - Store those secrets using one of the built-in environment variable providers.")
-		case errors.As(err, &runtimeErr):
-			// Runtime errors have already been printed by the command itself
-			// Don't print them again or show usage
-		default:
-			// Command line usage errors - show the error and usage
-			fmt.Fprintln(stderr, err)
-			fmt.Fprintln(stderr)
-			if strings.HasPrefix(err.Error(), "unknown command ") || strings.HasPrefix(err.Error(), "accepts ") {
-				_ = rootCmd.Usage()
-			}
+		if err := rootCmd.Execute(); err != nil {
+			return processErr(ctx, err, stderr, rootCmd)
 		}
-
-		return err
+		return nil
 	}
 
+	// When no subcommand is given, default to "run".
+	rootCmd.SetArgs(append(args[0:1], defaultToRun(rootCmd, args[1:])...))
+	os.Args = append(os.Args[0:2], defaultToRun(rootCmd, os.Args[2:])...)
+
+	plugin.Run(func(dockerCli command.Cli) *cobra.Command {
+		originalPreRun := rootCmd.PersistentPreRunE
+		rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+			if err := plugin.PersistentPreRunE(cmd, args); err != nil {
+				return err
+			}
+			if originalPreRun != nil {
+				if err := originalPreRun(cmd, args); err != nil {
+					return processErr(cmd.Context(), err, stderr, rootCmd)
+				}
+			}
+			return nil
+		}
+		if rootCmd.RunE != nil {
+			originalRunE := rootCmd.RunE
+			rootCmd.RunE = func(cmd *cobra.Command, args []string) error {
+				if err := originalRunE(cmd, args); err != nil {
+					return processErr(cmd.Context(), err, stderr, rootCmd)
+				}
+				return nil
+			}
+		}
+		return rootCmd
+	}, metadata.Metadata{
+		SchemaVersion: "0.1.0",
+		Vendor:        "Docker Inc.",
+		Version:       version.Version,
+	})
+
 	return nil
+}
+
+func setContextRecursive(ctx context.Context, cmd *cobra.Command) {
+	cmd.SetContext(ctx)
+	for _, child := range cmd.Commands() {
+		setContextRecursive(ctx, child)
+	}
+}
+
+// defaultToRun prepends "run" to the argument list when no subcommand is
+// specified so that bare "cagent" (or "cagent --debug", etc.) launches the
+// default agent. Help flags (--help / -h) are left alone.
+func defaultToRun(rootCmd *cobra.Command, args []string) []string {
+	for _, arg := range args {
+		switch {
+		case arg == "--":
+			// End of flags – no subcommand found.
+			return append([]string{"run"}, args...)
+		case arg == "--help" || arg == "-h":
+			return args
+		case strings.HasPrefix(arg, "-"):
+			continue
+		case isSubcommand(rootCmd, arg):
+			return args
+		default:
+			return append([]string{"run"}, args...)
+		}
+	}
+
+	return append([]string{"run"}, args...)
+}
+
+// isSubcommand reports whether name matches a registered subcommand or alias.
+func isSubcommand(cmd *cobra.Command, name string) bool {
+	switch name {
+	case "help", "completion", "__complete", "__completeNoDesc":
+		return true
+	}
+	for _, sub := range cmd.Commands() {
+		if sub.Name() == name || sub.HasAlias(name) {
+			return true
+		}
+	}
+	return false
+}
+
+func processErr(ctx context.Context, err error, stderr io.Writer, rootCmd *cobra.Command) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	} else if envErr, ok := errors.AsType[*environment.RequiredEnvError](err); ok {
+		fmt.Fprintln(stderr, "The following environment variables must be set:")
+		for _, v := range envErr.Missing {
+			fmt.Fprintf(stderr, " - %s\n", v)
+		}
+		fmt.Fprintln(stderr, "\nEither:\n - Set those environment variables before running cagent\n - Run cagent with --env-from-file\n - Store those secrets using one of the built-in environment variable providers.")
+	} else if _, ok := errors.AsType[RuntimeError](err); ok {
+		// Runtime errors have already been printed by the command itself
+		// Don't print them again or show usage
+	} else {
+		// Command line usage errors - show the error and usage
+		fmt.Fprintln(stderr, err)
+		fmt.Fprintln(stderr)
+		if strings.HasPrefix(err.Error(), "unknown command ") || strings.HasPrefix(err.Error(), "accepts ") {
+			_ = rootCmd.Usage()
+		}
+	}
+
+	return err
 }
 
 // setupLogging configures slog logging behavior.
@@ -206,25 +309,28 @@ func (e RuntimeError) Unwrap() error {
 	return e.Err
 }
 
-// isFirstRun checks if this is the first time cagent is being run
-// It creates a marker file in the user's config directory
+// isFirstRun checks if this is the first time cagent is being run.
+// It atomically creates a marker file in the user's config directory
+// using os.O_EXCL to avoid a race condition when multiple processes
+// start concurrently.
 func isFirstRun() bool {
 	configDir := paths.GetConfigDir()
 	markerFile := filepath.Join(configDir, ".cagent_first_run")
 
-	// Check if marker file exists
-	if _, err := os.Stat(markerFile); err == nil {
-		return false // File exists, not first run
-	}
-
-	// Create marker file to indicate this run has happened
+	// Ensure the config directory exists before trying to create the marker file
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
-		return false // Can't create config dir, assume not first run
+		slog.Warn("Failed to create config directory for first run marker", "error", err)
+		return false
 	}
 
-	if err := os.WriteFile(markerFile, []byte(""), 0o644); err != nil {
-		return false // Can't create marker file, assume not first run
+	// Atomically create the marker file. If it already exists, OpenFile returns an error.
+	f, err := os.OpenFile(markerFile, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return false // File already exists or other error, not first run
+	}
+	if err := f.Close(); err != nil {
+		slog.Warn("Failed to close first run marker file", "error", err)
 	}
 
-	return true // Successfully created marker, this is first run
+	return true
 }

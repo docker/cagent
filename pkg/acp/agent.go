@@ -513,7 +513,7 @@ func (a *Agent) handleMaxIterationsReached(ctx context.Context, acpSess *Session
 		SessionId: acp.SessionId(acpSess.id),
 		ToolCall: acp.RequestPermissionToolCall{
 			ToolCallId: "max_iterations",
-			Title:      acp.Ptr(fmt.Sprintf("Maximum iterations (%d) reached", e.MaxIterations)),
+			Title:      new(fmt.Sprintf("Maximum iterations (%d) reached", e.MaxIterations)),
 			Kind:       acp.Ptr(acp.ToolKindExecute),
 			Status:     acp.Ptr(acp.ToolCallStatusPending),
 		},
@@ -750,9 +750,9 @@ func buildToolCallUpdate(toolCall tools.ToolCall, tool tools.Tool, status acp.To
 
 	return acp.RequestPermissionToolCall{
 		ToolCallId: acp.ToolCallId(toolCall.ID),
-		Title:      acp.Ptr(title),
-		Kind:       acp.Ptr(kind),
-		Status:     acp.Ptr(status),
+		Title:      &title,
+		Kind:       &kind,
+		Status:     &status,
 		RawInput:   parseToolCallArguments(toolCall.Function.Arguments),
 	}
 }

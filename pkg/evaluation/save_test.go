@@ -341,7 +341,7 @@ func TestSessionFromEvents(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			sess := SessionFromEvents(tt.events, tt.title, tt.question)
+			sess := SessionFromEvents(tt.events, tt.title, []string{tt.question})
 
 			assert.Equal(t, tt.title, sess.Title)
 			assert.Len(t, sess.Messages, tt.wantMessages)
@@ -377,7 +377,7 @@ func TestSessionFromEventsTokenUsage(t *testing.T) {
 		{"type": "stream_stopped"},
 	}
 
-	sess := SessionFromEvents(events, "test", "question")
+	sess := SessionFromEvents(events, "test", []string{"question"})
 
 	assert.Equal(t, int64(100), sess.InputTokens)
 	assert.Equal(t, int64(50), sess.OutputTokens)
@@ -461,7 +461,7 @@ func TestSessionFromEventsWithToolDefinitions(t *testing.T) {
 		{"type": "stream_stopped"},
 	}
 
-	sess := SessionFromEvents(events, "test", "read the file")
+	sess := SessionFromEvents(events, "test", []string{"read the file"})
 
 	// Find the assistant message with tool calls
 	var assistantMsg *session.Message
@@ -498,7 +498,7 @@ func TestSessionFromEventsWithReasoningContent(t *testing.T) {
 		{"type": "stream_stopped"},
 	}
 
-	sess := SessionFromEvents(events, "test", "complex question")
+	sess := SessionFromEvents(events, "test", []string{"complex question"})
 
 	// Find the assistant message
 	var assistantMsg *session.Message
@@ -537,7 +537,7 @@ func TestSessionFromEventsWithPerMessageUsage(t *testing.T) {
 		{"type": "stream_stopped"},
 	}
 
-	sess := SessionFromEvents(events, "test", "hi")
+	sess := SessionFromEvents(events, "test", []string{"hi"})
 
 	// Check session-level usage
 	assert.Equal(t, int64(100), sess.InputTokens)
@@ -571,7 +571,7 @@ func TestSessionFromEventsWithError(t *testing.T) {
 		{"type": "stream_stopped"},
 	}
 
-	sess := SessionFromEvents(events, "test", "do something")
+	sess := SessionFromEvents(events, "test", []string{"do something"})
 
 	// Should have: user message, assistant message, error message
 	assert.Len(t, sess.Messages, 3)
@@ -593,7 +593,7 @@ func TestSessionFromEventsWithSessionTitle(t *testing.T) {
 	}
 
 	// Start with a default title
-	sess := SessionFromEvents(events, "default-title", "hi")
+	sess := SessionFromEvents(events, "default-title", []string{"hi"})
 
 	// Title should be updated from the event
 	assert.Equal(t, "Auto-generated title", sess.Title)

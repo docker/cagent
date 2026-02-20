@@ -3,7 +3,10 @@ package evaluation
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"strings"
 	"sync"
 
@@ -106,9 +109,7 @@ func (j *Judge) CheckRelevance(ctx context.Context, response string, criteria []
 
 	var wg sync.WaitGroup
 	for range j.concurrency {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for item := range work {
 				if ctx.Err() != nil {
 					results[item.index] = result{err: fmt.Errorf("context cancelled: %w", ctx.Err())}
@@ -117,7 +118,7 @@ func (j *Judge) CheckRelevance(ctx context.Context, response string, criteria []
 				pass, reason, err := j.checkSingle(ctx, response, item.criterion)
 				results[item.index] = result{passed: pass, reason: reason, err: err}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -164,9 +165,13 @@ func (j *Judge) checkSingle(ctx context.Context, response, criterion string) (pa
 	defer stream.Close()
 
 	var fullResponse strings.Builder
+	var streamErr error
 	for {
 		resp, err := stream.Recv()
 		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				streamErr = err
+			}
 			break
 		}
 		for _, choice := range resp.Choices {
@@ -174,8 +179,28 @@ func (j *Judge) checkSingle(ctx context.Context, response, criterion string) (pa
 		}
 	}
 
-	result := parseJudgeResponse(fullResponse.String())
-	return result.passed, result.reason, nil
+	if streamErr != nil {
+		return false, "", fmt.Errorf("streaming judge response: %w", streamErr)
+	}
+
+	raw := fullResponse.String()
+	passed, reason, err = parseJudgeResponse(raw)
+	if err != nil {
+		slog.Warn("Failed to parse judge response",
+			"criterion", criterion,
+			"raw_response", raw,
+			"error", err,
+		)
+		return false, "", fmt.Errorf("parsing judge response (length=%d): %w", len(raw), err)
+	}
+
+	slog.Debug("Judge response parsed successfully",
+		"criterion", criterion,
+		"passed", passed,
+		"reason", reason,
+	)
+
+	return passed, reason, nil
 }
 
 // judgeResponse represents the structured response from the judge model.
@@ -184,23 +209,22 @@ type judgeResponse struct {
 	Reason string `json:"reason"`
 }
 
-// parsedJudgeResult contains the parsed result from the judge.
-type parsedJudgeResult struct {
-	passed bool
-	reason string
-}
-
-func parseJudgeResponse(text string) parsedJudgeResult {
+// parseJudgeResponse parses a JSON judge response and returns whether the check
+// passed, the reason, and any parse error.
+func parseJudgeResponse(text string) (passed bool, reason string, err error) {
 	text = strings.TrimSpace(text)
 
 	var resp judgeResponse
 	if err := json.Unmarshal([]byte(text), &resp); err != nil {
-		// With structured output this should not happen, but handle gracefully
-		return parsedJudgeResult{passed: false, reason: "failed to parse judge response"}
+		return false, "", fmt.Errorf("invalid JSON: %w", err)
 	}
 
-	return parsedJudgeResult{
-		passed: strings.EqualFold(resp.Result, "pass"),
-		reason: resp.Reason,
+	if resp.Result == "" {
+		slog.Warn("Judge response has empty result field",
+			"raw_response", text,
+			"reason_field", resp.Reason,
+		)
 	}
+
+	return strings.EqualFold(resp.Result, "pass"), resp.Reason, nil
 }

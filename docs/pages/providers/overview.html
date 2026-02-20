@@ -1,0 +1,98 @@
+<h1>Model Providers</h1>
+<p class="subtitle">cagent supports multiple AI model providers. Choose the right one for your use case, or use multiple providers in the same configuration.</p>
+
+<h2>Supported Providers</h2>
+
+<div class="cards">
+  <a class="card" href="#providers/openai" onclick="event.preventDefault(); navigate('providers/openai')">
+    <div class="card-icon">🟢</div>
+    <h3>OpenAI</h3>
+    <p>GPT-4o, GPT-5, GPT-5-mini. The most widely used AI models.</p>
+  </a>
+  <a class="card" href="#providers/anthropic" onclick="event.preventDefault(); navigate('providers/anthropic')">
+    <div class="card-icon">🟠</div>
+    <h3>Anthropic</h3>
+    <p>Claude Sonnet 4, Claude Sonnet 4.5. Excellent for coding and analysis.</p>
+  </a>
+  <a class="card" href="#providers/google" onclick="event.preventDefault(); navigate('providers/google')">
+    <div class="card-icon">🔵</div>
+    <h3>Google Gemini</h3>
+    <p>Gemini 2.5 Flash, Gemini 3 Pro. Fast and cost-effective.</p>
+  </a>
+  <a class="card" href="#providers/bedrock" onclick="event.preventDefault(); navigate('providers/bedrock')">
+    <div class="card-icon">🟡</div>
+    <h3>AWS Bedrock</h3>
+    <p>Access Claude, Nova, Llama, and more through AWS infrastructure.</p>
+  </a>
+  <a class="card" href="#providers/dmr" onclick="event.preventDefault(); navigate('providers/dmr')">
+    <div class="card-icon">🐳</div>
+    <h3>Docker Model Runner</h3>
+    <p>Run models locally with Docker. No API keys, no costs.</p>
+  </a>
+  <a class="card" href="#providers/custom" onclick="event.preventDefault(); navigate('providers/custom')">
+    <div class="card-icon">🔧</div>
+    <h3>Custom Providers</h3>
+    <p>Connect to any OpenAI-compatible API endpoint.</p>
+  </a>
+</div>
+
+<h2>Quick Comparison</h2>
+
+<table>
+  <thead><tr><th>Provider</th><th>Key</th><th>Local?</th><th>Strengths</th></tr></thead>
+  <tbody>
+    <tr><td>OpenAI</td><td><code>openai</code></td><td>No</td><td>Broad model selection, tool calling, multimodal</td></tr>
+    <tr><td>Anthropic</td><td><code>anthropic</code></td><td>No</td><td>Strong coding, extended thinking, large context</td></tr>
+    <tr><td>Google</td><td><code>google</code></td><td>No</td><td>Fast inference, competitive pricing, multimodal</td></tr>
+    <tr><td>AWS Bedrock</td><td><code>amazon-bedrock</code></td><td>No</td><td>Enterprise features, multiple models, AWS integration</td></tr>
+    <tr><td>Docker Model Runner</td><td><code>dmr</code></td><td>Yes</td><td>No API costs, data privacy, offline capable</td></tr>
+  </tbody>
+</table>
+
+<h2>Additional Built-in Providers</h2>
+
+<p>cagent also includes built-in aliases for these providers:</p>
+
+<table>
+  <thead><tr><th>Provider</th><th>API Key Variable</th></tr></thead>
+  <tbody>
+    <tr><td>Mistral</td><td><code>MISTRAL_API_KEY</code></td></tr>
+    <tr><td>xAI (Grok)</td><td><code>XAI_API_KEY</code></td></tr>
+    <tr><td>Nebius</td><td><code>NEBIUS_API_KEY</code></td></tr>
+  </tbody>
+</table>
+
+<pre><code class="language-bash"># Use built-in providers inline
+agents:
+  root:
+    model: mistral/mistral-large-latest</code></pre>
+
+<div class="callout callout-tip">
+  <div class="callout-title">💡 Multi-provider teams</div>
+  <p>Use expensive models for complex reasoning and cheaper/local models for routine tasks. See the example below.</p>
+</div>
+
+<h2>Using Multiple Providers</h2>
+
+<p>Different agents can use different providers in the same configuration:</p>
+
+<pre><code class="language-yaml">models:
+  claude:
+    provider: anthropic
+    model: claude-sonnet-4-0
+    max_tokens: 64000
+  gpt:
+    provider: openai
+    model: gpt-4o
+  local:
+    provider: dmr
+    model: ai/qwen3
+
+agents:
+  root:
+    model: claude     # coordinator uses Claude
+    sub_agents: [coder, helper]
+  coder:
+    model: gpt        # coder uses GPT-4o
+  helper:
+    model: local      # helper runs locally for free</code></pre>

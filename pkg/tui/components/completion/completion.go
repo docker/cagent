@@ -103,8 +103,8 @@ func defaultCompletionKeyMap() completionKeyMap {
 			key.WithHelp("↓", "down"),
 		),
 		Enter: key.NewBinding(
-			key.WithKeys("enter"),
-			key.WithHelp("enter", "select"),
+			key.WithKeys("enter", "tab"),
+			key.WithHelp("enter/tab", "select"),
 		),
 		Escape: key.NewBinding(
 			key.WithKeys("esc"),
@@ -343,7 +343,7 @@ func (c *manager) GetLayers() []*lipgloss.Layer {
 	yPos := max(c.height-viewHeight-editorHeight-1, 0)
 
 	return []*lipgloss.Layer{
-		lipgloss.NewLayer(view).SetContent(view).X(styles.AppPaddingLeft).Y(yPos),
+		lipgloss.NewLayer(view).SetContent(view).X(styles.AppPadding).Y(yPos),
 	}
 }
 

@@ -292,7 +292,7 @@ func (r *Runner) runSingleEval(ctx context.Context, evalSess *InputSession) (Res
 	result := Result{
 		InputPath:         evalSess.SourcePath,
 		Title:             evalSess.Title,
-		Question:          getFirstUserMessage(evalSess.Session),
+		Question:          strings.Join(getUserMessages(evalSess.Session), "\n"),
 		SizeExpected:      evals.Size,
 		RelevanceExpected: float64(len(evals.Relevance)),
 	}
@@ -309,7 +309,7 @@ func (r *Runner) runSingleEval(ctx context.Context, evalSess *InputSession) (Res
 		return result, fmt.Errorf("building eval image: %w", err)
 	}
 
-	events, err := r.runCagentInContainer(ctx, imageID, result.Question)
+	events, err := r.runCagentInContainer(ctx, imageID, getUserMessages(evalSess.Session), evals.Setup)
 	if err != nil {
 		return result, fmt.Errorf("running cagent in container: %w", err)
 	}
@@ -322,7 +322,7 @@ func (r *Runner) runSingleEval(ctx context.Context, evalSess *InputSession) (Res
 	result.Size = getResponseSize(result.Response)
 
 	// Build session from events for database storage
-	result.Session = SessionFromEvents(events, evalSess.Title, result.Question)
+	result.Session = SessionFromEvents(events, evalSess.Title, getUserMessages(evalSess.Session))
 	result.Session.Evals = evals
 
 	if len(expectedToolCalls) > 0 || len(actualToolCalls) > 0 {
@@ -346,7 +346,7 @@ func (r *Runner) runSingleEval(ctx context.Context, evalSess *InputSession) (Res
 	return result, nil
 }
 
-func (r *Runner) runCagentInContainer(ctx context.Context, imageID, question string) ([]map[string]any, error) {
+func (r *Runner) runCagentInContainer(ctx context.Context, imageID string, questions []string, setup string) ([]map[string]any, error) {
 	agentDir := r.agentSource.ParentDir()
 	agentFile := filepath.Base(r.agentSource.Name())
 	containerName := fmt.Sprintf("cagent-eval-%d", uuid.New().ID())
@@ -396,7 +396,32 @@ func (r *Runner) runCagentInContainer(ctx context.Context, imageID, question str
 		}
 	}
 
-	args = append(args, imageID, "/configs/"+agentFile, question)
+	// When a setup script is provided, mount it into the container and
+	// override the entrypoint to run it before cagent run --exec.
+	// The default entrypoint is: /run.sh /cagent run --exec --yolo --json
+	// /run.sh starts dockerd then exec's "$@".
+	if setup != "" {
+		setupFile := filepath.Join(os.TempDir(), fmt.Sprintf("cagent-eval-setup-%d.sh", uuid.New().ID()))
+		if err := os.WriteFile(setupFile, []byte(setup), 0o600); err != nil {
+			return nil, fmt.Errorf("writing setup script: %w", err)
+		}
+		defer os.Remove(setupFile)
+
+		args = append(args,
+			"-v", setupFile+":/setup.sh:ro",
+			"--entrypoint", "/run.sh",
+		)
+	}
+
+	args = append(args, imageID)
+
+	if setup != "" {
+		// Run setup script, then cagent run --exec with the original arguments.
+		args = append(args, "sh", "-c", "sh /setup.sh && exec /cagent run --exec --yolo --json \"$@\"", "--", "/configs/"+agentFile)
+	} else {
+		args = append(args, "/configs/"+agentFile)
+	}
+	args = append(args, questions...)
 
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	cmd.Env = append(env, os.Environ()...)

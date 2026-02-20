@@ -4,6 +4,7 @@ import (
 	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/tui/types"
+	"github.com/docker/cagent/pkg/userconfig"
 )
 
 // SessionStateReader provides read-only access to session state.
@@ -41,7 +42,7 @@ type SessionState struct {
 
 func NewSessionState(s *session.Session) *SessionState {
 	return &SessionState{
-		splitDiffView:   true,
+		splitDiffView:   userconfig.Get().GetSplitDiffView(),
 		yoloMode:        s.ToolsApproved,
 		thinking:        s.Thinking,
 		hideToolResults: s.HideToolResults,

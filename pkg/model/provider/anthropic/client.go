@@ -184,6 +184,7 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 				httpclient.WithProxiedBaseURL(cmp.Or(cfg.BaseURL, "https://api.anthropic.com/")),
 				httpclient.WithProvider(cfg.Provider),
 				httpclient.WithModel(cfg.Model),
+				httpclient.WithModelName(cfg.Name),
 				httpclient.WithQuery(url.Query()),
 			}
 			if globalOptions.GeneratingTitle() {
@@ -279,6 +280,9 @@ func (c *Client) CreateChatCompletionStream(
 			slog.Error("Failed to self-repair Anthropic sequencing", "error", err2)
 			return nil, err
 		}
+	}
+	if len(converted) == 0 {
+		return nil, errors.New("no messages to send after conversion: all messages were filtered out")
 	}
 	sys := extractSystemBlocks(messages)
 
@@ -457,7 +461,7 @@ func (c *Client) convertMessages(ctx context.Context, messages []chat.Message) (
 			var blocks []anthropic.ContentBlockParamUnion
 			j := i
 			for j < len(messages) && messages[j].Role == chat.MessageRoleTool {
-				tr := anthropic.NewToolResultBlock(messages[j].ToolCallID, strings.TrimSpace(messages[j].Content), false)
+				tr := anthropic.NewToolResultBlock(messages[j].ToolCallID, strings.TrimSpace(messages[j].Content), messages[j].IsError)
 				blocks = append(blocks, tr)
 				j++
 			}

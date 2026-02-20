@@ -32,8 +32,8 @@ func getSessionID(ctx context.Context) (string, bool) {
 // and edit_file to use the ACP connection for file operations
 type FilesystemToolset struct {
 	*builtin.FilesystemTool
-	agent       *Agent
-	workindgDir string
+	agent      *Agent
+	workingDir string
 }
 
 var _ tools.ToolSet = (*FilesystemToolset)(nil)
@@ -43,7 +43,7 @@ func NewFilesystemToolset(agent *Agent, workingDir string, opts ...builtin.FileS
 	return &FilesystemToolset{
 		FilesystemTool: builtin.NewFilesystemTool(workingDir, opts...),
 		agent:          agent,
-		workindgDir:    workingDir,
+		workingDir:     workingDir,
 	}
 }
 
@@ -81,7 +81,7 @@ func (t *FilesystemToolset) handleReadFile(ctx context.Context, toolCall tools.T
 
 	resp, err := t.agent.conn.ReadTextFile(ctx, acp.ReadTextFileRequest{
 		SessionId: acp.SessionId(sessionID),
-		Path:      filepath.Join(t.workindgDir, args.Path),
+		Path:      filepath.Join(t.workingDir, args.Path),
 	})
 	if err != nil {
 		return tools.ResultError(fmt.Sprintf("Error reading file: %s", err)), nil
@@ -103,7 +103,7 @@ func (t *FilesystemToolset) handleWriteFile(ctx context.Context, toolCall tools.
 
 	_, err := t.agent.conn.WriteTextFile(ctx, acp.WriteTextFileRequest{
 		SessionId: acp.SessionId(sessionID),
-		Path:      args.Path,
+		Path:      filepath.Join(t.workingDir, args.Path),
 		Content:   args.Content,
 	})
 	if err != nil {
@@ -126,7 +126,7 @@ func (t *FilesystemToolset) handleEditFile(ctx context.Context, toolCall tools.T
 
 	resp, err := t.agent.conn.ReadTextFile(ctx, acp.ReadTextFileRequest{
 		SessionId: acp.SessionId(sessionID),
-		Path:      filepath.Join(t.workindgDir, args.Path),
+		Path:      filepath.Join(t.workingDir, args.Path),
 	})
 	if err != nil {
 		return tools.ResultError(fmt.Sprintf("Error reading file: %s", err)), nil
@@ -143,7 +143,7 @@ func (t *FilesystemToolset) handleEditFile(ctx context.Context, toolCall tools.T
 
 	_, err = t.agent.conn.WriteTextFile(ctx, acp.WriteTextFileRequest{
 		SessionId: acp.SessionId(sessionID),
-		Path:      filepath.Join(t.workindgDir, args.Path),
+		Path:      filepath.Join(t.workingDir, args.Path),
 		Content:   modifiedContent,
 	})
 	if err != nil {

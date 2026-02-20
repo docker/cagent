@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"os/exec"
 	"regexp"
@@ -218,18 +219,16 @@ func (e *Executor) executeHooks(ctx context.Context, hooks []Hook, input *Input,
 	var wg sync.WaitGroup
 
 	for i, hook := range uniqueHooks {
-		wg.Add(1)
-		go func(idx int, h Hook) {
-			defer wg.Done()
-			output, stdout, stderr, exitCode, err := e.executeHook(ctx, h, inputJSON)
-			results[idx] = hookResult{
+		wg.Go(func() {
+			output, stdout, stderr, exitCode, err := e.executeHook(ctx, hook, inputJSON)
+			results[i] = hookResult{
 				output:   output,
 				stdout:   stdout,
 				stderr:   stderr,
 				exitCode: exitCode,
 				err:      err,
 			}
-		}(i, hook)
+		})
 	}
 
 	wg.Wait()
@@ -265,8 +264,7 @@ func (e *Executor) executeHook(ctx context.Context, hook Hook, inputJSON []byte)
 
 	exitCode := 0
 	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 			exitCode = exitErr.ExitCode()
 		} else {
 			return nil, stdout.String(), stderr.String(), -1, err
@@ -367,9 +365,7 @@ func (e *Executor) aggregateResults(results []hookResult, eventType EventType) (
 						if finalResult.ModifiedInput == nil {
 							finalResult.ModifiedInput = make(map[string]any)
 						}
-						for k, v := range hso.UpdatedInput {
-							finalResult.ModifiedInput[k] = v
-						}
+						maps.Copy(finalResult.ModifiedInput, hso.UpdatedInput)
 					}
 				}
 

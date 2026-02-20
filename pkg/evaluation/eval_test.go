@@ -156,23 +156,29 @@ func TestParseJudgeResponse(t *testing.T) {
 		text       string
 		wantPassed bool
 		wantReason string
+		wantErr    bool
 	}{
-		{"simple pass", `{"result": "pass", "reason": "good"}`, true, "good"},
-		{"simple fail", `{"result": "fail", "reason": "bad"}`, false, "bad"},
-		{"pass uppercase", `{"result": "PASS", "reason": "good"}`, true, "good"},
-		{"fail uppercase", `{"result": "FAIL", "reason": "bad"}`, false, "bad"},
-		{"pass mixed case", `{"result": "Pass", "reason": "good"}`, true, "good"},
-		{"invalid json returns false", `not json at all`, false, "failed to parse judge response"},
-		{"empty result returns false", `{"result": "", "reason": "empty"}`, false, "empty"},
-		{"missing result field", `{"reason": "no result field"}`, false, "no result field"},
+		{"simple pass", `{"result": "pass", "reason": "good"}`, true, "good", false},
+		{"simple fail", `{"result": "fail", "reason": "bad"}`, false, "bad", false},
+		{"pass uppercase", `{"result": "PASS", "reason": "good"}`, true, "good", false},
+		{"fail uppercase", `{"result": "FAIL", "reason": "bad"}`, false, "bad", false},
+		{"pass mixed case", `{"result": "Pass", "reason": "good"}`, true, "good", false},
+		{"invalid json returns error", `not json at all`, false, "", true},
+		{"empty result returns false", `{"result": "", "reason": "empty"}`, false, "empty", false},
+		{"missing result field", `{"reason": "no result field"}`, false, "no result field", false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := parseJudgeResponse(tt.text)
-			assert.Equal(t, tt.wantPassed, got.passed)
-			assert.Equal(t, tt.wantReason, got.reason)
+			passed, reason, err := parseJudgeResponse(tt.text)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantPassed, passed)
+				assert.Equal(t, tt.wantReason, reason)
+			}
 		})
 	}
 }

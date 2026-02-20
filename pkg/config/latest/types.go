@@ -3,6 +3,7 @@ package latest
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 	"github.com/docker/cagent/pkg/config/types"
 )
 
-const Version = "4"
+const Version = "5"
 
 // Config represents the entire configuration file
 type Config struct {
@@ -20,7 +21,7 @@ type Config struct {
 	Providers   map[string]ProviderConfig `json:"providers,omitempty"`
 	Models      map[string]ModelConfig    `json:"models,omitempty"`
 	RAG         map[string]RAGConfig      `json:"rag,omitempty"`
-	Metadata    Metadata                  `json:"metadata,omitempty"`
+	Metadata    Metadata                  `json:"metadata"`
 	Permissions *PermissionsConfig        `json:"permissions,omitempty"`
 }
 
@@ -45,7 +46,7 @@ func (c *Agents) UnmarshalYAML(unmarshal func(any) error) error {
 		}
 
 		var agent AgentConfig
-		if err := yaml.Unmarshal(valueBytes, &agent); err != nil {
+		if err := yaml.UnmarshalWithOptions(valueBytes, &agent, yaml.DisallowUnknownField()); err != nil {
 			return fmt.Errorf("failed to unmarshal agent config for %s: %w", name, err)
 		}
 
@@ -125,7 +126,7 @@ type FallbackConfig struct {
 	// Cooldown is the duration to stick with a successful fallback model before
 	// retrying the primary. Only applies after a non-retryable error (e.g., 429).
 	// Default is 1 minute. Use Go duration format (e.g., "1m", "30s", "2m30s").
-	Cooldown Duration `json:"cooldown,omitempty"`
+	Cooldown Duration `json:"cooldown"`
 }
 
 // Duration is a wrapper around time.Duration that supports YAML/JSON unmarshaling
@@ -258,6 +259,9 @@ func (a *AgentConfig) GetFallbackCooldown() time.Duration {
 
 // ModelConfig represents the configuration for a model
 type ModelConfig struct {
+	// Name is the manifest model name (map key), populated at runtime.
+	// Not serialized — set by teamloader/model_switcher when resolving models.
+	Name              string   `json:"-"`
 	Provider          string   `json:"provider,omitempty"`
 	Model             string   `json:"model,omitempty"`
 	Temperature       *float64 `json:"temperature,omitempty"`
@@ -281,6 +285,16 @@ type ModelConfig struct {
 	// - The provider/model fields define the fallback model
 	// - Each routing rule maps to a different model based on examples
 	Routing []RoutingRule `json:"routing,omitempty"`
+}
+
+// Clone returns a deep copy of the ModelConfig.
+func (m *ModelConfig) Clone() *ModelConfig {
+	if m == nil {
+		return nil
+	}
+	var c ModelConfig
+	types.CloneThroughJSON(m, &c)
+	return &c
 }
 
 // FlexibleModelConfig wraps ModelConfig to support both shorthand and full syntax.
@@ -410,18 +424,19 @@ type Toolset struct {
 	Instruction string   `json:"instruction,omitempty"`
 	Toon        string   `json:"toon,omitempty"`
 
-	Defer DeferConfig `json:"defer,omitempty" yaml:"defer,omitempty"`
+	Defer DeferConfig `json:"defer" yaml:"defer,omitempty"`
 
 	// For the `mcp` tool
 	Command string   `json:"command,omitempty"`
 	Args    []string `json:"args,omitempty"`
 	Ref     string   `json:"ref,omitempty"`
-	Remote  Remote   `json:"remote,omitempty"`
+	Remote  Remote   `json:"remote"`
 	Config  any      `json:"config,omitempty"`
 
-	// For the `a2a` tool
-	Name string `json:"name,omitempty"`
-	URL  string `json:"url,omitempty"`
+	// For the `a2a` and `openapi` tools
+	Name    string            `json:"name,omitempty"`
+	URL     string            `json:"url,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
 
 	// For `shell`, `script`, `mcp` or `lsp` tools
 	Env map[string]string `json:"env,omitempty"`
@@ -432,7 +447,7 @@ type Toolset struct {
 	// For the `todo` tool
 	Shared bool `json:"shared,omitempty"`
 
-	// For the `memory` tool
+	// For the `memory` and `tasks` tools
 	Path string `json:"path,omitempty"`
 
 	// For the `script` tool
@@ -441,7 +456,7 @@ type Toolset struct {
 	// For the `filesystem` tool - post-edit commands
 	PostEdit []PostEditConfig `json:"post_edit,omitempty"`
 
-	APIConfig APIToolConfig `json:"api_config,omitempty"`
+	APIConfig APIToolConfig `json:"api_config"`
 
 	// For the `filesystem` tool - VCS integration
 	IgnoreVCS *bool `json:"ignore_vcs,omitempty"`
@@ -569,11 +584,11 @@ func (t ThinkingBudget) MarshalYAML() ([]byte, error) {
 func (t ThinkingBudget) MarshalJSON() ([]byte, error) {
 	// If Effort string is set (non-empty), marshal as string
 	if t.Effort != "" {
-		return []byte(fmt.Sprintf("%q", t.Effort)), nil
+		return fmt.Appendf(nil, "%q", t.Effort), nil
 	}
 
 	// Otherwise marshal as integer (includes 0, -1, and positive values)
-	return []byte(fmt.Sprintf("%d", t.Tokens)), nil
+	return fmt.Appendf(nil, "%d", t.Tokens), nil
 }
 
 // UnmarshalJSON implements custom unmarshaling to accept simple string or int format
@@ -618,11 +633,11 @@ type RAGToolConfig struct {
 // RAGConfig represents a RAG (Retrieval-Augmented Generation) configuration
 // Uses a unified strategies array for flexible, extensible configuration
 type RAGConfig struct {
-	Tool       RAGToolConfig       `json:"tool,omitempty"`        // Tool configuration
+	Tool       RAGToolConfig       `json:"tool"`                  // Tool configuration
 	Docs       []string            `json:"docs,omitempty"`        // Shared documents across all strategies
 	RespectVCS *bool               `json:"respect_vcs,omitempty"` // Whether to respect VCS ignore files like .gitignore (default: true)
 	Strategies []RAGStrategyConfig `json:"strategies,omitempty"`  // Array of strategy configurations
-	Results    RAGResultsConfig    `json:"results,omitempty"`
+	Results    RAGResultsConfig    `json:"results"`
 }
 
 // GetRespectVCS returns whether VCS ignore files should be respected, defaulting to true
@@ -636,11 +651,11 @@ func (c *RAGConfig) GetRespectVCS() bool {
 // RAGStrategyConfig represents a single retrieval strategy configuration
 // Strategy-specific fields are stored in Params (validated by strategy implementation)
 type RAGStrategyConfig struct { //nolint:recvcheck // Marshal methods must use value receiver for YAML/JSON slice encoding, Unmarshal must use pointer
-	Type     string            `json:"type"`               // Strategy type: "chunked-embeddings", "bm25", etc.
-	Docs     []string          `json:"docs,omitempty"`     // Strategy-specific documents (augments shared docs)
-	Database RAGDatabaseConfig `json:"database,omitempty"` // Database configuration
-	Chunking RAGChunkingConfig `json:"chunking,omitempty"` // Chunking configuration
-	Limit    int               `json:"limit,omitempty"`    // Max results from this strategy (for fusion input)
+	Type     string            `json:"type"`            // Strategy type: "chunked-embeddings", "bm25", etc.
+	Docs     []string          `json:"docs,omitempty"`  // Strategy-specific documents (augments shared docs)
+	Database RAGDatabaseConfig `json:"database"`        // Database configuration
+	Chunking RAGChunkingConfig `json:"chunking"`        // Chunking configuration
+	Limit    int               `json:"limit,omitempty"` // Max results from this strategy (for fusion input)
 
 	// Strategy-specific parameters (arbitrary key-value pairs)
 	// Examples:
@@ -793,9 +808,7 @@ func (s RAGStrategyConfig) buildFlattenedMap() map[string]any {
 	}
 
 	// Flatten Params into the same level
-	for k, v := range s.Params {
-		result[k] = v
-	}
+	maps.Copy(result, s.Params)
 
 	return result
 }
@@ -1056,14 +1069,18 @@ type RAGFusionConfig struct {
 // PermissionsConfig represents tool permission configuration.
 // Allow/Ask/Deny model. This controls tool call approval behavior:
 // - Allow: Tools matching these patterns are auto-approved (like --yolo for specific tools)
-// - Ask: Tools matching these patterns always require user approval (default behavior)
+// - Ask: Tools matching these patterns always require user approval, even if the tool is read-only
 // - Deny: Tools matching these patterns are always rejected, even with --yolo
 //
 // Patterns support glob-style matching (e.g., "shell", "read_*", "mcp:github:*")
-// The evaluation order is: Deny (checked first), then Allow, then Ask (default)
+// The evaluation order is: Deny (checked first), then Allow, then Ask (explicit), then default
+// (read-only tools auto-approved, others ask)
 type PermissionsConfig struct {
 	// Allow lists tool name patterns that are auto-approved without user confirmation
 	Allow []string `json:"allow,omitempty"`
+	// Ask lists tool name patterns that always require user confirmation,
+	// even for tools that are normally auto-approved (e.g. read-only tools)
+	Ask []string `json:"ask,omitempty"`
 	// Deny lists tool name patterns that are always rejected
 	Deny []string `json:"deny,omitempty"`
 }

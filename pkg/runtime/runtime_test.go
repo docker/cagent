@@ -171,9 +171,11 @@ func (m *mockProviderWithError) BaseConfig() base.Config { return base.Config{} 
 
 func (m *mockProviderWithError) MaxTokens() int { return 0 }
 
-type mockModelStore struct{}
+type mockModelStore struct {
+	ModelStore
+}
 
-func (m mockModelStore) GetModel(context.Context, string) (*modelsdev.Model, error) {
+func (m mockModelStore) GetModel(_ context.Context, _ string) (*modelsdev.Model, error) {
 	return nil, nil
 }
 
@@ -238,7 +240,7 @@ func clearTimestamps(event Event) {
 
 	// Use reflection to find and clear Timestamp in embedded AgentContext
 	v := reflect.ValueOf(event)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 	if v.Kind() != reflect.Struct {
@@ -278,14 +280,14 @@ func TestSimple(t *testing.T) {
 		AgentInfo("root", "test/mock-model", "", ""),
 		TeamInfo([]AgentDetails{{Name: "root", Provider: "test", Model: "mock-model"}}, "root"),
 		ToolsetInfo(0, false, "root"),
-		UserMessage("Hi", sess.ID, 0),
+		UserMessage("Hi", sess.ID, nil, 0),
 		StreamStarted(sess.ID, "root"),
 		AgentChoice("root", "Hello"),
 		MessageAdded(sess.ID, msgAdded.Message, "root"),
-		TokenUsageWithMessage(sess.ID, "root", 3, 2, 5, 0, 0, &MessageUsage{
+		NewTokenUsageEvent(sess.ID, "root", &Usage{InputTokens: 3, OutputTokens: 2, ContextLength: 5, LastMessage: &MessageUsage{
 			Usage: chat.Usage{InputTokens: 3, OutputTokens: 2},
 			Model: "test/mock-model",
-		}),
+		}}),
 		StreamStopped(sess.ID, "root"),
 	}
 
@@ -316,7 +318,7 @@ func TestMultipleContentChunks(t *testing.T) {
 		AgentInfo("root", "test/mock-model", "", ""),
 		TeamInfo([]AgentDetails{{Name: "root", Provider: "test", Model: "mock-model"}}, "root"),
 		ToolsetInfo(0, false, "root"),
-		UserMessage("Please greet me", sess.ID, 0),
+		UserMessage("Please greet me", sess.ID, nil, 0),
 		StreamStarted(sess.ID, "root"),
 		AgentChoice("root", "Hello "),
 		AgentChoice("root", "there, "),
@@ -324,10 +326,10 @@ func TestMultipleContentChunks(t *testing.T) {
 		AgentChoice("root", "are "),
 		AgentChoice("root", "you?"),
 		MessageAdded(sess.ID, msgAdded.Message, "root"),
-		TokenUsageWithMessage(sess.ID, "root", 8, 12, 20, 0, 0, &MessageUsage{
+		NewTokenUsageEvent(sess.ID, "root", &Usage{InputTokens: 8, OutputTokens: 12, ContextLength: 20, LastMessage: &MessageUsage{
 			Usage: chat.Usage{InputTokens: 8, OutputTokens: 12},
 			Model: "test/mock-model",
-		}),
+		}}),
 		StreamStopped(sess.ID, "root"),
 	}
 
@@ -356,16 +358,16 @@ func TestWithReasoning(t *testing.T) {
 		AgentInfo("root", "test/mock-model", "", ""),
 		TeamInfo([]AgentDetails{{Name: "root", Provider: "test", Model: "mock-model"}}, "root"),
 		ToolsetInfo(0, false, "root"),
-		UserMessage("Hi", sess.ID, 0),
+		UserMessage("Hi", sess.ID, nil, 0),
 		StreamStarted(sess.ID, "root"),
 		AgentChoiceReasoning("root", "Let me think about this..."),
 		AgentChoiceReasoning("root", " I should respond politely."),
 		AgentChoice("root", "Hello, how can I help you?"),
 		MessageAdded(sess.ID, msgAdded.Message, "root"),
-		TokenUsageWithMessage(sess.ID, "root", 10, 15, 25, 0, 0, &MessageUsage{
+		NewTokenUsageEvent(sess.ID, "root", &Usage{InputTokens: 10, OutputTokens: 15, ContextLength: 25, LastMessage: &MessageUsage{
 			Usage: chat.Usage{InputTokens: 10, OutputTokens: 15},
 			Model: "test/mock-model",
-		}),
+		}}),
 		StreamStopped(sess.ID, "root"),
 	}
 
@@ -395,17 +397,17 @@ func TestMixedContentAndReasoning(t *testing.T) {
 		AgentInfo("root", "test/mock-model", "", ""),
 		TeamInfo([]AgentDetails{{Name: "root", Provider: "test", Model: "mock-model"}}, "root"),
 		ToolsetInfo(0, false, "root"),
-		UserMessage("Hi there", sess.ID, 0),
+		UserMessage("Hi there", sess.ID, nil, 0),
 		StreamStarted(sess.ID, "root"),
 		AgentChoiceReasoning("root", "The user wants a greeting"),
 		AgentChoice("root", "Hello!"),
 		AgentChoiceReasoning("root", " I should be friendly"),
 		AgentChoice("root", " How can I help you today?"),
 		MessageAdded(sess.ID, msgAdded.Message, "root"),
-		TokenUsageWithMessage(sess.ID, "root", 15, 20, 35, 0, 0, &MessageUsage{
+		NewTokenUsageEvent(sess.ID, "root", &Usage{InputTokens: 15, OutputTokens: 20, ContextLength: 35, LastMessage: &MessageUsage{
 			Usage: chat.Usage{InputTokens: 15, OutputTokens: 20},
 			Model: "test/mock-model",
-		}),
+		}}),
 		StreamStopped(sess.ID, "root"),
 	}
 
@@ -577,7 +579,8 @@ func TestStartBackgroundRAGInit_StopsForwardingAfterContextCancel(t *testing.T) 
 	// Cancel the context and ensure no further events are forwarded.
 	cancel()
 
-	// Give the forwarder time to observe cancellation.
+	// Brief yield to allow the forwarder goroutine to observe cancellation.
+	// This is a timing-based negative test: we verify no event is forwarded.
 	time.Sleep(10 * time.Millisecond)
 
 	// Emit another event; it should NOT be forwarded.
@@ -673,9 +676,12 @@ func (p *queueProvider) BaseConfig() base.Config { return base.Config{} }
 
 func (p *queueProvider) MaxTokens() int { return 0 }
 
-type mockModelStoreWithLimit struct{ limit int }
+type mockModelStoreWithLimit struct {
+	ModelStore
+	limit int
+}
 
-func (m mockModelStoreWithLimit) GetModel(context.Context, string) (*modelsdev.Model, error) {
+func (m mockModelStoreWithLimit) GetModel(_ context.Context, _ string) (*modelsdev.Model, error) {
 	return &modelsdev.Model{Limit: modelsdev.Limit{Context: m.limit}, Cost: &modelsdev.Cost{}}, nil
 }
 
@@ -862,20 +868,16 @@ func TestSummarize_EmptySession(t *testing.T) {
 	require.Contains(t, warningMsg, "empty", "warning message should mention empty session")
 }
 
-func TestProcessToolCalls_UnknownTool_NoToolResultMessage(t *testing.T) {
-	// Build a runtime with a simple agent but no tools registered matching the call
+func TestProcessToolCalls_UnknownTool_ReturnsErrorResponse(t *testing.T) {
 	root := agent.New("root", "You are a test agent", agent.WithModel(&mockProvider{}))
 	tm := team.New(team.WithAgents(root))
 
 	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
-
-	// Register default tools (contains only transfer_task) to ensure unknown tool isn't matched
 	rt.registerDefaultTools()
 
 	sess := session.New(session.WithUserMessage("Start"))
 
-	// Simulate a model-issued tool call to a non-existent tool
 	calls := []tools.ToolCall{{
 		ID:       "tool-unknown-1",
 		Type:     "function",
@@ -883,23 +885,20 @@ func TestProcessToolCalls_UnknownTool_NoToolResultMessage(t *testing.T) {
 	}}
 
 	events := make(chan Event, 10)
-
-	// No agentTools provided and runtime toolMap doesn't have this tool name
 	rt.processToolCalls(t.Context(), sess, calls, nil, events)
-
-	// Drain events channel
 	close(events)
 	for range events {
 	}
 
-	var sawToolMsg bool
+	// The model must receive an error tool response so it can self-correct.
+	var toolContent string
 	for _, it := range sess.Messages {
 		if it.IsMessage() && it.Message.Message.Role == chat.MessageRoleTool && it.Message.Message.ToolCallID == "tool-unknown-1" {
-			sawToolMsg = true
-			break
+			toolContent = it.Message.Message.Content
 		}
 	}
-	require.False(t, sawToolMsg, "no tool result should be added for unknown tool; this reproduces invalid sequencing state")
+	require.NotEmpty(t, toolContent, "expected an error tool response for unknown tools")
+	assert.Contains(t, toolContent, "not available")
 }
 
 func TestEmitStartupInfo(t *testing.T) {
@@ -923,7 +922,7 @@ func TestEmitStartupInfo(t *testing.T) {
 	events := make(chan Event, 10)
 
 	// Call EmitStartupInfo
-	rt.EmitStartupInfo(t.Context(), events)
+	rt.EmitStartupInfo(t.Context(), nil, events)
 	close(events)
 
 	// Collect events
@@ -946,7 +945,7 @@ func TestEmitStartupInfo(t *testing.T) {
 
 	// Test that calling EmitStartupInfo again doesn't emit duplicate events
 	events2 := make(chan Event, 10)
-	rt.EmitStartupInfo(t.Context(), events2)
+	rt.EmitStartupInfo(t.Context(), nil, events2)
 	close(events2)
 
 	var collectedEvents2 []Event
@@ -956,6 +955,135 @@ func TestEmitStartupInfo(t *testing.T) {
 
 	// Should be empty due to deduplication
 	require.Empty(t, collectedEvents2, "EmitStartupInfo should not emit duplicate events")
+}
+
+func TestEmitStartupInfo_WithSessionTokenData(t *testing.T) {
+	// When restoring a session that already has token data,
+	// EmitStartupInfo should emit a TokenUsageEvent with the context limit
+	// looked up from the model store so the sidebar can display context %.
+	prov := &mockProvider{id: "test/startup-model", stream: &mockStream{}}
+	root := agent.New("startup-test-agent", "You are a startup test agent",
+		agent.WithModel(prov),
+		agent.WithDescription("Startup agent"),
+	)
+	tm := team.New(team.WithAgents(root))
+
+	rt, err := NewLocalRuntime(tm, WithCurrentAgent("startup-test-agent"),
+		WithModelStore(mockModelStoreWithLimit{limit: 200_000}))
+	require.NoError(t, err)
+
+	// Create a session with existing token data (simulating session restore)
+	sess := session.New()
+	sess.InputTokens = 5000
+	sess.OutputTokens = 1000
+
+	events := make(chan Event, 20)
+	rt.EmitStartupInfo(t.Context(), sess, events)
+	close(events)
+
+	// Collect events and find the TokenUsageEvent
+	var tokenEvent *TokenUsageEvent
+	for event := range events {
+		if te, ok := event.(*TokenUsageEvent); ok {
+			tokenEvent = te
+		}
+	}
+
+	require.NotNil(t, tokenEvent, "EmitStartupInfo should emit a TokenUsageEvent for a session with token data")
+	assert.Equal(t, sess.ID, tokenEvent.SessionID)
+	assert.Equal(t, int64(5000), tokenEvent.Usage.InputTokens)
+	assert.Equal(t, int64(1000), tokenEvent.Usage.OutputTokens)
+	assert.Equal(t, int64(6000), tokenEvent.Usage.ContextLength)
+	assert.Equal(t, int64(200_000), tokenEvent.Usage.ContextLimit)
+}
+
+func TestEmitStartupInfo_CostIncludesSubSessions(t *testing.T) {
+	// When restoring a branched session that contains sub-sessions,
+	// the emitted TokenUsageEvent.Cost must include sub-session costs
+	// (TotalCost), not just OwnCost, because sub-sessions won't emit
+	// their own events during restore.
+	prov := &mockProvider{id: "test/startup-model", stream: &mockStream{}}
+	root := agent.New("root", "agent",
+		agent.WithModel(prov),
+		agent.WithDescription("Root"),
+	)
+	tm := team.New(team.WithAgents(root))
+
+	rt, err := NewLocalRuntime(tm, WithCurrentAgent("root"),
+		WithModelStore(mockModelStoreWithLimit{limit: 128_000}))
+	require.NoError(t, err)
+
+	// Build a session with a direct message and a sub-session.
+	sess := session.New()
+	sess.InputTokens = 1000
+	sess.OutputTokens = 500
+
+	// Direct assistant message with cost
+	sess.Messages = append(sess.Messages, session.Item{
+		Message: &session.Message{
+			AgentName: "root",
+			Message: chat.Message{
+				Role:    chat.MessageRoleAssistant,
+				Content: "hello",
+				Cost:    0.01,
+				Usage:   &chat.Usage{InputTokens: 800, OutputTokens: 400},
+			},
+		},
+	})
+
+	// Sub-session with its own cost
+	subSess := session.New()
+	subSess.Messages = append(subSess.Messages, session.Item{
+		Message: &session.Message{
+			AgentName: "sub",
+			Message: chat.Message{
+				Role:    chat.MessageRoleAssistant,
+				Content: "sub response",
+				Cost:    0.05,
+				Usage:   &chat.Usage{InputTokens: 200, OutputTokens: 100},
+			},
+		},
+	})
+	sess.Messages = append(sess.Messages, session.Item{SubSession: subSess})
+
+	events := make(chan Event, 20)
+	rt.EmitStartupInfo(t.Context(), sess, events)
+	close(events)
+
+	var tokenEvent *TokenUsageEvent
+	for event := range events {
+		if te, ok := event.(*TokenUsageEvent); ok {
+			tokenEvent = te
+		}
+	}
+
+	require.NotNil(t, tokenEvent, "should emit TokenUsageEvent")
+	// Cost must equal TotalCost (0.01 + 0.05 = 0.06), not OwnCost (0.01).
+	assert.InDelta(t, 0.06, tokenEvent.Usage.Cost, 0.0001,
+		"cost should include sub-session costs (TotalCost, not OwnCost)")
+}
+
+func TestEmitStartupInfo_NilSessionNoTokenEvent(t *testing.T) {
+	// When sess is nil, no TokenUsageEvent should be emitted.
+	prov := &mockProvider{id: "test/startup-model", stream: &mockStream{}}
+	root := agent.New("startup-test-agent", "You are a startup test agent",
+		agent.WithModel(prov),
+		agent.WithDescription("Startup agent"),
+	)
+	tm := team.New(team.WithAgents(root))
+
+	rt, err := NewLocalRuntime(tm, WithCurrentAgent("startup-test-agent"),
+		WithModelStore(mockModelStoreWithLimit{limit: 200_000}))
+	require.NoError(t, err)
+
+	events := make(chan Event, 20)
+	rt.EmitStartupInfo(t.Context(), nil, events)
+	close(events)
+
+	for event := range events {
+		_, isTokenEvent := event.(*TokenUsageEvent)
+		assert.False(t, isTokenEvent, "EmitStartupInfo should not emit TokenUsageEvent when session is nil")
+	}
 }
 
 func TestPermissions_DenyBlocksToolExecution(t *testing.T) {
