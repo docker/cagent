@@ -2,7 +2,10 @@ package workflowrun
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"strings"
 	"sync"
 
 	"github.com/docker/cagent/pkg/runtime"
@@ -19,7 +22,7 @@ type Event = any
 // evaluates conditions, and enforces max loop iterations.
 type Executor interface {
 	// Run executes the workflow with the given session (initial user message) and sends events to the channel.
-	Run(ctx context.Context, cfg *workflow.Config, sess *session.Session, events chan Event) error
+	Run(ctx context.Context, cfg *workflow.Config, sess *session.Session, events chan Event) (*workflow.StepContext, error)
 }
 
 // Runner is the minimal runtime interface needed to run agent steps.
@@ -33,6 +36,10 @@ type Runner interface {
 // LocalExecutor executes workflows using a LocalRuntime (or any Runner).
 type LocalExecutor struct {
 	Runner Runner
+	// runnerMu serializes SetCurrentAgent + RunStream calls so the Runner's
+	// internal goroutine captures the correct agent name before the next
+	// parallel step changes it.
+	runnerMu sync.Mutex
 }
 
 // NewLocalExecutor returns an executor that uses the given Runner.
@@ -43,9 +50,9 @@ func NewLocalExecutor(r Runner) *LocalExecutor {
 // Run executes the workflow. Sequential steps run in order; conditional steps
 // evaluate and run true/false branches; parallel steps run concurrently and
 // all must succeed before the next sequential step.
-func (e *LocalExecutor) Run(ctx context.Context, cfg *workflow.Config, sess *session.Session, events chan Event) error {
+func (e *LocalExecutor) Run(ctx context.Context, cfg *workflow.Config, sess *session.Session, events chan Event) (*workflow.StepContext, error) {
 	if cfg == nil || len(cfg.Steps) == 0 {
-		return fmt.Errorf("workflow: no steps configured")
+		return nil, fmt.Errorf("workflow: no steps configured")
 	}
 	maxLoop := cfg.MaxLoopIterations
 	if maxLoop <= 0 {
@@ -53,7 +60,14 @@ func (e *LocalExecutor) Run(ctx context.Context, cfg *workflow.Config, sess *ses
 	}
 	ctx = workflow.NewLoopCounter(ctx, maxLoop)
 	stepCtx := workflow.NewStepContext()
-	return e.runSteps(ctx, cfg.Steps, &stepCtx, sess, events)
+	err := e.runSteps(ctx, cfg.Steps, &stepCtx, sess, events)
+
+	// Print step context for debugging.
+	if b, jerr := json.MarshalIndent(stepCtx.Snapshot(), "", "  "); jerr == nil {
+		fmt.Fprintf(os.Stderr, "\n--- Step Context ---\n%s\n", string(b))
+	}
+
+	return &stepCtx, err
 }
 
 func (e *LocalExecutor) runSteps(ctx context.Context, steps []workflow.Step, stepCtx *workflow.StepContext, sess *session.Session, events chan Event) error {
@@ -91,11 +105,20 @@ func (e *LocalExecutor) runAgentStep(ctx context.Context, stepID string, step *w
 	if err := workflow.IncLoopCounter(ctx, stepID); err != nil {
 		return err
 	}
+
+	runSess := e.buildSessionForStep(step, stepCtx, sess)
+
+	// Protect SetCurrentAgent + RunStream so the Runner's internal goroutine
+	// captures the correct agent before another parallel step changes it.
+	e.runnerMu.Lock()
 	if err := e.Runner.SetCurrentAgent(step.Name); err != nil {
+		e.runnerMu.Unlock()
 		return fmt.Errorf("workflow: set agent %q: %w", step.Name, err)
 	}
-	runSess := e.buildSessionForStep(step, stepCtx, sess)
-	for ev := range e.Runner.RunStream(ctx, runSess) {
+	eventsCh := e.Runner.RunStream(ctx, runSess)
+	e.runnerMu.Unlock()
+
+	for ev := range eventsCh {
 		select {
 		case events <- ev:
 		case <-ctx.Done():
@@ -117,20 +140,71 @@ func (e *LocalExecutor) buildSessionForStep(step *workflow.Step, stepCtx *workfl
 		session.WithThinking(initial.Thinking),
 		session.WithSendUserMessage(true),
 	}
-	var hasUserMessage bool
+
+	// Build the user message: original user prompt + context from prior steps.
+	var userMsg string
 	if initial != nil && initial.Messages != nil {
 		for _, item := range initial.Messages {
 			if item.IsMessage() && item.Message.Message.Role == "user" {
-				opts = append(opts, session.WithUserMessage(item.Message.Message.Content))
-				hasUserMessage = true
+				userMsg = item.Message.Message.Content
 				break
 			}
 		}
 	}
-	if !hasUserMessage {
-		opts = append(opts, session.WithUserMessage("Please proceed with the workflow step."))
+	if userMsg == "" {
+		userMsg = "Please proceed with the workflow step."
 	}
+
+	// Inject prior step outputs as context for the current step.
+	if prior := buildPriorContext(stepCtx); prior != "" {
+		userMsg = prior + "\n\n" + userMsg
+	}
+
+	opts = append(opts, session.WithUserMessage(userMsg))
 	return session.New(opts...)
+}
+
+// buildPriorContext formats all prior step outputs into a context block
+// that is injected into the next step's user message.
+func buildPriorContext(stepCtx *workflow.StepContext) string {
+	snapshot := stepCtx.Snapshot()
+	if len(snapshot) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("--- Prior Step Outputs ---")
+	for id, v := range snapshot {
+		switch out := v.(type) {
+		case workflow.StepOutput:
+			if out.Output != "" {
+				sb.WriteString("\n\n[")
+				sb.WriteString(id)
+				sb.WriteString(" (agent: ")
+				sb.WriteString(out.Agent)
+				sb.WriteString(")]:\n")
+				sb.WriteString(out.Output)
+			}
+		case *workflow.ParallelOutputs:
+			if out != nil {
+				for _, subID := range out.Order {
+					so := out.Steps[subID]
+					if so.Output != "" {
+						sb.WriteString("\n\n[")
+						sb.WriteString(id)
+						sb.WriteString("/")
+						sb.WriteString(subID)
+						sb.WriteString(" (agent: ")
+						sb.WriteString(so.Agent)
+						sb.WriteString(")]:\n")
+						sb.WriteString(so.Output)
+					}
+				}
+			}
+		}
+	}
+	sb.WriteString("\n\n--- End Prior Step Outputs ---")
+	return sb.String()
 }
 
 func (e *LocalExecutor) runConditionStep(ctx context.Context, stepID string, step *workflow.Step, stepCtx *workflow.StepContext, sess *session.Session, events chan Event) error {
@@ -148,11 +222,13 @@ func (e *LocalExecutor) runParallelStep(ctx context.Context, stepID string, step
 	if len(step.Steps) == 0 {
 		return nil
 	}
+
 	var wg sync.WaitGroup
 	outputs := make(map[string]workflow.StepOutput)
 	order := make([]string, 0, len(step.Steps))
 	var mu sync.Mutex
 	var firstErr error
+
 	for i := range step.Steps {
 		child := &step.Steps[i]
 		childID := child.ID
@@ -165,9 +241,14 @@ func (e *LocalExecutor) runParallelStep(ctx context.Context, stepID string, step
 		wg.Add(1)
 		go func(s *workflow.Step, id string) {
 			defer wg.Done()
-			subEvents := make(chan Event, 128)
-			err := e.runStep(ctx, s, stepCtx, sess, subEvents)
-			if err != nil {
+
+			// Each parallel goroutine gets its own sub-session.
+			// PersistentRuntime skips all persistence for sub-sessions,
+			// avoiding concurrent SQLite writes.
+			subSess := e.buildSessionForStep(s, stepCtx, sess)
+			subSess.ParentID = sess.ID
+
+			if err := e.runAgentStep(ctx, id, s, stepCtx, subSess, events); err != nil {
 				mu.Lock()
 				if firstErr == nil {
 					firstErr = err
@@ -179,14 +260,6 @@ func (e *LocalExecutor) runParallelStep(ctx context.Context, stepID string, step
 				mu.Lock()
 				outputs[id] = so
 				mu.Unlock()
-			}
-			close(subEvents)
-			for ev := range subEvents {
-				select {
-				case events <- ev:
-				case <-ctx.Done():
-					return
-				}
 			}
 		}(&stepCopy, childID)
 	}

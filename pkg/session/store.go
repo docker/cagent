@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/docker/cagent/pkg/chat"
@@ -242,6 +243,7 @@ type querier interface {
 
 // SQLiteSessionStore implements Store using SQLite
 type SQLiteSessionStore struct {
+	mu sync.Mutex
 	db *sql.DB
 }
 
@@ -394,6 +396,8 @@ func backupDatabase(path string) error {
 
 // AddSession adds a new session to the store, including any messages
 func (s *SQLiteSessionStore) AddSession(ctx context.Context, session *Session) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if session.ID == "" {
 		return ErrEmptyID
 	}
@@ -793,6 +797,8 @@ func (s *SQLiteSessionStore) GetSessionSummaries(ctx context.Context) ([]Summary
 
 // DeleteSession deletes a session by ID
 func (s *SQLiteSessionStore) DeleteSession(ctx context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if id == "" {
 		return ErrEmptyID
 	}
@@ -818,6 +824,8 @@ func (s *SQLiteSessionStore) DeleteSession(ctx context.Context, id string) error
 // Only metadata is modified - use AddMessage, AddSubSession, AddSummary for items.
 // Messages are persisted separately via events to avoid duplication.
 func (s *SQLiteSessionStore) UpdateSession(ctx context.Context, session *Session) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if session.ID == "" {
 		return ErrEmptyID
 	}
@@ -898,6 +906,8 @@ func (s *SQLiteSessionStore) UpdateSession(ctx context.Context, session *Session
 
 // SetSessionStarred sets the starred status of a session.
 func (s *SQLiteSessionStore) SetSessionStarred(ctx context.Context, id string, starred bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if id == "" {
 		return ErrEmptyID
 	}
@@ -927,6 +937,8 @@ func (s *SQLiteSessionStore) Close() error {
 // AddMessage adds a message to a session at the next position.
 // Returns the ID of the created message item.
 func (s *SQLiteSessionStore) AddMessage(ctx context.Context, sessionID string, msg *Message) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if sessionID == "" {
 		return 0, ErrEmptyID
 	}
@@ -961,6 +973,8 @@ func (s *SQLiteSessionStore) AddMessage(ctx context.Context, sessionID string, m
 
 // UpdateMessage updates an existing message by its ID.
 func (s *SQLiteSessionStore) UpdateMessage(ctx context.Context, messageID int64, msg *Message) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	msgJSON, err := json.Marshal(msg.Message)
 	if err != nil {
 		return fmt.Errorf("marshaling message: %w", err)
@@ -997,6 +1011,8 @@ func (s *SQLiteSessionStore) UpdateMessage(ctx context.Context, messageID int64,
 
 // AddSubSession creates a sub-session and links it to the parent.
 func (s *SQLiteSessionStore) AddSubSession(ctx context.Context, parentSessionID string, subSession *Session) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if parentSessionID == "" || subSession.ID == "" {
 		return ErrEmptyID
 	}
@@ -1138,6 +1154,8 @@ func (s *SQLiteSessionStore) addItemTx(ctx context.Context, tx *sql.Tx, sessionI
 
 // AddSummary adds a summary item to a session at the next position.
 func (s *SQLiteSessionStore) AddSummary(ctx context.Context, sessionID, summary string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if sessionID == "" {
 		return ErrEmptyID
 	}
@@ -1160,6 +1178,8 @@ func (s *SQLiteSessionStore) AddSummary(ctx context.Context, sessionID, summary 
 
 // UpdateSessionTokens updates only token/cost fields.
 func (s *SQLiteSessionStore) UpdateSessionTokens(ctx context.Context, sessionID string, inputTokens, outputTokens int64, cost float64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if sessionID == "" {
 		return ErrEmptyID
 	}
@@ -1171,6 +1191,8 @@ func (s *SQLiteSessionStore) UpdateSessionTokens(ctx context.Context, sessionID 
 
 // UpdateSessionTitle updates only the title.
 func (s *SQLiteSessionStore) UpdateSessionTitle(ctx context.Context, sessionID, title string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if sessionID == "" {
 		return ErrEmptyID
 	}

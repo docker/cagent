@@ -435,7 +435,7 @@ func (f *runExecFlags) runExecWorkflow(ctx context.Context, out *cli.Printer, rt
 	events := make(chan workflowrun.Event, 128)
 	go func() {
 		defer close(events)
-		if err := exec.Run(ctx, f.workflowConfig, sess, events); err != nil {
+		if _, err := exec.Run(ctx, f.workflowConfig, sess, events); err != nil {
 			events <- runtime.Error(err.Error())
 		}
 	}()

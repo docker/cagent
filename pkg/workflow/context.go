@@ -19,6 +19,20 @@ func NewStepContext() StepContext {
 	return StepContext{data: make(map[string]any)}
 }
 
+// Snapshot returns a shallow copy of the internal data map for serialization/debugging.
+func (c *StepContext) Snapshot() map[string]any {
+	if c == nil {
+		return nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	out := make(map[string]any, len(c.data))
+	for k, v := range c.data {
+		out[k] = v
+	}
+	return out
+}
+
 // SetAgentOutput records the output of a single agent step by ID.
 func (c *StepContext) SetAgentOutput(stepID, output, agentName string) {
 	if c == nil {
