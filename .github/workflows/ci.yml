@@ -102,21 +102,24 @@ jobs:
         run: task build
 
   build-image:
-    needs: [lint, test, license-check]
+    # needs: [lint, test, license-check]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
 
       - name: Hub login
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
         with:
-          username: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
-          password: ${{ secrets.DOCKERPUBLICBOT_WRITE_PAT }}
+          username: ${{ vars.DOCKERBUILDBOT_USERNAME }}
+          password: ${{ secrets.DOCKERBUILDBOT_WRITE_PAT }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
+        with:
+          version: "lab:latest"
+          driver: cloud
+          endpoint: "docker/make-product-smarter"
 
       - name: Docker metadata
         id: meta
