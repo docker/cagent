@@ -562,6 +562,168 @@ func TestFastRendererTablesColumnAlignment(t *testing.T) {
 	}
 }
 
+func TestFastRendererTableViewportWidth(t *testing.T) {
+	t.Parallel()
+
+	// Table with long cell content that would overflow a narrow viewport
+	input := `| Short | This is a very long cell content that should wrap when the viewport is narrow |
+|-------|------------------------------------------------------------------|
+| A | Another long piece of text that definitely needs wrapping to fit |`
+
+	tests := []struct {
+		name  string
+		width int
+	}{
+		{"width 40", 40},
+		{"width 50", 50},
+		{"width 60", 60},
+		{"width 30", 30},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			r := NewFastRenderer(tt.width)
+			result, err := r.Render(input)
+			require.NoError(t, err)
+
+			// Every line should be exactly tt.width (padAllLines pads to width)
+			lines := strings.Split(result, "\n")
+			for i, line := range lines {
+				lineWidth := runewidth.StringWidth(stripANSI(line))
+				assert.Equal(t, tt.width, lineWidth,
+					"Line %d should have width %d, got %d: %q",
+					i, tt.width, lineWidth, stripANSI(line))
+			}
+		})
+	}
+}
+
+func TestFastRendererTableProportionalWidths(t *testing.T) {
+	t.Parallel()
+
+	// Table with one narrow column and one wide column
+	// The wide column should get proportionally more width
+	input := `| A | This is a much longer column that should get more space |
+|---|----------------------------------------------------------|
+| B | Another long text in this cell that needs wrapping |`
+
+	r := NewFastRenderer(50)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	plain := stripANSI(result)
+	lines := strings.Split(plain, "\n")
+
+	// Find separator positions in the first data line
+	var sepPositions []int
+	for i, char := range lines[0] {
+		if char == '│' {
+			sepPositions = append(sepPositions, i)
+		}
+	}
+
+	require.NotEmpty(t, sepPositions, "Should have column separators")
+
+	// The first column (just "A" or "B") should be narrow
+	// The separator should be near the beginning, not in the middle
+	// This proves proportional allocation gives more to the wide column
+	assert.Less(t, sepPositions[0], 15,
+		"First separator should be near the start, indicating narrow first column")
+}
+
+func TestFastRendererTableMultiLineAlignment(t *testing.T) {
+	t.Parallel()
+
+	// Table where wrapping produces multi-line rows
+	input := `| ID | Description |
+|-----|-------------|
+| 1 | A short description |
+| 2 | A much longer description that will definitely need to wrap when rendered in a narrow viewport |`
+
+	r := NewFastRenderer(40)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	plain := stripANSI(result)
+	lines := strings.Split(plain, "\n")
+
+	// Filter out empty lines and separator lines (─)
+	var dataLines []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" && !strings.HasPrefix(trimmed, "─") {
+			dataLines = append(dataLines, line)
+		}
+	}
+
+	// All data lines should have column separators at the same position
+	var expectedSepPos int
+	foundFirst := false
+	for i, line := range dataLines {
+		for j, char := range line {
+			if char == '│' {
+				if !foundFirst {
+					expectedSepPos = j
+					foundFirst = true
+				} else {
+					assert.Equal(t, expectedSepPos, j,
+						"Line %d has separator at position %d, expected %d: %q",
+						i, j, expectedSepPos, line)
+				}
+				break
+			}
+		}
+	}
+}
+
+func TestFastRendererTableCompactMode(t *testing.T) {
+	t.Parallel()
+
+	// Table with multiple columns in very narrow viewport
+	// Should switch to compact separators
+	input := `| A | B | C | D |
+|---|---|---|---|
+| 1 | 2 | 3 | 4 |`
+
+	r := NewFastRenderer(20)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	// Every line should still fit within the viewport
+	lines := strings.Split(result, "\n")
+	for i, line := range lines {
+		lineWidth := runewidth.StringWidth(stripANSI(line))
+		assert.Equal(t, 20, lineWidth,
+			"Line %d should have width 20, got %d: %q",
+			i, lineWidth, stripANSI(line))
+	}
+}
+
+func TestFastRendererTableWrappedCellContent(t *testing.T) {
+	t.Parallel()
+
+	// Verify that cell content is preserved when wrapped
+	input := `| Header One | Header Two |
+|------------|------------|
+| Short | This cell has a lot of text that needs to wrap properly without losing any content |`
+
+	r := NewFastRenderer(45)
+	result, err := r.Render(input)
+	require.NoError(t, err)
+
+	plain := stripANSI(result)
+
+	// All key words from the cells should be present (may be on separate lines due to wrapping)
+	assert.Contains(t, plain, "Header")
+	assert.Contains(t, plain, "One")
+	assert.Contains(t, plain, "Two")
+	assert.Contains(t, plain, "Short")
+	assert.Contains(t, plain, "cell has")
+	assert.Contains(t, plain, "properly")
+	assert.Contains(t, plain, "content")
+}
+
 func TestFastRendererEscapedCharacters(t *testing.T) {
 	t.Parallel()
 
@@ -675,7 +837,7 @@ func TestFastRendererFixedWidthRectangle(t *testing.T) {
 	out, err := r.Render(input)
 	require.NoError(t, err)
 
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		assert.Equal(t, 30, runewidth.StringWidth(stripANSI(line)))
 	}
 }
@@ -1321,7 +1483,7 @@ func TestFastRendererDeeplyNestedBlockquotes(t *testing.T) {
 
 	// No literal > symbols should appear in the text content
 	// (they should all be consumed as blockquote markers)
-	for _, line := range strings.Split(plain, "\n") {
+	for line := range strings.SplitSeq(plain, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed != "" {
 			assert.NotRegexp(t, `^>`, trimmed, "Line should not start with literal >: %q", trimmed)
@@ -1418,10 +1580,10 @@ func TestFastRendererCodeBlockWhitespaceWrap(t *testing.T) {
 	require.NoError(t, err)
 
 	plain := stripANSI(result)
-	lines := strings.Split(plain, "\n")
+	lines := strings.SplitSeq(plain, "\n")
 
 	// If wrapping occurred, it should have wrapped at a space
-	for _, line := range lines {
+	for line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if trimmed != "" && len(trimmed) > 1 {
 			// Line shouldn't end mid-word (unless the word itself is longer than width)
@@ -1514,8 +1676,8 @@ func TestFastRendererTableSeparatorStyling(t *testing.T) {
 	require.NoError(t, err)
 
 	// The separator line should have styling applied (same as other table elements)
-	lines := strings.Split(result, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(result, "\n")
+	for line := range lines {
 		plainLine := stripANSI(line)
 		if strings.Contains(plainLine, "─") {
 			// Separator line should have ANSI styling
@@ -1538,10 +1700,7 @@ func splitIntoStreamingChunks(content string) []string {
 
 	for i < len(content) {
 		chunkSize := chunkSizes[sizeIdx%len(chunkSizes)]
-		end := i + chunkSize
-		if end > len(content) {
-			end = len(content)
-		}
+		end := min(i+chunkSize, len(content))
 		chunks = append(chunks, content[i:end])
 		i = end
 		sizeIdx++

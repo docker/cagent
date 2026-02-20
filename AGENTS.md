@@ -20,14 +20,14 @@
 - `./bin/cagent run <config.yaml>` - Run agent with configuration (launches TUI by default)
 - `./bin/cagent run <config.yaml> -a <agent_name>` - Run specific agent from multi-agent config
 - `./bin/cagent run agentcatalog/pirate` - Run agent directly from OCI registry
-- `./bin/cagent exec <config.yaml>` - Execute agent without TUI (non-interactive)
+- `./bin/cagent run --exec <config.yaml>` - Execute agent without TUI (non-interactive)
 - `./bin/cagent new` - Generate new agent configuration interactively
 - `./bin/cagent new --model openai/gpt-5` - Generate with specific model
-- `./bin/cagent push ./agent.yaml namespace/repo` - Push agent to OCI registry
-- `./bin/cagent pull namespace/repo` - Pull agent from OCI registry
-- `./bin/cagent mcp ./agent.yaml` - Expose agents as MCP tools
-- `./bin/cagent a2a <config.yaml>` - Start agent as A2A server
-- `./bin/cagent api` - Start Docker `cagent` API server
+- `./bin/cagent share push ./agent.yaml namespace/repo` - Push agent to OCI registry
+- `./bin/cagent share pull namespace/repo` - Pull agent from OCI registry
+- `./bin/cagent serve mcp ./agent.yaml` - Expose agents as MCP tools
+- `./bin/cagent serve a2a <config.yaml>` - Start agent as A2A server
+- `./bin/cagent serve api` - Start Docker `cagent` API server
 
 ### Debug and Development Flags
 
@@ -264,7 +264,7 @@ for _, tt := range tests {
 - Add configuration support if needed
 - Consider both CLI and TUI interface impacts, along with API server impacts
 - Add tests alongside implementation (`*_test.go`)
-- Update `cagent-schema.json` if adding new config fields
+- Update `agent-schema.json` if adding new config fields
 
 ### Code Style and Conventions
 
@@ -730,7 +730,7 @@ animation.Unregister()
   - `examples/eval/` - Evaluation configurations
 - Root directory - Main project configurations (`Taskfile.yml`, `go.mod`, `.golangci.yml`)
 - `.github/workflows/ci.yml` - CI/CD pipeline
-- `cagent-schema.json` - JSON schema for agent configuration validation
+- `agent-schema.json` - JSON schema for agent configuration validation
 - `golang_developer.yaml` - Dogfooding agent for Docker `cagent` development
 
 ### Environment Variables
@@ -849,7 +849,7 @@ task build  # Should create ./bin/cagent
 - Manual workflow dispatch
 
 **Build Configuration:**
-- Go version: 1.25.5
+- Go version: 1.26.0
 - Platforms: linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64, windows/arm64
 - Binary name: `cagent` (or `cagent.exe` on Windows)
 - Version injection: Uses git tag and commit SHA via ldflags
@@ -1014,6 +1014,14 @@ task push-image    # Build and push multi-platform
 
 5. **Telemetry adds overhead**: Disable with `TELEMETRY_ENABLED=false` for benchmarking
 
+### TUI General Guidelines
+
+- Never use commands to send messages when you can directly mutate children or state.
+- Keep things simple; do not overcomplicate.
+- Create files if needed to separate logic; do not nest models.
+- Never do IO or expensive work in `Update`; always use a `tea.Cmd`.
+- Never change the model state inside of a command use messages and than update the state in the main loop
+
 ## Quick Reference: Key Files
 
 | File | Purpose |
@@ -1021,7 +1029,6 @@ task push-image    # Build and push multi-platform
 | `main.go` | Entry point, signal handling |
 | `cmd/root/root.go` | Root command, logging setup, persistent flags |
 | `cmd/root/run.go` | `cagent run` command implementation |
-| `cmd/root/exec.go` | `cagent exec` command (non-TUI) |
 | `pkg/runtime/runtime.go` | Core execution loop, tool handling, streaming |
 | `pkg/agent/agent.go` | Agent abstraction, tool discovery |
 | `pkg/session/session.go` | Message history management |
@@ -1034,4 +1041,4 @@ task push-image    # Build and push multi-platform
 | `pkg/tui/` | Terminal UI (Bubble Tea) |
 | `Taskfile.yml` | Build automation tasks |
 | `.golangci.yml` | Linter configuration |
-| `cagent-schema.json` | JSON schema for config validation |
+| `agent-schema.json` | JSON schema for config validation |

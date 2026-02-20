@@ -118,6 +118,77 @@ func TestCostDialogEmptySession(t *testing.T) {
 	assert.Contains(t, view, "$0.00") // Zero cost
 }
 
+func TestCostDialogWithCompactionCost(t *testing.T) {
+	t.Parallel()
+
+	sess := session.New()
+
+	// Add a regular message with usage
+	sess.AddMessage(&session.Message{
+		AgentName: "root",
+		Message: chat.Message{
+			Role:    chat.MessageRoleAssistant,
+			Content: "Hello",
+			Model:   "gpt-4o",
+			Usage: &chat.Usage{
+				InputTokens:  1000,
+				OutputTokens: 500,
+			},
+			Cost: 0.005,
+		},
+	})
+
+	// Add a compaction summary item with cost (simulates what session_compaction.go does)
+	sess.Messages = append(sess.Messages, session.Item{
+		Summary: "This is a session summary after compaction.",
+		Cost:    0.003,
+	})
+
+	data := (&costDialog{session: sess}).gatherCostData()
+
+	// Total cost should include both the message cost and the compaction cost
+	assert.InDelta(t, 0.008, data.total.cost, 0.0001)
+
+	// There should be 2 entries in the per-message breakdown:
+	// one for the assistant message and one for compaction
+	require.Len(t, data.messages, 2)
+	assert.InDelta(t, 0.005, data.messages[0].cost, 0.0001)
+	assert.Equal(t, "compaction", data.messages[1].label)
+	assert.InDelta(t, 0.003, data.messages[1].cost, 0.0001)
+}
+
+func TestCostDialogCompactionCostRendersInView(t *testing.T) {
+	t.Parallel()
+
+	sess := session.New()
+
+	sess.AddMessage(&session.Message{
+		AgentName: "root",
+		Message: chat.Message{
+			Role:    chat.MessageRoleAssistant,
+			Content: "Hello",
+			Model:   "gpt-4o",
+			Usage: &chat.Usage{
+				InputTokens:  1000,
+				OutputTokens: 500,
+			},
+			Cost: 0.005,
+		},
+	})
+
+	sess.Messages = append(sess.Messages, session.Item{
+		Summary: "Session summary.",
+		Cost:    0.002,
+	})
+
+	dialog := NewCostDialog(sess)
+	dialog.SetSize(100, 50)
+	view := dialog.View()
+
+	assert.Contains(t, view, "compaction")
+	assert.Contains(t, view, "$0.0070") // total: 0.005 + 0.002
+}
+
 func TestFormatCost(t *testing.T) {
 	t.Parallel()
 

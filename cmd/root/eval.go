@@ -43,6 +43,7 @@ func newEvalCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&flags.Only, "only", nil, "Only run evaluations with file names matching these patterns (can be specified multiple times)")
 	cmd.Flags().StringVar(&flags.BaseImage, "base-image", "", "Custom base Docker image for running evaluations")
 	cmd.Flags().BoolVar(&flags.KeepContainers, "keep-containers", false, "Keep containers after evaluation (don't use --rm)")
+	cmd.Flags().StringSliceVarP(&flags.EnvVars, "env", "e", nil, "Environment variables to pass to container (KEY or KEY=VALUE)")
 
 	return cmd
 }
@@ -118,14 +119,23 @@ func (f *evalFlags) runEvalCommand(cmd *cobra.Command, args []string) error {
 		return evalErr
 	}
 
-	// Save results JSON
-	resultsPath, err := evaluation.SaveRunJSON(run, outputDir)
+	// Save sessions to SQLite database
+	dbPath, err := evaluation.SaveRunSessions(ctx, run, outputDir)
 	if err != nil {
-		slog.Error("Failed to save results", "error", err)
+		slog.Error("Failed to save sessions database", "error", err)
 	} else {
-		fmt.Fprintf(teeOut, "\nResults: %s\n", resultsPath)
-		fmt.Fprintf(teeOut, "Log: %s\n", logPath)
+		fmt.Fprintf(teeOut, "\nSessions DB: %s\n", dbPath)
 	}
+
+	// Save sessions to JSON file (same format as /eval produces)
+	sessionsPath, err := evaluation.SaveRunSessionsJSON(run, outputDir)
+	if err != nil {
+		slog.Error("Failed to save sessions JSON", "error", err)
+	} else {
+		fmt.Fprintf(teeOut, "Sessions JSON: %s\n", sessionsPath)
+	}
+
+	fmt.Fprintf(teeOut, "Log: %s\n", logPath)
 
 	return evalErr
 }

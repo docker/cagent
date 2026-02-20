@@ -128,12 +128,11 @@ func TestSessionTracking(t *testing.T) {
 	// Multiple ends should be safe
 	client.RecordSessionEnd(ctx)
 
-	// Wait for events to be processed
-	time.Sleep(20 * time.Millisecond)
+	require.Eventually(t, func() bool {
+		return mockHTTP.GetRequestCount() > 0
+	}, time.Second, 5*time.Millisecond, "Expected HTTP requests to be made for session tracking events")
 
 	requestCount := mockHTTP.GetRequestCount()
-	assert.Positive(t, requestCount, "Expected HTTP requests to be made for session tracking events")
-
 	t.Logf("Session tracking HTTP requests captured: %d", requestCount)
 
 	requests := mockHTTP.GetRequests()
@@ -165,12 +164,11 @@ func TestCommandTracking(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, executed)
 
-	// Wait for events to be processed
-	time.Sleep(20 * time.Millisecond)
+	require.Eventually(t, func() bool {
+		return mockHTTP.GetRequestCount() > 0
+	}, time.Second, 5*time.Millisecond, "Expected HTTP requests to be made for command tracking")
 
 	requestCount := mockHTTP.GetRequestCount()
-	assert.Positive(t, requestCount, "Expected HTTP requests to be made for command tracking")
-
 	t.Logf("Command tracking HTTP requests captured: %d", requestCount)
 
 	requests := mockHTTP.GetRequests()
@@ -200,12 +198,11 @@ func TestCommandTrackingWithError(t *testing.T) {
 
 	assert.Equal(t, testErr, err)
 
-	// Wait for events to be processed
-	time.Sleep(20 * time.Millisecond)
+	require.Eventually(t, func() bool {
+		return mockHTTP.GetRequestCount() > 0
+	}, time.Second, 5*time.Millisecond, "Expected HTTP requests to be made for command error tracking")
 
 	requestCount := mockHTTP.GetRequestCount()
-	assert.Positive(t, requestCount, "Expected HTTP requests to be made for command error tracking")
-
 	t.Logf("Command error tracking HTTP requests captured: %d", requestCount)
 }
 
@@ -493,11 +490,11 @@ func TestAllEventTypes(t *testing.T) {
 	// End session
 	client.RecordSessionEnd(ctx)
 
-	// Wait for events to be processed
-	time.Sleep(20 * time.Millisecond)
+	require.Eventually(t, func() bool {
+		return mockHTTP.GetRequestCount() > 0
+	}, time.Second, 5*time.Millisecond, "Expected HTTP requests to be made for telemetry events")
 
 	requestCount := mockHTTP.GetRequestCount()
-	assert.Positive(t, requestCount, "Expected HTTP requests to be made for telemetry events")
 
 	t.Logf("Total HTTP requests captured: %d", requestCount)
 
@@ -539,7 +536,7 @@ func TestTrackServerStart(t *testing.T) {
 	cmdInfo := CommandInfo{
 		Action: "mcp",
 		Args:   []string{},
-		Flags:  []string{"--port", "8080"},
+		Flags:  []string{},
 	}
 	err := client.TrackServerStart(t.Context(), cmdInfo, func(ctx context.Context) error {
 		executed = true
@@ -609,13 +606,11 @@ func TestHTTPRequestVerification(t *testing.T) {
 
 		client.Track(ctx, event)
 
-		// Give time for background processing
-		time.Sleep(20 * time.Millisecond)
+		require.Eventually(t, func() bool {
+			return mockHTTP.GetRequestCount() > 0
+		}, time.Second, 5*time.Millisecond, "Expected HTTP request to be made")
 
-		// Debug output
 		t.Logf("HTTP requests captured: %d", mockHTTP.GetRequestCount())
-
-		assert.Positive(t, mockHTTP.GetRequestCount(), "Expected HTTP request to be made")
 
 		requests := mockHTTP.GetRequests()
 		req := requests[0]
@@ -679,6 +674,233 @@ func TestHTTPRequestVerification(t *testing.T) {
 	})
 }
 
+// TestCreateEventTelemetryTags tests the TELEMETRY_TAGS environment variable support in createEvent
+func TestCreateEventTelemetryTags(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	client := newClient(logger, true, true, "test-version")
+	client.userUUID = "test-uuid"
+
+	t.Run("NoTagsSet", func(t *testing.T) {
+		t.Setenv("TELEMETRY_TAGS", "")
+
+		event := client.createEvent("test_event", map[string]any{"action": "run"})
+
+		assert.Equal(t, "run", event.Properties["action"])
+		assert.Equal(t, "test-version", event.Properties["version"])
+		assert.Equal(t, "test-uuid", event.Properties["user_uuid"])
+		// Ensure no unexpected tag keys leaked in
+		_, hasSource := event.Properties["source_system"]
+		assert.False(t, hasSource, "Expected no source_system property when TELEMETRY_TAGS is empty")
+	})
+
+	t.Run("SingleTag", func(t *testing.T) {
+		t.Setenv("TELEMETRY_TAGS", "source_system=github-actions")
+
+		event := client.createEvent("test_event", map[string]any{"action": "run"})
+
+		assert.Equal(t, "github-actions", event.Properties["source_system"])
+		assert.Equal(t, "run", event.Properties["action"])
+	})
+
+	t.Run("MultipleTags", func(t *testing.T) {
+		t.Setenv("TELEMETRY_TAGS", "source_system=github-actions,repo=docker/cagent,workflow=pr-review")
+
+		event := client.createEvent("test_event", map[string]any{"action": "run"})
+
+		assert.Equal(t, "github-actions", event.Properties["source_system"])
+		assert.Equal(t, "docker/cagent", event.Properties["repo"])
+		assert.Equal(t, "pr-review", event.Properties["workflow"])
+	})
+
+	t.Run("TagsWithWhitespace", func(t *testing.T) {
+		t.Setenv("TELEMETRY_TAGS", " source_system = github-actions , repo = docker/cagent ")
+
+		event := client.createEvent("test_event", map[string]any{"action": "run"})
+
+		assert.Equal(t, "github-actions", event.Properties["source_system"])
+		assert.Equal(t, "docker/cagent", event.Properties["repo"])
+	})
+
+	t.Run("MalformedTagsIgnored", func(t *testing.T) {
+		// Tags without "=" should be silently ignored
+		t.Setenv("TELEMETRY_TAGS", "valid_key=valid_value,malformed_no_equals,another=good")
+
+		event := client.createEvent("test_event", map[string]any{"action": "run"})
+
+		assert.Equal(t, "valid_value", event.Properties["valid_key"])
+		assert.Equal(t, "good", event.Properties["another"])
+		_, hasMalformed := event.Properties["malformed_no_equals"]
+		assert.False(t, hasMalformed, "Malformed tag without = should be ignored")
+	})
+
+	t.Run("SystemMetadataCannotBeOverwritten", func(t *testing.T) {
+		// This is the critical security test: TELEMETRY_TAGS must NOT be able to
+		// overwrite system metadata like user_uuid, version, os, os_language
+		t.Setenv("TELEMETRY_TAGS", "user_uuid=attacker,version=fake,os=spoofed,os_language=xx")
+
+		event := client.createEvent("test_event", map[string]any{"action": "run"})
+
+		// System metadata should win over tags
+		assert.Equal(t, "test-uuid", event.Properties["user_uuid"], "user_uuid must not be overwritable via TELEMETRY_TAGS")
+		assert.Equal(t, "test-version", event.Properties["version"], "version must not be overwritable via TELEMETRY_TAGS")
+		assert.NotEqual(t, "spoofed", event.Properties["os"], "os must not be overwritable via TELEMETRY_TAGS")
+		assert.NotEqual(t, "xx", event.Properties["os_language"], "os_language must not be overwritable via TELEMETRY_TAGS")
+	})
+
+	t.Run("TagsDoNotOverwriteUserProperties", func(t *testing.T) {
+		// Tags are applied after user properties, so tags CAN overwrite user-provided props.
+		// This is by design — TELEMETRY_TAGS is set by the environment operator (e.g., CI),
+		// who should have higher priority than individual event properties.
+		t.Setenv("TELEMETRY_TAGS", "action=overridden")
+
+		event := client.createEvent("test_event", map[string]any{"action": "original"})
+
+		assert.Equal(t, "overridden", event.Properties["action"],
+			"TELEMETRY_TAGS should override user-provided properties (environment operator has priority)")
+	})
+
+	t.Run("EmptyValueTag", func(t *testing.T) {
+		t.Setenv("TELEMETRY_TAGS", "empty_val=")
+
+		event := client.createEvent("test_event", map[string]any{})
+
+		assert.Empty(t, event.Properties["empty_val"], "Empty value tags should be preserved")
+	})
+
+	t.Run("TagWithEqualsInValue", func(t *testing.T) {
+		// strings.Cut splits on the first "=", so "key=val=ue" → key:"val=ue"
+		t.Setenv("TELEMETRY_TAGS", "equation=a=b")
+
+		event := client.createEvent("test_event", map[string]any{})
+
+		assert.Equal(t, "a=b", event.Properties["equation"], "Values containing = should be preserved")
+	})
+}
+
+func TestTelemetryTags(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	mockHTTP := NewMockHTTPClient()
+	client := newClient(logger, true, true, "test-version", mockHTTP.Client)
+
+	client.endpoint = "https://test-tags.com/api"
+	client.apiKey = "test-tags-key"
+	client.header = "test-header"
+
+	t.Run("TagsIncludedInEvent", func(t *testing.T) {
+		t.Setenv("TELEMETRY_TAGS", "ci=github-actions,repository=docker/cagent,workflow=PR Review")
+
+		mockHTTP = NewMockHTTPClient()
+		client.httpClient = mockHTTP
+
+		client.Track(t.Context(), &CommandEvent{Action: "test", Success: true})
+		time.Sleep(20 * time.Millisecond)
+
+		bodies := mockHTTP.GetBodies()
+		require.NotEmpty(t, bodies)
+
+		var requestBody map[string]any
+		require.NoError(t, json.Unmarshal(bodies[0], &requestBody))
+
+		records := requestBody["records"].([]any)
+		properties := records[0].(map[string]any)["properties"].(map[string]any)
+
+		assert.Equal(t, "github-actions", properties["ci"])
+		assert.Equal(t, "docker/cagent", properties["repository"])
+		assert.Equal(t, "PR Review", properties["workflow"])
+	})
+
+	t.Run("NoTagsWhenUnset", func(t *testing.T) {
+		t.Setenv("TELEMETRY_TAGS", "")
+
+		mockHTTP = NewMockHTTPClient()
+		client.httpClient = mockHTTP
+
+		client.Track(t.Context(), &CommandEvent{Action: "test", Success: true})
+		time.Sleep(20 * time.Millisecond)
+
+		bodies := mockHTTP.GetBodies()
+		require.NotEmpty(t, bodies)
+
+		var requestBody map[string]any
+		require.NoError(t, json.Unmarshal(bodies[0], &requestBody))
+
+		records := requestBody["records"].([]any)
+		properties := records[0].(map[string]any)["properties"].(map[string]any)
+
+		_, hasCi := properties["ci"]
+		assert.False(t, hasCi, "Expected no 'ci' property when TELEMETRY_TAGS is empty")
+	})
+
+	t.Run("SystemMetadataCannotBeOverwritten", func(t *testing.T) {
+		t.Setenv("TELEMETRY_TAGS", "user_uuid=fake,version=0.0.0,os=spoofed")
+
+		mockHTTP = NewMockHTTPClient()
+		client.httpClient = mockHTTP
+
+		client.Track(t.Context(), &CommandEvent{Action: "test", Success: true})
+		time.Sleep(20 * time.Millisecond)
+
+		bodies := mockHTTP.GetBodies()
+		require.NotEmpty(t, bodies)
+
+		var requestBody map[string]any
+		require.NoError(t, json.Unmarshal(bodies[0], &requestBody))
+
+		records := requestBody["records"].([]any)
+		properties := records[0].(map[string]any)["properties"].(map[string]any)
+
+		assert.NotEqual(t, "fake", properties["user_uuid"], "user_uuid should not be overwritable via tags")
+		assert.Equal(t, "test-version", properties["version"], "version should not be overwritable via tags")
+		assert.NotEqual(t, "spoofed", properties["os"], "os should not be overwritable via tags")
+	})
+
+	t.Run("MalformedTagsIgnored", func(t *testing.T) {
+		t.Setenv("TELEMETRY_TAGS", "valid=yes,no_equals_sign,=empty_key,also_valid=true")
+
+		mockHTTP = NewMockHTTPClient()
+		client.httpClient = mockHTTP
+
+		client.Track(t.Context(), &CommandEvent{Action: "test", Success: true})
+		time.Sleep(20 * time.Millisecond)
+
+		bodies := mockHTTP.GetBodies()
+		require.NotEmpty(t, bodies)
+
+		var requestBody map[string]any
+		require.NoError(t, json.Unmarshal(bodies[0], &requestBody))
+
+		records := requestBody["records"].([]any)
+		properties := records[0].(map[string]any)["properties"].(map[string]any)
+
+		assert.Equal(t, "yes", properties["valid"])
+		assert.Equal(t, "true", properties["also_valid"])
+		_, hasEmptyKey := properties[""]
+		assert.False(t, hasEmptyKey, "Empty keys should be ignored")
+	})
+
+	t.Run("WhitespaceIsTrimmed", func(t *testing.T) {
+		t.Setenv("TELEMETRY_TAGS", " key1 = value1 , key2 = value2 ")
+
+		mockHTTP = NewMockHTTPClient()
+		client.httpClient = mockHTTP
+
+		client.Track(t.Context(), &CommandEvent{Action: "test", Success: true})
+		time.Sleep(20 * time.Millisecond)
+
+		bodies := mockHTTP.GetBodies()
+		require.NotEmpty(t, bodies)
+
+		var requestBody map[string]any
+		require.NoError(t, json.Unmarshal(bodies[0], &requestBody))
+
+		records := requestBody["records"].([]any)
+		properties := records[0].(map[string]any)["properties"].(map[string]any)
+
+		assert.Equal(t, "value1", properties["key1"])
+		assert.Equal(t, "value2", properties["key2"])
+	})
+}
+
 // TestNon2xxHTTPResponseHandling ensures that 5xx responses are logged and handled gracefully
 func TestNon2xxHTTPResponseHandling(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -699,11 +921,9 @@ func TestNon2xxHTTPResponseHandling(t *testing.T) {
 
 	client.Track(t.Context(), &CommandEvent{Action: "error-test", Success: true})
 
-	// Give time for background processing
-	time.Sleep(20 * time.Millisecond)
-
-	requestCount := mockHTTP.GetRequestCount()
-	assert.Positive(t, requestCount, "Expected HTTP request to be made despite error response")
+	require.Eventually(t, func() bool {
+		return mockHTTP.GetRequestCount() > 0
+	}, time.Second, 5*time.Millisecond, "Expected HTTP request to be made despite error response")
 
 	mockHTTP.SetResponse(&http.Response{
 		StatusCode: http.StatusNotFound,
@@ -714,8 +934,7 @@ func TestNon2xxHTTPResponseHandling(t *testing.T) {
 
 	client.Track(t.Context(), &CommandEvent{Action: "not-found-test", Success: true})
 
-	time.Sleep(20 * time.Millisecond)
-
-	finalRequestCount := mockHTTP.GetRequestCount()
-	assert.GreaterOrEqual(t, finalRequestCount, 2, "Expected at least 2 HTTP requests (500 + 404)")
+	require.Eventually(t, func() bool {
+		return mockHTTP.GetRequestCount() >= 2
+	}, time.Second, 5*time.Millisecond, "Expected at least 2 HTTP requests (500 + 404)")
 }

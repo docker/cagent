@@ -1,0 +1,181 @@
+<h1>Permissions</h1>
+<p class="subtitle">Control which tools can execute automatically, require confirmation, or are blocked entirely.</p>
+
+<h2>Overview</h2>
+
+<p>Permissions provide fine-grained control over tool execution. You can configure which tools are auto-approved (run without asking), which require user confirmation, and which are completely blocked.</p>
+
+<div class="callout callout-info">
+  <div class="callout-title">ℹ️ Evaluation Order</div>
+  <p>Permissions are evaluated in this order: <strong>Deny → Allow → Ask</strong>. Deny patterns take priority, then allow patterns, and anything else defaults to asking for user confirmation.</p>
+</div>
+
+<h2>Configuration</h2>
+
+<pre><code class="language-yaml">agents:
+  root:
+    model: openai/gpt-4o
+    description: Agent with permission controls
+    instruction: You are a helpful assistant.
+    permissions:
+      # Auto-approve these tools (no confirmation needed)
+      allow:
+        - "read_file"
+        - "read_*"           # Glob patterns
+        - "shell:cmd=ls*"    # With argument matching
+      
+      # Block these tools entirely
+      deny:
+        - "shell:cmd=sudo*"
+        - "shell:cmd=rm*-rf*"
+        - "dangerous_tool"</code></pre>
+
+<h2>Pattern Syntax</h2>
+
+<p>Permissions support glob-style patterns with optional argument matching:</p>
+
+<h3>Simple Patterns</h3>
+
+<table>
+  <thead><tr><th>Pattern</th><th>Matches</th></tr></thead>
+  <tbody>
+    <tr><td><code>shell</code></td><td>Exact match for <code>shell</code> tool</td></tr>
+    <tr><td><code>read_*</code></td><td>Any tool starting with <code>read_</code></td></tr>
+    <tr><td><code>mcp:github:*</code></td><td>Any GitHub MCP tool</td></tr>
+    <tr><td><code>*</code></td><td>All tools</td></tr>
+  </tbody>
+</table>
+
+<h3>Argument Matching</h3>
+
+<p>You can match tools based on their argument values using <code>tool:arg=pattern</code> syntax:</p>
+
+<pre><code class="language-yaml">permissions:
+  allow:
+    # Allow shell only when cmd starts with "ls" or "cat"
+    - "shell:cmd=ls*"
+    - "shell:cmd=cat*"
+    
+    # Allow edit_file only in specific directory
+    - "edit_file:path=/home/user/safe/*"
+  
+  deny:
+    # Block shell with sudo
+    - "shell:cmd=sudo*"
+    
+    # Block writes to system directories
+    - "write_file:path=/etc/*"
+    - "write_file:path=/usr/*"</code></pre>
+
+<h3>Multiple Argument Conditions</h3>
+
+<p>Chain multiple argument conditions with colons. All conditions must match:</p>
+
+<pre><code class="language-yaml">permissions:
+  allow:
+    # Allow shell with ls in current directory
+    - "shell:cmd=ls*:cwd=."
+  
+  deny:
+    # Block shell with rm -rf anywhere
+    - "shell:cmd=rm*:cmd=*-rf*"</code></pre>
+
+<h2>Glob Pattern Rules</h2>
+
+<p>Patterns follow filepath.Match semantics with some extensions:</p>
+
+<ul>
+  <li><code>*</code> — matches any sequence of characters (including spaces)</li>
+  <li><code>?</code> — matches any single character</li>
+  <li><code>[abc]</code> — matches any character in the set</li>
+  <li><code>[a-z]</code> — matches any character in the range</li>
+</ul>
+
+<p>Matching is <strong>case-insensitive</strong>.</p>
+
+<div class="callout callout-tip">
+  <div class="callout-title">💡 Trailing Wildcards</div>
+  <p>Trailing wildcards like <code>sudo*</code> match any characters including spaces, so <code>sudo*</code> matches <code>sudo rm -rf /</code>.</p>
+</div>
+
+<h2>Decision Types</h2>
+
+<table>
+  <thead><tr><th>Decision</th><th>Behavior</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Allow</strong></td><td>Tool executes immediately without user confirmation</td></tr>
+    <tr><td><strong>Ask</strong></td><td>User must confirm before tool executes (default)</td></tr>
+    <tr><td><strong>Deny</strong></td><td>Tool is blocked and returns an error to the agent</td></tr>
+  </tbody>
+</table>
+
+<h2>Examples</h2>
+
+<h3>Read-Only Agent</h3>
+
+<p>Allow all read operations, block all writes:</p>
+
+<pre><code class="language-yaml">permissions:
+  allow:
+    - "read_file"
+    - "read_multiple_files"
+    - "list_directory"
+    - "directory_tree"
+    - "search_files_content"
+  deny:
+    - "write_file"
+    - "edit_file"
+    - "shell"</code></pre>
+
+<h3>Safe Shell Agent</h3>
+
+<p>Allow specific safe commands, block dangerous ones:</p>
+
+<pre><code class="language-yaml">permissions:
+  allow:
+    - "shell:cmd=ls*"
+    - "shell:cmd=cat*"
+    - "shell:cmd=grep*"
+    - "shell:cmd=find*"
+    - "shell:cmd=head*"
+    - "shell:cmd=tail*"
+    - "shell:cmd=wc*"
+  deny:
+    - "shell:cmd=sudo*"
+    - "shell:cmd=rm*"
+    - "shell:cmd=mv*"
+    - "shell:cmd=chmod*"
+    - "shell:cmd=chown*"</code></pre>
+
+<h3>MCP Tool Permissions</h3>
+
+<p>Control MCP tools by their qualified names:</p>
+
+<pre><code class="language-yaml">permissions:
+  allow:
+    # Allow all GitHub read operations
+    - "mcp:github:get_*"
+    - "mcp:github:list_*"
+    - "mcp:github:search_*"
+  deny:
+    # Block destructive GitHub operations
+    - "mcp:github:delete_*"
+    - "mcp:github:close_*"</code></pre>
+
+<h2>Combining with Hooks</h2>
+
+<p>Permissions work alongside <a href="#configuration/hooks" onclick="event.preventDefault(); navigate('configuration/hooks')">hooks</a>. The evaluation order is:</p>
+
+<ol>
+  <li>Check <strong>deny</strong> patterns — if matched, tool is blocked</li>
+  <li>Check <strong>allow</strong> patterns — if matched, tool is auto-approved</li>
+  <li>Run <strong>pre_tool_use hooks</strong> — hooks can allow, deny, or ask</li>
+  <li>If no decision, <strong>ask user</strong> for confirmation</li>
+</ol>
+
+<p>Hooks can override allow decisions but cannot override deny decisions.</p>
+
+<div class="callout callout-warning">
+  <div class="callout-title">⚠️ Security Note</div>
+  <p>Permissions are enforced client-side. They help prevent accidental operations but should not be relied upon as a security boundary for untrusted agents. For stronger isolation, use <a href="#configuration/sandbox" onclick="event.preventDefault(); navigate('configuration/sandbox')">sandbox mode</a>.</p>
+</div>

@@ -83,6 +83,23 @@ func (b *BaseDialog) CenterDialog(renderedDialog string) (row, col int) {
 	return CenterPosition(b.width, b.height, dialogWidth, dialogHeight)
 }
 
+// ContentStartRow returns the absolute Y row where content begins inside a dialog.
+// dialogRow is the top-left row of the dialog, and headerContent is the rendered
+// header text above the target content area. The dialog frame (border + padding)
+// is accounted for automatically using DialogStyle.
+func ContentStartRow(dialogRow int, headerContent string) int {
+	frameTop := styles.DialogStyle.GetBorderTopSize() + styles.DialogStyle.GetPaddingTop()
+	return dialogRow + frameTop + lipgloss.Height(headerContent)
+}
+
+// ContentEndRow returns the absolute Y row of the last content line inside a dialog.
+// dialogRow is the top-left row and dialogHeight is the total rendered height.
+// The dialog frame (border + padding) is accounted for automatically using DialogStyle.
+func ContentEndRow(dialogRow, dialogHeight int) int {
+	frameBottom := styles.DialogStyle.GetBorderBottomSize() + styles.DialogStyle.GetPaddingBottom()
+	return dialogRow + dialogHeight - 1 - frameBottom
+}
+
 // CloseWithElicitationResponse returns a command that closes the dialog and sends an elicitation response.
 func CloseWithElicitationResponse(action tools.ElicitationAction, content map[string]any) tea.Cmd {
 	return tea.Sequence(

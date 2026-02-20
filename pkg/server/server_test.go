@@ -93,7 +93,7 @@ func startServer(t *testing.T, ctx context.Context, agentsDir string) string {
 	var store mockStore
 	runConfig := config.RuntimeConfig{}
 
-	sources, err := config.ResolveSources(agentsDir)
+	sources, err := config.ResolveSources(agentsDir, nil)
 	require.NoError(t, err)
 	srv, err := New(ctx, store, &runConfig, 0, sources)
 	require.NoError(t, err)
@@ -204,7 +204,7 @@ func startServerWithStore(t *testing.T, ctx context.Context, agentsDir string, s
 
 	runConfig := config.RuntimeConfig{}
 
-	sources, err := config.ResolveSources(agentsDir)
+	sources, err := config.ResolveSources(agentsDir, nil)
 	require.NoError(t, err)
 	srv, err := New(ctx, store, &runConfig, 0, sources)
 	require.NoError(t, err)

@@ -152,25 +152,33 @@ func TestParseJudgeResponse(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		text string
-		want bool
+		name       string
+		text       string
+		wantPassed bool
+		wantReason string
+		wantErr    bool
 	}{
-		{"simple pass", `{"result": "pass", "reason": "good"}`, true},
-		{"simple fail", `{"result": "fail", "reason": "bad"}`, false},
-		{"pass uppercase", `{"result": "PASS", "reason": "good"}`, true},
-		{"fail uppercase", `{"result": "FAIL", "reason": "bad"}`, false},
-		{"pass mixed case", `{"result": "Pass", "reason": "good"}`, true},
-		{"invalid json returns false", `not json at all`, false},
-		{"empty result returns false", `{"result": "", "reason": "empty"}`, false},
-		{"missing result field", `{"reason": "no result field"}`, false},
+		{"simple pass", `{"result": "pass", "reason": "good"}`, true, "good", false},
+		{"simple fail", `{"result": "fail", "reason": "bad"}`, false, "bad", false},
+		{"pass uppercase", `{"result": "PASS", "reason": "good"}`, true, "good", false},
+		{"fail uppercase", `{"result": "FAIL", "reason": "bad"}`, false, "bad", false},
+		{"pass mixed case", `{"result": "Pass", "reason": "good"}`, true, "good", false},
+		{"invalid json returns error", `not json at all`, false, "", true},
+		{"empty result returns false", `{"result": "", "reason": "empty"}`, false, "empty", false},
+		{"missing result field", `{"reason": "no result field"}`, false, "no result field", false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := parseJudgeResponse(tt.text)
-			assert.Equal(t, tt.want, got)
+			passed, reason, err := parseJudgeResponse(tt.text)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantPassed, passed)
+				assert.Equal(t, tt.wantReason, reason)
+			}
 		})
 	}
 }
@@ -216,9 +224,9 @@ func TestResultCheckResults(t *testing.T) {
 		},
 		{
 			name:         "relevance failures listed",
-			result:       Result{HandoffsMatch: true, RelevanceExpected: 2, RelevancePassed: 0, FailedRelevance: []string{"check A", "check B"}},
+			result:       Result{HandoffsMatch: true, RelevanceExpected: 2, RelevancePassed: 0, FailedRelevance: []RelevanceResult{{Criterion: "check A", Reason: "reason A"}, {Criterion: "check B", Reason: "reason B"}}},
 			wantSuccess:  []string{"handoffs"},
-			wantFailures: []string{"relevance: check A", "relevance: check B"},
+			wantFailures: []string{"relevance: check A (reason: reason A)", "relevance: check B (reason: reason B)"},
 		},
 	}
 
@@ -705,13 +713,13 @@ func TestProgressBarPrintResult(t *testing.T) {
 				HandoffsMatch:     true,
 				RelevanceExpected: 2,
 				RelevancePassed:   1,
-				FailedRelevance:   []string{"check failed"},
+				FailedRelevance:   []RelevanceResult{{Criterion: "check failed", Reason: "did not meet criteria"}},
 			},
 			wantContains: []string{
 				"✗ mixed-session", // overall failed
 				"✓ handoffs",
 				"✗ size expected M, got S",
-				"✗ relevance: check failed",
+				"✗ relevance: check failed (reason: did not meet criteria)",
 			},
 		},
 	}
@@ -769,6 +777,155 @@ func TestStatusIcon(t *testing.T) {
 		t.Run(strings.ReplaceAll(string(rune(int(tt.ratio*100))), "%", "pct"), func(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tt.want, statusIcon(tt.ratio))
+		})
+	}
+}
+
+func TestBuildTranscript(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		events       []map[string]any
+		wantContains []string
+		wantOrder    []string // substrings that must appear in this order
+	}{
+		{
+			name:         "empty events",
+			events:       []map[string]any{},
+			wantContains: nil,
+		},
+		{
+			name: "text before tool call",
+			events: []map[string]any{
+				{"type": "agent_choice", "content": "I'll search for that.", "agent_name": "root"},
+				{
+					"type":       "tool_call",
+					"agent_name": "root",
+					"tool_call": map[string]any{
+						"function": map[string]any{
+							"name":      "search",
+							"arguments": `{"query": "test"}`,
+						},
+					},
+				},
+			},
+			wantContains: []string{
+				"[Agent root says]",
+				"I'll search for that.",
+				`[Agent root calls tool "search" with arguments:`,
+			},
+			wantOrder: []string{"I'll search for that.", "calls tool"},
+		},
+		{
+			name: "tool call before text (wrong order)",
+			events: []map[string]any{
+				{
+					"type":       "tool_call",
+					"agent_name": "Coding agent",
+					"tool_call": map[string]any{
+						"function": map[string]any{
+							"name":      "shell",
+							"arguments": `{"cmd": "ls"}`,
+						},
+					},
+				},
+				{"type": "agent_choice", "content": "I ran the command.", "agent_name": "Coding agent"},
+			},
+			wantContains: []string{
+				`[Agent Coding agent calls tool "shell" with arguments:`,
+				"[Agent Coding agent says]",
+				"I ran the command.",
+			},
+			wantOrder: []string{"calls tool", "I ran the command."},
+		},
+		{
+			name: "tool call response included",
+			events: []map[string]any{
+				{
+					"type": "tool_call",
+					"tool_call": map[string]any{
+						"function": map[string]any{
+							"name":      "read_file",
+							"arguments": `{"path": "test.txt"}`,
+						},
+					},
+				},
+				{
+					"type":     "tool_call_response",
+					"response": "file contents here",
+					"tool_call": map[string]any{
+						"function": map[string]any{
+							"name": "read_file",
+						},
+					},
+				},
+			},
+			wantContains: []string{
+				`calls tool "read_file" with arguments:`,
+				`[Tool "read_file" returns: file contents here]`,
+			},
+		},
+		{
+			name: "long tool response truncated",
+			events: []map[string]any{
+				{
+					"type":     "tool_call_response",
+					"response": strings.Repeat("x", 600),
+					"tool_call": map[string]any{
+						"function": map[string]any{
+							"name": "shell",
+						},
+					},
+				},
+			},
+			wantContains: []string{
+				"...(truncated)",
+			},
+		},
+		{
+			name: "agent switch flushes text",
+			events: []map[string]any{
+				{"type": "agent_choice", "content": "Handing off.", "agent_name": "root"},
+				{
+					"type":       "tool_call",
+					"agent_name": "root",
+					"tool_call": map[string]any{
+						"function": map[string]any{
+							"name":      "handoff",
+							"arguments": `{}`,
+						},
+					},
+				},
+				{"type": "agent_choice", "content": "I'll help.", "agent_name": "Coding agent"},
+			},
+			wantContains: []string{
+				"[Agent root says]",
+				"Handing off.",
+				"[Agent Coding agent says]",
+				"I'll help.",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			transcript := buildTranscript(tt.events)
+
+			for _, want := range tt.wantContains {
+				assert.Contains(t, transcript, want)
+			}
+
+			// Verify ordering
+			if len(tt.wantOrder) > 1 {
+				lastIdx := -1
+				for _, substr := range tt.wantOrder {
+					idx := strings.Index(transcript, substr)
+					assert.Greater(t, idx, lastIdx, "expected %q to appear after previous substring in transcript", substr)
+					lastIdx = idx
+				}
+			}
 		})
 	}
 }

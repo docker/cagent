@@ -65,7 +65,8 @@ func TestA2AServer_Invoke(t *testing.T) {
 		"method":  "message/send",
 		"params": map[string]any{
 			"message": map[string]any{
-				"role": "user",
+				"messageId": "msg-1",
+				"role":      "user",
 				"parts": []map[string]any{
 					{
 						"kind": "text",
@@ -128,7 +129,8 @@ func TestA2AServer_MultipleRequests(t *testing.T) {
 				"method":  "message/send",
 				"params": map[string]any{
 					"message": map[string]any{
-						"role": "user",
+						"messageId": fmt.Sprintf("msg-%d", i),
+						"role":      "user",
 						"parts": []map[string]any{
 							{
 								"kind": "text",
@@ -179,7 +181,8 @@ func TestA2AServer_MultiAgent(t *testing.T) {
 		"method":  "message/send",
 		"params": map[string]any{
 			"message": map[string]any{
-				"role": "user",
+				"messageId": "msg-multi-1",
+				"role":      "user",
 				"parts": []map[string]any{
 					{
 						"kind": "text",

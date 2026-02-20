@@ -15,7 +15,7 @@ func TestMCP_SingleAgent(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	agentSource, err := config.Resolve("testdata/basic.yaml")
+	agentSource, err := config.Resolve("testdata/basic.yaml", nil)
 	require.NoError(t, err)
 
 	_, runConfig := startRecordingAIProxy(t)
@@ -38,7 +38,7 @@ func TestMCP_MultiAgent(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	agentSource, err := config.Resolve("testdata/multi.yaml")
+	agentSource, err := config.Resolve("testdata/multi.yaml", nil)
 	require.NoError(t, err)
 
 	_, runConfig := startRecordingAIProxy(t)

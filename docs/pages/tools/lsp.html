@@ -1,0 +1,183 @@
+<h1>LSP Tool</h1>
+<p class="subtitle">Connect to Language Server Protocol servers for code intelligence.</p>
+
+<h2>Overview</h2>
+
+<p>The LSP tool connects your agent to any Language Server Protocol (LSP) server, providing comprehensive code intelligence capabilities like go-to-definition, find references, diagnostics, and more.</p>
+
+<div class="callout callout-info">
+  <div class="callout-title">ℹ️ What is LSP?</div>
+  <p>The <a href="https://microsoft.github.io/language-server-protocol/" target="_blank" rel="noopener noreferrer">Language Server Protocol</a> is a standard for providing language features like autocomplete, go-to-definition, and diagnostics. Most programming languages have LSP servers available.</p>
+</div>
+
+<h2>Configuration</h2>
+
+<pre><code class="language-yaml">agents:
+  developer:
+    model: anthropic/claude-sonnet-4-0
+    description: Code developer with LSP support
+    instruction: You are a software developer.
+    toolsets:
+      - type: lsp
+        command: gopls
+        args: []
+        file_types: [".go"]
+      - type: filesystem
+      - type: shell</code></pre>
+
+<h2>Properties</h2>
+
+<table>
+  <thead><tr><th>Property</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>command</code></td><td>string</td><td>✓</td><td>LSP server executable command</td></tr>
+    <tr><td><code>args</code></td><td>array</td><td>✗</td><td>Command-line arguments for the LSP server</td></tr>
+    <tr><td><code>env</code></td><td>object</td><td>✗</td><td>Environment variables for the LSP process</td></tr>
+    <tr><td><code>file_types</code></td><td>array</td><td>✗</td><td>File extensions this LSP handles (e.g., <code>[".go", ".mod"]</code>)</td></tr>
+  </tbody>
+</table>
+
+<h2>Available Tools</h2>
+
+<p>The LSP toolset provides these tools to the agent:</p>
+
+<table>
+  <thead><tr><th>Tool</th><th>Description</th><th>Read-Only</th></tr></thead>
+  <tbody>
+    <tr><td><code>lsp_workspace</code></td><td>Get workspace info and available capabilities</td><td>✓</td></tr>
+    <tr><td><code>lsp_hover</code></td><td>Get type info and documentation for a symbol</td><td>✓</td></tr>
+    <tr><td><code>lsp_definition</code></td><td>Find where a symbol is defined</td><td>✓</td></tr>
+    <tr><td><code>lsp_references</code></td><td>Find all references to a symbol</td><td>✓</td></tr>
+    <tr><td><code>lsp_document_symbols</code></td><td>List all symbols in a file</td><td>✓</td></tr>
+    <tr><td><code>lsp_workspace_symbols</code></td><td>Search symbols across the workspace</td><td>✓</td></tr>
+    <tr><td><code>lsp_diagnostics</code></td><td>Get errors and warnings for a file</td><td>✓</td></tr>
+    <tr><td><code>lsp_code_actions</code></td><td>Get available quick fixes and refactorings</td><td>✓</td></tr>
+    <tr><td><code>lsp_rename</code></td><td>Rename a symbol across the workspace</td><td>✗</td></tr>
+    <tr><td><code>lsp_format</code></td><td>Format a file</td><td>✗</td></tr>
+    <tr><td><code>lsp_call_hierarchy</code></td><td>Find incoming/outgoing calls</td><td>✓</td></tr>
+    <tr><td><code>lsp_type_hierarchy</code></td><td>Find supertypes/subtypes</td><td>✓</td></tr>
+    <tr><td><code>lsp_implementations</code></td><td>Find interface implementations</td><td>✓</td></tr>
+    <tr><td><code>lsp_signature_help</code></td><td>Get function signature at call site</td><td>✓</td></tr>
+    <tr><td><code>lsp_inlay_hints</code></td><td>Get type annotations and parameter names</td><td>✓</td></tr>
+  </tbody>
+</table>
+
+<h2>Common LSP Servers</h2>
+
+<p>Here are configurations for popular languages:</p>
+
+<h3>Go (gopls)</h3>
+
+<pre><code class="language-yaml">toolsets:
+  - type: lsp
+    command: gopls
+    file_types: [".go"]</code></pre>
+
+<h3>TypeScript/JavaScript (typescript-language-server)</h3>
+
+<pre><code class="language-yaml">toolsets:
+  - type: lsp
+    command: typescript-language-server
+    args: ["--stdio"]
+    file_types: [".ts", ".tsx", ".js", ".jsx"]</code></pre>
+
+<h3>Python (pylsp)</h3>
+
+<pre><code class="language-yaml">toolsets:
+  - type: lsp
+    command: pylsp
+    file_types: [".py"]</code></pre>
+
+<h3>Rust (rust-analyzer)</h3>
+
+<pre><code class="language-yaml">toolsets:
+  - type: lsp
+    command: rust-analyzer
+    file_types: [".rs"]</code></pre>
+
+<h3>C/C++ (clangd)</h3>
+
+<pre><code class="language-yaml">toolsets:
+  - type: lsp
+    command: clangd
+    file_types: [".c", ".cpp", ".h", ".hpp"]</code></pre>
+
+<h2>Multiple LSP Servers</h2>
+
+<p>You can configure multiple LSP servers for different file types:</p>
+
+<pre><code class="language-yaml">agents:
+  polyglot:
+    model: anthropic/claude-sonnet-4-0
+    description: Multi-language developer
+    instruction: You are a full-stack developer.
+    toolsets:
+      - type: lsp
+        command: gopls
+        file_types: [".go"]
+      - type: lsp
+        command: typescript-language-server
+        args: ["--stdio"]
+        file_types: [".ts", ".tsx", ".js", ".jsx"]
+      - type: lsp
+        command: pylsp
+        file_types: [".py"]
+      - type: filesystem
+      - type: shell</code></pre>
+
+<h2>Workflow Instructions</h2>
+
+<p>The LSP tool includes built-in instructions that guide the agent on how to use it effectively. The agent learns to:</p>
+
+<ol>
+  <li>Start with <code>lsp_workspace</code> to understand available capabilities</li>
+  <li>Use <code>lsp_workspace_symbols</code> to find relevant code</li>
+  <li>Use <code>lsp_references</code> before modifying any symbol</li>
+  <li>Check <code>lsp_diagnostics</code> after every code change</li>
+  <li>Apply <code>lsp_format</code> after edits are complete</li>
+</ol>
+
+<div class="callout callout-tip">
+  <div class="callout-title">💡 Best Practice</div>
+  <p>Always include the <code>filesystem</code> tool alongside LSP. The agent needs filesystem access to read and write code files, while LSP provides intelligence about the code.</p>
+</div>
+
+<h2>Capability Detection</h2>
+
+<p>Not all LSP servers support all features. The agent uses <code>lsp_workspace</code> to discover what's available:</p>
+
+<pre><code class="language-text">Workspace Information:
+- Root: /path/to/project
+- Server: gopls v0.14.0
+- File types: .go
+
+Available Capabilities:
+- Hover: Yes
+- Go to Definition: Yes
+- Find References: Yes
+- Rename: Yes
+- Code Actions: Yes
+- Formatting: Yes
+- Call Hierarchy: Yes
+- Type Hierarchy: Yes
+...</code></pre>
+
+<h2>Position Format</h2>
+
+<p>All LSP tools use <strong>1-based</strong> line and character positions:</p>
+
+<ul>
+  <li>Line 1 is the first line of the file</li>
+  <li>Character 1 is the first character on a line</li>
+</ul>
+
+<pre><code class="language-json">{
+  "file": "/path/to/file.go",
+  "line": 42,
+  "character": 15
+}</code></pre>
+
+<div class="callout callout-warning">
+  <div class="callout-title">⚠️ Server Installation</div>
+  <p>The LSP server must be installed and available in the system PATH. cagent does not install LSP servers automatically. Install them using your language's package manager (e.g., <code>go install golang.org/x/tools/gopls@latest</code>).</p>
+</div>

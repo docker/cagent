@@ -3,13 +3,16 @@ package latest
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
+	"strings"
+	"time"
 
 	"github.com/goccy/go-yaml"
 
 	"github.com/docker/cagent/pkg/config/types"
 )
 
-const Version = "4"
+const Version = "5"
 
 // Config represents the entire configuration file
 type Config struct {
@@ -18,7 +21,7 @@ type Config struct {
 	Providers   map[string]ProviderConfig `json:"providers,omitempty"`
 	Models      map[string]ModelConfig    `json:"models,omitempty"`
 	RAG         map[string]RAGConfig      `json:"rag,omitempty"`
-	Metadata    Metadata                  `json:"metadata,omitempty"`
+	Metadata    Metadata                  `json:"metadata"`
 	Permissions *PermissionsConfig        `json:"permissions,omitempty"`
 }
 
@@ -43,7 +46,7 @@ func (c *Agents) UnmarshalYAML(unmarshal func(any) error) error {
 		}
 
 		var agent AgentConfig
-		if err := yaml.Unmarshal(valueBytes, &agent); err != nil {
+		if err := yaml.UnmarshalWithOptions(valueBytes, &agent, yaml.DisallowUnknownField()); err != nil {
 			return fmt.Errorf("failed to unmarshal agent config for %s: %w", name, err)
 		}
 
@@ -108,10 +111,107 @@ type ProviderConfig struct {
 	TokenKey string `json:"token_key,omitempty"`
 }
 
+// FallbackConfig represents fallback model configuration for an agent.
+// Controls which models to try when the primary fails and how retries/cooldowns work.
+// Most users only need to specify Models — the defaults handle common scenarios automatically.
+type FallbackConfig struct {
+	// Models is a list of fallback models to try in order if the primary fails.
+	// Each entry can be a model name from the models section or an inline provider/model format.
+	Models []string `json:"models,omitempty"`
+	// Retries is the number of retries per model with exponential backoff.
+	// Default is 2 (giving 3 total attempts per model). Use -1 to disable retries entirely.
+	// Retries only apply to retryable errors (5xx, timeouts); non-retryable errors (429, 4xx)
+	// skip immediately to the next model.
+	Retries int `json:"retries,omitempty"`
+	// Cooldown is the duration to stick with a successful fallback model before
+	// retrying the primary. Only applies after a non-retryable error (e.g., 429).
+	// Default is 1 minute. Use Go duration format (e.g., "1m", "30s", "2m30s").
+	Cooldown Duration `json:"cooldown"`
+}
+
+// Duration is a wrapper around time.Duration that supports YAML/JSON unmarshaling
+// from string format (e.g., "1m", "30s", "2h30m").
+type Duration struct {
+	time.Duration
+}
+
+// UnmarshalYAML implements custom unmarshaling for Duration from string format
+func (d *Duration) UnmarshalYAML(unmarshal func(any) error) error {
+	if d == nil {
+		return fmt.Errorf("cannot unmarshal into nil Duration")
+	}
+
+	var s string
+	if err := unmarshal(&s); err != nil {
+		// Try as integer (seconds)
+		var secs int
+		if err2 := unmarshal(&secs); err2 == nil {
+			d.Duration = time.Duration(secs) * time.Second
+			return nil
+		}
+		return err
+	}
+	if s == "" {
+		d.Duration = 0
+		return nil
+	}
+	dur, err := time.ParseDuration(s)
+	if err != nil {
+		return fmt.Errorf("invalid duration format %q: %w", s, err)
+	}
+	d.Duration = dur
+	return nil
+}
+
+// MarshalYAML implements custom marshaling for Duration to string format
+func (d Duration) MarshalYAML() ([]byte, error) {
+	if d.Duration == 0 {
+		return yaml.Marshal("")
+	}
+	return yaml.Marshal(d.String())
+}
+
+// UnmarshalJSON implements custom unmarshaling for Duration from string format
+func (d *Duration) UnmarshalJSON(data []byte) error {
+	if d == nil {
+		return fmt.Errorf("cannot unmarshal into nil Duration")
+	}
+
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		// Try as integer (seconds)
+		var secs int
+		if err2 := json.Unmarshal(data, &secs); err2 == nil {
+			d.Duration = time.Duration(secs) * time.Second
+			return nil
+		}
+		return err
+	}
+	if s == "" {
+		d.Duration = 0
+		return nil
+	}
+	dur, err := time.ParseDuration(s)
+	if err != nil {
+		return fmt.Errorf("invalid duration format %q: %w", s, err)
+	}
+	d.Duration = dur
+	return nil
+}
+
+// MarshalJSON implements custom marshaling for Duration to string format
+func (d Duration) MarshalJSON() ([]byte, error) {
+	if d.Duration == 0 {
+		return json.Marshal("")
+	}
+	return json.Marshal(d.String())
+}
+
 // AgentConfig represents a single agent configuration
 type AgentConfig struct {
 	Name                    string
 	Model                   string            `json:"model,omitempty"`
+	Fallback                *FallbackConfig   `json:"fallback,omitempty"`
 	Description             string            `json:"description,omitempty"`
 	WelcomeMessage          string            `json:"welcome_message,omitempty"`
 	Toolsets                []Toolset         `json:"toolsets,omitempty"`
@@ -132,8 +232,36 @@ type AgentConfig struct {
 	Hooks                   *HooksConfig      `json:"hooks,omitempty"`
 }
 
+// GetFallbackModels returns the fallback models from the config.
+func (a *AgentConfig) GetFallbackModels() []string {
+	if a.Fallback != nil {
+		return a.Fallback.Models
+	}
+	return nil
+}
+
+// GetFallbackRetries returns the fallback retries from the config.
+func (a *AgentConfig) GetFallbackRetries() int {
+	if a.Fallback != nil {
+		return a.Fallback.Retries
+	}
+	return 0
+}
+
+// GetFallbackCooldown returns the fallback cooldown duration from the config.
+// Returns the configured cooldown, or 0 if not set (caller should apply default).
+func (a *AgentConfig) GetFallbackCooldown() time.Duration {
+	if a.Fallback != nil {
+		return a.Fallback.Cooldown.Duration
+	}
+	return 0
+}
+
 // ModelConfig represents the configuration for a model
 type ModelConfig struct {
+	// Name is the manifest model name (map key), populated at runtime.
+	// Not serialized — set by teamloader/model_switcher when resolving models.
+	Name              string   `json:"-"`
 	Provider          string   `json:"provider,omitempty"`
 	Model             string   `json:"model,omitempty"`
 	Temperature       *float64 `json:"temperature,omitempty"`
@@ -157,6 +285,71 @@ type ModelConfig struct {
 	// - The provider/model fields define the fallback model
 	// - Each routing rule maps to a different model based on examples
 	Routing []RoutingRule `json:"routing,omitempty"`
+}
+
+// Clone returns a deep copy of the ModelConfig.
+func (m *ModelConfig) Clone() *ModelConfig {
+	if m == nil {
+		return nil
+	}
+	var c ModelConfig
+	types.CloneThroughJSON(m, &c)
+	return &c
+}
+
+// FlexibleModelConfig wraps ModelConfig to support both shorthand and full syntax.
+// It can be unmarshaled from either:
+//   - A shorthand string: "provider/model" (e.g., "anthropic/claude-sonnet-4-5")
+//   - A full model definition with all options
+type FlexibleModelConfig struct {
+	ModelConfig
+}
+
+// UnmarshalYAML implements custom unmarshaling for flexible model config
+func (f *FlexibleModelConfig) UnmarshalYAML(unmarshal func(any) error) error {
+	// Try string shorthand first
+	var shorthand string
+	if err := unmarshal(&shorthand); err == nil && shorthand != "" {
+		provider, model, ok := strings.Cut(shorthand, "/")
+		if !ok || provider == "" || model == "" {
+			return fmt.Errorf("invalid model shorthand %q: expected format 'provider/model'", shorthand)
+		}
+		f.Provider = provider
+		f.Model = model
+		return nil
+	}
+
+	// Try full model config
+	var cfg ModelConfig
+	if err := unmarshal(&cfg); err != nil {
+		return err
+	}
+	f.ModelConfig = cfg
+	return nil
+}
+
+// MarshalYAML outputs shorthand format if only provider/model are set
+func (f FlexibleModelConfig) MarshalYAML() ([]byte, error) {
+	if f.isShorthandOnly() {
+		return yaml.Marshal(f.Provider + "/" + f.Model)
+	}
+	return yaml.Marshal(f.ModelConfig)
+}
+
+// isShorthandOnly returns true if only provider and model are set
+func (f *FlexibleModelConfig) isShorthandOnly() bool {
+	return f.Temperature == nil &&
+		f.MaxTokens == nil &&
+		f.TopP == nil &&
+		f.FrequencyPenalty == nil &&
+		f.PresencePenalty == nil &&
+		f.BaseURL == "" &&
+		f.ParallelToolCalls == nil &&
+		f.TokenKey == "" &&
+		len(f.ProviderOpts) == 0 &&
+		f.TrackUsage == nil &&
+		f.ThinkingBudget == nil &&
+		len(f.Routing) == 0
 }
 
 // RoutingRule defines a single routing rule for model selection.
@@ -231,18 +424,19 @@ type Toolset struct {
 	Instruction string   `json:"instruction,omitempty"`
 	Toon        string   `json:"toon,omitempty"`
 
-	Defer DeferConfig `json:"defer,omitempty" yaml:"defer,omitempty"`
+	Defer DeferConfig `json:"defer" yaml:"defer,omitempty"`
 
 	// For the `mcp` tool
 	Command string   `json:"command,omitempty"`
 	Args    []string `json:"args,omitempty"`
 	Ref     string   `json:"ref,omitempty"`
-	Remote  Remote   `json:"remote,omitempty"`
+	Remote  Remote   `json:"remote"`
 	Config  any      `json:"config,omitempty"`
 
-	// For the `a2a` tool
-	Name string `json:"name,omitempty"`
-	URL  string `json:"url,omitempty"`
+	// For the `a2a` and `openapi` tools
+	Name    string            `json:"name,omitempty"`
+	URL     string            `json:"url,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
 
 	// For `shell`, `script`, `mcp` or `lsp` tools
 	Env map[string]string `json:"env,omitempty"`
@@ -253,7 +447,7 @@ type Toolset struct {
 	// For the `todo` tool
 	Shared bool `json:"shared,omitempty"`
 
-	// For the `memory` tool
+	// For the `memory` and `tasks` tools
 	Path string `json:"path,omitempty"`
 
 	// For the `script` tool
@@ -262,7 +456,7 @@ type Toolset struct {
 	// For the `filesystem` tool - post-edit commands
 	PostEdit []PostEditConfig `json:"post_edit,omitempty"`
 
-	APIConfig APIToolConfig `json:"api_config,omitempty"`
+	APIConfig APIToolConfig `json:"api_config"`
 
 	// For the `filesystem` tool - VCS integration
 	IgnoreVCS *bool `json:"ignore_vcs,omitempty"`
@@ -305,7 +499,7 @@ type SandboxConfig struct {
 // DeferConfig represents the deferred loading configuration for a toolset.
 // It can be either a boolean (true to defer all tools) or a slice of strings
 // (list of tool names to defer).
-type DeferConfig struct {
+type DeferConfig struct { //nolint:recvcheck // MarshalYAML must use value receiver for YAML slice encoding, UnmarshalYAML must use pointer
 	// DeferAll is true when all tools should be deferred
 	DeferAll bool `json:"-"`
 	// Tools is the list of specific tool names to defer (empty if DeferAll is true)
@@ -390,11 +584,11 @@ func (t ThinkingBudget) MarshalYAML() ([]byte, error) {
 func (t ThinkingBudget) MarshalJSON() ([]byte, error) {
 	// If Effort string is set (non-empty), marshal as string
 	if t.Effort != "" {
-		return []byte(fmt.Sprintf("%q", t.Effort)), nil
+		return fmt.Appendf(nil, "%q", t.Effort), nil
 	}
 
 	// Otherwise marshal as integer (includes 0, -1, and positive values)
-	return []byte(fmt.Sprintf("%d", t.Tokens)), nil
+	return fmt.Appendf(nil, "%d", t.Tokens), nil
 }
 
 // UnmarshalJSON implements custom unmarshaling to accept simple string or int format
@@ -439,11 +633,11 @@ type RAGToolConfig struct {
 // RAGConfig represents a RAG (Retrieval-Augmented Generation) configuration
 // Uses a unified strategies array for flexible, extensible configuration
 type RAGConfig struct {
-	Tool       RAGToolConfig       `json:"tool,omitempty"`        // Tool configuration
+	Tool       RAGToolConfig       `json:"tool"`                  // Tool configuration
 	Docs       []string            `json:"docs,omitempty"`        // Shared documents across all strategies
 	RespectVCS *bool               `json:"respect_vcs,omitempty"` // Whether to respect VCS ignore files like .gitignore (default: true)
 	Strategies []RAGStrategyConfig `json:"strategies,omitempty"`  // Array of strategy configurations
-	Results    RAGResultsConfig    `json:"results,omitempty"`
+	Results    RAGResultsConfig    `json:"results"`
 }
 
 // GetRespectVCS returns whether VCS ignore files should be respected, defaulting to true
@@ -456,12 +650,12 @@ func (c *RAGConfig) GetRespectVCS() bool {
 
 // RAGStrategyConfig represents a single retrieval strategy configuration
 // Strategy-specific fields are stored in Params (validated by strategy implementation)
-type RAGStrategyConfig struct {
-	Type     string            `json:"type"`               // Strategy type: "chunked-embeddings", "bm25", etc.
-	Docs     []string          `json:"docs,omitempty"`     // Strategy-specific documents (augments shared docs)
-	Database RAGDatabaseConfig `json:"database,omitempty"` // Database configuration
-	Chunking RAGChunkingConfig `json:"chunking,omitempty"` // Chunking configuration
-	Limit    int               `json:"limit,omitempty"`    // Max results from this strategy (for fusion input)
+type RAGStrategyConfig struct { //nolint:recvcheck // Marshal methods must use value receiver for YAML/JSON slice encoding, Unmarshal must use pointer
+	Type     string            `json:"type"`            // Strategy type: "chunked-embeddings", "bm25", etc.
+	Docs     []string          `json:"docs,omitempty"`  // Strategy-specific documents (augments shared docs)
+	Database RAGDatabaseConfig `json:"database"`        // Database configuration
+	Chunking RAGChunkingConfig `json:"chunking"`        // Chunking configuration
+	Limit    int               `json:"limit,omitempty"` // Max results from this strategy (for fusion input)
 
 	// Strategy-specific parameters (arbitrary key-value pairs)
 	// Examples:
@@ -614,9 +808,7 @@ func (s RAGStrategyConfig) buildFlattenedMap() map[string]any {
 	}
 
 	// Flatten Params into the same level
-	for k, v := range s.Params {
-		result[k] = v
-	}
+	maps.Copy(result, s.Params)
 
 	return result
 }
@@ -877,14 +1069,18 @@ type RAGFusionConfig struct {
 // PermissionsConfig represents tool permission configuration.
 // Allow/Ask/Deny model. This controls tool call approval behavior:
 // - Allow: Tools matching these patterns are auto-approved (like --yolo for specific tools)
-// - Ask: Tools matching these patterns always require user approval (default behavior)
+// - Ask: Tools matching these patterns always require user approval, even if the tool is read-only
 // - Deny: Tools matching these patterns are always rejected, even with --yolo
 //
 // Patterns support glob-style matching (e.g., "shell", "read_*", "mcp:github:*")
-// The evaluation order is: Deny (checked first), then Allow, then Ask (default)
+// The evaluation order is: Deny (checked first), then Allow, then Ask (explicit), then default
+// (read-only tools auto-approved, others ask)
 type PermissionsConfig struct {
 	// Allow lists tool name patterns that are auto-approved without user confirmation
 	Allow []string `json:"allow,omitempty"`
+	// Ask lists tool name patterns that always require user confirmation,
+	// even for tools that are normally auto-approved (e.g. read-only tools)
+	Ask []string `json:"ask,omitempty"`
 	// Deny lists tool name patterns that are always rejected
 	Deny []string `json:"deny,omitempty"`
 }

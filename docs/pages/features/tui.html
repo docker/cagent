@@ -1,0 +1,222 @@
+<h1>Terminal UI (TUI)</h1>
+<p class="subtitle">cagent's default interface is a rich, interactive terminal UI with file attachments, themes, session management, and more.</p>
+
+<div class="demo-container">
+  <img src="demo.gif" alt="cagent TUI in action showing an interactive agent session" loading="lazy">
+</div>
+
+<h2>Launching the TUI</h2>
+
+<pre><code class="language-bash"># Launch with a config
+$ cagent run agent.yaml
+
+# Start with an initial message
+$ cagent run agent.yaml "Help me refactor this code"
+
+# Auto-approve all tool calls
+$ cagent run agent.yaml --yolo
+
+# Enable debug logging
+$ cagent run agent.yaml --debug</code></pre>
+
+<h2>Slash Commands</h2>
+
+<p>Type <code>/</code> during a session to see available commands, or press <kbd>Ctrl</kbd>+<kbd>K</kbd> for the command palette:</p>
+
+<table>
+  <thead><tr><th>Command</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>/new</code></td><td>Start a new conversation</td></tr>
+    <tr><td><code>/compact</code></td><td>Summarize and compact the conversation history</td></tr>
+    <tr><td><code>/copy</code></td><td>Copy the conversation to clipboard</td></tr>
+    <tr><td><code>/export</code></td><td>Export the session as HTML</td></tr>
+    <tr><td><code>/sessions</code></td><td>Browse and load past sessions</td></tr>
+    <tr><td><code>/model</code></td><td>Change the model for the current agent</td></tr>
+    <tr><td><code>/theme</code></td><td>Change the color theme</td></tr>
+    <tr><td><code>/think</code></td><td>Toggle thinking/reasoning mode</td></tr>
+    <tr><td><code>/yolo</code></td><td>Toggle automatic tool call approval</td></tr>
+    <tr><td><code>/title</code></td><td>Set or regenerate session title</td></tr>
+    <tr><td><code>/attach</code></td><td>Attach a file to your message</td></tr>
+    <tr><td><code>/shell</code></td><td>Open a shell</td></tr>
+    <tr><td><code>/star</code></td><td>Star/unstar the current session</td></tr>
+    <tr><td><code>/cost</code></td><td>Show cost breakdown for this session</td></tr>
+    <tr><td><code>/eval</code></td><td>Create an evaluation report</td></tr>
+    <tr><td><code>/exit</code></td><td>Exit the application</td></tr>
+  </tbody>
+</table>
+
+<h2>File Attachments</h2>
+
+<p>Attach file contents to your messages using the <code>@</code> trigger:</p>
+
+<ol>
+  <li>Type <code>@</code> to open the file completion menu</li>
+  <li>Start typing to filter files (respects <code>.gitignore</code>)</li>
+  <li>Select a file to insert the reference</li>
+</ol>
+
+<pre><code class="language-bash"># In the chat input:
+Explain what the code in @pkg/agent/agent.go does</code></pre>
+
+<p>The agent receives the full file contents in a structured <code>&lt;attachments&gt;</code> block, while the UI shows just the reference.</p>
+
+<h2>Runtime Model Switching</h2>
+
+<p>Change the AI model during a session with <code>/model</code> or <kbd>Ctrl</kbd>+<kbd>M</kbd>:</p>
+
+<ol>
+  <li>Press <kbd>Ctrl</kbd>+<kbd>M</kbd> or type <code>/model</code></li>
+  <li>Select from config models or type a custom <code>provider/model</code></li>
+  <li>The model switch is saved with the session and restored on reload</li>
+</ol>
+
+<div class="callout callout-tip">
+  <div class="callout-title">💡 Tip</div>
+  <p>Use model switching to try a more capable model for complex tasks, or a cheaper one for simple queries — without modifying your YAML config.</p>
+</div>
+
+<h2>Editable Messages</h2>
+
+<p>Edit any previous user message to branch the conversation. Click on a past message to modify it — the agent will re-process from that point, while the original session history is preserved. This is great for exploring alternative approaches without losing your work.</p>
+
+<h2>Session Management</h2>
+
+<p>cagent automatically saves your sessions. Use <code>/sessions</code> to browse past conversations:</p>
+
+<ul>
+  <li><strong>Browse</strong> past sessions with search and filtering</li>
+  <li><strong>Star</strong> important sessions with <code>/star</code></li>
+  <li><strong>Branch</strong> conversations by editing any previous user message — preserving the original session history</li>
+  <li><strong>Resume</strong> sessions with <code>cagent run config.yaml --session &lt;id&gt;</code></li>
+  <li><strong>Relative refs</strong>: <code>--session -1</code> for the last session, <code>-2</code> for the one before</li>
+</ul>
+
+<h3>Session Title Editing</h3>
+
+<p>Customize session titles to make them more meaningful and easier to find. By default, cagent auto-generates titles based on your first message, but you can override or regenerate them at any time.</p>
+
+<p><strong>Using the <code>/title</code> command:</strong></p>
+
+<pre><code class="language-bash">/title                     # Regenerate title using AI (based on recent messages)
+/title My Custom Title     # Set a specific title</code></pre>
+
+<p><strong>Using the sidebar:</strong></p>
+
+<ol>
+  <li>Click the pencil icon (✎) next to the session title in the sidebar</li>
+  <li>Type your new title</li>
+  <li>Press <kbd>Enter</kbd> to save, or <kbd>Escape</kbd> to cancel</li>
+</ol>
+
+<div class="callout callout-info">
+  <div class="callout-title">ℹ️ Note</div>
+  <p>Manually set titles are preserved and won’t be overwritten by auto-generation. Title changes are persisted immediately to the session.</p>
+</div>
+
+<h2>Keyboard Shortcuts</h2>
+
+<table>
+  <thead><tr><th>Shortcut</th><th>Action</th></tr></thead>
+  <tbody>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>K</kbd></td><td>Open command palette</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>M</kbd></td><td>Switch model</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>R</kbd></td><td>Reverse history search (search previous inputs)</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>L</kbd></td><td>Start audio listening mode (voice input)</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>Suspend TUI to background (resume with <code>fg</code>)</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>X</kbd></td><td>Clear queued messages</td></tr>
+    <tr><td><kbd>Escape</kbd></td><td>Cancel current operation</td></tr>
+    <tr><td><kbd>Enter</kbd></td><td>Send message (or newline with Shift+Enter)</td></tr>
+    <tr><td><kbd>Up</kbd>/<kbd>Down</kbd></td><td>Navigate message history</td></tr>
+  </tbody>
+</table>
+
+<h2>History Search</h2>
+
+<p>Press <kbd>Ctrl</kbd>+<kbd>R</kbd> to enter incremental history search mode. Start typing to filter through your previous inputs. Press <kbd>Enter</kbd> to select a match, or <kbd>Escape</kbd> to cancel.</p>
+
+<h2>Theming</h2>
+
+<p>Customize the TUI appearance with built-in or custom themes:</p>
+
+<pre><code class="language-bash"># Switch themes interactively
+/theme</code></pre>
+
+<h3>Built-in Themes</h3>
+
+<p><code>default</code>, <code>catppuccin-latte</code>, <code>catppuccin-mocha</code>, <code>dracula</code>, <code>gruvbox-dark</code>, <code>gruvbox-light</code>, <code>nord</code>, <code>one-dark</code>, <code>solarized-dark</code>, <code>tokyo-night</code></p>
+
+<h3>Custom Themes</h3>
+
+<p>Create theme files in <code>~/.cagent/themes/</code> as YAML. Theme files are <strong>partial overrides</strong> — you only need to specify the colors you want to change. Any omitted keys fall back to the built-in default theme values.</p>
+
+<pre><code class="language-yaml"># ~/.cagent/themes/my-theme.yaml
+name: "My Custom Theme"
+
+colors:
+  # Backgrounds
+  background: "#1a1a2e"
+  background_alt: "#16213e"
+
+  # Text colors
+  text_bright: "#ffffff"
+  text_primary: "#e8e8e8"
+  text_secondary: "#b0b0b0"
+  text_muted: "#707070"
+
+  # Accent colors
+  accent: "#4fc3f7"
+  brand: "#1d96f3"
+
+  # Status colors
+  success: "#4caf50"
+  error: "#f44336"
+  warning: "#ff9800"
+  info: "#00bcd4"
+
+# Optional: Customize syntax highlighting colors
+chroma:
+  comment: "#6a9955"
+  keyword: "#569cd6"
+  literal_string: "#ce9178"
+
+# Optional: Customize markdown rendering colors
+markdown:
+  heading: "#4fc3f7"
+  link: "#569cd6"
+  code: "#ce9178"</code></pre>
+
+<h3>Applying Themes</h3>
+
+<p><strong>In user config</strong> (<code>~/.config/cagent/config.yaml</code>):</p>
+
+<pre><code class="language-yaml">settings:
+  theme: my-theme  # References ~/.cagent/themes/my-theme.yaml</code></pre>
+
+<p><strong>At runtime:</strong> Use the <code>/theme</code> command to open the theme picker and select from available themes. Your selection is saved globally in <code>~/.config/cagent/config.yaml</code> under <code>settings.theme</code> and persists across sessions.</p>
+
+<div class="callout callout-tip">
+  <div class="callout-title">💡 Hot Reload</div>
+  <p>Custom themes auto-reload when you save changes to the file — no restart needed. This makes it easy to tweak colors in real-time.</p>
+</div>
+
+<div class="callout callout-warning">
+  <div class="callout-title">⚠️ Partial overrides</div>
+  <p>All user themes are applied on top of the <code>default</code> theme. If you want to customize a built-in theme (e.g., <code>dracula</code>), copy its full YAML from the <a href="https://github.com/docker/cagent/tree/main/pkg/tui/styles/themes" target="_blank" rel="noopener noreferrer">built-in themes on GitHub</a> into <code>~/.cagent/themes/</code> and edit the copy. Otherwise, omitted values will use <code>default</code> colors, not the original theme's colors.</p>
+</div>
+
+<h2>Tool Permissions</h2>
+
+<p>When an agent calls a tool, cagent shows a confirmation dialog by default. You can:</p>
+
+<ul>
+  <li><strong>Approve once</strong> — Allow this specific call</li>
+  <li><strong>Always allow</strong> — Permanently approve this tool/command for the session</li>
+  <li><strong>Deny</strong> — Reject the tool call</li>
+</ul>
+
+<p><strong>Granular permissions:</strong> The permission system supports pattern-based matching. When you “Always allow” a specific tool command, only that exact pattern is auto-approved — other commands from the same tool still require confirmation. This lets you auto-approve safe, read-only operations while maintaining control over destructive ones.</p>
+
+<div class="callout callout-tip">
+  <div class="callout-title">💡 YOLO mode</div>
+  <p>Use <code>--yolo</code> or the <code>/yolo</code> command to auto-approve all tool calls. You can also toggle this mid-session. For aliases, set <code>--yolo</code> when creating the alias: <code>cagent alias add fast agentcatalog/coder --yolo</code>.</p>
+</div>

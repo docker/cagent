@@ -9,6 +9,7 @@ import (
 
 	"github.com/docker/cagent/pkg/config/latest"
 	"github.com/docker/cagent/pkg/model/provider/base"
+	"github.com/docker/cagent/pkg/model/provider/options"
 )
 
 func TestBuildConfig_Gemini25_ThinkingBudget(t *testing.T) {
@@ -25,35 +26,35 @@ func TestBuildConfig_Gemini25_ThinkingBudget(t *testing.T) {
 			name:                 "gemini-2.5-flash with dynamic thinking (-1)",
 			model:                "gemini-2.5-flash",
 			thinkingBudget:       &latest.ThinkingBudget{Tokens: -1},
-			expectThinkingBudget: ptr(int32(-1)),
+			expectThinkingBudget: new(int32(-1)),
 			expectThinkingLevel:  "",
 		},
 		{
 			name:                 "gemini-2.5-pro with dynamic thinking (-1)",
 			model:                "gemini-2.5-pro",
 			thinkingBudget:       &latest.ThinkingBudget{Tokens: -1},
-			expectThinkingBudget: ptr(int32(-1)),
+			expectThinkingBudget: new(int32(-1)),
 			expectThinkingLevel:  "",
 		},
 		{
 			name:                 "gemini-2.5-flash with specific token budget",
 			model:                "gemini-2.5-flash",
 			thinkingBudget:       &latest.ThinkingBudget{Tokens: 8192},
-			expectThinkingBudget: ptr(int32(8192)),
+			expectThinkingBudget: new(int32(8192)),
 			expectThinkingLevel:  "",
 		},
 		{
 			name:                 "gemini-2.5-flash with thinking disabled (0)",
 			model:                "gemini-2.5-flash",
 			thinkingBudget:       &latest.ThinkingBudget{Tokens: 0},
-			expectThinkingBudget: ptr(int32(0)),
+			expectThinkingBudget: new(int32(0)),
 			expectThinkingLevel:  "",
 		},
 		{
 			name:                 "gemini-2.5-flash-lite with dynamic thinking",
 			model:                "gemini-2.5-flash-lite",
 			thinkingBudget:       &latest.ThinkingBudget{Tokens: -1},
-			expectThinkingBudget: ptr(int32(-1)),
+			expectThinkingBudget: new(int32(-1)),
 			expectThinkingLevel:  "",
 		},
 	}
@@ -279,7 +280,129 @@ func TestBuildConfig_CaseInsensitiveModel(t *testing.T) {
 	}
 }
 
-// ptr is a helper to create a pointer to an int32 value.
-func ptr(v int32) *int32 {
-	return &v
+func TestBuildConfig_ThinkingExplicitlyDisabled(t *testing.T) {
+	t.Parallel()
+
+	// Test that when ModelOptions.Thinking() returns false, thinking is explicitly disabled.
+	// This is important for operations like title generation where max_tokens is very low.
+	tests := []struct {
+		name               string
+		model              string
+		thinkingBudget     *latest.ThinkingBudget // Would normally enable thinking
+		expectBudgetZero   bool                   // Gemini 2.5: ThinkingBudget=0
+		expectLevelLow     bool                   // Gemini 3: ThinkingLevelLow (cannot fully disable)
+		expectMinMaxTokens int32                  // Gemini 3: bumped MaxOutputTokens
+	}{
+		{
+			name:               "gemini-3-flash-preview with thinking budget but disabled via options",
+			model:              "gemini-3-flash-preview",
+			thinkingBudget:     &latest.ThinkingBudget{Effort: "medium"},
+			expectLevelLow:     true,
+			expectMinMaxTokens: 200,
+		},
+		{
+			name:             "gemini-2.5-flash with thinking budget but disabled via options",
+			model:            "gemini-2.5-flash",
+			thinkingBudget:   &latest.ThinkingBudget{Tokens: 8192},
+			expectBudgetZero: true,
+		},
+		{
+			name:               "gemini-3-pro with nil thinking budget but disabled via options",
+			model:              "gemini-3-pro",
+			thinkingBudget:     nil, // Even without explicit budget, Gemini 3 may use thinking by default
+			expectLevelLow:     true,
+			expectMinMaxTokens: 200,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Create ModelOptions with thinking explicitly disabled
+			var modelOpts options.ModelOptions
+			options.WithThinking(false)(&modelOpts)
+
+			client := &Client{
+				Config: base.Config{
+					ModelConfig: latest.ModelConfig{
+						Provider:       "google",
+						Model:          tt.model,
+						ThinkingBudget: tt.thinkingBudget,
+					},
+					ModelOptions: modelOpts,
+				},
+			}
+
+			config := client.buildConfig()
+
+			require.NotNil(t, config.ThinkingConfig, "ThinkingConfig should be explicitly set when thinking is disabled")
+
+			if tt.expectBudgetZero {
+				// Gemini 2.5: fully disabled via ThinkingBudget=0
+				assert.False(t, config.ThinkingConfig.IncludeThoughts, "IncludeThoughts should be false")
+				require.NotNil(t, config.ThinkingConfig.ThinkingBudget, "ThinkingBudget should be set to 0")
+				assert.Equal(t, int32(0), *config.ThinkingConfig.ThinkingBudget, "ThinkingBudget should be 0")
+				assert.Empty(t, config.ThinkingConfig.ThinkingLevel, "ThinkingLevel should be empty")
+			}
+
+			if tt.expectLevelLow {
+				// Gemini 3: cannot fully disable, use lowest level
+				assert.False(t, config.ThinkingConfig.IncludeThoughts, "IncludeThoughts should be false")
+				assert.Equal(t, genai.ThinkingLevelLow, config.ThinkingConfig.ThinkingLevel, "ThinkingLevel should be low")
+				assert.Nil(t, config.ThinkingConfig.ThinkingBudget, "ThinkingBudget should not be set for Gemini 3")
+				assert.GreaterOrEqual(t, config.MaxOutputTokens, tt.expectMinMaxTokens, "MaxOutputTokens should be bumped")
+			}
+		})
+	}
+}
+
+func TestBuildConfig_ThinkingExplicitlyEnabled(t *testing.T) {
+	t.Parallel()
+
+	// Test that when ModelOptions.Thinking() returns true, thinking is NOT overridden
+	// and the ThinkingBudget from ModelConfig is used.
+	var modelOpts options.ModelOptions
+	options.WithThinking(true)(&modelOpts)
+
+	client := &Client{
+		Config: base.Config{
+			ModelConfig: latest.ModelConfig{
+				Provider:       "google",
+				Model:          "gemini-3-flash-preview",
+				ThinkingBudget: &latest.ThinkingBudget{Effort: "medium"},
+			},
+			ModelOptions: modelOpts,
+		},
+	}
+
+	config := client.buildConfig()
+
+	// ThinkingConfig should be set with IncludeThoughts=true from applyThinkingConfig
+	require.NotNil(t, config.ThinkingConfig, "ThinkingConfig should be set")
+	assert.True(t, config.ThinkingConfig.IncludeThoughts, "IncludeThoughts should be true when thinking is enabled")
+	assert.Equal(t, genai.ThinkingLevelMedium, config.ThinkingConfig.ThinkingLevel, "ThinkingLevel should be set from ThinkingBudget")
+}
+
+func TestBuildConfig_ThinkingNotSet(t *testing.T) {
+	t.Parallel()
+
+	// Test that when ModelOptions.Thinking() is nil (not set), behavior falls back to ThinkingBudget
+	client := &Client{
+		Config: base.Config{
+			ModelConfig: latest.ModelConfig{
+				Provider:       "google",
+				Model:          "gemini-3-flash",
+				ThinkingBudget: &latest.ThinkingBudget{Effort: "high"},
+			},
+			// ModelOptions.Thinking() is nil by default
+		},
+	}
+
+	config := client.buildConfig()
+
+	// ThinkingConfig should be set from ThinkingBudget
+	require.NotNil(t, config.ThinkingConfig, "ThinkingConfig should be set from ThinkingBudget")
+	assert.True(t, config.ThinkingConfig.IncludeThoughts, "IncludeThoughts should be true")
+	assert.Equal(t, genai.ThinkingLevelHigh, config.ThinkingConfig.ThinkingLevel, "ThinkingLevel should match ThinkingBudget")
 }

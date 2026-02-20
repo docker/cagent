@@ -1,0 +1,213 @@
+<h1>Structured Output</h1>
+<p class="subtitle">Force the agent to respond with JSON matching a specific schema.</p>
+
+<h2>Overview</h2>
+
+<p>Structured output constrains the agent's responses to match a predefined JSON schema. This is useful for building agents that need to produce machine-readable output for downstream processing, API responses, or integration with other systems.</p>
+
+<div class="callout callout-info">
+  <div class="callout-title">ℹ️ When to Use</div>
+  <ul>
+    <li>Building API endpoints that need consistent JSON responses</li>
+    <li>Data extraction and transformation pipelines</li>
+    <li>Agents that feed into other automated systems</li>
+    <li>Ensuring predictable output format for parsing</li>
+  </ul>
+</div>
+
+<h2>Configuration</h2>
+
+<pre><code class="language-yaml">agents:
+  analyzer:
+    model: openai/gpt-4o
+    description: Code analyzer that outputs structured results
+    instruction: |
+      Analyze the provided code and identify issues.
+      Return your findings in the structured format.
+    structured_output:
+      name: analysis_result
+      description: Code analysis findings
+      strict: true
+      schema:
+        type: object
+        properties:
+          issues:
+            type: array
+            items:
+              type: object
+              properties:
+                severity:
+                  type: string
+                  enum: ["error", "warning", "info"]
+                line:
+                  type: integer
+                message:
+                  type: string
+              required: ["severity", "line", "message"]
+          summary:
+            type: string
+        required: ["issues", "summary"]</code></pre>
+
+<h2>Properties</h2>
+
+<table>
+  <thead><tr><th>Property</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>name</code></td><td>string</td><td>✓</td><td>Name identifier for the output schema</td></tr>
+    <tr><td><code>description</code></td><td>string</td><td>✗</td><td>Description of what the output represents</td></tr>
+    <tr><td><code>strict</code></td><td>boolean</td><td>✗</td><td>Enforce strict schema validation (default: <code>false</code>)</td></tr>
+    <tr><td><code>schema</code></td><td>object</td><td>✓</td><td>JSON Schema defining the output structure</td></tr>
+  </tbody>
+</table>
+
+<h2>Schema Format</h2>
+
+<p>The schema follows <a href="https://json-schema.org/" target="_blank" rel="noopener noreferrer">JSON Schema</a> specification. Common schema types:</p>
+
+<h3>Simple Object</h3>
+
+<pre><code class="language-yaml">schema:
+  type: object
+  properties:
+    name:
+      type: string
+    count:
+      type: integer
+    active:
+      type: boolean
+  required: ["name", "count"]</code></pre>
+
+<h3>Array of Objects</h3>
+
+<pre><code class="language-yaml">schema:
+  type: object
+  properties:
+    items:
+      type: array
+      items:
+        type: object
+        properties:
+          id:
+            type: string
+          value:
+            type: number
+        required: ["id", "value"]
+  required: ["items"]</code></pre>
+
+<h3>Enum Values</h3>
+
+<pre><code class="language-yaml">schema:
+  type: object
+  properties:
+    status:
+      type: string
+      enum: ["pending", "approved", "rejected"]
+    priority:
+      type: string
+      enum: ["low", "medium", "high", "critical"]
+  required: ["status"]</code></pre>
+
+<h2>Strict Mode</h2>
+
+<p>When <code>strict: true</code>, the model is constrained to only produce output that exactly matches the schema. This provides stronger guarantees but may limit the model's flexibility.</p>
+
+<div class="cards">
+  <div class="card" style="cursor:default;">
+    <h3>strict: false (default)</h3>
+    <p>Model aims to match schema but may include additional fields or slight variations.</p>
+  </div>
+  <div class="card" style="cursor:default;">
+    <h3>strict: true</h3>
+    <p>Model output is constrained to exactly match the schema. Stronger guarantees.</p>
+  </div>
+</div>
+
+<h2>Provider Support</h2>
+
+<p>Structured output support varies by provider:</p>
+
+<table>
+  <thead><tr><th>Provider</th><th>Support</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr><td>OpenAI</td><td>✓ Full</td><td>Native JSON mode with schema validation</td></tr>
+    <tr><td>Anthropic</td><td>✓ Full</td><td>Tool-based structured output</td></tr>
+    <tr><td>Google Gemini</td><td>✓ Full</td><td>Native JSON mode</td></tr>
+    <tr><td>AWS Bedrock</td><td>✓ Partial</td><td>Depends on underlying model</td></tr>
+    <tr><td>DMR</td><td>⚠️ Limited</td><td>Depends on model capabilities</td></tr>
+  </tbody>
+</table>
+
+<h2>Example: Data Extraction Agent</h2>
+
+<pre><code class="language-yaml">agents:
+  extractor:
+    model: openai/gpt-4o
+    description: Extract structured data from text
+    instruction: |
+      Extract contact information from the provided text.
+      Return all found contacts in the structured format.
+    structured_output:
+      name: contacts
+      description: Extracted contact information
+      strict: true
+      schema:
+        type: object
+        properties:
+          contacts:
+            type: array
+            items:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: Full name of the contact
+                email:
+                  type: string
+                  description: Email address
+                phone:
+                  type: string
+                  description: Phone number
+                company:
+                  type: string
+                  description: Company or organization
+              required: ["name"]
+          total_found:
+            type: integer
+            description: Total number of contacts found
+        required: ["contacts", "total_found"]</code></pre>
+
+<h2>Example: Classification Agent</h2>
+
+<pre><code class="language-yaml">agents:
+  classifier:
+    model: anthropic/claude-sonnet-4-0
+    description: Classify support tickets
+    instruction: |
+      Classify the support ticket into the appropriate category
+      and priority level based on its content.
+    structured_output:
+      name: ticket_classification
+      strict: true
+      schema:
+        type: object
+        properties:
+          category:
+            type: string
+            enum: ["billing", "technical", "account", "feature_request", "other"]
+          priority:
+            type: string
+            enum: ["low", "medium", "high", "urgent"]
+          confidence:
+            type: number
+            minimum: 0
+            maximum: 1
+            description: Confidence score between 0 and 1
+          reasoning:
+            type: string
+            description: Brief explanation for the classification
+        required: ["category", "priority", "confidence"]</code></pre>
+
+<div class="callout callout-warning">
+  <div class="callout-title">⚠️ Tool Limitations</div>
+  <p>When using structured output, the agent typically cannot use tools since its response format is constrained to the schema. Design your agent workflow accordingly — structured output agents work best for single-turn analysis or extraction tasks.</p>
+</div>

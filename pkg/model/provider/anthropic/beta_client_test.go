@@ -262,7 +262,8 @@ func TestConvertBetaMessages_UserMessage(t *testing.T) {
 		},
 	}
 
-	converted := convertBetaMessages(msgs)
+	converted, err := testClient().convertBetaMessages(t.Context(), msgs)
+	require.NoError(t, err)
 
 	require.Len(t, converted, 1)
 	assert.Equal(t, anthropic.BetaMessageParamRoleUser, converted[0].Role)
@@ -282,7 +283,8 @@ func TestConvertBetaMessages_SkipsSystemMessages(t *testing.T) {
 		},
 	}
 
-	converted := convertBetaMessages(msgs)
+	converted, err := testClient().convertBetaMessages(t.Context(), msgs)
+	require.NoError(t, err)
 
 	require.Len(t, converted, 1)
 	assert.Equal(t, anthropic.BetaMessageParamRoleUser, converted[0].Role)
@@ -297,7 +299,8 @@ func TestConvertBetaMessages_AssistantMessage(t *testing.T) {
 		},
 	}
 
-	converted := convertBetaMessages(msgs)
+	converted, err := testClient().convertBetaMessages(t.Context(), msgs)
+	require.NoError(t, err)
 
 	require.Len(t, converted, 1)
 	assert.Equal(t, anthropic.BetaMessageParamRoleAssistant, converted[0].Role)

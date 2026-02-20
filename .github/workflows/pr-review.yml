@@ -1,10 +1,12 @@
-name: PR Review on Command
+name: PR Review
 
 on:
   issue_comment:
     types: [created]
   pull_request_review_comment:
     types: [created]
+  pull_request_target:
+    types: [ready_for_review, opened]
 
 permissions:
   contents: read
@@ -12,36 +14,6 @@ permissions:
   issues: write
 
 jobs:
-  # ==========================================================================
-  # MAIN REVIEW PIPELINE
-  # ==========================================================================
-  run-review:
-    if: github.event.issue.pull_request && contains(github.event.comment.body, '/review')
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
-        with:
-          fetch-depth: 0
-
-      - name: Run PR Review Team
-        uses: docker/cagent-action/review-pr@latest
-        with:
-          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-
-  # ==========================================================================
-  # LEARN FROM FEEDBACK - Process replies to agent review comments
-  # ==========================================================================
-  learn-from-feedback:
-    # Triggers when someone REPLIES to a review comment (for learning from feedback)
-    if: github.event_name == 'pull_request_review_comment' && github.event.comment.in_reply_to_id
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
-
-      - name: Learn from user feedback
-        uses: docker/cagent-action/review-pr/learn@latest
-        with:
-          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+  review:
+    uses: docker/cagent-action/.github/workflows/review-pr.yml@latest
+    secrets: inherit

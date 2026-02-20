@@ -124,7 +124,6 @@ func (ts *Toolset) doStart(ctx context.Context) error {
 		//
 		// Only retry when initialization fails due to sending the initialized notification.
 		if !isInitNotificationSendError(err) {
-
 			// EOF means the MCP server is unavailable or closed the connection.
 			// This is not a fatal error and should not fail the agent execution.
 			if errors.Is(err, io.EOF) {
@@ -217,6 +216,16 @@ func (ts *Toolset) callTool(ctx context.Context, toolCall tools.ToolCall) (*tool
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
 		slog.Error("Failed to parse tool arguments", "tool", toolCall.Function.Name, "error", err)
 		return nil, fmt.Errorf("failed to parse tool arguments: %w", err)
+	}
+
+	// Strip null values from arguments. Some models (e.g. OpenAI) send explicit
+	// null for optional parameters, but MCP servers may reject them because
+	// null is not a valid value for the declared parameter type (e.g. string).
+	// Omitting the key is semantically equivalent to null for optional params.
+	for k, v := range args {
+		if v == nil {
+			delete(args, k)
+		}
 	}
 
 	request := &mcp.CallToolParams{}

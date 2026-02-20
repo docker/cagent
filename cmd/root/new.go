@@ -2,6 +2,7 @@ package root
 
 import (
 	"context"
+	"os"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -12,7 +13,6 @@ import (
 	"github.com/docker/cagent/pkg/creator"
 	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/session"
-	"github.com/docker/cagent/pkg/sessiontitle"
 	"github.com/docker/cagent/pkg/telemetry"
 	"github.com/docker/cagent/pkg/tui"
 	tuiinput "github.com/docker/cagent/pkg/tui/input"
@@ -84,19 +84,15 @@ func (f *newFlags) runNewCommand(cmd *cobra.Command, args []string) error {
 
 	sess := session.New(sessOpts...)
 
-	return runTUI(ctx, rt, sess, appOpts...)
+	return runTUI(ctx, rt, sess, nil, nil, appOpts...)
 }
 
-func runTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, opts ...app.Opt) error {
-	// For local runtime, create and pass a title generator.
-	if pr, ok := rt.(*runtime.PersistentRuntime); ok {
-		if model := pr.CurrentAgent().Model(); model != nil {
-			opts = append(opts, app.WithTitleGenerator(sessiontitle.New(model)))
-		}
+func runTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, spawner tui.SessionSpawner, cleanup func(), opts ...app.Opt) error {
+	if gen := rt.TitleGenerator(); gen != nil {
+		opts = append(opts, app.WithTitleGenerator(gen))
 	}
 
 	a := app.New(ctx, rt, sess, opts...)
-	m := tui.New(ctx, a)
 
 	coalescer := tuiinput.NewWheelCoalescer()
 	filter := func(model tea.Model, msg tea.Msg) tea.Msg {
@@ -110,9 +106,18 @@ func runTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, opts
 		return msg
 	}
 
-	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithFilter(filter))
+	if cleanup == nil {
+		cleanup = func() {}
+	}
+	wd, _ := os.Getwd()
+	model := tui.New(ctx, spawner, a, wd, cleanup)
+
+	p := tea.NewProgram(model, tea.WithContext(ctx), tea.WithFilter(filter))
 	coalescer.SetSender(p.Send)
-	go a.Subscribe(ctx, p)
+
+	if m, ok := model.(interface{ SetProgram(p *tea.Program) }); ok {
+		m.SetProgram(p)
+	}
 
 	_, err := p.Run()
 	return err

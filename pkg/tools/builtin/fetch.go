@@ -337,8 +337,7 @@ func (t *FetchTool) Tools(context.Context) ([]tools.Tool, error) {
 			OutputSchema: tools.MustSchemaFor[string](),
 			Handler:      tools.NewHandler(t.handler.CallTool),
 			Annotations: tools.ToolAnnotations{
-				ReadOnlyHint: true,
-				Title:        "Fetch URLs",
+				Title: "Fetch URLs",
 			},
 		},
 	}, nil

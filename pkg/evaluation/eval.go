@@ -24,6 +24,7 @@ import (
 	"github.com/docker/cagent/pkg/environment"
 	"github.com/docker/cagent/pkg/model/provider"
 	"github.com/docker/cagent/pkg/model/provider/options"
+	"github.com/docker/cagent/pkg/session"
 )
 
 // Runner runs evaluations against an agent.
@@ -58,7 +59,7 @@ func newRunner(agentSource config.Source, runConfig *config.RuntimeConfig, judge
 // ttyOut is used for progress bar rendering (should be the console/TTY).
 // out is used for results and status messages (can be tee'd to a log file).
 func Evaluate(ctx context.Context, ttyOut, out io.Writer, isTTY bool, runName string, runConfig *config.RuntimeConfig, cfg Config) (*EvalRun, error) {
-	agentSource, err := config.Resolve(cfg.AgentFilename)
+	agentSource, err := config.Resolve(cfg.AgentFilename, nil)
 	if err != nil {
 		return nil, fmt.Errorf("resolving agent: %w", err)
 	}
@@ -98,7 +99,7 @@ func Evaluate(ctx context.Context, ttyOut, out io.Writer, isTTY bool, runName st
 // workItem represents a single evaluation to be processed.
 type workItem struct {
 	index int
-	eval  *EvalSession
+	eval  *InputSession
 }
 
 // Run executes all evaluations concurrently and returns results.
@@ -163,13 +164,13 @@ func (r *Runner) Run(ctx context.Context, ttyOut, out io.Writer, isTTY bool) ([]
 	return results, nil
 }
 
-func (r *Runner) loadEvalSessions(ctx context.Context) ([]EvalSession, error) {
+func (r *Runner) loadEvalSessions(ctx context.Context) ([]InputSession, error) {
 	entries, err := os.ReadDir(r.EvalsDir)
 	if err != nil {
 		return nil, err
 	}
 
-	var evals []EvalSession
+	var evals []InputSession
 	for _, entry := range entries {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -190,22 +191,19 @@ func (r *Runner) loadEvalSessions(ctx context.Context) ([]EvalSession, error) {
 			return nil, err
 		}
 
-		var evalSess EvalSession
+		var evalSess session.Session
 		if err := json.Unmarshal(data, &evalSess); err != nil {
 			return nil, err
 		}
 
-		evalSess.SourcePath = filepath.Join(r.EvalsDir, fileName)
-
-		if evalSess.Title == "" {
-			evalSess.Title = strings.TrimSuffix(fileName, ".json")
-		}
-
-		evals = append(evals, evalSess)
+		evals = append(evals, InputSession{
+			Session:    &evalSess,
+			SourcePath: filepath.Join(r.EvalsDir, fileName),
+		})
 	}
 
 	// Sort by duration (longest first) to avoid long tail
-	slices.SortFunc(evals, func(a, b EvalSession) int {
+	slices.SortFunc(evals, func(a, b InputSession) int {
 		return cmp.Compare(b.Duration(), a.Duration())
 	})
 
@@ -214,11 +212,13 @@ func (r *Runner) loadEvalSessions(ctx context.Context) ([]EvalSession, error) {
 
 // preBuildImages pre-builds all unique Docker images needed for the evaluations.
 // This is done in parallel to avoid serialized builds during evaluation.
-func (r *Runner) preBuildImages(ctx context.Context, out io.Writer, evals []EvalSession) error {
+func (r *Runner) preBuildImages(ctx context.Context, out io.Writer, evals []InputSession) error {
 	// Collect unique working directories
 	workingDirs := make(map[string]struct{})
 	for _, eval := range evals {
-		workingDirs[eval.Evals.WorkingDir] = struct{}{}
+		if eval.Evals != nil {
+			workingDirs[eval.Evals.WorkingDir] = struct{}{}
+		}
 	}
 
 	if len(workingDirs) == 0 {
@@ -272,22 +272,29 @@ func (r *Runner) preBuildImages(ctx context.Context, out io.Writer, evals []Eval
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("failed to build %d image(s): %v", len(errs), errs[0])
+		return fmt.Errorf("failed to build %d image(s): %w", len(errs), errs[0])
 	}
 
 	return nil
 }
 
-func (r *Runner) runSingleEval(ctx context.Context, evalSess *EvalSession) (Result, error) {
+func (r *Runner) runSingleEval(ctx context.Context, evalSess *InputSession) (Result, error) {
 	startTime := time.Now()
 	slog.Debug("Starting evaluation", "title", evalSess.Title)
+
+	var evals *session.EvalCriteria
+	if evalSess.Evals != nil {
+		evals = evalSess.Evals
+	} else {
+		evals = &session.EvalCriteria{}
+	}
 
 	result := Result{
 		InputPath:         evalSess.SourcePath,
 		Title:             evalSess.Title,
-		Question:          getFirstUserMessage(&evalSess.Session),
-		SizeExpected:      evalSess.Evals.Size,
-		RelevanceExpected: float64(len(evalSess.Evals.Relevance)),
+		Question:          strings.Join(getUserMessages(evalSess.Session), "\n"),
+		SizeExpected:      evals.Size,
+		RelevanceExpected: float64(len(evals.Relevance)),
 	}
 
 	expectedToolCalls := extractToolCalls(evalSess.Messages)
@@ -295,14 +302,14 @@ func (r *Runner) runSingleEval(ctx context.Context, evalSess *EvalSession) (Resu
 		result.ToolCallsExpected = 1.0
 	}
 
-	workingDir := evalSess.Evals.WorkingDir
+	workingDir := evals.WorkingDir
 
 	imageID, err := r.getOrBuildImage(ctx, workingDir)
 	if err != nil {
 		return result, fmt.Errorf("building eval image: %w", err)
 	}
 
-	events, err := r.runCagentInContainer(ctx, imageID, result.Question)
+	events, err := r.runCagentInContainer(ctx, imageID, getUserMessages(evalSess.Session), evals.Setup)
 	if err != nil {
 		return result, fmt.Errorf("running cagent in container: %w", err)
 	}
@@ -312,8 +319,11 @@ func (r *Runner) runSingleEval(ctx context.Context, evalSess *EvalSession) (Resu
 	result.Response = response
 	result.Cost = cost
 	result.OutputTokens = outputTokens
-	result.RawOutput = events
 	result.Size = getResponseSize(result.Response)
+
+	// Build session from events for database storage
+	result.Session = SessionFromEvents(events, evalSess.Title, getUserMessages(evalSess.Session))
+	result.Session.Evals = evals
 
 	if len(expectedToolCalls) > 0 || len(actualToolCalls) > 0 {
 		result.ToolCallsScore = toolCallF1Score(expectedToolCalls, actualToolCalls)
@@ -321,8 +331,10 @@ func (r *Runner) runSingleEval(ctx context.Context, evalSess *EvalSession) (Resu
 
 	result.HandoffsMatch = countHandoffs(expectedToolCalls) == countHandoffs(actualToolCalls)
 
-	if r.judge != nil && len(evalSess.Evals.Relevance) > 0 {
-		passed, failed, errs := r.judge.CheckRelevance(ctx, result.Response, evalSess.Evals.Relevance)
+	if r.judge != nil && len(evals.Relevance) > 0 {
+		// Use transcript for relevance checking to preserve temporal ordering
+		transcript := buildTranscript(events)
+		passed, failed, errs := r.judge.CheckRelevance(ctx, transcript, evals.Relevance)
 		result.RelevancePassed = float64(passed)
 		result.FailedRelevance = failed
 		for _, e := range errs {
@@ -334,7 +346,7 @@ func (r *Runner) runSingleEval(ctx context.Context, evalSess *EvalSession) (Resu
 	return result, nil
 }
 
-func (r *Runner) runCagentInContainer(ctx context.Context, imageID, question string) ([]map[string]any, error) {
+func (r *Runner) runCagentInContainer(ctx context.Context, imageID string, questions []string, setup string) ([]map[string]any, error) {
 	agentDir := r.agentSource.ParentDir()
 	agentFile := filepath.Base(r.agentSource.Name())
 	containerName := fmt.Sprintf("cagent-eval-%d", uuid.New().ID())
@@ -372,7 +384,44 @@ func (r *Runner) runCagentInContainer(ctx context.Context, imageID, question str
 		}
 	}
 
-	args = append(args, imageID, "/configs/"+agentFile, question)
+	// Pass additional environment variables specified via -e flag
+	// Format: KEY or KEY=VALUE
+	for _, entry := range r.EnvVars {
+		if key, val, hasValue := strings.Cut(entry, "="); hasValue && key != "" {
+			args = append(args, "-e", key)
+			env = append(env, key+"="+val)
+		} else if val, ok := r.runConfig.EnvProvider().Get(ctx, entry); ok && entry != "" {
+			args = append(args, "-e", entry)
+			env = append(env, entry+"="+val)
+		}
+	}
+
+	// When a setup script is provided, mount it into the container and
+	// override the entrypoint to run it before cagent run --exec.
+	// The default entrypoint is: /run.sh /cagent run --exec --yolo --json
+	// /run.sh starts dockerd then exec's "$@".
+	if setup != "" {
+		setupFile := filepath.Join(os.TempDir(), fmt.Sprintf("cagent-eval-setup-%d.sh", uuid.New().ID()))
+		if err := os.WriteFile(setupFile, []byte(setup), 0o600); err != nil {
+			return nil, fmt.Errorf("writing setup script: %w", err)
+		}
+		defer os.Remove(setupFile)
+
+		args = append(args,
+			"-v", setupFile+":/setup.sh:ro",
+			"--entrypoint", "/run.sh",
+		)
+	}
+
+	args = append(args, imageID)
+
+	if setup != "" {
+		// Run setup script, then cagent run --exec with the original arguments.
+		args = append(args, "sh", "-c", "sh /setup.sh && exec /cagent run --exec --yolo --json \"$@\"", "--", "/configs/"+agentFile)
+	} else {
+		args = append(args, "/configs/"+agentFile)
+	}
+	args = append(args, questions...)
 
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	cmd.Env = append(env, os.Environ()...)
@@ -466,6 +515,64 @@ func parseContainerEvents(events []map[string]any) (response string, cost float6
 	}
 
 	return responseBuf.String(), cost, outputTokens, toolCalls
+}
+
+// buildTranscript creates a chronological transcript of agent interactions.
+// Unlike parseContainerEvents which only extracts text, this preserves the
+// temporal sequence of events, enabling evaluation of criteria like
+// "explains before executing" or "announces tool usage beforehand".
+func buildTranscript(events []map[string]any) string {
+	var transcript strings.Builder
+	var pendingText strings.Builder
+	var currentAgent string
+
+	flushText := func() {
+		if pendingText.Len() == 0 {
+			return
+		}
+		fmt.Fprintf(&transcript, "[Agent %s says]:\n%s\n\n", cmp.Or(currentAgent, "unknown"), pendingText.String())
+		pendingText.Reset()
+	}
+
+	for _, event := range events {
+		switch event["type"] {
+		case "agent_choice":
+			if agentName, _ := event["agent_name"].(string); agentName != "" {
+				currentAgent = agentName
+			}
+			if content, _ := event["content"].(string); content != "" {
+				pendingText.WriteString(content)
+			}
+
+		case "tool_call":
+			flushText()
+			name, args := getToolCallInfo(event)
+			if agentName, _ := event["agent_name"].(string); agentName != "" {
+				currentAgent = agentName
+			}
+			fmt.Fprintf(&transcript, "[Agent %s calls tool %q with arguments: %s]\n\n", cmp.Or(currentAgent, "unknown"), name, args)
+
+		case "tool_call_response":
+			name, _ := getToolCallInfo(event)
+			response, _ := event["response"].(string)
+			if len(response) > 500 {
+				response = response[:500] + "...(truncated)"
+			}
+			fmt.Fprintf(&transcript, "[Tool %q returns: %s]\n\n", name, response)
+		}
+	}
+
+	flushText()
+	return transcript.String()
+}
+
+// getToolCallInfo extracts the tool name and arguments from an event.
+func getToolCallInfo(event map[string]any) (name, args string) {
+	tc, _ := event["tool_call"].(map[string]any)
+	fn, _ := tc["function"].(map[string]any)
+	name, _ = fn["name"].(string)
+	args, _ = fn["arguments"].(string)
+	return name, args
 }
 
 // matchesAnyPattern returns true if the name contains any of the patterns (case-insensitive).

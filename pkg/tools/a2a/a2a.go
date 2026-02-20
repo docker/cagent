@@ -16,6 +16,7 @@ import (
 
 	"github.com/docker/cagent/pkg/httpclient"
 	"github.com/docker/cagent/pkg/tools"
+	"github.com/docker/cagent/pkg/upstream"
 )
 
 // Toolset implements tools.ToolSet for A2A remote agents.
@@ -121,7 +122,8 @@ func (t *Toolset) Start(ctx context.Context) error {
 
 	// Use a longer timeout for the HTTP client since LLM responses can take a while.
 	// The default a2a-go HTTP client has only a 5-second timeout which is too short.
-	httpClient := httpclient.NewHTTPClient(httpclient.WithHeaders(t.headers))
+	httpClient := httpclient.NewHTTPClient()
+	httpClient.Transport = upstream.NewHeaderTransport(httpClient.Transport, t.headers)
 
 	client, err := a2aclient.NewFromCard(ctx, card, a2aclient.WithJSONRPCTransport(httpClient))
 	if err != nil {

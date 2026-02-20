@@ -1,0 +1,169 @@
+<h1>API Server</h1>
+<p class="subtitle">Expose your agents via an HTTP API for programmatic access, web frontends, and integrations.</p>
+
+<h2>Overview</h2>
+
+<p>The <code>cagent api</code> command starts an HTTP server that exposes your agents through a REST-style API with Server-Sent Events (SSE) streaming. Use it to build web UIs, integrate with CI/CD pipelines, or connect agents to other services.</p>
+
+<pre><code class="language-bash"># Start the API server
+$ cagent api agent.yaml
+
+# Custom listen address
+$ cagent api agent.yaml --listen 0.0.0.0:8080
+
+# With session persistence
+$ cagent api agent.yaml --session-db ./sessions.db
+
+# Auto-refresh from OCI registry every 10 minutes
+$ cagent api agentcatalog/coder --pull-interval 10</code></pre>
+
+<h2>Endpoints</h2>
+
+<p>All endpoints are under the <code>/api</code> prefix.</p>
+
+<h3>Agents</h3>
+
+<table>
+  <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>GET</code></td><td><code>/api/agents</code></td><td>List all available agents</td></tr>
+    <tr><td><code>GET</code></td><td><code>/api/agents/:id</code></td><td>Get an agent's full configuration</td></tr>
+  </tbody>
+</table>
+
+<h3>Sessions</h3>
+
+<table>
+  <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>GET</code></td><td><code>/api/sessions</code></td><td>List all sessions</td></tr>
+    <tr><td><code>POST</code></td><td><code>/api/sessions</code></td><td>Create a new session</td></tr>
+    <tr><td><code>GET</code></td><td><code>/api/sessions/:id</code></td><td>Get a session by ID (messages, tokens, permissions)</td></tr>
+    <tr><td><code>DELETE</code></td><td><code>/api/sessions/:id</code></td><td>Delete a session</td></tr>
+    <tr><td><code>PATCH</code></td><td><code>/api/sessions/:id/title</code></td><td>Update session title</td></tr>
+    <tr><td><code>PATCH</code></td><td><code>/api/sessions/:id/permissions</code></td><td>Update session permissions</td></tr>
+    <tr><td><code>POST</code></td><td><code>/api/sessions/:id/resume</code></td><td>Resume a paused session (after tool confirmation)</td></tr>
+    <tr><td><code>POST</code></td><td><code>/api/sessions/:id/tools/toggle</code></td><td>Toggle auto-approve (YOLO) mode</td></tr>
+    <tr><td><code>POST</code></td><td><code>/api/sessions/:id/thinking/toggle</code></td><td>Toggle thinking/reasoning mode</td></tr>
+    <tr><td><code>POST</code></td><td><code>/api/sessions/:id/elicitation</code></td><td>Respond to an MCP tool elicitation request</td></tr>
+  </tbody>
+</table>
+
+<h3>Agent Execution</h3>
+
+<table>
+  <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>POST</code></td><td><code>/api/sessions/:id/agent/:agent</code></td><td>Run the root agent for a session (SSE stream)</td></tr>
+    <tr><td><code>POST</code></td><td><code>/api/sessions/:id/agent/:agent/:name</code></td><td>Run a specific named agent (SSE stream)</td></tr>
+  </tbody>
+</table>
+
+<h3>Health</h3>
+
+<table>
+  <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>GET</code></td><td><code>/api/ping</code></td><td>Health check — returns <code>{"status": "ok"}</code></td></tr>
+  </tbody>
+</table>
+
+<h2>Streaming Responses</h2>
+
+<p>The agent execution endpoints (<code>POST /api/sessions/:id/agent/:agent</code>) return <strong>Server-Sent Events (SSE)</strong>. Each event is a JSON object representing a runtime event:</p>
+
+<pre><code class="language-bash"># Send a message and stream the response
+$ curl -N -X POST http://localhost:8080/api/sessions/$SID/agent/my-agent \
+  -H "Content-Type: application/json" \
+  -d '[{"role": "user", "content": "Hello!"}]'
+
+# Response (SSE stream):
+data: {"type":"stream_started","session_id":"...","agent":"root"}
+data: {"type":"agent_choice","content":"Hello! How","agent":"root"}
+data: {"type":"agent_choice","content":" can I help","agent":"root"}
+data: {"type":"agent_choice","content":" you today?","agent":"root"}
+data: {"type":"stream_stopped","session_id":"...","agent":"root"}</code></pre>
+
+<p>Event types include:</p>
+
+<ul>
+  <li><code>stream_started</code> / <code>stream_stopped</code> — Agent execution lifecycle</li>
+  <li><code>agent_choice</code> — Streamed text content (partial responses)</li>
+  <li><code>tool_call</code> — Agent requesting tool execution</li>
+  <li><code>tool_call_confirmation</code> — Tool call waiting for user approval</li>
+  <li><code>tool_call_response</code> — Tool execution result</li>
+  <li><code>error</code> — Error during execution</li>
+</ul>
+
+<h2>Typical Workflow</h2>
+
+<ol>
+  <li><strong>List agents</strong> — <code>GET /api/agents</code> to discover available agents</li>
+  <li><strong>Create session</strong> — <code>POST /api/sessions</code> to start a conversation</li>
+  <li><strong>Send message</strong> — <code>POST /api/sessions/:id/agent/:agent</code> with user messages</li>
+  <li><strong>Stream response</strong> — Read SSE events as the agent processes</li>
+  <li><strong>Handle confirmations</strong> — If a tool call needs approval, <code>POST /api/sessions/:id/resume</code></li>
+  <li><strong>Continue</strong> — Send follow-up messages to the same session</li>
+</ol>
+
+<pre><code class="language-bash"># 1. List available agents
+$ curl http://localhost:8080/api/agents
+[{"name":"my-agent","multi":false,"description":"A helpful assistant"}]
+
+# 2. Create a session
+$ curl -X POST http://localhost:8080/api/sessions \
+  -H "Content-Type: application/json" -d '{}'
+{"id":"abc-123","title":"","created_at":"..."}
+
+# 3. Run the agent with a message
+$ curl -N -X POST http://localhost:8080/api/sessions/abc-123/agent/my-agent \
+  -H "Content-Type: application/json" \
+  -d '[{"role":"user","content":"What files are in the current directory?"}]'</code></pre>
+
+<h2>CLI Flags</h2>
+
+<pre><code class="language-bash">$ cagent api &lt;agent-file&gt;|&lt;agents-dir&gt; [flags]</code></pre>
+
+<table>
+  <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>-l, --listen</code></td><td><code>127.0.0.1:8080</code></td><td>Address to listen on</td></tr>
+    <tr><td><code>-s, --session-db</code></td><td><code>session.db</code></td><td>Path to the SQLite session database</td></tr>
+    <tr><td><code>--pull-interval</code></td><td><code>0</code> (disabled)</td><td>Auto-pull OCI reference every N minutes</td></tr>
+    <tr><td><code>--connect-rpc</code></td><td><code>false</code></td><td>Use Connect-RPC protocol instead of HTTP/JSON</td></tr>
+    <tr><td><code>--fake</code></td><td>(none)</td><td>Replay AI responses from cassette file (testing)</td></tr>
+    <tr><td><code>--record</code></td><td>(none)</td><td>Record AI API interactions to cassette file</td></tr>
+  </tbody>
+</table>
+
+<div class="callout callout-tip">
+  <div class="callout-title">💡 Multi-agent configs</div>
+  <p>You can point <code>cagent api</code> at a directory containing multiple agent YAML files. Each becomes a separate agent accessible via <code>/api/agents</code>. Combine with <code>--pull-interval</code> to auto-refresh agents from an OCI registry.</p>
+</div>
+
+<h2>Session Persistence</h2>
+
+<p>Sessions are stored in a SQLite database (default: <code>session.db</code> in the current directory). This means:</p>
+
+<ul>
+  <li>Sessions survive server restarts</li>
+  <li>Multiple server instances can share a database</li>
+  <li>Use <code>--session-db</code> to specify a custom path</li>
+</ul>
+
+<h2>Tool Call Approval</h2>
+
+<p>By default, tool calls require approval. In the API workflow:</p>
+
+<ol>
+  <li>Agent makes a tool call → server emits a <code>tool_call_confirmation</code> event</li>
+  <li>Client reviews and sends <code>POST /api/sessions/:id/resume</code> with the decision</li>
+  <li>Execution continues based on approval/denial</li>
+</ol>
+
+<p>Toggle auto-approve with <code>POST /api/sessions/:id/tools/toggle</code> for automated workflows.</p>
+
+<div class="callout callout-info">
+  <div class="callout-title">ℹ️ See also</div>
+  <p>For interactive use, see the <a href="#features/tui" onclick="event.preventDefault(); navigate('features/tui')">Terminal UI</a>. For agent-to-agent communication, see <a href="#features/a2a" onclick="event.preventDefault(); navigate('features/a2a')">A2A Protocol</a> and <a href="#features/acp" onclick="event.preventDefault(); navigate('features/acp')">ACP</a>. For MCP integration, see <a href="#features/mcp-mode" onclick="event.preventDefault(); navigate('features/mcp-mode')">MCP Mode</a>.</p>
+</div>

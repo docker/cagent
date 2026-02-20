@@ -34,6 +34,10 @@ type Item struct {
 
 	// Summary is a summary of the session up until this point
 	Summary string `json:"summary,omitempty"`
+
+	// Cost tracks the cost of operations associated with this item that
+	// don't produce a regular message (e.g., compaction/summarization).
+	Cost float64 `json:"cost,omitempty"`
 }
 
 // IsMessage returns true if this item contains a message
@@ -53,6 +57,9 @@ type Session struct {
 
 	// Title is the title of the session, set by the runtime
 	Title string `json:"title"`
+
+	// Evals contains evaluation criteria for this session (used by eval framework)
+	Evals *EvalCriteria `json:"evals,omitempty"`
 
 	// Messages holds the conversation history (messages and sub-sessions)
 	Messages []Item `json:"messages"`
@@ -102,6 +109,16 @@ type Session struct {
 	// These are shown in the model picker for easy re-selection.
 	CustomModelsUsed []string `json:"custom_models_used,omitempty"`
 
+	// BranchParentSessionID indicates this session was branched from another session.
+	BranchParentSessionID string `json:"branch_parent_session_id,omitempty"`
+
+	// BranchParentPosition is the parent session item position where this branch occurred.
+	// Only set when BranchParentSessionID is non-empty.
+	BranchParentPosition *int `json:"branch_parent_position,omitempty"`
+
+	// BranchCreatedAt is the time when this branch session was created.
+	BranchCreatedAt *time.Time `json:"branch_created_at,omitempty"`
+
 	// ParentID indicates this is a sub-session created by task transfer.
 	// Sub-sessions are not persisted as standalone entries; they are embedded
 	// within the parent session's Messages array.
@@ -123,10 +140,13 @@ type MessageUsageRecord struct {
 }
 
 // PermissionsConfig defines session-level tool permission overrides
-// using pattern-based rules (Allow/Deny arrays).
+// using pattern-based rules (Allow/Ask/Deny arrays).
 type PermissionsConfig struct {
 	// Allow lists tool name patterns that are auto-approved without user confirmation.
 	Allow []string `json:"allow,omitempty"`
+	// Ask lists tool name patterns that always require user confirmation,
+	// even for tools that are normally auto-approved (e.g. read-only tools).
+	Ask []string `json:"ask,omitempty"`
 	// Deny lists tool name patterns that are always rejected.
 	Deny []string `json:"deny,omitempty"`
 }
@@ -187,6 +207,14 @@ func NewMessageItem(msg *Message) Item {
 // NewSubSessionItem creates a SessionItem containing a sub-session
 func NewSubSessionItem(subSession *Session) Item {
 	return Item{SubSession: subSession}
+}
+
+// EvalCriteria contains the evaluation criteria for a session.
+type EvalCriteria struct {
+	Relevance  []string `json:"relevance"`             // Statements that should be true about the response
+	WorkingDir string   `json:"working_dir,omitempty"` // Subdirectory under evals/working_dirs/
+	Size       string   `json:"size,omitempty"`        // Expected response size: S, M, L, XL
+	Setup      string   `json:"setup,omitempty"`       // Optional sh script to run in the container before cagent run --exec
 }
 
 // Session helper methods
@@ -253,7 +281,11 @@ func (s *Session) GetLastUserMessageContent() string {
 }
 
 // GetLastUserMessages returns up to n most recent user messages, ordered from oldest to newest.
+// Returns nil if n <= 0.
 func (s *Session) GetLastUserMessages(n int) []string {
+	if n <= 0 {
+		return nil
+	}
 	messages := s.GetAllMessages()
 	var userMessages []string
 	for i := range messages {
@@ -278,21 +310,6 @@ func (s *Session) getLastMessageContentByRole(role chat.MessageRole) string {
 		}
 	}
 	return ""
-}
-
-// UpdateLastAssistantMessageUsage updates the usage and cost fields of the last assistant message.
-// This is used in remote mode to populate per-message cost data from TokenUsageEvent.
-func (s *Session) UpdateLastAssistantMessageUsage(usage *chat.Usage, cost float64, model string) {
-	for i := len(s.Messages) - 1; i >= 0; i-- {
-		if s.Messages[i].IsMessage() && s.Messages[i].Message.Message.Role == chat.MessageRoleAssistant {
-			s.Messages[i].Message.Message.Usage = usage
-			s.Messages[i].Message.Message.Cost = cost
-			if model != "" {
-				s.Messages[i].Message.Message.Model = model
-			}
-			return
-		}
-	}
 }
 
 // AddMessageUsageRecord appends a usage record for remote mode where messages aren't stored locally.
@@ -390,6 +407,49 @@ func (s *Session) IsSubSession() bool {
 	return s.ParentID != ""
 }
 
+// MessageCount returns the number of items that contain a message.
+func (s *Session) MessageCount() int {
+	n := 0
+	for _, item := range s.Messages {
+		if item.IsMessage() {
+			n++
+		}
+	}
+	return n
+}
+
+// TotalCost computes the total cost of a session by walking all messages,
+// sub-sessions, and summary items. It does not use the session-level Cost
+// field, which exists only for backward-compatible persistence.
+func (s *Session) TotalCost() float64 {
+	var cost float64
+	for _, item := range s.Messages {
+		switch {
+		case item.IsMessage():
+			cost += item.Message.Message.Cost
+		case item.IsSubSession():
+			cost += item.SubSession.TotalCost()
+		}
+		cost += item.Cost
+	}
+	return cost
+}
+
+// OwnCost returns only this session's direct cost: its own messages and
+// item-level costs (e.g. compaction). It excludes sub-session costs.
+// This is used for live event emissions where sub-sessions report their
+// own costs separately.
+func (s *Session) OwnCost() float64 {
+	var cost float64
+	for _, item := range s.Messages {
+		if item.IsMessage() {
+			cost += item.Message.Message.Cost
+		}
+		cost += item.Cost
+	}
+	return cost
+}
+
 // New creates a new agent session
 func New(opts ...Opt) *Session {
 	sessionID := uuid.New().String()
@@ -425,7 +485,7 @@ func buildInvariantSystemMessages(a *agent.Agent) []chat.Message {
 	var messages []chat.Message
 
 	if a.HasSubAgents() {
-		subAgents := append(a.SubAgents(), a.Parents()...)
+		subAgents := a.SubAgents()
 
 		var text strings.Builder
 		var validAgentIDs []string
@@ -574,7 +634,7 @@ func buildSessionSummaryMessages(s *Session) ([]chat.Message, int) {
 
 	if lastSummaryIndex >= 0 && lastSummaryIndex < len(s.Messages) {
 		messages = append(messages, chat.Message{
-			Role:      chat.MessageRoleSystem,
+			Role:      chat.MessageRoleUser,
 			Content:   "Session Summary: " + s.Messages[lastSummaryIndex].Summary,
 			CreatedAt: time.Now().Format(time.RFC3339),
 		})

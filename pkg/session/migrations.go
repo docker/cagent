@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -161,6 +162,10 @@ func (m *MigrationManager) GetAppliedMigrations(ctx context.Context) ([]Migratio
 		migrations = append(migrations, migration)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
 	return migrations, nil
 }
 
@@ -300,6 +305,27 @@ func getAllMigrations() []Migration {
 			Description: "Migrate existing messages JSON data to session_items table",
 			UpFunc:      migrateMessagesToSessionItems,
 		},
+		{
+			ID:          16,
+			Name:        "016_add_branching_columns",
+			Description: "Add branch metadata columns for session branching",
+			UpSQL: `
+				ALTER TABLE sessions ADD COLUMN branch_parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL;
+				ALTER TABLE sessions ADD COLUMN branch_parent_position INTEGER;
+				ALTER TABLE sessions ADD COLUMN branch_created_at TEXT;
+				CREATE INDEX IF NOT EXISTS idx_sessions_branch_parent ON sessions(branch_parent_session_id);
+			`,
+			DownSQL: `
+				DROP INDEX IF EXISTS idx_sessions_branch_parent;
+				-- SQLite doesn't support DROP COLUMN directly in older versions
+			`,
+		},
+		{
+			ID:          17,
+			Name:        "017_add_split_diff_view_column",
+			Description: "Add split_diff_view column to sessions table for persisting split diff toggle",
+			UpSQL:       `ALTER TABLE sessions ADD COLUMN split_diff_view BOOLEAN`,
+		},
 	}
 }
 
@@ -406,7 +432,7 @@ func migrateItem(ctx context.Context, db *sql.DB, sessionID string, position int
 		var exists int
 		err := db.QueryRowContext(ctx, "SELECT 1 FROM sessions WHERE id = ?", subSessionID).Scan(&exists)
 		switch {
-		case err == sql.ErrNoRows:
+		case errors.Is(err, sql.ErrNoRows):
 			// Create the sub-session
 			subMessagesJSON, jsonErr := json.Marshal(item.SubSession.Messages)
 			if jsonErr != nil {

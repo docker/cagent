@@ -378,6 +378,102 @@ func TestWrapLines(t *testing.T) {
 	}
 }
 
+func TestWrapLinesWords(t *testing.T) {
+	tests := []struct {
+		name     string
+		text     string
+		width    int
+		expected []string
+	}{
+		{
+			name:     "fits on one line",
+			text:     "hello world",
+			width:    20,
+			expected: []string{"hello world"},
+		},
+		{
+			name:     "wraps at word boundary",
+			text:     "hello world foo",
+			width:    11,
+			expected: []string{"hello world", "foo"},
+		},
+		{
+			name:     "word exceeds width falls back to rune split",
+			text:     "supercalifragilistic",
+			width:    10,
+			expected: []string{"supercalif", "ragilistic"},
+		},
+		{
+			name:     "mixed short and long words",
+			text:     "hi supercalifragilistic ok",
+			width:    10,
+			expected: []string{"hi", "supercalif", "ragilistic", "ok"},
+		},
+		{
+			name:     "multiple lines input",
+			text:     "hello world\nfoo bar baz",
+			width:    9,
+			expected: []string{"hello", "world", "foo bar", "baz"},
+		},
+		{
+			name:     "empty string",
+			text:     "",
+			width:    10,
+			expected: []string{""},
+		},
+		{
+			name:     "zero width",
+			text:     "hello world",
+			width:    0,
+			expected: []string{"hello world"},
+		},
+		{
+			name:     "negative width",
+			text:     "hello world",
+			width:    -1,
+			expected: []string{"hello world"},
+		},
+		{
+			name:     "single word exactly at width",
+			text:     "hello",
+			width:    5,
+			expected: []string{"hello"},
+		},
+		{
+			name:     "preserves empty lines",
+			text:     "a\n\nb",
+			width:    10,
+			expected: []string{"a", "", "b"},
+		},
+		{
+			name:     "each word on its own line",
+			text:     "aa bb cc dd",
+			width:    3,
+			expected: []string{"aa", "bb", "cc", "dd"},
+		},
+		{
+			name:     "unicode words",
+			text:     "héllo wörld",
+			width:    6,
+			expected: []string{"héllo", "wörld"},
+		},
+		{
+			name:     "CJK word exceeds width",
+			text:     "你好世界 test",
+			width:    5,
+			expected: []string{"你好", "世界", "test"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			result := WrapLinesWords(tt.text, tt.width)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestTruncateText(t *testing.T) {
 	tests := []struct {
 		name     string

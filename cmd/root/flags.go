@@ -1,8 +1,10 @@
 package root
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,12 +12,15 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/docker/cagent/pkg/config"
+	"github.com/docker/cagent/pkg/config/latest"
+	"github.com/docker/cagent/pkg/server"
 	"github.com/docker/cagent/pkg/userconfig"
 )
 
 const (
 	flagModelsGateway = "models-gateway"
 	envModelsGateway  = "CAGENT_MODELS_GATEWAY"
+	envDefaultModel   = "CAGENT_DEFAULT_MODEL"
 )
 
 func addRuntimeConfigFlags(cmd *cobra.Command, runConfig *config.RuntimeConfig) {
@@ -63,16 +68,28 @@ func addGatewayFlags(cmd *cobra.Command, runConfig *config.RuntimeConfig) {
 
 	persistentPreRunE := cmd.PersistentPreRunE
 	cmd.PersistentPreRunE = func(_ *cobra.Command, args []string) error {
+		userCfg, err := loadUserConfig()
+		if err != nil {
+			slog.Warn("Failed to load user config", "error", err)
+			userCfg = &userconfig.Config{}
+		}
+
 		// Precedence: CLI flag > environment variable > user config
 		if runConfig.ModelsGateway == "" {
 			if gateway := os.Getenv(envModelsGateway); gateway != "" {
 				runConfig.ModelsGateway = gateway
-			} else if userCfg, err := loadUserConfig(); err == nil && userCfg.ModelsGateway != "" {
+			} else if userCfg.ModelsGateway != "" {
 				runConfig.ModelsGateway = userCfg.ModelsGateway
 			}
 		}
-
 		runConfig.ModelsGateway = canonize(runConfig.ModelsGateway)
+
+		// Precedence for default model: environment variable > user config
+		if model := os.Getenv(envDefaultModel); model != "" {
+			runConfig.DefaultModel = parseModelShorthand(model)
+		} else if userCfg.DefaultModel != nil {
+			runConfig.DefaultModel = &userCfg.DefaultModel.ModelConfig
+		}
 
 		if err := setupWorkingDirectory(runConfig.WorkingDir); err != nil {
 			return err
@@ -87,4 +104,29 @@ func addGatewayFlags(cmd *cobra.Command, runConfig *config.RuntimeConfig) {
 
 		return nil
 	}
+}
+
+// parseModelShorthand parses "provider/model" into a ModelConfig
+func parseModelShorthand(s string) *latest.ModelConfig {
+	if idx := strings.Index(s, "/"); idx > 0 && idx < len(s)-1 {
+		return &latest.ModelConfig{
+			Provider: s[:idx],
+			Model:    s[idx+1:],
+		}
+	}
+	return nil
+}
+
+// listenAndCloseOnCancel starts a listener and spawns a goroutine
+// that closes it when the context is cancelled.
+func listenAndCloseOnCancel(ctx context.Context, addr string) (net.Listener, error) {
+	ln, err := server.Listen(ctx, addr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to listen on %s: %w", addr, err)
+	}
+	go func() {
+		<-ctx.Done()
+		_ = ln.Close()
+	}()
+	return ln, nil
 }

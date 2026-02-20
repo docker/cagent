@@ -1,0 +1,173 @@
+<h1>User Prompt Tool</h1>
+<p class="subtitle">Ask the user questions and collect interactive input during agent execution.</p>
+
+<h2>Overview</h2>
+
+<p>The user prompt tool allows agents to ask questions and collect input from users during execution. This enables interactive workflows where the agent needs clarification, confirmation, or additional information before proceeding.</p>
+
+<div class="callout callout-info">
+  <div class="callout-title">ℹ️ When to Use</div>
+  <ul>
+    <li>When the agent needs clarification before proceeding</li>
+    <li>Collecting credentials or configuration values</li>
+    <li>Presenting choices and getting user decisions</li>
+    <li>Confirming destructive or important actions</li>
+  </ul>
+</div>
+
+<h2>Configuration</h2>
+
+<pre><code class="language-yaml">agents:
+  assistant:
+    model: openai/gpt-4o
+    description: Interactive assistant
+    instruction: |
+      You are a helpful assistant. When you need information
+      from the user, use the user_prompt tool to ask them.
+    toolsets:
+      - type: user_prompt
+      - type: filesystem
+      - type: shell</code></pre>
+
+<h2>Tool Interface</h2>
+
+<p>The <code>user_prompt</code> tool takes these parameters:</p>
+
+<table>
+  <thead><tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>message</code></td><td>string</td><td>✓</td><td>The question or prompt to display</td></tr>
+    <tr><td><code>schema</code></td><td>object</td><td>✗</td><td>JSON Schema defining expected response structure</td></tr>
+  </tbody>
+</table>
+
+<h2>Response Format</h2>
+
+<p>The tool returns a JSON response:</p>
+
+<pre><code class="language-json">{
+  "action": "accept",
+  "content": {
+    "field1": "user value",
+    "field2": true
+  }
+}</code></pre>
+
+<h3>Action Values</h3>
+
+<table>
+  <thead><tr><th>Action</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><code>accept</code></td><td>User provided a response (check <code>content</code>)</td></tr>
+    <tr><td><code>decline</code></td><td>User declined to answer</td></tr>
+    <tr><td><code>cancel</code></td><td>User cancelled the prompt</td></tr>
+  </tbody>
+</table>
+
+<h2>Schema Examples</h2>
+
+<h3>Simple String Input</h3>
+
+<pre><code class="language-json">{
+  "type": "string",
+  "title": "API Key",
+  "description": "Enter your API key"
+}</code></pre>
+
+<h3>Multiple Choice</h3>
+
+<pre><code class="language-json">{
+  "type": "string",
+  "enum": ["development", "staging", "production"],
+  "title": "Environment",
+  "description": "Select the target environment"
+}</code></pre>
+
+<h3>Boolean Confirmation</h3>
+
+<pre><code class="language-json">{
+  "type": "boolean",
+  "title": "Confirm",
+  "description": "Are you sure you want to proceed?"
+}</code></pre>
+
+<h3>Object with Multiple Fields</h3>
+
+<pre><code class="language-json">{
+  "type": "object",
+  "properties": {
+    "username": {
+      "type": "string",
+      "description": "Your username"
+    },
+    "password": {
+      "type": "string",
+      "description": "Your password"
+    },
+    "remember": {
+      "type": "boolean",
+      "description": "Remember credentials"
+    }
+  },
+  "required": ["username", "password"]
+}</code></pre>
+
+<h3>Number Input</h3>
+
+<pre><code class="language-json">{
+  "type": "integer",
+  "title": "Port Number",
+  "description": "Enter the port number (1024-65535)",
+  "minimum": 1024,
+  "maximum": 65535
+}</code></pre>
+
+<h2>Example Usage</h2>
+
+<p>Here's how an agent might use the user prompt tool:</p>
+
+<pre><code class="language-text">Agent: I need to deploy this application. Let me ask which environment to target.
+
+[Calls user_prompt with message: "Which environment should I deploy to?" 
+ and schema with enum: ["development", "staging", "production"]]
+
+User selects: "staging"
+
+Agent: Great, I'll deploy to staging. Let me confirm this action.
+
+[Calls user_prompt with message: "Deploy to staging? This will replace the current version."
+ and schema with type: "boolean"]
+
+User confirms: true
+
+Agent: Deploying to staging...</code></pre>
+
+<h2>UI Presentation</h2>
+
+<p>How the prompt appears depends on the interface:</p>
+
+<ul>
+  <li><strong>TUI</strong>: Displays an interactive dialog with appropriate input controls</li>
+  <li><strong>CLI (exec mode)</strong>: Prints the prompt and reads from stdin</li>
+  <li><strong>API/MCP</strong>: Returns an elicitation request to the client</li>
+</ul>
+
+<div class="callout callout-tip">
+  <div class="callout-title">💡 Best Practice</div>
+  <p>Provide clear, concise messages. Include context about why you're asking and what the information will be used for. Use schemas with descriptions to guide users on expected input format.</p>
+</div>
+
+<h2>Handling Responses</h2>
+
+<p>The agent should handle all possible actions:</p>
+
+<ul>
+  <li><strong>accept</strong>: Process the <code>content</code> and continue</li>
+  <li><strong>decline</strong>: Acknowledge and try an alternative approach or explain what's needed</li>
+  <li><strong>cancel</strong>: Stop the current operation gracefully</li>
+</ul>
+
+<div class="callout callout-warning">
+  <div class="callout-title">⚠️ Context Requirement</div>
+  <p>The user prompt tool requires an elicitation handler to be configured. It works in the TUI and CLI modes but may not be available in all contexts (e.g., some MCP client configurations).</p>
+</div>

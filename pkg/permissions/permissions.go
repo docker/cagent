@@ -20,6 +20,9 @@ const (
 	Allow
 	// Deny means the tool is rejected and should not be executed
 	Deny
+	// ForceAsk means an explicit ask pattern matched; the tool must be
+	// confirmed even if it would normally be auto-approved (e.g. read-only).
+	ForceAsk
 )
 
 // String returns a human-readable representation of the decision
@@ -31,6 +34,8 @@ func (d Decision) String() string {
 		return "allow"
 	case Deny:
 		return "deny"
+	case ForceAsk:
+		return "force_ask"
 	default:
 		return "unknown"
 	}
@@ -39,6 +44,7 @@ func (d Decision) String() string {
 // Checker evaluates tool permissions based on configured patterns
 type Checker struct {
 	allowPatterns []string
+	askPatterns   []string
 	denyPatterns  []string
 }
 
@@ -49,6 +55,7 @@ func NewChecker(cfg *latest.PermissionsConfig) *Checker {
 	}
 	return &Checker{
 		allowPatterns: cfg.Allow,
+		askPatterns:   cfg.Ask,
 		denyPatterns:  cfg.Deny,
 	}
 }
@@ -61,7 +68,7 @@ func (c *Checker) Check(toolName string) Decision {
 }
 
 // CheckWithArgs evaluates the permission for a given tool name and its arguments.
-// Evaluation order: Deny (checked first), then Allow, then Ask (default)
+// Evaluation order: Deny (checked first), then Allow, then Ask (explicit), then Ask (default).
 //
 // The toolName can be a simple name like "shell" or a qualified name like
 // "mcp:github:create_issue".
@@ -71,6 +78,10 @@ func (c *Checker) Check(toolName string) Decision {
 // - Argument matching: "shell:cmd=ls*" matches shell tool with cmd argument starting with "ls"
 // - Multiple arguments: "shell:cmd=ls*:cwd=/home/*" matches both conditions
 // - Glob patterns in both tool names and argument values
+//
+// Returns ForceAsk when an explicit ask pattern matches. ForceAsk means the
+// tool must always be confirmed, even when it would normally be auto-approved
+// (e.g. read-only tools or --yolo mode).
 func (c *Checker) CheckWithArgs(toolName string, args map[string]any) Decision {
 	// Deny patterns are checked first - they take priority
 	for _, pattern := range c.denyPatterns {
@@ -86,18 +97,30 @@ func (c *Checker) CheckWithArgs(toolName string, args map[string]any) Decision {
 		}
 	}
 
+	// Explicit ask patterns override auto-approval (e.g. read-only hints)
+	for _, pattern := range c.askPatterns {
+		if matchToolPattern(pattern, toolName, args) {
+			return ForceAsk
+		}
+	}
+
 	// Default is Ask
 	return Ask
 }
 
 // IsEmpty returns true if no permissions are configured
 func (c *Checker) IsEmpty() bool {
-	return len(c.allowPatterns) == 0 && len(c.denyPatterns) == 0
+	return len(c.allowPatterns) == 0 && len(c.askPatterns) == 0 && len(c.denyPatterns) == 0
 }
 
 // AllowPatterns returns the list of allow patterns.
 func (c *Checker) AllowPatterns() []string {
 	return c.allowPatterns
+}
+
+// AskPatterns returns the list of ask patterns.
+func (c *Checker) AskPatterns() []string {
+	return c.askPatterns
 }
 
 // DenyPatterns returns the list of deny patterns.

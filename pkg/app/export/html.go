@@ -116,7 +116,7 @@ func sessionToData(sess *session.Session) SessionData {
 		CreatedAt:    sess.CreatedAt,
 		InputTokens:  sess.InputTokens,
 		OutputTokens: sess.OutputTokens,
-		Cost:         sess.Cost,
+		Cost:         sess.TotalCost(),
 		Messages:     exportMessages,
 	}
 }

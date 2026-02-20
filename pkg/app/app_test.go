@@ -10,7 +10,9 @@ import (
 
 	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/session"
+	"github.com/docker/cagent/pkg/sessiontitle"
 	"github.com/docker/cagent/pkg/tools"
+	mcptools "github.com/docker/cagent/pkg/tools/mcp"
 )
 
 // mockRuntime is a minimal mock for testing App without a real runtime
@@ -24,8 +26,10 @@ func (m *mockRuntime) SetCurrentAgent(name string) error { return nil }
 func (m *mockRuntime) CurrentAgentTools(ctx context.Context) ([]tools.Tool, error) {
 	return nil, nil
 }
-func (m *mockRuntime) EmitStartupInfo(ctx context.Context, events chan runtime.Event) {}
-func (m *mockRuntime) ResetStartupInfo()                                              {}
+
+func (m *mockRuntime) EmitStartupInfo(ctx context.Context, sess *session.Session, events chan runtime.Event) {
+}
+func (m *mockRuntime) ResetStartupInfo() {}
 func (m *mockRuntime) RunStream(ctx context.Context, sess *session.Session) <-chan runtime.Event {
 	ch := make(chan runtime.Event)
 	close(ch)
@@ -43,7 +47,22 @@ func (m *mockRuntime) SessionStore() session.Store { return nil }
 func (m *mockRuntime) Summarize(ctx context.Context, sess *session.Session, additionalPrompt string, events chan runtime.Event) {
 }
 func (m *mockRuntime) PermissionsInfo() *runtime.PermissionsInfo { return nil }
-func (m *mockRuntime) Stop()                                     {}
+func (m *mockRuntime) CurrentAgentSkillsEnabled() bool           { return false }
+func (m *mockRuntime) CurrentMCPPrompts(context.Context) map[string]mcptools.PromptInfo {
+	return make(map[string]mcptools.PromptInfo)
+}
+
+func (m *mockRuntime) ExecuteMCPPrompt(context.Context, string, map[string]string) (string, error) {
+	return "", nil
+}
+
+func (m *mockRuntime) UpdateSessionTitle(_ context.Context, sess *session.Session, title string) error {
+	sess.Title = title
+	return nil
+}
+func (m *mockRuntime) TitleGenerator() *sessiontitle.Generator { return nil }
+func (m *mockRuntime) Close() error                            { return nil }
+func (m *mockRuntime) Stop()                                   {}
 
 // Verify mockRuntime implements runtime.Runtime
 var _ runtime.Runtime = (*mockRuntime)(nil)
@@ -211,6 +230,33 @@ func TestApp_UpdateSessionTitle(t *testing.T) {
 		// Title should not be updated
 		assert.Empty(t, sess.Title)
 	})
+}
+
+func TestApp_ResolveSkillCommand_NoLocalRuntime(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	rt := &mockRuntime{}
+	sess := session.New()
+	app := New(ctx, rt, sess)
+
+	// mockRuntime is not a LocalRuntime, so no skills should be returned
+	resolved, err := app.ResolveSkillCommand("/some-skill")
+	require.NoError(t, err)
+	assert.Empty(t, resolved)
+}
+
+func TestApp_ResolveSkillCommand_NotSlashCommand(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	rt := &mockRuntime{}
+	sess := session.New()
+	app := New(ctx, rt, sess)
+
+	resolved, err := app.ResolveSkillCommand("not a slash command")
+	require.NoError(t, err)
+	assert.Empty(t, resolved)
 }
 
 func TestApp_RegenerateSessionTitle(t *testing.T) {

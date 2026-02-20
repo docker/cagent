@@ -11,7 +11,6 @@ import (
 	"github.com/docker/cagent/pkg/environment"
 	"github.com/docker/cagent/pkg/model/provider"
 	"github.com/docker/cagent/pkg/model/provider/options"
-	"github.com/docker/cagent/pkg/modelsdev"
 )
 
 // ModelChoice represents a model available for selection in the TUI picker.
@@ -85,6 +84,7 @@ func (r *LocalRuntime) SetAgentModel(ctx context.Context, agentName, modelRef st
 
 	// Check if modelRef is a named model from config
 	if modelConfig, exists := r.modelSwitcherCfg.Models[modelRef]; exists {
+		modelConfig.Name = modelRef
 		// Check if this is an alloy model (no provider, comma-separated models)
 		if isAlloyModelConfig(modelConfig) {
 			providers, err := r.createProvidersFromAlloyConfig(ctx, modelConfig)
@@ -176,6 +176,7 @@ func (r *LocalRuntime) createProvidersFromInlineAlloy(ctx context.Context, model
 
 		// Check if this part exists as a named model in config
 		if modelCfg, exists := r.modelSwitcherCfg.Models[part]; exists {
+			modelCfg.Name = part
 			prov, err := r.createProviderFromConfig(ctx, &modelCfg)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create provider for %q: %w", part, err)
@@ -220,6 +221,7 @@ func (r *LocalRuntime) createProvidersFromAlloyConfig(ctx context.Context, alloy
 
 		// Check if this model reference exists in the config
 		if modelCfg, exists := r.modelSwitcherCfg.Models[modelRef]; exists {
+			modelCfg.Name = modelRef
 			prov, err := r.createProviderFromConfig(ctx, &modelCfg)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create provider for %q: %w", modelRef, err)
@@ -254,10 +256,8 @@ func (r *LocalRuntime) createProvidersFromAlloyConfig(ctx context.Context, alloy
 
 // AvailableModels implements ModelSwitcher for LocalRuntime.
 func (r *LocalRuntime) AvailableModels(ctx context.Context) []ModelChoice {
-	var choices []ModelChoice
-
 	if r.modelSwitcherCfg == nil {
-		return choices
+		return nil
 	}
 
 	// Get the current agent's default model reference
@@ -265,6 +265,8 @@ func (r *LocalRuntime) AvailableModels(ctx context.Context) []ModelChoice {
 	if r.modelSwitcherCfg.AgentDefaultModels != nil {
 		currentAgentDefault = r.modelSwitcherCfg.AgentDefaultModels[r.currentAgent]
 	}
+
+	var choices []ModelChoice
 
 	// Add all configured models, marking the current agent's default
 	for name, cfg := range r.modelSwitcherCfg.Models {
@@ -284,23 +286,10 @@ func (r *LocalRuntime) AvailableModels(ctx context.Context) []ModelChoice {
 	return choices
 }
 
-// CatalogStore is an extended interface for model stores that support fetching the full database.
-type CatalogStore interface {
-	ModelStore
-	GetDatabase(ctx context.Context) (*modelsdev.Database, error)
-}
-
 // buildCatalogChoices builds ModelChoice entries from the models.dev catalog,
 // filtered by supported providers and available credentials.
 func (r *LocalRuntime) buildCatalogChoices(ctx context.Context) []ModelChoice {
-	// Check if modelsStore supports GetDatabase
-	catalogStore, ok := r.modelsStore.(CatalogStore)
-	if !ok {
-		slog.Debug("Models store does not support GetDatabase, skipping catalog")
-		return nil
-	}
-
-	db, err := catalogStore.GetDatabase(ctx)
+	db, err := r.modelsStore.GetDatabase(ctx)
 	if err != nil {
 		slog.Debug("Failed to get models.dev database for catalog", "error", err)
 		return nil
@@ -456,22 +445,14 @@ func (r *LocalRuntime) createProviderFromConfig(ctx context.Context, cfg *latest
 		options.WithProviders(r.modelSwitcherCfg.Providers),
 	}
 
-	// Look up max tokens from models.dev if not specified in config
-	var maxTokens *int64
+	// Use max_tokens from config if specified, otherwise look up from models.dev
 	if cfg.MaxTokens != nil {
-		maxTokens = cfg.MaxTokens
-	} else {
-		defaultMaxTokens := int64(32000)
-		maxTokens = &defaultMaxTokens
-		if r.modelsStore != nil {
-			m, err := r.modelsStore.GetModel(ctx, cfg.Provider+"/"+cfg.Model)
-			if err == nil && m != nil {
-				maxTokens = &m.Limit.Output
-			}
+		opts = append(opts, options.WithMaxTokens(*cfg.MaxTokens))
+	} else if r.modelsStore != nil {
+		m, err := r.modelsStore.GetModel(ctx, cfg.Provider+"/"+cfg.Model)
+		if err == nil && m != nil {
+			opts = append(opts, options.WithMaxTokens(m.Limit.Output))
 		}
-	}
-	if maxTokens != nil {
-		opts = append(opts, options.WithMaxTokens(*maxTokens))
 	}
 
 	return provider.NewWithModels(ctx,

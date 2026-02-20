@@ -2,23 +2,35 @@ package acp
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 
 	acpsdk "github.com/coder/acp-go-sdk"
 
 	"github.com/docker/cagent/pkg/config"
+	"github.com/docker/cagent/pkg/session"
 )
 
-func Run(ctx context.Context, agentFilename string, stdin io.Reader, stdout io.Writer, runConfig *config.RuntimeConfig) error {
-	slog.Debug("Starting ACP server", "agent", agentFilename)
+func Run(ctx context.Context, agentFilename string, stdin io.Reader, stdout io.Writer, runConfig *config.RuntimeConfig, sessionDB string) error {
+	slog.Debug("Starting ACP server", "agent", agentFilename, "session_db", sessionDB)
 
-	agentSource, err := config.Resolve(agentFilename)
+	agentSource, err := config.Resolve(agentFilename, nil)
 	if err != nil {
 		return err
 	}
 
-	acpAgent := NewAgent(agentSource, runConfig)
+	// Create SQLite session store for persistent sessions
+	sessStore, err := session.NewSQLiteSessionStore(sessionDB)
+	if err != nil {
+		return fmt.Errorf("creating session store: %w", err)
+	}
+	// Close the store on shutdown if it implements io.Closer
+	if closer, ok := sessStore.(io.Closer); ok {
+		defer closer.Close()
+	}
+
+	acpAgent := NewAgent(agentSource, runConfig, sessStore)
 	conn := acpsdk.NewAgentSideConnection(acpAgent, stdout, stdin)
 	conn.SetLogger(slog.Default())
 	acpAgent.SetAgentConnection(conn)

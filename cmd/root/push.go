@@ -16,17 +16,16 @@ import (
 
 func newPushCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:     "push <agent-file> <registry-ref>",
-		Short:   "Push an agent to an OCI registry",
-		Long:    "Push an agent configuration file to an OCI registry",
-		GroupID: "core",
-		Args:    cobra.ExactArgs(2),
-		RunE:    runPushCommand,
+		Use:   "push <agent-file> <registry-ref>",
+		Short: "Push an agent to an OCI registry",
+		Long:  "Push an agent configuration file to an OCI registry",
+		Args:  cobra.ExactArgs(2),
+		RunE:  runPushCommand,
 	}
 }
 
 func runPushCommand(cmd *cobra.Command, args []string) error {
-	telemetry.TrackCommand("push", args)
+	telemetry.TrackCommand("share", append([]string{"push"}, args...))
 
 	ctx := cmd.Context()
 	agentFilename := args[0]
@@ -38,7 +37,7 @@ func runPushCommand(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	agentSource, err := config.Resolve(agentFilename)
+	agentSource, err := config.Resolve(agentFilename, nil)
 	if err != nil {
 		return fmt.Errorf("resolving agent file: %w", err)
 	}

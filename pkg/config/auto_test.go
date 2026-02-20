@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/docker/cagent/pkg/config/latest"
 )
 
 type mockEnvProvider struct {
@@ -175,7 +177,7 @@ func TestAutoModelConfig(t *testing.T) {
 				"ANTHROPIC_API_KEY": "test-key",
 			},
 			expectedProvider:  "anthropic",
-			expectedModel:     "claude-sonnet-4-0",
+			expectedModel:     "claude-sonnet-4-5",
 			expectedMaxTokens: 32000,
 		},
 		{
@@ -217,7 +219,7 @@ func TestAutoModelConfig(t *testing.T) {
 			envVars:           map[string]string{},
 			gateway:           "gateway:8080",
 			expectedProvider:  "anthropic",
-			expectedModel:     "claude-sonnet-4-0",
+			expectedModel:     "claude-sonnet-4-5",
 			expectedMaxTokens: 32000,
 		},
 	}
@@ -226,7 +228,7 @@ func TestAutoModelConfig(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			modelConfig := AutoModelConfig(t.Context(), tt.gateway, &mockEnvProvider{envVars: tt.envVars})
+			modelConfig := AutoModelConfig(t.Context(), tt.gateway, &mockEnvProvider{envVars: tt.envVars}, nil)
 
 			assert.Equal(t, tt.expectedProvider, modelConfig.Provider)
 			assert.Equal(t, tt.expectedModel, modelConfig.Model)
@@ -295,7 +297,7 @@ func TestDefaultModels(t *testing.T) {
 
 	// Test specific model values
 	assert.Equal(t, "gpt-5-mini", DefaultModels["openai"])
-	assert.Equal(t, "claude-sonnet-4-0", DefaultModels["anthropic"])
+	assert.Equal(t, "claude-sonnet-4-5", DefaultModels["anthropic"])
 	assert.Equal(t, "gemini-2.5-flash", DefaultModels["google"])
 	assert.Equal(t, "ai/qwen3:latest", DefaultModels["dmr"])
 	assert.Equal(t, "mistral-small-latest", DefaultModels["mistral"])
@@ -326,7 +328,7 @@ func TestAutoModelConfig_IntegrationWithDefaultModels(t *testing.T) {
 				envVars["MISTRAL_API_KEY"] = "test-key"
 			}
 
-			modelConfig := AutoModelConfig(t.Context(), "", &mockEnvProvider{envVars: envVars})
+			modelConfig := AutoModelConfig(t.Context(), "", &mockEnvProvider{envVars: envVars}, nil)
 
 			// Verify the returned model matches the DefaultModels entry
 			expectedModel := DefaultModels[provider]
@@ -339,7 +341,7 @@ func TestAutoModelConfig_IntegrationWithDefaultModels(t *testing.T) {
 	t.Run("dmr", func(t *testing.T) {
 		t.Parallel()
 
-		modelConfig := AutoModelConfig(t.Context(), "", &mockEnvProvider{envVars: map[string]string{}})
+		modelConfig := AutoModelConfig(t.Context(), "", &mockEnvProvider{envVars: map[string]string{}}, nil)
 
 		assert.Equal(t, "dmr", modelConfig.Provider)
 		assert.Equal(t, DefaultModels["dmr"], modelConfig.Model)
@@ -398,4 +400,101 @@ func TestAvailableProviders_PrecedenceOrder(t *testing.T) {
 	}
 	providers = AvailableProviders(t.Context(), "", env)
 	assert.Equal(t, "dmr", providers[0])
+}
+
+func TestAutoModelConfig_UserDefaultModel(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		defaultModel      *latest.ModelConfig
+		envVars           map[string]string
+		expectedProvider  string
+		expectedModel     string
+		expectedMaxTokens int64
+	}{
+		{
+			name:              "user default model overrides auto detection",
+			defaultModel:      &latest.ModelConfig{Provider: "openai", Model: "gpt-4o"},
+			envVars:           map[string]string{"ANTHROPIC_API_KEY": "test-key"},
+			expectedProvider:  "openai",
+			expectedModel:     "gpt-4o",
+			expectedMaxTokens: 32000,
+		},
+		{
+			name:              "user default model with dmr provider",
+			defaultModel:      &latest.ModelConfig{Provider: "dmr", Model: "ai/llama3.2"},
+			envVars:           map[string]string{"OPENAI_API_KEY": "test-key"},
+			expectedProvider:  "dmr",
+			expectedModel:     "ai/llama3.2",
+			expectedMaxTokens: 16000,
+		},
+		{
+			name:              "user default model with anthropic provider",
+			defaultModel:      &latest.ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-0"},
+			envVars:           map[string]string{},
+			expectedProvider:  "anthropic",
+			expectedModel:     "claude-sonnet-4-0",
+			expectedMaxTokens: 32000,
+		},
+		{
+			name:              "nil default model falls back to auto detection",
+			defaultModel:      nil,
+			envVars:           map[string]string{"GOOGLE_API_KEY": "test-key"},
+			expectedProvider:  "google",
+			expectedModel:     "gemini-2.5-flash",
+			expectedMaxTokens: 32000,
+		},
+		{
+			name:              "empty provider falls back to auto detection",
+			defaultModel:      &latest.ModelConfig{Provider: "", Model: "model-only"},
+			envVars:           map[string]string{"MISTRAL_API_KEY": "test-key"},
+			expectedProvider:  "mistral",
+			expectedModel:     "mistral-small-latest",
+			expectedMaxTokens: 32000,
+		},
+		{
+			name:              "empty model falls back to auto detection",
+			defaultModel:      &latest.ModelConfig{Provider: "openai", Model: ""},
+			envVars:           map[string]string{"ANTHROPIC_API_KEY": "test-key"},
+			expectedProvider:  "anthropic",
+			expectedModel:     "claude-sonnet-4-5",
+			expectedMaxTokens: 32000,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			modelConfig := AutoModelConfig(t.Context(), "", &mockEnvProvider{envVars: tt.envVars}, tt.defaultModel)
+
+			assert.Equal(t, tt.expectedProvider, modelConfig.Provider)
+			assert.Equal(t, tt.expectedModel, modelConfig.Model)
+			assert.Equal(t, tt.expectedMaxTokens, *modelConfig.MaxTokens)
+		})
+	}
+}
+
+func TestAutoModelConfig_UserDefaultModelWithOptions(t *testing.T) {
+	t.Parallel()
+
+	// Test that user-provided options like max_tokens, thinking_budget are preserved
+	customMaxTokens := int64(64000)
+	thinkingBudget := &latest.ThinkingBudget{Tokens: 10000}
+
+	defaultModel := &latest.ModelConfig{
+		Provider:       "anthropic",
+		Model:          "claude-sonnet-4-5",
+		MaxTokens:      &customMaxTokens,
+		ThinkingBudget: thinkingBudget,
+	}
+
+	modelConfig := AutoModelConfig(t.Context(), "", &mockEnvProvider{envVars: map[string]string{}}, defaultModel)
+
+	assert.Equal(t, "anthropic", modelConfig.Provider)
+	assert.Equal(t, "claude-sonnet-4-5", modelConfig.Model)
+	assert.Equal(t, int64(64000), *modelConfig.MaxTokens)
+	assert.NotNil(t, modelConfig.ThinkingBudget)
+	assert.Equal(t, 10000, modelConfig.ThinkingBudget.Tokens)
 }

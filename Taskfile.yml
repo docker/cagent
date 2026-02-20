@@ -2,6 +2,7 @@ version: "3"
 
 vars:
   BINARY_NAME: cagent{{if eq OS "windows"}}.exe{{end}}
+  CLI_PLUGIN_BINARY_NAME: docker-agent{{if eq OS "windows"}}.exe{{end}}
   MAIN_PKG: ./main.go
   BUILD_DIR: ./bin
   GIT_TAG:
@@ -35,6 +36,12 @@ tasks:
     generates:
       - "{{.BUILD_DIR}}/{{.BINARY_NAME}}"
 
+  deploy-local:
+    desc: Deploy the docker agent cli-plugin
+    deps: ["build"]
+    cmds:
+      - cp "{{.BUILD_DIR}}/{{.BINARY_NAME}}" ~/.docker/cli-plugins/{{.CLI_PLUGIN_BINARY_NAME}}
+
   lint:
     desc: Run golangci-lint
     cmds:
@@ -56,7 +63,7 @@ tasks:
   test:
     aliases: [t]
     desc: Run tests
-    cmd: CAGENT_MODELS_GATEWAY= OPENAI_API_KEY= ANTHROPIC_API_KEY= GOOGLE_API_KEY= MISTRAL_API_KEY= GITHUB_TOKEN= go test {{.CLI_ARGS}} ./...
+    cmd: CAGENT_MODELS_GATEWAY= OPENAI_API_KEY= ANTHROPIC_API_KEY= GOOGLE_API_KEY= GOOGLE_GENAI_USE_VERTEXAI= MISTRAL_API_KEY= GITHUB_TOKEN= go test {{.CLI_ARGS}} ./...
 
   build-local:
     desc: Build binaries for local host platform
@@ -74,27 +81,6 @@ tasks:
     desc: Build and Push Docker image
     cmd: docker buildx build --push --platform linux/amd64,linux/arm64 -t docker/cagent {{.BUILD_ARGS}} .
 
-  push-agent:
-    desc: Build dockerized agent
-    internal: true
-    vars:
-      DOCKER_ID:
-        sh: curl -s --unix-socket ~/Library/Containers/com.docker.docker/Data/backend.sock http://_/registry/info | jq -r .id
-    deps: ["build"]
-    cmd: ./bin/cagent build --push ./examples/{{.AGENT}}.yaml {{.DOCKER_ID}}/cagent-{{.AGENT}}
-
-  push-agents:
-    desc: Build dockerized agents
-    deps:
-      - task: push-agent
-        vars: { AGENT: "pirate" }
-      - task: push-agent
-        vars: { AGENT: "github" }
-      - task: push-agent
-        vars: { AGENT: "gopher" }
-      - task: push-agent
-        vars: { AGENT: "mem" }
-
   record-demo:
     desc: Record demo gif
-    cmd: vhs ./docs/demo.tape
+    cmd: vhs ./docs/recordings/demo.tape

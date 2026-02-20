@@ -1,0 +1,95 @@
+<h1>xAI (Grok)</h1>
+<p class="subtitle">Use xAI's Grok models with cagent.</p>
+
+<h2>Overview</h2>
+
+<p>xAI provides the Grok family of models through an OpenAI-compatible API. cagent includes built-in support for xAI as an alias provider.</p>
+
+<h2>Setup</h2>
+
+<ol>
+  <li>Get an API key from <a href="https://console.x.ai/" target="_blank" rel="noopener noreferrer">xAI Console</a></li>
+  <li>Set the environment variable:
+    <pre><code class="language-bash">export XAI_API_KEY=your-api-key</code></pre>
+  </li>
+</ol>
+
+<h2>Usage</h2>
+
+<h3>Inline Syntax</h3>
+
+<p>The simplest way to use xAI:</p>
+
+<pre><code class="language-yaml">agents:
+  root:
+    model: xai/grok-3
+    description: Assistant using Grok
+    instruction: You are a helpful assistant.</code></pre>
+
+<h3>Named Model</h3>
+
+<p>For more control over parameters:</p>
+
+<pre><code class="language-yaml">models:
+  grok:
+    provider: xai
+    model: grok-3
+    temperature: 0.7
+    max_tokens: 8192
+
+agents:
+  root:
+    model: grok
+    description: Assistant using Grok
+    instruction: You are a helpful assistant.</code></pre>
+
+<h2>Available Models</h2>
+
+<table>
+  <thead><tr><th>Model</th><th>Description</th><th>Context</th></tr></thead>
+  <tbody>
+    <tr><td><code>grok-3</code></td><td>Latest and most capable Grok model</td><td>131K</td></tr>
+    <tr><td><code>grok-3-fast</code></td><td>Faster variant with lower latency</td><td>131K</td></tr>
+    <tr><td><code>grok-3-mini</code></td><td>Compact model for simpler tasks</td><td>131K</td></tr>
+    <tr><td><code>grok-3-mini-fast</code></td><td>Fast variant of the mini model</td><td>131K</td></tr>
+    <tr><td><code>grok-2</code></td><td>Previous generation model</td><td>128K</td></tr>
+    <tr><td><code>grok-vision</code></td><td>Vision-capable model</td><td>32K</td></tr>
+  </tbody>
+</table>
+
+<p>Check the <a href="https://docs.x.ai/docs" target="_blank" rel="noopener noreferrer">xAI documentation</a> for the latest available models.</p>
+
+<h2>Extended Thinking</h2>
+
+<p>Grok models support thinking mode through the OpenAI-compatible API:</p>
+
+<pre><code class="language-yaml">models:
+  grok:
+    provider: xai
+    model: grok-3
+    thinking_budget: high  # minimal, low, medium, high, or none</code></pre>
+
+<h2>How It Works</h2>
+
+<p>xAI is implemented as a built-in alias in cagent:</p>
+
+<ul>
+  <li><strong>API Type:</strong> OpenAI-compatible (<code>openai_chatcompletions</code>)</li>
+  <li><strong>Base URL:</strong> <code>https://api.x.ai/v1</code></li>
+  <li><strong>Token Variable:</strong> <code>XAI_API_KEY</code></li>
+</ul>
+
+<h2>Example: Research Assistant</h2>
+
+<pre><code class="language-yaml">agents:
+  researcher:
+    model: xai/grok-3
+    description: Research assistant with real-time knowledge
+    instruction: |
+      You are a research assistant using Grok.
+      Provide well-researched, factual responses.
+      Cite sources when available.
+    toolsets:
+      - type: mcp
+        ref: docker:duckduckgo
+      - type: think</code></pre>

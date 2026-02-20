@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"maps"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -180,9 +181,7 @@ func TestApplyModelDefaults_Anthropic(t *testing.T) {
 			// Save original ProviderOpts keys to check preservation
 			originalOpts := make(map[string]any)
 			if tt.config.ProviderOpts != nil {
-				for k, v := range tt.config.ProviderOpts {
-					originalOpts[k] = v
-				}
+				maps.Copy(originalOpts, tt.config.ProviderOpts)
 			}
 
 			// Apply defaults
@@ -451,9 +450,7 @@ func TestApplyModelDefaults_Bedrock(t *testing.T) {
 			// Save original ProviderOpts keys to check preservation
 			originalOpts := make(map[string]any)
 			if tt.config.ProviderOpts != nil {
-				for k, v := range tt.config.ProviderOpts {
-					originalOpts[k] = v
-				}
+				maps.Copy(originalOpts, tt.config.ProviderOpts)
 			}
 
 			// Apply defaults
@@ -574,7 +571,7 @@ func TestApplyProviderDefaults_IncludesModelDefaults(t *testing.T) {
 				Model:    "claude-sonnet-4-0",
 			},
 			expectThinkingBudget:      &latest.ThinkingBudget{Tokens: 8192},
-			expectInterleavedThinking: boolPtr(true),
+			expectInterleavedThinking: new(true),
 		},
 		{
 			name: "google gemini-2.5 model gets defaults",
@@ -607,7 +604,7 @@ func TestApplyProviderDefaults_IncludesModelDefaults(t *testing.T) {
 				Model:    "anthropic.claude-3-sonnet",
 			},
 			expectThinkingBudget:      &latest.ThinkingBudget{Tokens: 8192},
-			expectInterleavedThinking: boolPtr(true),
+			expectInterleavedThinking: new(true),
 		},
 		{
 			name: "bedrock global claude model gets defaults",
@@ -616,7 +613,7 @@ func TestApplyProviderDefaults_IncludesModelDefaults(t *testing.T) {
 				Model:    "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
 			},
 			expectThinkingBudget:      &latest.ThinkingBudget{Tokens: 8192},
-			expectInterleavedThinking: boolPtr(true),
+			expectInterleavedThinking: new(true),
 		},
 		{
 			name: "custom provider with openai api_type gets openai defaults",
@@ -644,7 +641,7 @@ func TestApplyProviderDefaults_IncludesModelDefaults(t *testing.T) {
 			},
 			customProviders:           nil,
 			expectThinkingBudget:      &latest.ThinkingBudget{Tokens: 8192},
-			expectInterleavedThinking: boolPtr(true),
+			expectInterleavedThinking: new(true),
 		},
 	}
 
@@ -670,11 +667,6 @@ func TestApplyProviderDefaults_IncludesModelDefaults(t *testing.T) {
 			}
 		})
 	}
-}
-
-// boolPtr is a helper to create a pointer to a bool value.
-func boolPtr(b bool) *bool {
-	return &b
 }
 
 // TestApplyProviderDefaults_ThinkingDefaultsApplied tests that thinking defaults

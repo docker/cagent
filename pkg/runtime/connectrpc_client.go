@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -154,12 +155,13 @@ func (c *ConnectRPCClient) DeleteSession(ctx context.Context, id string) error {
 	return err
 }
 
-// ResumeSession resumes a session by ID with an optional rejection reason
-func (c *ConnectRPCClient) ResumeSession(ctx context.Context, id, confirmation, reason string) error {
+// ResumeSession resumes a session by ID with optional rejection reason or tool name
+func (c *ConnectRPCClient) ResumeSession(ctx context.Context, id, confirmation, reason, toolName string) error {
 	_, err := c.client.ResumeSession(ctx, connect.NewRequest(&cagentv1.ResumeSessionRequest{
 		Id:           id,
 		Confirmation: confirmation,
 		Reason:       reason,
+		ToolName:     toolName,
 	}))
 	return err
 }
@@ -179,6 +181,19 @@ func (c *ConnectRPCClient) UpdateSessionTitle(ctx context.Context, sessionID, ti
 		Title:     title,
 	}))
 	return err
+}
+
+// GetAgentToolCount returns the number of tools available for an agent.
+func (c *ConnectRPCClient) GetAgentToolCount(ctx context.Context, agentFilename, agentName string) (int, error) {
+	resp, err := c.client.GetAgentToolCount(ctx, connect.NewRequest(&cagentv1.GetAgentToolCountRequest{
+		Id:        agentFilename,
+		AgentName: agentName,
+	}))
+	if err != nil {
+		return 0, err
+	}
+
+	return int(resp.Msg.AvailableTools), nil
 }
 
 // ResumeElicitation sends an elicitation response
@@ -240,7 +255,7 @@ func (c *ConnectRPCClient) runAgentWithAgentName(ctx context.Context, sessionID,
 			}
 		}
 
-		if err := stream.Err(); err != nil && err != io.EOF {
+		if err := stream.Err(); err != nil && !errors.Is(err, io.EOF) {
 			slog.Error("Stream error", "error", err)
 			eventChan <- Error(fmt.Sprintf("stream error: %v", err))
 		}

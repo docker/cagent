@@ -1,0 +1,1444 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/cagent/cagent/blob/main/agent-schema.json",
+  "title": "Cagent Configuration",
+  "description": "Configuration schema for Cagent v5",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Configuration version",
+      "enum": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "examples": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ]
+    },
+    "providers": {
+      "type": "object",
+      "description": "Map of custom provider configurations. Providers define reusable defaults (base_url, token_key, api_type) that models can reference.",
+      "additionalProperties": {
+        "$ref": "#/definitions/ProviderConfig"
+      }
+    },
+    "agents": {
+      "type": "object",
+      "description": "Map of agent configurations",
+      "additionalProperties": {
+        "$ref": "#/definitions/AgentConfig"
+      }
+    },
+    "models": {
+      "type": "object",
+      "description": "Map of model configurations",
+      "additionalProperties": {
+        "$ref": "#/definitions/ModelConfig"
+      }
+    },
+    "rag": {
+      "type": "object",
+      "description": "Map of RAG (Retrieval-Augmented Generation) configurations",
+      "additionalProperties": {
+        "$ref": "#/definitions/RAGConfig"
+      }
+    },
+    "metadata": {
+      "$ref": "#/definitions/Metadata",
+      "description": "Configuration metadata"
+    },
+    "permissions": {
+      "$ref": "#/definitions/PermissionsConfig",
+      "description": "Tool permission configuration for controlling tool approval behavior"
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "ProviderConfig": {
+      "type": "object",
+      "description": "Configuration for a custom model provider. Can be used for custom gateways",
+      "properties": {
+        "api_type": {
+          "type": "string",
+          "description": "The API schema type to use. Determines which API schema to use.",
+          "enum": [
+            "openai_chatcompletions",
+            "openai_responses"
+          ],
+          "default": "openai_chatcompletions",
+          "examples": [
+            "openai_chatcompletions",
+            "openai_responses"
+          ]
+        },
+        "base_url": {
+          "type": "string",
+          "description": "Base URL for the provider's API endpoint (required)",
+          "format": "uri",
+          "examples": [
+            "https://router.example.com/v1"
+          ]
+        },
+        "token_key": {
+          "type": "string",
+          "description": "Environment variable name containing the API token. If not set, requests will be sent without authentication.",
+          "examples": [
+            "CUSTOM_PROVIDER_API_KEY"
+          ]
+        }
+      },
+      "required": [
+        "base_url"
+      ],
+      "additionalProperties": false
+    },
+    "AgentConfig": {
+      "type": "object",
+      "description": "Configuration for a single agent",
+      "properties": {
+        "model": {
+          "type": "string",
+          "description": "Model to use for this agent (can be just model name or provider/model format)",
+          "examples": [
+            "gpt-4",
+            "openai/gpt-4o",
+            "anthropic/claude-sonnet-4-0",
+            "anthropic/claude-sonnet-4-5",
+            "claude"
+          ]
+        },
+        "fallback": {
+          "$ref": "#/definitions/FallbackConfig",
+          "description": "Fallback model configuration for automatic failover and retry behavior"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of the agent"
+        },
+        "welcome_message": {
+          "type": "string",
+          "description": "Optional welcome message to display when the agent starts"
+        },
+        "toolsets": {
+          "type": "array",
+          "description": "List of toolsets available to the agent",
+          "items": {
+            "$ref": "#/definitions/Toolset"
+          }
+        },
+        "instruction": {
+          "type": "string",
+          "description": "Instructions for the agent"
+        },
+        "code_mode_tools": {
+          "type": "boolean",
+          "description": "Enable Code Mode for tools"
+        },
+        "sub_agents": {
+          "type": "array",
+          "description": "List of sub-agents",
+          "items": {
+            "type": "string"
+          }
+        },
+        "handoffs": {
+          "type": "array",
+          "description": "List of agents this agent can hand off the conversation to",
+          "items": {
+            "type": "string"
+          }
+        },
+        "add_date": {
+          "type": "boolean",
+          "description": "Whether to add date information"
+        },
+        "add_environment_info": {
+          "type": "boolean",
+          "description": "Whether to add environment information"
+        },
+        "max_iterations": {
+          "type": "integer",
+          "description": "Maximum number of iterations",
+          "minimum": 0
+        },
+        "num_history_items": {
+          "type": "integer",
+          "description": "Number of history items to keep",
+          "minimum": 0
+        },
+        "add_prompt_files": {
+          "type": "array",
+          "description": "List of prompt files to add",
+          "items": {
+            "type": "string"
+          }
+        },
+        "commands": {
+          "description": "Named prompts for /commands. Supports simple string format or advanced object format with description and instruction.",
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "description": "Simple command format: the string becomes the instruction"
+                  },
+                  {
+                    "$ref": "#/definitions/CommandConfig"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": {
+                  "oneOf": [
+                    {
+                      "type": "string",
+                      "description": "Simple command format: the string becomes the instruction"
+                    },
+                    {
+                      "$ref": "#/definitions/CommandConfig"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "structured_output": {
+          "type": "object",
+          "description": "Structured output configuration for constraining model responses to a specific JSON schema. Supported by OpenAI (native) and Google Gemini (native). Anthropic requires prompt engineering or tool-based approaches.",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Name of the response format schema"
+            },
+            "description": {
+              "type": "string",
+              "description": "Optional description of what the schema represents"
+            },
+            "strict": {
+              "type": "boolean",
+              "description": "Enable strict schema adherence (OpenAI only). When true, all properties must be in required array.",
+              "default": false
+            },
+            "schema": {
+              "type": "object",
+              "description": "JSON Schema object defining the structure of the response. Must include type, properties, and required fields.",
+              "required": [
+                "type",
+                "properties"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "object"
+                  ],
+                  "description": "Schema type, must be 'object' for structured outputs"
+                },
+                "properties": {
+                  "type": "object",
+                  "description": "Object properties with their schemas",
+                  "additionalProperties": true
+                },
+                "required": {
+                  "type": "array",
+                  "description": "List of required property names",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": {
+                  "type": "boolean",
+                  "description": "Whether additional properties are allowed",
+                  "default": false
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "name",
+            "schema"
+          ],
+          "additionalProperties": false
+        },
+        "rag": {
+          "type": "array",
+          "description": "List of RAG sources to use for this agent",
+          "items": {
+            "type": "string"
+          }
+        },
+        "add_description_parameter": {
+          "type": "boolean",
+          "description": "Whether to add a 'description' parameter to tool calls, allowing the LLM to provide context about why it is calling a tool"
+        },
+        "hooks": {
+          "$ref": "#/definitions/HooksConfig",
+          "description": "Lifecycle hooks for executing shell commands at various points in the agent's execution"
+        },
+        "skills": {
+          "type": "boolean",
+          "description": "Enable skills discovery for this agent. When enabled, the agent can discover and load skill files (SKILL.md) from the workspace."
+        }
+      },
+      "additionalProperties": false
+    },
+    "CommandConfig": {
+      "type": "object",
+      "description": "Advanced command configuration with description and instruction",
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "Description shown in completion dialogs and help text"
+        },
+        "instruction": {
+          "type": "string",
+          "description": "The prompt sent to the agent. Supports bang commands (!`command`) and positional arguments ($1, $2, etc.)"
+        }
+      },
+      "additionalProperties": false
+    },
+    "FallbackConfig": {
+      "type": "object",
+      "description": "Configuration for fallback model behavior when the primary model fails",
+      "properties": {
+        "models": {
+          "type": "array",
+          "description": "List of fallback models to try in order if the primary model fails. Each entry can be a model name from the models section or an inline provider/model format (e.g., 'openai/gpt-4o').",
+          "items": {
+            "type": "string"
+          },
+          "examples": [
+            [
+              "anthropic/claude-sonnet-4-0",
+              "openai/gpt-4o"
+            ],
+            [
+              "backup_model",
+              "openai/gpt-5-mini"
+            ]
+          ]
+        },
+        "retries": {
+          "type": "integer",
+          "description": "Number of retries per model with exponential backoff for retryable errors (5xx, timeouts). Use 0 or omit for default (2 retries = 3 total attempts per model). Use -1 to disable retries entirely (try each model only once).",
+          "minimum": -1,
+          "default": 2
+        },
+        "cooldown": {
+          "type": "string",
+          "description": "Duration to stick with a successful fallback model before retrying the primary. Only applies after a non-retryable error (e.g., 429 rate limit). Use Go duration format (e.g., '1m', '30s', '2m30s'). Default is '1m'.",
+          "pattern": "^([0-9]+(ns|us|µs|ms|s|m|h))+$",
+          "default": "1m",
+          "examples": [
+            "1m",
+            "30s",
+            "2m30s",
+            "5m"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "HooksConfig": {
+      "type": "object",
+      "description": "Lifecycle hooks configuration for an agent. Hooks allow running shell commands at various points in the agent's execution lifecycle.",
+      "properties": {
+        "pre_tool_use": {
+          "type": "array",
+          "description": "Hooks that run before a tool is executed. Can allow/deny/modify tool calls.",
+          "items": {
+            "$ref": "#/definitions/HookMatcherConfig"
+          }
+        },
+        "post_tool_use": {
+          "type": "array",
+          "description": "Hooks that run after a tool completes. Can provide validation or additional context.",
+          "items": {
+            "$ref": "#/definitions/HookMatcherConfig"
+          }
+        },
+        "session_start": {
+          "type": "array",
+          "description": "Hooks that run when a session begins. Can load context or setup environment.",
+          "items": {
+            "$ref": "#/definitions/HookDefinition"
+          }
+        },
+        "session_end": {
+          "type": "array",
+          "description": "Hooks that run when a session ends. Can perform cleanup or logging.",
+          "items": {
+            "$ref": "#/definitions/HookDefinition"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "HookMatcherConfig": {
+      "type": "object",
+      "description": "Configuration for matching tools and their associated hooks",
+      "properties": {
+        "matcher": {
+          "type": "string",
+          "description": "Regex pattern to match tool names (e.g., 'shell|edit_file'). Use '*' to match all tools. Case-sensitive.",
+          "examples": [
+            "*",
+            "shell",
+            "shell|edit_file|write_file",
+            "mcp__.*"
+          ]
+        },
+        "hooks": {
+          "type": "array",
+          "description": "Hooks to execute when the matcher matches",
+          "items": {
+            "$ref": "#/definitions/HookDefinition"
+          }
+        }
+      },
+      "required": [
+        "hooks"
+      ],
+      "additionalProperties": false
+    },
+    "HookDefinition": {
+      "type": "object",
+      "description": "Definition of a single hook command",
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Type of hook (currently only 'command' is supported)",
+          "enum": [
+            "command"
+          ]
+        },
+        "command": {
+          "type": "string",
+          "description": "Shell command to execute. Receives JSON input via stdin with tool/session information."
+        },
+        "timeout": {
+          "type": "integer",
+          "description": "Execution timeout in seconds (default: 60)",
+          "minimum": 1,
+          "default": 60
+        }
+      },
+      "required": [
+        "type",
+        "command"
+      ],
+      "additionalProperties": false
+    },
+    "ModelConfig": {
+      "type": "object",
+      "description": "Configuration for a model",
+      "properties": {
+        "provider": {
+          "type": "string",
+          "description": "Model provider (e.g., openai, anthropic, dmr)",
+          "examples": [
+            "openai",
+            "anthropic",
+            "dmr",
+            "ollama"
+          ]
+        },
+        "model": {
+          "type": "string",
+          "description": "Model name"
+        },
+        "temperature": {
+          "type": "number",
+          "description": "Sampling temperature",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "max_tokens": {
+          "type": "integer",
+          "description": "Maximum number of tokens",
+          "minimum": 1
+        },
+        "top_p": {
+          "type": "number",
+          "description": "Top-p sampling parameter",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "frequency_penalty": {
+          "type": "number",
+          "description": "Frequency penalty",
+          "minimum": -2,
+          "maximum": 2
+        },
+        "presence_penalty": {
+          "type": "number",
+          "description": "Presence penalty",
+          "minimum": -2,
+          "maximum": 2
+        },
+        "base_url": {
+          "type": "string",
+          "description": "Base URL for the model API",
+          "format": "uri"
+        },
+        "parallel_tool_calls": {
+          "type": "boolean",
+          "description": "Whether to enable parallel tool calls"
+        },
+        "token_key": {
+          "type": "string",
+          "description": "Token key for authentication"
+        },
+        "provider_opts": {
+          "type": "object",
+          "description": "Provider-specific options. dmr: runtime_flags. anthropic/amazon-bedrock (Claude): interleaved_thinking (boolean, default true). openai/anthropic/google: rerank_prompt (string) to fully override the system prompt used for RAG reranking (advanced - prefer using results.reranking.criteria for domain-specific guidance).",
+          "additionalProperties": true
+        },
+        "track_usage": {
+          "type": "boolean",
+          "description": "Whether to track usage"
+        },
+        "thinking_budget": {
+          "description": "Controls reasoning effort/budget. Use 'none' or 0 to disable thinking. OpenAI: string levels ('minimal','low','medium','high'), default 'medium'. Anthropic: integer token budget (1024-32768), default 8192. Amazon Bedrock (Claude): same as Anthropic. Google Gemini 2.5: integer token budget (-1 for dynamic, 0 to disable, 24576 max), default -1. Google Gemini 3: string levels ('minimal' Flash only,'low','medium','high'), default 'high' for Pro, 'medium' for Flash.",
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high"
+              ],
+              "description": "Reasoning effort level (OpenAI, Gemini 3). Use 'none' to disable thinking."
+            },
+            {
+              "type": "integer",
+              "minimum": -1,
+              "maximum": 32768,
+              "description": "Token budget for extended thinking (Anthropic, Bedrock Claude, Gemini 2.5). Use 0 to disable thinking."
+            }
+          ],
+          "examples": [
+            "none",
+            0,
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            -1,
+            1024,
+            8192,
+            32768
+          ]
+        },
+        "routing": {
+          "type": "array",
+          "description": "Routing rules for request-based model selection. When configured, this model becomes a router that selects the best model based on the user's input. The model's provider/model fields define the fallback model.",
+          "items": {
+            "$ref": "#/definitions/RoutingRule"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "RoutingRule": {
+      "type": "object",
+      "description": "A single routing rule that maps example phrases to a target model",
+      "properties": {
+        "model": {
+          "type": "string",
+          "description": "Model reference (another model name in the models section or inline spec like 'openai/gpt-4o')"
+        },
+        "examples": {
+          "type": "array",
+          "description": "Example phrases that should trigger routing to this model",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "model",
+        "examples"
+      ],
+      "additionalProperties": false
+    },
+    "Metadata": {
+      "type": "object",
+      "description": "Configuration metadata",
+      "properties": {
+        "author": {
+          "type": "string",
+          "description": "Author of the configuration"
+        },
+        "license": {
+          "type": "string",
+          "description": "License for the configuration"
+        },
+        "readme": {
+          "type": "string",
+          "description": "README or description"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of the agent configuration"
+        },
+        "version": {
+          "type": "string",
+          "description": "Version of the agent configuration (used for OCI registry publishing)"
+        }
+      },
+      "additionalProperties": false
+    },
+    "PermissionsConfig": {
+      "type": "object",
+      "description": "Tool permission configuration. Controls tool call approval behavior with optional argument matching.",
+      "properties": {
+        "allow": {
+          "type": "array",
+          "description": "Tool patterns that are auto-approved without user confirmation. Supports tool names with glob patterns (e.g., 'read_*') and argument matching (e.g., 'shell:cmd=ls*' to allow shell commands starting with 'ls'). MCP tools can use qualified names (e.g., 'mcp:github:*').",
+          "items": {
+            "type": "string"
+          },
+          "examples": [
+            [
+              "shell:cmd=ls*",
+              "shell:cmd=git status*",
+              "shell:cmd=go test*"
+            ],
+            [
+              "mcp:github:get_*",
+              "mcp:github:list_*"
+            ],
+            [
+              "think",
+              "create_todo*",
+              "list_todos"
+            ]
+          ]
+        },
+        "ask": {
+          "type": "array",
+          "description": "Tool patterns that always require user confirmation, even for tools that are normally auto-approved (e.g. read-only tools). Supports the same pattern syntax as allow: tool names with globs and argument matching (e.g., 'fetch' to always ask before fetching URLs).",
+          "items": {
+            "type": "string"
+          },
+          "examples": [
+            [
+              "fetch"
+            ],
+            [
+              "mcp:github:get_*"
+            ]
+          ]
+        },
+        "deny": {
+          "type": "array",
+          "description": "Tool patterns that are always rejected. Takes priority over allow patterns. Supports the same pattern syntax as allow: tool names with globs and argument matching (e.g., 'shell:cmd=rm -rf*' to block dangerous rm commands).",
+          "items": {
+            "type": "string"
+          },
+          "examples": [
+            [
+              "shell:cmd=rm -rf*",
+              "shell:cmd=sudo*"
+            ],
+            [
+              "shell:cmd=git push --force*",
+              "shell:cmd=git reset --hard*"
+            ],
+            [
+              "mcp:github:delete_*"
+            ]
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "Toolset": {
+      "type": "object",
+      "description": "Tool configuration",
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Type of tool",
+          "enum": [
+            "mcp",
+            "script",
+            "think",
+            "memory",
+            "filesystem",
+            "shell",
+            "tasks",
+            "todo",
+            "fetch",
+            "api",
+            "a2a",
+            "lsp",
+            "user_prompt",
+            "openapi"
+          ]
+        },
+        "instruction": {
+          "type": "string",
+          "description": "Additional instruction on how to use this toolset"
+        },
+        "toon": {
+          "type": "string",
+          "description": "A comma-delimited list of regular expressions of tools to toonify"
+        },
+        "ref": {
+          "type": "string",
+          "description": "Reference to external tool (e.g., docker:context7)",
+          "pattern": "^docker:"
+        },
+        "config": {
+          "description": "Tool-specific configuration"
+        },
+        "command": {
+          "type": "string",
+          "description": "Command to execute for MCP tools"
+        },
+        "remote": {
+          "$ref": "#/definitions/Remote",
+          "description": "Remote tool configuration"
+        },
+        "args": {
+          "type": "array",
+          "description": "Arguments for the tool",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tools": {
+          "type": "array",
+          "description": "List of tools to include",
+          "items": {
+            "type": "string"
+          }
+        },
+        "env": {
+          "type": "object",
+          "description": "Environment variables",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "shared": {
+          "type": "boolean",
+          "description": "Whether the tool is shared (for think tool)"
+        },
+        "path": {
+          "type": "string",
+          "description": "Path for memory tool"
+        },
+        "shell": {
+          "type": "object",
+          "description": "Shell script configurations (for script tool)",
+          "patternProperties": {
+            "^[A-Za-z_][A-Za-z0-9_\\-]*$": {
+              "$ref": "#/definitions/ScriptShellToolConfig"
+            }
+          },
+          "additionalProperties": false
+        },
+        "post_edit": {
+          "type": "array",
+          "description": "Post-edit commands for filesystem tool",
+          "items": {
+            "$ref": "#/definitions/PostEditConfig"
+          }
+        },
+        "api_config": {
+          "$ref": "#/definitions/ApiConfig",
+          "description": "API tool configuration"
+        },
+        "ignore_vcs": {
+          "type": "boolean",
+          "description": "Whether to ignore VCS files (.git directories and .gitignore patterns) in filesystem operations. Default: true",
+          "default": true
+        },
+        "defer": {
+          "description": "Enable deferred loading for tools in this toolset. Set to true to defer all tools, or an array of tool names to defer only those tools. Deferred tools are not loaded into the agent's context immediately, but can be discovered and loaded on-demand using search_tool and add_tool.",
+          "oneOf": [
+            {
+              "type": "boolean",
+              "description": "Set to true to defer all tools"
+            },
+            {
+              "type": "array",
+              "description": "Array of tool names to defer",
+              "items": {
+                "type": "string"
+              }
+            }
+          ],
+          "examples": [
+            true,
+            [
+              "read_file",
+              "write_file"
+            ]
+          ]
+        },
+        "timeout": {
+          "type": "integer",
+          "description": "Timeout in seconds for the fetch tool",
+          "minimum": 1
+        },
+        "url": {
+          "type": "string",
+          "description": "URL for the a2a or openapi tool",
+          "format": "uri"
+        },
+        "headers": {
+          "type": "object",
+          "description": "HTTP headers for API requests (supports ${env.VAR} interpolation)",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "name": {
+          "type": "string",
+          "description": "Name for the a2a tool"
+        },
+        "sandbox": {
+          "$ref": "#/definitions/SandboxConfig",
+          "description": "Sandbox configuration for running shell commands in a Docker container (shell tool only)"
+        }
+      },
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "allOf": [
+            {
+              "properties": {
+                "type": {
+                  "const": "mcp"
+                }
+              }
+            },
+            {
+              "anyOf": [
+                {
+                  "required": [
+                    "command"
+                  ]
+                },
+                {
+                  "required": [
+                    "remote"
+                  ]
+                },
+                {
+                  "required": [
+                    "ref"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "enum": [
+                "mcp",
+                "script",
+                "think",
+                "memory",
+                "filesystem",
+                "shell",
+                "tasks",
+                "todo",
+                "fetch",
+                "api",
+                "a2a",
+                "lsp",
+                "user_prompt"
+              ]
+            }
+          }
+        },
+        {
+          "allOf": [
+            {
+              "properties": {
+                "type": {
+                  "const": "lsp"
+                }
+              }
+            },
+            {
+              "required": [
+                "command"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "properties": {
+                "type": {
+                  "const": "api"
+                }
+              }
+            },
+            {
+              "required": [
+                "api_config"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "properties": {
+                "type": {
+                  "const": "a2a"
+                }
+              }
+            },
+            {
+              "required": [
+                "url"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "properties": {
+                "type": {
+                  "const": "openapi"
+                }
+              }
+            },
+            {
+              "required": [
+                "url"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "Remote": {
+      "type": "object",
+      "description": "Remote tool configuration",
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "URL for the remote tool",
+          "format": "uri"
+        },
+        "transport_type": {
+          "type": "string",
+          "description": "Transport type for the remote connection"
+        },
+        "headers": {
+          "type": "object",
+          "description": "HTTP headers for remote requests",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "additionalProperties": false
+    },
+    "SandboxConfig": {
+      "type": "object",
+      "description": "Configuration for running shell commands inside a sandboxed Docker container",
+      "properties": {
+        "image": {
+          "type": "string",
+          "description": "Docker image to use for the sandbox container. Defaults to 'alpine:latest' if not specified.",
+          "examples": [
+            "alpine:latest",
+            "ubuntu:22.04",
+            "python:3.12-alpine",
+            "node:20-alpine"
+          ]
+        },
+        "paths": {
+          "type": "array",
+          "description": "List of paths to bind-mount into the container. Each path can have an optional ':ro' suffix for read-only access (default is read-write ':rw'). Relative paths are resolved from the agent's working directory.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "examples": [
+            [
+              ".",
+              "/tmp"
+            ],
+            [
+              "./src",
+              "./config:ro"
+            ],
+            [
+              "/data:rw",
+              "/secrets:ro"
+            ]
+          ]
+        }
+      },
+      "required": [
+        "paths"
+      ],
+      "additionalProperties": false
+    },
+    "ScriptShellToolConfig": {
+      "type": "object",
+      "description": "Configuration for custom shell tool",
+      "properties": {
+        "cmd": {
+          "type": "string",
+          "description": "Command to execute"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of the shell tool"
+        },
+        "args": {
+          "type": "object",
+          "description": "Arguments schema (passed as properties in JSON schema)",
+          "additionalProperties": true
+        },
+        "required": {
+          "type": "array",
+          "description": "Required arguments",
+          "items": {
+            "type": "string"
+          }
+        },
+        "env": {
+          "type": "object",
+          "description": "Environment variables for the command",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "working_dir": {
+          "type": "string",
+          "description": "Working directory for the command"
+        }
+      },
+      "additionalProperties": false
+    },
+    "PostEditConfig": {
+      "type": "object",
+      "description": "Post-edit command configuration",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Path pattern for files to apply post-edit command"
+        },
+        "cmd": {
+          "type": "string",
+          "description": "Command to execute after edit"
+        }
+      },
+      "required": [
+        "path",
+        "cmd"
+      ],
+      "additionalProperties": false
+    },
+    "ApiConfig": {
+      "type": "object",
+      "description": "API tool configuration for making HTTP requests to external APIs",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Name of the API tool"
+        },
+        "instruction": {
+          "type": "string",
+          "description": "Instructions for using the API tool"
+        },
+        "endpoint": {
+          "type": "string",
+          "description": "API endpoint URL",
+          "format": "uri"
+        },
+        "method": {
+          "type": "string",
+          "description": "HTTP method",
+          "enum": [
+            "GET",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE"
+          ]
+        },
+        "headers": {
+          "type": "object",
+          "description": "HTTP headers for the request",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "args": {
+          "type": "object",
+          "description": "Arguments schema for the API call",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "description": "Argument type"
+              },
+              "description": {
+                "type": "string",
+                "description": "Argument description"
+              }
+            }
+          }
+        },
+        "required": {
+          "type": "array",
+          "description": "Required argument names",
+          "items": {
+            "type": "string"
+          }
+        },
+        "output_schema": {
+          "type": "object",
+          "description": "JSON Schema describing the API tool's output. Used by MCP/Code Mode; tool responses are still returned as strings at runtime.",
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "name",
+        "endpoint",
+        "method"
+      ],
+      "additionalProperties": false
+    },
+    "RAGConfig": {
+      "type": "object",
+      "description": "RAG (Retrieval-Augmented Generation) configuration for document search and retrieval with pluggable strategies. Multiple strategies enable hybrid retrieval and reranking.",
+      "properties": {
+        "tool": {
+          "type": "object",
+          "description": "Tool configuration for the RAG source",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Custom name for the tool (defaults to RAG source name if not specified)"
+            },
+            "description": {
+              "type": "string",
+              "description": "Description of what the tool does (shown to the LLM when selecting tools)"
+            },
+            "instruction": {
+              "type": "string",
+              "description": "Instruction on how the RAG tool should be used effectively (shown in system prompt)"
+            }
+          },
+          "additionalProperties": false
+        },
+        "docs": {
+          "type": "array",
+          "description": "Shared document paths or directories indexed by all strategies",
+          "items": {
+            "type": "string"
+          }
+        },
+        "respect_vcs": {
+          "type": "boolean",
+          "description": "Whether to respect VCS ignore files (e.g., .gitignore) when collecting documents for indexing. When true (default), files matching ignore patterns will be excluded. Can be overridden per-strategy.",
+          "default": true
+        },
+        "strategies": {
+          "type": "array",
+          "description": "Array of retrieval strategy configurations. Each strategy can have different parameters based on its type.",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "description": "Retrieval strategy configuration with type-specific parameters. Structured fields are limited; additional parameters are passed through as-is for strategy-specific use.",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "description": "Retrieval strategy type",
+                "enum": [
+                  "bm25",
+                  "chunked-embeddings",
+                  "semantic-embeddings"
+                ]
+              },
+              "embedding_model": {
+                "type": "string",
+                "description": "Embedding model reference for chunked-embeddings and semantic-embeddings strategies (looked up in models map, or 'auto' for automatic selection)",
+                "examples": [
+                  "openai/text-embedding-3-small",
+                  "dmr/embeddinggemma",
+                  "auto"
+                ]
+              },
+              "docs": {
+                "type": "array",
+                "description": "Additional documents for this strategy only (augments shared docs)",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "database": {
+                "type": "string",
+                "description": "Database path or connection string. Currently only simple string values are supported (e.g., './vector.db', './bm25.db')."
+              },
+              "similarity_metric": {
+                "type": "string",
+                "description": "Similarity metric (chunked-embeddings only). Currently only 'cosine_similarity' is implemented.",
+                "enum": [
+                  "cosine_similarity"
+                ]
+              },
+              "vector_dimensions": {
+                "type": "integer",
+                "description": "Vector dimensions for embeddings (chunked-embeddings only). Must match your embedding model's output dimensions and is required for chunked-embeddings strategies.",
+                "minimum": 1,
+                "examples": [
+                  1536,
+                  3072,
+                  1024,
+                  768
+                ]
+              },
+              "k1": {
+                "type": "number",
+                "description": "BM25 term frequency saturation (bm25 only, typically 1.2-2.0)",
+                "minimum": 0
+              },
+              "b": {
+                "type": "number",
+                "description": "BM25 length normalization (bm25 only, 0-1, typically 0.75)",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "threshold": {
+                "type": "number",
+                "description": "Minimum score threshold (0-1 for chunked-embeddings, unbounded for bm25)",
+                "minimum": 0
+              },
+              "limit": {
+                "type": "integer",
+                "description": "Max results from this strategy (candidates for fusion). If unset, defaults to 5 in the implementation.",
+                "minimum": 1
+              },
+              "chunking": {
+                "type": "object",
+                "description": "Text chunking configuration",
+                "properties": {
+                  "size": {
+                    "type": "integer",
+                    "description": "Chunk size in characters. If unset, defaults to 1000 in the implementation.",
+                    "minimum": 1
+                  },
+                  "overlap": {
+                    "type": "integer",
+                    "description": "Overlap between chunks in characters. If unset, defaults to 75 in the implementation.",
+                    "minimum": 0
+                  },
+                  "respect_word_boundaries": {
+                    "type": "boolean",
+                    "description": "When true, chunks will split on the nearest whitespace boundary instead of at the exact character limit, preventing words from being truncated."
+                  },
+                  "code_aware": {
+                    "type": "boolean",
+                    "description": "Enable code-aware chunking for source files. When true, the chunking strategy will prefer AST-based or language-aware processors when available (tree-sitter based), and fall back to plain text chunking for unsupported languages."
+                  }
+                },
+                "additionalProperties": false
+              },
+              "embedding_batch_size": {
+                "type": "integer",
+                "description": "Number of text chunks to send to the embedding API in a single request (chunked-embeddings/semantic-embeddings only)",
+                "minimum": 1,
+                "default": 50
+              },
+              "max_embedding_concurrency": {
+                "type": "integer",
+                "description": "Maximum concurrent embedding batch API requests. For semantic-embeddings, also controls parallel LLM calls for generating chunk summaries.",
+                "minimum": 1,
+                "default": 3
+              },
+              "max_indexing_concurrency": {
+                "type": "integer",
+                "description": "Maximum number of files to index in parallel during initialization",
+                "minimum": 1,
+                "default": 3
+              },
+              "respect_vcs": {
+                "type": "boolean",
+                "description": "Override the RAG-level respect_vcs setting for this strategy only."
+              },
+              "chat_model": {
+                "type": "string",
+                "description": "Chat model used to generate semantic representations for each chunk (semantic-embeddings only, required)",
+                "examples": [
+                  "anthropic/claude-sonnet-4-5",
+                  "openai/gpt-4o-mini"
+                ]
+              },
+              "semantic_prompt": {
+                "type": "string",
+                "description": "Custom prompt template for semantic LLM. Uses JavaScript template literal syntax with the following placeholders: ${path} (full source file path), ${basename} (base name of file), ${chunk_index} (numeric chunk index), ${content} (raw chunk content), ${ast_context} (AST metadata when ast_context is enabled). Only applicable to semantic-embeddings strategy."
+              },
+              "ast_context": {
+                "type": "boolean",
+                "description": "Include TreeSitter-derived AST metadata in the semantic prompt (semantic-embeddings only, requires chunking.code_aware for best results)",
+                "default": false
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "results": {
+          "type": "object",
+          "description": "Result post-processing configuration (fusion, deduplication, limiting). If omitted, sensible defaults are applied in code.",
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "description": "Maximum number of results to return (top K)",
+              "minimum": 1,
+              "default": 15
+            },
+            "fusion": {
+              "type": "object",
+              "description": "Configuration for combining results from multiple strategies. If omitted and multiple strategies are configured, Reciprocal Rank Fusion (rrf) with k=60 is used.",
+              "properties": {
+                "strategy": {
+                  "type": "string",
+                  "description": "Fusion strategy to use",
+                  "enum": [
+                    "rrf",
+                    "reciprocal_rank_fusion",
+                    "weighted",
+                    "max"
+                  ],
+                  "default": "rrf",
+                  "examples": [
+                    "rrf",
+                    "weighted"
+                  ]
+                },
+                "k": {
+                  "type": "integer",
+                  "description": "RRF smoothing parameter k (only for RRF strategy)",
+                  "minimum": 1,
+                  "default": 60
+                },
+                "weights": {
+                  "type": "object",
+                  "description": "Strategy weights for weighted fusion (strategy name -> weight)",
+                  "additionalProperties": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "examples": [
+                    {
+                      "chunked-embeddings": 0.7,
+                      "bm25": 0.3
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            "reranking": {
+              "type": "object",
+              "description": "Configuration for reranking results using a specialized reranking model. Reranking re-scores the retrieved results to improve relevance accuracy.",
+              "properties": {
+                "model": {
+                  "type": "string",
+                  "description": "Model reference for reranking (can be inline like 'dmr/model-name' or a reference to a defined model)",
+                  "examples": [
+                    "dmr/hf.co/ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF",
+                    "reranker_model"
+                  ]
+                },
+                "top_k": {
+                  "type": "integer",
+                  "description": "Optional: only rerank top K results for efficiency. When unset or 0, defaults to the global results.limit (which itself defaults to 15).",
+                  "minimum": 0,
+                  "default": 0
+                },
+                "threshold": {
+                  "type": "number",
+                  "description": "Optional: minimum score threshold after reranking (filter results below this score)",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "default": 0.5
+                },
+                "criteria": {
+                  "type": "string",
+                  "description": "Optional: domain-specific relevance criteria to guide scoring. This text is appended to the base reranking prompt to customize what 'relevance' means for your use case. Supported by OpenAI, Anthropic, and Gemini providers (not DMR native reranking).",
+                  "examples": [
+                    "Prioritize recent information and practical examples over historical context",
+                    "When scoring relevance, focus on code examples and implementation details"
+                  ]
+                }
+              },
+              "required": [
+                "model"
+              ],
+              "additionalProperties": false
+            },
+            "deduplicate": {
+              "type": "boolean",
+              "description": "Remove duplicate documents across strategies",
+              "default": true
+            },
+            "include_score": {
+              "type": "boolean",
+              "description": "Include relevance scores in results",
+              "default": false
+            },
+            "return_full_content": {
+              "type": "boolean",
+              "description": "Return full document content instead of just the matched chunk. The full document is read directly from the file system.",
+              "default": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "strategies"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

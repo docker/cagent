@@ -1,0 +1,110 @@
+<h1>Mistral</h1>
+<p class="subtitle">Use Mistral AI models with cagent.</p>
+
+<h2>Overview</h2>
+
+<p>Mistral AI provides powerful language models through an OpenAI-compatible API. cagent includes built-in support for Mistral as an alias provider.</p>
+
+<h2>Setup</h2>
+
+<ol>
+  <li>Get an API key from <a href="https://console.mistral.ai/" target="_blank" rel="noopener noreferrer">Mistral Console</a></li>
+  <li>Set the environment variable:
+    <pre><code class="language-bash">export MISTRAL_API_KEY=your-api-key</code></pre>
+  </li>
+</ol>
+
+<h2>Usage</h2>
+
+<h3>Inline Syntax</h3>
+
+<p>The simplest way to use Mistral:</p>
+
+<pre><code class="language-yaml">agents:
+  root:
+    model: mistral/mistral-large-latest
+    description: Assistant using Mistral
+    instruction: You are a helpful assistant.</code></pre>
+
+<h3>Named Model</h3>
+
+<p>For more control over parameters:</p>
+
+<pre><code class="language-yaml">models:
+  mistral:
+    provider: mistral
+    model: mistral-large-latest
+    temperature: 0.7
+    max_tokens: 8192
+
+agents:
+  root:
+    model: mistral
+    description: Assistant using Mistral
+    instruction: You are a helpful assistant.</code></pre>
+
+<h2>Available Models</h2>
+
+<table>
+  <thead><tr><th>Model</th><th>Description</th><th>Context</th></tr></thead>
+  <tbody>
+    <tr><td><code>mistral-large-latest</code></td><td>Most capable Mistral model</td><td>128K</td></tr>
+    <tr><td><code>mistral-medium-latest</code></td><td>Balanced performance and cost</td><td>128K</td></tr>
+    <tr><td><code>mistral-small-latest</code></td><td>Fast and cost-effective (default)</td><td>128K</td></tr>
+    <tr><td><code>codestral-latest</code></td><td>Optimized for code generation</td><td>32K</td></tr>
+    <tr><td><code>open-mistral-nemo</code></td><td>Open-weight model</td><td>128K</td></tr>
+    <tr><td><code>ministral-8b-latest</code></td><td>Compact 8B parameter model</td><td>128K</td></tr>
+    <tr><td><code>ministral-3b-latest</code></td><td>Smallest Mistral model</td><td>128K</td></tr>
+  </tbody>
+</table>
+
+<p>Check the <a href="https://docs.mistral.ai/getting-started/models/" target="_blank" rel="noopener noreferrer">Mistral Models documentation</a> for the latest available models.</p>
+
+<h2>Auto-Detection</h2>
+
+<p>When you run <code>cagent run</code> without specifying a config, cagent automatically detects available providers. If <code>MISTRAL_API_KEY</code> is set and higher-priority providers (OpenAI, Anthropic, Google) are not available, Mistral will be used with <code>mistral-small-latest</code> as the default model.</p>
+
+<h2>Extended Thinking</h2>
+
+<p>Mistral models support thinking mode through the OpenAI-compatible API. By default, cagent enables <code>medium</code> thinking effort:</p>
+
+<pre><code class="language-yaml">models:
+  mistral:
+    provider: mistral
+    model: mistral-large-latest
+    thinking_budget: high  # minimal, low, medium, high, or none</code></pre>
+
+<p>To disable thinking:</p>
+
+<pre><code class="language-yaml">models:
+  mistral:
+    provider: mistral
+    model: mistral-large-latest
+    thinking_budget: none</code></pre>
+
+<h2>How It Works</h2>
+
+<p>Mistral is implemented as a built-in alias in cagent:</p>
+
+<ul>
+  <li><strong>API Type:</strong> OpenAI-compatible (<code>openai_chatcompletions</code>)</li>
+  <li><strong>Base URL:</strong> <code>https://api.mistral.ai/v1</code></li>
+  <li><strong>Token Variable:</strong> <code>MISTRAL_API_KEY</code></li>
+</ul>
+
+<p>This means Mistral uses the same client as OpenAI, making it fully compatible with all OpenAI features supported by cagent.</p>
+
+<h2>Example: Code Assistant</h2>
+
+<pre><code class="language-yaml">agents:
+  coder:
+    model: mistral/codestral-latest
+    description: Expert code assistant
+    instruction: |
+      You are an expert programmer using Codestral.
+      Write clean, efficient, well-documented code.
+      Explain your reasoning when helpful.
+    toolsets:
+      - type: filesystem
+      - type: shell
+      - type: think</code></pre>

@@ -23,7 +23,7 @@ type OAuthToken struct {
 	ExpiresIn    int       `json:"expires_in,omitempty"`
 	RefreshToken string    `json:"refresh_token,omitempty"`
 	Scope        string    `json:"scope,omitempty"`
-	ExpiresAt    time.Time `json:"expires_at,omitempty"`
+	ExpiresAt    time.Time `json:"expires_at"`
 }
 
 // IsExpired checks if the token is expired

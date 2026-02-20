@@ -1,6 +1,7 @@
 package root
 
 import (
+	"github.com/docker/cli/cli-plugins/plugin"
 	"github.com/spf13/cobra"
 
 	"github.com/docker/cagent/pkg/cli"
@@ -22,6 +23,14 @@ func runVersionCommand(cmd *cobra.Command, args []string) {
 	telemetry.TrackCommand("version", args)
 
 	out := cli.NewPrinter(cmd.OutOrStdout())
-	out.Printf("cagent version %s\n", version.Version)
+
+	commandName := "docker-agent"
+	if cmd.Parent() != nil {
+		commandName = cmd.Parent().Name()
+	}
+	if !plugin.RunningStandalone() {
+		commandName = "docker " + commandName
+	}
+	out.Printf("%s version %s\n", commandName, version.Version)
 	out.Printf("Commit: %s\n", version.Commit)
 }

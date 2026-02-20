@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -18,57 +17,20 @@ import (
 const (
 	ModelsDevAPIURL = "https://models.dev/api.json"
 	CacheFileName   = "models_dev.json"
+	refreshInterval = 24 * time.Hour
 )
 
-// ModelAliases maps alias model IDs to their actual model IDs
-// TODO(krissetto): Add aliases here if needed, removed if unused
-var ModelAliases = map[string]string{}
-
-// Store manages the models.dev data with local caching
+// Store manages access to the models.dev data.
+// All methods are safe for concurrent use.
 type Store struct {
-	cacheDir        string
-	client          *http.Client
-	refreshInterval time.Duration
-
-	// In-memory cache for database to avoid repeated disk reads
-	dbCache   *Database
-	dbCacheMu sync.RWMutex
+	cacheFile string
+	mu        sync.Mutex
+	db        *Database
 }
 
-type Opt func(*Store)
-
-func WithRefreshInterval(refreshInterval time.Duration) Opt {
-	return func(s *Store) {
-		s.refreshInterval = refreshInterval
-	}
-}
-
-func WithCacheDir(cacheDir string) Opt {
-	return func(s *Store) {
-		s.cacheDir = cacheDir
-	}
-}
-
-// defaultStore is a cached singleton store instance for repeated access
-var defaultStore = sync.OnceValues(func() (*Store, error) {
-	return newStoreInternal()
-})
-
-// NewStore returns the cached default store instance.
-// This is efficient for repeated calls as it reuses the same store.
-// For custom configuration, use NewStoreWithOptions.
-func NewStore(opts ...Opt) (*Store, error) {
-	if len(opts) > 0 {
-		return newStoreInternal(opts...)
-	}
-	return defaultStore()
-}
-
-// newStoreInternal creates a new models.dev store instance
-func newStoreInternal(opts ...Opt) (*Store, error) {
-	s := &Store{
-		refreshInterval: 24 * time.Hour,
-	}
+// NewStore creates a new models.dev store.
+// The database is loaded on first access via GetDatabase.
+func NewStore() (*Store, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user home directory: %w", err)
@@ -78,70 +40,39 @@ func newStoreInternal(opts ...Opt) (*Store, error) {
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create cache directory: %w", err)
 	}
-	s.cacheDir = cacheDir
-	for _, opt := range opts {
-		opt(s)
-	}
 
-	s.client = &http.Client{
-		Timeout: 30 * time.Second,
-	}
+	return &Store{
+		cacheFile: filepath.Join(cacheDir, CacheFileName),
+	}, nil
+}
 
-	return s, nil
+// NewDatabaseStore creates a Store pre-populated with the given database.
+// The returned store serves data entirely from memory and never fetches
+// from the network or touches the filesystem, making it suitable for
+// tests and any scenario where the provider data is already known.
+func NewDatabaseStore(db *Database) *Store {
+	return &Store{db: db}
 }
 
 // GetDatabase returns the models.dev database, fetching from cache or API as needed.
-// Results are cached in memory to avoid repeated disk reads within the same process.
 func (s *Store) GetDatabase(ctx context.Context) (*Database, error) {
-	// Check in-memory cache first
-	s.dbCacheMu.RLock()
-	if s.dbCache != nil {
-		db := s.dbCache
-		s.dbCacheMu.RUnlock()
-		return db, nil
-	}
-	s.dbCacheMu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	// Need to load from disk or network
-	s.dbCacheMu.Lock()
-	defer s.dbCacheMu.Unlock()
-
-	// Double-check after acquiring write lock
-	if s.dbCache != nil {
-		return s.dbCache, nil
+	if s.db != nil {
+		return s.db, nil
 	}
 
-	cacheFile := filepath.Join(s.cacheDir, CacheFileName)
-
-	// Try to load from cache first
-	cached, err := s.loadFromCache(cacheFile)
-	if err == nil && s.isCacheValid(cached) {
-		s.dbCache = &cached.Database
-		return s.dbCache, nil
-	}
-
-	// Cache is invalid or doesn't exist, fetch from API
-	database, err := s.fetchFromAPI(ctx)
+	db, err := loadDatabase(ctx, s.cacheFile)
 	if err != nil {
-		// If API fetch fails, but we have cached data, use it
-		if cached != nil {
-			s.dbCache = &cached.Database
-			return s.dbCache, nil
-		}
-		return nil, fmt.Errorf("failed to fetch from API and no cached data available: %w", err)
+		return nil, err
 	}
 
-	// Save to cache
-	if err := s.saveToCache(cacheFile, database); err != nil {
-		// Log the error but don't fail the request
-		slog.Warn("Warning: failed to save to cache", "error", err)
-	}
-
-	s.dbCache = database
-	return s.dbCache, nil
+	s.db = db
+	return db, nil
 }
 
-// GetProvider returns a specific provider by ID
+// GetProvider returns a specific provider by ID.
 func (s *Store) GetProvider(ctx context.Context, providerID string) (*Provider, error) {
 	db, err := s.GetDatabase(ctx)
 	if err != nil {
@@ -156,13 +87,8 @@ func (s *Store) GetProvider(ctx context.Context, providerID string) (*Provider, 
 	return &provider, nil
 }
 
-// GetModel returns a specific model by provider ID and model ID
+// GetModel returns a specific model by provider ID and model ID.
 func (s *Store) GetModel(ctx context.Context, id string) (*Model, error) {
-	// Check if the ID is an alias and resolve it
-	if actualID, isAlias := ModelAliases[id]; isAlias {
-		id = actualID
-	}
-
 	parts := strings.SplitN(id, "/", 2)
 	if len(parts) != 2 {
 		return nil, fmt.Errorf("invalid model ID: %q", id)
@@ -183,10 +109,10 @@ func (s *Store) GetModel(ctx context.Context, id string) (*Model, error) {
 		//
 		// Strip known region prefixes and retry lookup.
 		if providerID == "amazon-bedrock" {
-			if idx := strings.Index(modelID, "."); idx != -1 {
-				possibleRegionPrefix := modelID[:idx]
+			if before, after, ok := strings.Cut(modelID, "."); ok {
+				possibleRegionPrefix := before
 				if isBedrockRegionPrefix(possibleRegionPrefix) {
-					normalizedModelID := modelID[idx+1:]
+					normalizedModelID := after
 					model, exists = provider.Models[normalizedModelID]
 					if exists {
 						return &model, nil
@@ -200,13 +126,41 @@ func (s *Store) GetModel(ctx context.Context, id string) (*Model, error) {
 	return &model, nil
 }
 
-func (s *Store) fetchFromAPI(ctx context.Context) (*Database, error) {
+// loadDatabase loads the database from the local cache file or
+// falls back to fetching from the models.dev API.
+func loadDatabase(ctx context.Context, cacheFile string) (*Database, error) {
+	// Try to load from cache first
+	cached, err := loadFromCache(cacheFile)
+	if err == nil && time.Since(cached.LastRefresh) < refreshInterval {
+		return &cached.Database, nil
+	}
+
+	// Cache is invalid or doesn't exist, fetch from API
+	database, fetchErr := fetchFromAPI(ctx)
+	if fetchErr != nil {
+		// If API fetch fails, but we have cached data, use it
+		if cached != nil {
+			return &cached.Database, nil
+		}
+		return nil, fmt.Errorf("failed to fetch from API and no cached data available: %w", fetchErr)
+	}
+
+	// Save to cache
+	if err := saveToCache(cacheFile, database); err != nil {
+		// Log the error but don't fail the request
+		slog.Warn("Warning: failed to save to cache", "error", err)
+	}
+
+	return database, nil
+}
+
+func fetchFromAPI(ctx context.Context) (*Database, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ModelsDevAPIURL, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	resp, err := s.client.Do(req)
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch from API: %w", err)
 	}
@@ -216,39 +170,33 @@ func (s *Store) fetchFromAPI(ctx context.Context) (*Database, error) {
 		return nil, fmt.Errorf("API returned status %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
 	var providers map[string]Provider
-	if err := json.Unmarshal(body, &providers); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	if err := json.NewDecoder(resp.Body).Decode(&providers); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	database := &Database{
+	return &Database{
 		Providers: providers,
 		UpdatedAt: time.Now(),
-	}
-
-	return database, nil
+	}, nil
 }
 
-func (s *Store) loadFromCache(cacheFile string) (*CachedData, error) {
-	data, err := os.ReadFile(cacheFile)
+func loadFromCache(cacheFile string) (*CachedData, error) {
+	f, err := os.Open(cacheFile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read cache file: %w", err)
+		return nil, fmt.Errorf("failed to open cache file: %w", err)
 	}
+	defer f.Close()
 
 	var cached CachedData
-	if err := json.Unmarshal(data, &cached); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal cached data: %w", err)
+	if err := json.NewDecoder(f).Decode(&cached); err != nil {
+		return nil, fmt.Errorf("failed to decode cached data: %w", err)
 	}
 
 	return &cached, nil
 }
 
-func (s *Store) saveToCache(cacheFile string, database *Database) error {
+func saveToCache(cacheFile string, database *Database) error {
 	now := time.Now()
 	cached := CachedData{
 		Database:    *database,
@@ -268,18 +216,6 @@ func (s *Store) saveToCache(cacheFile string, database *Database) error {
 	return nil
 }
 
-func (s *Store) isCacheValid(cached *CachedData) bool {
-	return time.Since(cached.LastRefresh) < s.refreshInterval
-}
-
-// SetDatabaseForTesting sets the in-memory database cache for testing purposes.
-// This method should only be used in tests.
-func (s *Store) SetDatabaseForTesting(db *Database) {
-	s.dbCacheMu.Lock()
-	defer s.dbCacheMu.Unlock()
-	s.dbCache = db
-}
-
 // datePattern matches date suffixes like -20251101, -2024-11-20, etc.
 var datePattern = regexp.MustCompile(`-\d{4}-?\d{2}-?\d{2}$`)
 
@@ -290,15 +226,6 @@ var datePattern = regexp.MustCompile(`-\d{4}-?\d{2}-?\d{2}$`)
 func (s *Store) ResolveModelAlias(ctx context.Context, providerID, modelName string) string {
 	if providerID == "" || modelName == "" {
 		return modelName
-	}
-
-	// Check if there's a manual alias mapping first
-	fullID := providerID + "/" + modelName
-	if resolved, ok := ModelAliases[fullID]; ok {
-		if _, m, ok := strings.Cut(resolved, "/"); ok {
-			return m
-		}
-		return resolved
 	}
 
 	// If the model already has a date suffix, it's already pinned

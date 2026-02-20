@@ -121,6 +121,40 @@ func TestThinkingBudget_MarshalUnmarshal_Zero(t *testing.T) {
 	require.Equal(t, "thinking_budget: 0\n", string(output))
 }
 
+func TestAgents_UnmarshalYAML_RejectsUnknownFields(t *testing.T) {
+	t.Parallel()
+
+	// "instructions" (plural) is not a valid field; the correct field is "instruction" (singular).
+	// Agents.UnmarshalYAML must reject it so that typos don't silently drop config.
+	input := []byte(`version: "5"
+agents:
+  root:
+    model: openai/gpt-4o
+    instructions: "You are a helpful assistant."
+`)
+
+	_, err := Parse(input)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "instructions")
+}
+
+func TestAgents_UnmarshalYAML_AcceptsValidConfig(t *testing.T) {
+	t.Parallel()
+
+	input := []byte(`version: "5"
+agents:
+  root:
+    model: openai/gpt-4o
+    instruction: "You are a helpful assistant."
+`)
+
+	cfg, err := Parse(input)
+	require.NoError(t, err)
+	require.Len(t, cfg.Agents, 1)
+	require.Equal(t, "root", cfg.Agents[0].Name)
+	require.Equal(t, "You are a helpful assistant.", cfg.Agents[0].Instruction)
+}
+
 func TestRAGStrategyConfig_MarshalUnmarshal_FlattenedParams(t *testing.T) {
 	t.Parallel()
 
