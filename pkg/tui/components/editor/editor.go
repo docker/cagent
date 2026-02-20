@@ -1290,10 +1290,8 @@ func (e *editor) InsertText(text string) {
 // AttachFile safely adds a file as an attachment and inserts @filepath into the editor.
 // If the file does not exist or is not accessible, the reference is ignored gracefully.
 func (e *editor) AttachFile(filePath string) {
-	// Validate the file exists before attempting to attach it
 	if info, err := os.Stat(filePath); err != nil {
 		if os.IsNotExist(err) {
-			// fully qualify log package to avoid shadowing
 			log.Println("AttachFile skipped: file '" + filePath + "' does not exist.")
 		} else {
 			log.Println("AttachFile skipped: cannot access file '"+filePath+"':", err)
@@ -1304,17 +1302,13 @@ func (e *editor) AttachFile(filePath string) {
 		return
 	}
 
-	// Build the placeholder reference
 	placeholder := "@" + filePath
 
-	// Add the file as an attachment
 	e.addFileAttachment(placeholder)
 
-	// Insert the placeholder into the editor textarea
 	currentValue := e.textarea.Value()
 	e.textarea.SetValue(currentValue + placeholder + " ")
 
-	// Move cursor to the end and mark user activity
 	e.textarea.MoveToEnd()
 	e.userTyped = true
 
@@ -1322,8 +1316,6 @@ func (e *editor) AttachFile(filePath string) {
 	e.updateAttachmentBanner()
 }
 
-// tryAddFileRef safely checks if word is a valid @filepath and adds it as an attachment.
-// Skips non-existent files, directories, or paste placeholders with logging.
 func (e *editor) tryAddFileRef(word string) {
 	// Must start with @ and be long enough to be meaningful
 	if !strings.HasPrefix(word, "@") || len(word) < 2 {
@@ -1337,7 +1329,6 @@ func (e *editor) tryAddFileRef(word string) {
 
 	filePath := word[1:] // remove '@'
 
-	// Must look like a path (contains '/' or '.')
 	if !strings.ContainsAny(filePath, "/.") {
 		return // e.g., @username, ignore
 	}
@@ -1397,10 +1388,7 @@ func (e *editor) addFileAttachment(placeholder string) {
 	})
 }
 
-// collectAttachments returns a map of placeholder -> file content
-// for all attachments referenced in the provided content.
 func (e *editor) collectAttachments(content string) map[string]string {
-	// Fast path: nothing to process
 	if len(e.attachments) == 0 {
 		return nil
 	}
@@ -1443,7 +1431,6 @@ func (e *editor) collectAttachments(content string) map[string]string {
 		// Store successfully read attachment
 		attachments[att.placeholder] = string(data)
 
-		// Remove temp files after successful read
 		if att.isTemp {
 			// Paste attachment: read into memory and remove the temp file.
 			data, err := os.ReadFile(att.path)
@@ -1462,7 +1449,7 @@ func (e *editor) collectAttachments(content string) map[string]string {
 		return nil
 	}
 
-	return result
+	return attachments
 }
 
 // Cleanup removes any temporary paste files that haven't been sent yet.
