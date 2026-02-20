@@ -10,7 +10,7 @@ import (
 	v5 "github.com/docker/cagent/pkg/config/v5"
 )
 
-func Parsers() map[string]func([]byte) (any, error) {
+func parsers() map[string]func([]byte) (any, error) {
 	return map[string]func([]byte) (any, error){
 		v0.Version: func(d []byte) (any, error) { return v0.Parse(d) },
 		v1.Version: func(d []byte) (any, error) { return v1.Parse(d) },
@@ -23,7 +23,7 @@ func Parsers() map[string]func([]byte) (any, error) {
 	}
 }
 
-func Upgrades() []func(any, []byte) (any, error) {
+func upgrades() []func(any, []byte) (any, error) {
 	return []func(any, []byte) (any, error){
 		v0.UpgradeIfNeeded,
 		v1.UpgradeIfNeeded,
