@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"strings"
-	"time"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
@@ -136,22 +135,88 @@ type appModel struct {
 	err   error
 }
 
-// New creates a new Model.
-func New(ctx context.Context, spawner SessionSpawner, initialApp *app.App, initialWorkingDir string, cleanup func()) tea.Model {
-	// Initialize supervisor
-	sv := supervisor.New(spawner)
+// KeyMap defines global key bindings
+type KeyMap struct {
+	Quit                  key.Binding
+	Suspend               key.Binding
+	CommandPalette        key.Binding
+	ToggleYolo            key.Binding
+	ToggleHideToolResults key.Binding
+	CycleAgent            key.Binding
+	ModelPicker           key.Binding
+	Speak                 key.Binding
+	ClearQueue            key.Binding
+}
 
-	// Initialize tab bar with configurable title length from user settings
-	tabTitleMaxLen := userconfig.Get().GetTabTitleMaxLength()
-	tb := tabbar.New(tabTitleMaxLen)
-
-	// Initialize tab store
-	var ts *tuistate.Store
-	var tsErr error
-	ts, tsErr = tuistate.New()
-	if tsErr != nil {
-		slog.Warn("Failed to open TUI state store, tabs won't persist", "error", tsErr)
+// newBinding constructs a key.Binding using the provided keys and description.
+//
+// This helper centralizes the creation of key bindings so that:
+//  1. Default bindings are defined in a single consistent way.
+//  2. Future customization (e.g., user-defined key overrides) can be
+//     introduced without modifying every call site.
+//  3. Help labels remain automatically synchronized with the active keys.
+//
+// The help label is derived from the keys slice to avoid duplication
+// between key.WithKeys and key.WithHelp definitions.
+func newBinding(keys []string, description string) key.Binding {
+	if len(keys) == 0 {
+		// Defensive safeguard: bindings must have at least one key.
+		panic("newBinding requires at least one key")
 	}
+
+	helpLabel := strings.Join(keys, "/")
+
+	return key.NewBinding(
+		key.WithKeys(keys...),
+		key.WithHelp(helpLabel, description),
+	)
+}
+
+// DefaultKeyMap returns the default global key bindings
+func DefaultKeyMap() KeyMap {
+	return KeyMap{
+		Quit:                  newBinding([]string{"ctrl+c"}, "quit"),
+		Suspend:               newBinding([]string{"ctrl+z"}, "suspend"),
+		CommandPalette:        newBinding([]string{"ctrl+p"}, "commands"),
+		ToggleYolo:            newBinding([]string{"ctrl+y"}, "toggle yolo mode"),
+		ToggleHideToolResults: newBinding([]string{"ctrl+o"}, "toggle tool output"),
+		CycleAgent:            newBinding([]string{"ctrl+s"}, "cycle agent"),
+		ModelPicker:           newBinding([]string{"ctrl+m"}, "models"),
+		Speak:                 newBinding([]string{"ctrl+l"}, "speak"),
+		ClearQueue:            newBinding([]string{"ctrl+x"}, "clear queue"),
+	}
+}
+
+// New creates and initializes a new TUI application model
+func New(ctx context.Context, a *app.App) tea.Model {
+	sessionState := service.NewSessionState(a.Session())
+
+	// Create a channel for theme file change events
+	themeEventCh := make(chan string, 1)
+
+	t := &appModel{
+		keyMap:       DefaultKeyMap(),
+		dialog:       dialog.New(),
+		notification: notification.New(),
+		completions:  completion.New(),
+		application:  a,
+		sessionState: sessionState,
+		transcriber:  transcribe.New(os.Getenv("OPENAI_API_KEY")), // TODO(dga): should use envProvider
+		// Set up theme subscription using the subscription package
+		themeSubscription: subscription.NewChannelSubscription(themeEventCh, func(themeRef string) tea.Msg {
+			return messages.ThemeFileChangedMsg{ThemeRef: themeRef}
+		}),
+	}
+
+	// Create theme watcher with callback that sends to the subscription channel
+	t.themeWatcher = styles.NewThemeWatcher(func(themeRef string) {
+		// Non-blocking send to the event channel
+		select {
+		case themeEventCh <- themeRef:
+		default:
+			// Channel full, event will be coalesced
+		}
+	})
 
 	// Initialize shared command history
 	historyStore, err := history.New()
