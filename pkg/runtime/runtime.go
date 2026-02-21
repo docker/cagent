@@ -1312,12 +1312,18 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 			return streamResult{Stopped: true}, fmt.Errorf("error receiving from stream: %w", err)
 		}
 
-		if response.Usage != nil {
+		// Some providers emit token usage multiple times during a stream,
+		// others only once, and some emit partial / zeroed usage snapshots.
+		// To be provider-agnostic and avoid usage being overwritten to zero,
+		// we capture the FIRST non-nil usage and treat it as immutable.
+		if response.Usage != nil && messageUsage == nil {
+			// Capture usage once per stream
 			messageUsage = response.Usage
 
 			sess.InputTokens = response.Usage.InputTokens + response.Usage.CachedInputTokens + response.Usage.CacheWriteTokens
 			sess.OutputTokens = response.Usage.OutputTokens
 
+			// Emit telemetry once per stream to avoid duplicate usage records
 			modelName := "unknown"
 			if m != nil {
 				modelName = m.Name
