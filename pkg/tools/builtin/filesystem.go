@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/docker/cagent/pkg/fsx"
 	"github.com/docker/cagent/pkg/tools"
@@ -25,6 +27,8 @@ const (
 	ToolNameDirectoryTree      = "directory_tree"
 	ToolNameListDirectory      = "list_directory"
 	ToolNameSearchFilesContent = "search_files_content"
+	ToolNameMkdir              = "create_directory"
+	ToolNameRmdir              = "remove_directory"
 )
 
 // PostEditConfig represents a post-edit command configuration
@@ -126,6 +130,14 @@ type SearchFilesContentMeta struct {
 
 type ListDirectoryArgs struct {
 	Path string `json:"path" jsonschema:"The directory path to list"`
+}
+
+type CreateDirectoryArgs struct {
+	Paths []string `json:"paths" jsonschema:"Array of directory paths to create"`
+}
+
+type RemoveDirectoryArgs struct {
+	Paths []string `json:"paths" jsonschema:"Array of directory paths to remove"`
 }
 
 type ListDirectoryMeta struct {
@@ -272,6 +284,28 @@ func (t *FilesystemTool) Tools(context.Context) ([]tools.Tool, error) {
 				Title: "Write",
 			},
 			AddDescriptionParameter: true,
+		},
+		{
+			Name:         ToolNameMkdir,
+			Category:     "filesystem",
+			Description:  "Create one or more new directories or nested directory structures.",
+			Parameters:   tools.MustSchemaFor[CreateDirectoryArgs](),
+			OutputSchema: tools.MustSchemaFor[string](),
+			Handler:      tools.NewHandler(t.handleCreateDirectory),
+			Annotations: tools.ToolAnnotations{
+				Title: "Create Directory",
+			},
+		},
+		{
+			Name:         ToolNameRmdir,
+			Category:     "filesystem",
+			Description:  "Remove one or more empty directories.",
+			Parameters:   tools.MustSchemaFor[RemoveDirectoryArgs](),
+			OutputSchema: tools.MustSchemaFor[string](),
+			Handler:      tools.NewHandler(t.handleRemoveDirectory),
+			Annotations: tools.ToolAnnotations{
+				Title: "Remove Directory",
+			},
 		},
 	}, nil
 }
@@ -702,6 +736,36 @@ func (t *FilesystemTool) handleWriteFile(ctx context.Context, args WriteFileArgs
 	}
 
 	return tools.ResultSuccess(fmt.Sprintf("File written successfully: %s (%d bytes)", args.Path, len(args.Content))), nil
+}
+
+func (t *FilesystemTool) handleCreateDirectory(_ context.Context, args CreateDirectoryArgs) (*tools.ToolCallResult, error) {
+	var results []string
+	for _, path := range args.Paths {
+		resolvedPath := t.resolvePath(path)
+		if err := os.MkdirAll(resolvedPath, 0o755); err != nil {
+			return tools.ResultError(fmt.Sprintf("Error creating directory %s: %s", path, err)), nil
+		}
+		results = append(results, fmt.Sprintf("Directory created successfully: %s", path))
+	}
+
+	return tools.ResultSuccess(strings.Join(results, "\n")), nil
+}
+
+func (t *FilesystemTool) handleRemoveDirectory(_ context.Context, args RemoveDirectoryArgs) (*tools.ToolCallResult, error) {
+	var results []string
+	for _, path := range args.Paths {
+		resolvedPath := t.resolvePath(path)
+
+		if err := syscall.Rmdir(resolvedPath); err != nil {
+			if errors.Is(err, syscall.ENOTDIR) {
+				return tools.ResultError(fmt.Sprintf("Error: %s is not a directory", path)), nil
+			}
+			return tools.ResultError(fmt.Sprintf("Error removing directory %s: %s", path, err)), nil
+		}
+		results = append(results, fmt.Sprintf("Directory removed successfully: %s", path))
+	}
+
+	return tools.ResultSuccess(strings.Join(results, "\n")), nil
 }
 
 // matchExcludePattern checks if a path should be excluded based on the exclude pattern

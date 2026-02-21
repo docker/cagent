@@ -601,3 +601,162 @@ func TestFilesystemTool_EmptyWorkingDir(t *testing.T) {
 	resolvedPath = tool.resolvePath("/etc/hosts")
 	assert.Equal(t, "/etc/hosts", resolvedPath)
 }
+
+func TestFilesystemTool_CreateDirectory(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	tool := NewFilesystemTool(tmpDir)
+
+	result, err := tool.handleCreateDirectory(t.Context(), CreateDirectoryArgs{
+		Paths: []string{"newdir"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, result.Output, "Directory created successfully")
+	assert.DirExists(t, filepath.Join(tmpDir, "newdir"))
+}
+
+func TestFilesystemTool_CreateDirectory_Multiple(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	tool := NewFilesystemTool(tmpDir)
+
+	result, err := tool.handleCreateDirectory(t.Context(), CreateDirectoryArgs{
+		Paths: []string{"dir1", "dir2", "dir3"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, result.Output, "dir1")
+	assert.Contains(t, result.Output, "dir2")
+	assert.Contains(t, result.Output, "dir3")
+	assert.DirExists(t, filepath.Join(tmpDir, "dir1"))
+	assert.DirExists(t, filepath.Join(tmpDir, "dir2"))
+	assert.DirExists(t, filepath.Join(tmpDir, "dir3"))
+}
+
+func TestFilesystemTool_CreateDirectory_Nested(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	tool := NewFilesystemTool(tmpDir)
+
+	result, err := tool.handleCreateDirectory(t.Context(), CreateDirectoryArgs{
+		Paths: []string{"a/b/c"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, result.Output, "Directory created successfully")
+	assert.DirExists(t, filepath.Join(tmpDir, "a", "b", "c"))
+}
+
+func TestFilesystemTool_CreateDirectory_AlreadyExists(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	tool := NewFilesystemTool(tmpDir)
+
+	require.NoError(t, os.Mkdir(filepath.Join(tmpDir, "existing"), 0o755))
+
+	result, err := tool.handleCreateDirectory(t.Context(), CreateDirectoryArgs{
+		Paths: []string{"existing"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, result.Output, "Directory created successfully")
+}
+
+func TestFilesystemTool_RemoveDirectory(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	tool := NewFilesystemTool(tmpDir)
+
+	dirPath := filepath.Join(tmpDir, "toremove")
+	require.NoError(t, os.Mkdir(dirPath, 0o755))
+
+	result, err := tool.handleRemoveDirectory(t.Context(), RemoveDirectoryArgs{
+		Paths: []string{"toremove"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, result.Output, "Directory removed successfully")
+	assert.NoDirExists(t, dirPath)
+}
+
+func TestFilesystemTool_RemoveDirectory_Multiple(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	tool := NewFilesystemTool(tmpDir)
+
+	dir1 := filepath.Join(tmpDir, "dir1")
+	dir2 := filepath.Join(tmpDir, "dir2")
+	require.NoError(t, os.Mkdir(dir1, 0o755))
+	require.NoError(t, os.Mkdir(dir2, 0o755))
+
+	result, err := tool.handleRemoveDirectory(t.Context(), RemoveDirectoryArgs{
+		Paths: []string{"dir1", "dir2"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, result.Output, "dir1")
+	assert.Contains(t, result.Output, "dir2")
+	assert.NoDirExists(t, dir1)
+	assert.NoDirExists(t, dir2)
+}
+
+func TestFilesystemTool_RemoveDirectory_NotEmpty(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	tool := NewFilesystemTool(tmpDir)
+
+	dirPath := filepath.Join(tmpDir, "notempty")
+	require.NoError(t, os.Mkdir(dirPath, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dirPath, "file.txt"), []byte("content"), 0o644))
+
+	result, err := tool.handleRemoveDirectory(t.Context(), RemoveDirectoryArgs{
+		Paths: []string{"notempty"},
+	})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assert.Contains(t, result.Output, "Error removing directory")
+	assert.DirExists(t, dirPath)
+}
+
+func TestFilesystemTool_RemoveDirectory_NotExists(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	tool := NewFilesystemTool(tmpDir)
+
+	result, err := tool.handleRemoveDirectory(t.Context(), RemoveDirectoryArgs{
+		Paths: []string{"nonexistent"},
+	})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assert.Contains(t, result.Output, "Error")
+}
+
+func TestFilesystemTool_RemoveDirectory_IsFile(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	tool := NewFilesystemTool(tmpDir)
+
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "file.txt"), []byte("content"), 0o644))
+
+	result, err := tool.handleRemoveDirectory(t.Context(), RemoveDirectoryArgs{
+		Paths: []string{"file.txt"},
+	})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assert.Contains(t, result.Output, "is not a directory")
+}
+
+func TestFilesystemTool_RemoveDirectory_MultipleStopsOnError(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	tool := NewFilesystemTool(tmpDir)
+
+	dir1 := filepath.Join(tmpDir, "dir1")
+	dir3 := filepath.Join(tmpDir, "dir3")
+	require.NoError(t, os.Mkdir(dir1, 0o755))
+	require.NoError(t, os.Mkdir(dir3, 0o755))
+
+	result, err := tool.handleRemoveDirectory(t.Context(), RemoveDirectoryArgs{
+		Paths: []string{"dir1", "nonexistent", "dir3"},
+	})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assert.NoDirExists(t, dir1)
+	// dir3 should still exist since processing stopped at nonexistent
+	assert.DirExists(t, dir3)
+}
