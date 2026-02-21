@@ -213,10 +213,10 @@ type AgentConfig struct {
 	Name                    string
 	Model                   string            `json:"model,omitempty"`
 	Fallback                *FallbackConfig   `json:"fallback,omitempty"`
-	Description             string            `json:"description,omitempty"`
-	WelcomeMessage          string            `json:"welcome_message,omitempty"`
+	Description             string            `json:"description,omitempty" yaml:"description,omitempty,flow"`
+	WelcomeMessage          string            `json:"welcome_message,omitempty" yaml:"welcome_message,omitempty,flow"`
 	Toolsets                []Toolset         `json:"toolsets,omitempty"`
-	Instruction             string            `json:"instruction,omitempty"`
+	Instruction             string            `json:"instruction,omitempty" yaml:"instruction,omitempty,flow"`
 	SubAgents               []string          `json:"sub_agents,omitempty"`
 	Handoffs                []string          `json:"handoffs,omitempty"`
 	RAG                     []string          `json:"rag,omitempty"`
@@ -473,8 +473,8 @@ type RoutingRule struct {
 type Metadata struct {
 	Author      string `json:"author,omitempty"`
 	License     string `json:"license,omitempty"`
-	Description string `json:"description,omitempty"`
-	Readme      string `json:"readme,omitempty"`
+	Description string `json:"description,omitempty" yaml:"description,omitempty,flow"`
+	Readme      string `json:"readme,omitempty" yaml:"readme,omitempty,flow"`
 	Version     string `json:"version,omitempty"`
 }
 
@@ -496,7 +496,7 @@ type Metadata struct {
 // ScriptShellToolConfig represents a custom shell tool configuration
 type ScriptShellToolConfig struct {
 	Cmd         string `json:"cmd"`
-	Description string `json:"description"`
+	Description string `json:"description" yaml:"description,flow"`
 
 	// Args is directly passed as "properties" in the JSON schema
 	Args map[string]any `json:"args,omitempty"`
@@ -509,7 +509,7 @@ type ScriptShellToolConfig struct {
 }
 
 type APIToolConfig struct {
-	Instruction string            `json:"instruction,omitempty"`
+	Instruction string            `json:"instruction,omitempty" yaml:"instruction,omitempty,flow"`
 	Name        string            `json:"name,omitempty"`
 	Required    []string          `json:"required,omitempty"`
 	Args        map[string]any    `json:"args,omitempty"`
@@ -530,7 +530,7 @@ type PostEditConfig struct {
 type Toolset struct {
 	Type        string   `json:"type,omitempty"`
 	Tools       []string `json:"tools,omitempty"`
-	Instruction string   `json:"instruction,omitempty"`
+	Instruction string   `json:"instruction,omitempty" yaml:"instruction,omitempty,flow"`
 	Toon        string   `json:"toon,omitempty"`
 
 	Defer DeferConfig `json:"defer" yaml:"defer,omitempty"`
@@ -728,7 +728,7 @@ type StructuredOutput struct {
 	// Name is the name of the response format
 	Name string `json:"name"`
 	// Description is optional description of the response format
-	Description string `json:"description,omitempty"`
+	Description string `json:"description,omitempty" yaml:"description,omitempty,flow"`
 	// Schema is a JSON schema object defining the structure
 	Schema map[string]any `json:"schema"`
 	// Strict enables strict schema adherence (OpenAI only)
@@ -737,9 +737,9 @@ type StructuredOutput struct {
 
 // RAGToolConfig represents tool-specific configuration for a RAG source
 type RAGToolConfig struct {
-	Name        string `json:"name,omitempty"`        // Custom name for the tool (defaults to RAG source name if empty)
-	Description string `json:"description,omitempty"` // Tool description (what the tool does)
-	Instruction string `json:"instruction,omitempty"` // Tool instruction (how to use the tool effectively)
+	Name        string `json:"name,omitempty"`                                          // Custom name for the tool (defaults to RAG source name if empty)
+	Description string `json:"description,omitempty" yaml:"description,omitempty,flow"` // Tool description (what the tool does)
+	Instruction string `json:"instruction,omitempty" yaml:"instruction,omitempty,flow"` // Tool instruction (how to use the tool effectively)
 }
 
 // RAGConfig represents a RAG (Retrieval-Augmented Generation) configuration
