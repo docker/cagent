@@ -115,6 +115,182 @@ func TestGetMessagesWithToolCalls(t *testing.T) {
 	}
 }
 
+func TestGetMessages_OtherAgentToolCallsConvertedToNarrative(t *testing.T) {
+	currentAgent := agent.New("current-agent", "you are the current agent")
+	otherAgent := agent.New("other-agent", "you are the other agent")
+
+	s := New()
+
+	// User asks something
+	s.AddMessage(NewAgentMessage(currentAgent, &chat.Message{
+		Role:    chat.MessageRoleUser,
+		Content: "find info about Go",
+	}))
+
+	// Other agent responds with text + tool call
+	s.AddMessage(NewAgentMessage(otherAgent, &chat.Message{
+		Role:    chat.MessageRoleAssistant,
+		Content: "Let me search for that",
+		ToolCalls: []tools.ToolCall{
+			{
+				ID:   "call-123",
+				Type: "function",
+				Function: tools.FunctionCall{
+					Name:      "web_search",
+					Arguments: `{"query": "Go programming"}`,
+				},
+			},
+		},
+	}))
+
+	// Tool response for other agent's call
+	s.AddMessage(NewAgentMessage(otherAgent, &chat.Message{
+		Role:       chat.MessageRoleTool,
+		ToolCallID: "call-123",
+		Content:    "Go is a statically typed language",
+	}))
+
+	// Other agent's follow-up text response
+	s.AddMessage(NewAgentMessage(otherAgent, &chat.Message{
+		Role:    chat.MessageRoleAssistant,
+		Content: "Here is what I found about Go",
+	}))
+
+	messages := s.GetMessages(currentAgent)
+
+	// Extract only non-system conversation messages
+	var conv []chat.Message
+	for _, m := range messages {
+		if m.Role != chat.MessageRoleSystem {
+			conv = append(conv, m)
+		}
+	}
+
+	require.Len(t, conv, 4, "should have: user msg, converted assistant+tool call, converted tool response, converted assistant text")
+
+	// 1. Original user message is unchanged
+	assert.Equal(t, chat.MessageRoleUser, conv[0].Role)
+	assert.Equal(t, "find info about Go", conv[0].Content)
+
+	// 2. Other agent's assistant message with tool call → user-role narrative
+	assert.Equal(t, chat.MessageRoleUser, conv[1].Role)
+	assert.Contains(t, conv[1].Content, "For context:")
+	assert.Contains(t, conv[1].Content, "[other-agent] said: Let me search for that")
+	assert.Contains(t, conv[1].Content, "[other-agent] called tool `web_search` with parameters:")
+	assert.Contains(t, conv[1].Content, `"query": "Go programming"`)
+	assert.Empty(t, conv[1].ToolCalls, "should have no structured tool calls")
+
+	// 3. Tool response → user-role narrative
+	assert.Equal(t, chat.MessageRoleUser, conv[2].Role)
+	assert.Contains(t, conv[2].Content, "For context:")
+	assert.Contains(t, conv[2].Content, "Tool returned result: Go is a statically typed language")
+	assert.Empty(t, conv[2].ToolCallID, "should have no tool call ID")
+
+	// 4. Other agent's plain text → user-role narrative
+	assert.Equal(t, chat.MessageRoleUser, conv[3].Role)
+	assert.Contains(t, conv[3].Content, "[other-agent] said: Here is what I found about Go")
+}
+
+func TestGetMessages_OtherAgentToolCallOnly(t *testing.T) {
+	currentAgent := agent.New("agent-a", "you are agent a")
+	otherAgent := agent.New("agent-b", "you are agent b")
+
+	s := New()
+
+	// Other agent sends assistant message with ONLY a tool call (no text)
+	s.AddMessage(NewAgentMessage(otherAgent, &chat.Message{
+		Role: chat.MessageRoleAssistant,
+		ToolCalls: []tools.ToolCall{
+			{
+				ID:   "call-456",
+				Type: "function",
+				Function: tools.FunctionCall{
+					Name:      "read_file",
+					Arguments: `{"path": "/tmp/test.txt"}`,
+				},
+			},
+		},
+	}))
+
+	// Tool response with empty content
+	s.AddMessage(NewAgentMessage(otherAgent, &chat.Message{
+		Role:       chat.MessageRoleTool,
+		ToolCallID: "call-456",
+		Content:    "",
+	}))
+
+	messages := s.GetMessages(currentAgent)
+
+	var conv []chat.Message
+	for _, m := range messages {
+		if m.Role != chat.MessageRoleSystem {
+			conv = append(conv, m)
+		}
+	}
+
+	// Tool-call-only message should still produce a narrative (with the tool call text)
+	require.Len(t, conv, 1, "should have the converted tool call message; empty tool response is skipped")
+	assert.Equal(t, chat.MessageRoleUser, conv[0].Role)
+	assert.Contains(t, conv[0].Content, "[agent-b] called tool `read_file`")
+}
+
+func TestGetMessages_SameAgentToolCallsUnchanged(t *testing.T) {
+	currentAgent := agent.New("my-agent", "you are my agent")
+
+	s := New()
+
+	s.AddMessage(NewAgentMessage(currentAgent, &chat.Message{
+		Role:    chat.MessageRoleUser,
+		Content: "do something",
+	}))
+
+	// Current agent's own tool call should pass through unchanged
+	s.AddMessage(NewAgentMessage(currentAgent, &chat.Message{
+		Role:    chat.MessageRoleAssistant,
+		Content: "I will use a tool",
+		ToolCalls: []tools.ToolCall{
+			{
+				ID:   "own-call-1",
+				Type: "function",
+				Function: tools.FunctionCall{
+					Name:      "my_tool",
+					Arguments: `{"x": 1}`,
+				},
+			},
+		},
+	}))
+
+	s.AddMessage(NewAgentMessage(currentAgent, &chat.Message{
+		Role:       chat.MessageRoleTool,
+		ToolCallID: "own-call-1",
+		Content:    "tool output",
+	}))
+
+	messages := s.GetMessages(currentAgent)
+
+	var conv []chat.Message
+	for _, m := range messages {
+		if m.Role != chat.MessageRoleSystem {
+			conv = append(conv, m)
+		}
+	}
+
+	require.Len(t, conv, 3)
+
+	// User message unchanged
+	assert.Equal(t, chat.MessageRoleUser, conv[0].Role)
+
+	// Own assistant message keeps structured tool calls
+	assert.Equal(t, chat.MessageRoleAssistant, conv[1].Role)
+	assert.Len(t, conv[1].ToolCalls, 1)
+	assert.Equal(t, "own-call-1", conv[1].ToolCalls[0].ID)
+
+	// Own tool response unchanged
+	assert.Equal(t, chat.MessageRoleTool, conv[2].Role)
+	assert.Equal(t, "own-call-1", conv[2].ToolCallID)
+	assert.Equal(t, "tool output", conv[2].Content)
+}
+
 func TestGetMessagesWithSummary(t *testing.T) {
 	testAgent := &agent.Agent{}
 
