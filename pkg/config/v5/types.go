@@ -12,7 +12,7 @@ import (
 	"github.com/docker/cagent/pkg/config/types"
 )
 
-const Version = "6"
+const Version = "5"
 
 // Config represents the entire configuration file
 type Config struct {

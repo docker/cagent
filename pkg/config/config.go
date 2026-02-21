@@ -70,7 +70,7 @@ func CheckRequiredEnvVars(ctx context.Context, cfg *latest.Config, modelsGateway
 }
 
 func parseCurrentVersion(data []byte, version string) (any, error) {
-	parsers := Parsers()
+	parsers, _ := versions()
 	parser, found := parsers[version]
 	if !found {
 		return nil, fmt.Errorf("unsupported config version: %v (valid versions: %s)", version, strings.Join(slices.Sorted(maps.Keys(parsers)), ", "))
@@ -81,7 +81,8 @@ func parseCurrentVersion(data []byte, version string) (any, error) {
 func migrateToLatestConfig(c any, raw []byte) (latest.Config, error) {
 	var err error
 
-	for _, upgrade := range Upgrades() {
+	_, upgraders := versions()
+	for _, upgrade := range upgraders {
 		c, err = upgrade(c, raw)
 		if err != nil {
 			return latest.Config{}, err

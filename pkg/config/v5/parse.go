@@ -1,6 +1,11 @@
-package v0
+package latest
 
-import "github.com/goccy/go-yaml"
+import (
+	"github.com/goccy/go-yaml"
+
+	"github.com/docker/cagent/pkg/config/types"
+	previous "github.com/docker/cagent/pkg/config/v4"
+)
 
 func Register(parsers map[string]func([]byte) (any, error), upgraders *[]func(any, []byte) (any, error)) {
 	parsers[Version] = func(d []byte) (any, error) { return parse(d) }
@@ -13,6 +18,13 @@ func parse(data []byte) (Config, error) {
 	return cfg, err
 }
 
-func upgradeIfNeeded(old any, _ []byte) (any, error) {
-	return old, nil
+func upgradeIfNeeded(c any, _ []byte) (any, error) {
+	old, ok := c.(previous.Config)
+	if !ok {
+		return c, nil
+	}
+
+	var config Config
+	types.CloneThroughJSON(old, &config)
+	return config, nil
 }
