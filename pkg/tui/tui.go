@@ -1554,6 +1554,12 @@ func (m *appModel) handleKeyPress(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		updated, cmd := m.chatPage.Update(msg)
 		m.chatPage = updated.(chat.Page)
 		return m, cmd
+
+	default:
+		// Handle ctrl+1 through ctrl+9 for quick agent switching
+		if index := parseCtrlNumberKey(msg); index >= 0 {
+			return m.handleSwitchToAgentByIndex(index)
+		}
 	}
 
 	// Focus-based routing
@@ -1569,6 +1575,15 @@ func (m *appModel) handleKeyPress(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// parseCtrlNumberKey checks if msg is ctrl+1 through ctrl+9 and returns the index (0-8), or -1 if not matched
+func parseCtrlNumberKey(msg tea.KeyPressMsg) int {
+	s := msg.String()
+	if len(s) == 6 && s[:5] == "ctrl+" && s[5] >= '1' && s[5] <= '9' {
+		return int(s[5] - '1')
+	}
+	return -1
 }
 
 // switchFocus toggles between content and editor panels.
