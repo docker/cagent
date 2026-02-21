@@ -213,9 +213,9 @@ type AgentConfig struct {
 	Model                   string            `json:"model,omitempty"`
 	Fallback                *FallbackConfig   `json:"fallback,omitempty"`
 	Description             string            `json:"description,omitempty"`
-	WelcomeMessage          string            `json:"welcome_message,omitempty"`
+	WelcomeMessage          string            `json:"welcome_message,omitempty" yaml:"welcome_message,omitempty,flow"`
 	Toolsets                []Toolset         `json:"toolsets,omitempty"`
-	Instruction             string            `json:"instruction,omitempty"`
+	Instruction             string            `json:"instruction,omitempty" yaml:"instruction,omitempty,flow"`
 	SubAgents               []string          `json:"sub_agents,omitempty"`
 	Handoffs                []string          `json:"handoffs,omitempty"`
 	RAG                     []string          `json:"rag,omitempty"`
@@ -365,7 +365,7 @@ type Metadata struct {
 	Author      string `json:"author,omitempty"`
 	License     string `json:"license,omitempty"`
 	Description string `json:"description,omitempty"`
-	Readme      string `json:"readme,omitempty"`
+	Readme      string `json:"readme,omitempty" yaml:"readme,omitempty,flow"`
 	Version     string `json:"version,omitempty"`
 }
 
