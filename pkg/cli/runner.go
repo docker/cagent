@@ -31,6 +31,39 @@ func (e RuntimeError) Unwrap() error {
 	return e.Err
 }
 
+// maxAutoExtensions is the maximum number of times --yolo mode will
+// auto-continue when max iterations is reached, to prevent infinite loops.
+const maxAutoExtensions = 5
+
+// maxIterAction describes what the caller should do after a MaxIterationsReachedEvent.
+type maxIterAction int
+
+const (
+	maxIterContinue maxIterAction = iota // auto-approved, keep running
+	maxIterStop                          // safety cap reached, caller should stop
+	maxIterPrompt                        // not in yolo mode, caller should prompt the user
+)
+
+// handleMaxIterationsAutoApprove decides whether to auto-extend iterations in
+// --yolo mode. Returns maxIterContinue (approved), maxIterStop (cap reached),
+// or maxIterPrompt (not in auto-approve mode, caller should ask the user).
+func handleMaxIterationsAutoApprove(autoApprove bool, autoExtensions *int, maxIter int) maxIterAction {
+	if !autoApprove {
+		return maxIterPrompt
+	}
+	*autoExtensions++
+	if *autoExtensions <= maxAutoExtensions {
+		slog.Info("Auto-extending iterations in yolo mode",
+			"extension", *autoExtensions,
+			"max_extensions", maxAutoExtensions,
+			"current_max", maxIter)
+		return maxIterContinue
+	}
+	slog.Warn("Max auto-extensions reached in yolo mode, stopping",
+		"total_extensions", *autoExtensions)
+	return maxIterStop
+}
+
 // Config holds configuration for running an agent in CLI mode
 type Config struct {
 	AppName        string
@@ -60,6 +93,8 @@ func Run(ctx context.Context, out *Printer, cfg Config, rt runtime.Runtime, sess
 	var lastErr error
 
 	oneLoop := func(text string, rd io.Reader) error {
+		autoExtensions := 0
+
 		userInput := strings.TrimSpace(text)
 		if userInput == "" {
 			return nil
@@ -73,6 +108,14 @@ func Run(ctx context.Context, out *Printer, cfg Config, rt runtime.Runtime, sess
 				case *runtime.ToolCallConfirmationEvent:
 					if !cfg.AutoApprove {
 						rt.Resume(ctx, runtime.ResumeReject(""))
+					}
+				case *runtime.MaxIterationsReachedEvent:
+					switch handleMaxIterationsAutoApprove(cfg.AutoApprove, &autoExtensions, e.MaxIterations) {
+					case maxIterContinue:
+						rt.Resume(ctx, runtime.ResumeApprove())
+					default: // maxIterStop or maxIterPrompt (no interactive prompt in JSON mode)
+						rt.Resume(ctx, runtime.ResumeReject(""))
+						return nil
 					}
 				case *runtime.ErrorEvent:
 					return fmt.Errorf("%s", e.Error)
@@ -153,16 +196,24 @@ func Run(ctx context.Context, out *Printer, cfg Config, rt runtime.Runtime, sess
 					out.PrintError(lastErr)
 				}
 			case *runtime.MaxIterationsReachedEvent:
-				result := out.PromptMaxIterationsContinue(ctx, e.MaxIterations)
-				switch result {
-				case ConfirmationApprove:
+				switch handleMaxIterationsAutoApprove(cfg.AutoApprove, &autoExtensions, e.MaxIterations) {
+				case maxIterContinue:
 					rt.Resume(ctx, runtime.ResumeApprove())
-				case ConfirmationReject:
+				case maxIterStop:
 					rt.Resume(ctx, runtime.ResumeReject(""))
 					return nil
-				case ConfirmationAbort:
-					rt.Resume(ctx, runtime.ResumeReject(""))
-					return nil
+				case maxIterPrompt:
+					result := out.PromptMaxIterationsContinue(ctx, e.MaxIterations)
+					switch result {
+					case ConfirmationApprove:
+						rt.Resume(ctx, runtime.ResumeApprove())
+					case ConfirmationReject:
+						rt.Resume(ctx, runtime.ResumeReject(""))
+						return nil
+					case ConfirmationAbort:
+						rt.Resume(ctx, runtime.ResumeReject(""))
+						return nil
+					}
 				}
 			case *runtime.ElicitationRequestEvent:
 				serverURL, ok := e.Meta["cagent/server_url"].(string)
