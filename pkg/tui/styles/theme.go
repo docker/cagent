@@ -3,11 +3,9 @@ package styles
 import (
 	"embed"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -135,6 +133,9 @@ type ThemeColors struct {
 	BadgeAccent  string `yaml:"badge_accent,omitempty"`  // Accent badge (e.g., purple highlights)
 	BadgeInfo    string `yaml:"badge_info,omitempty"`    // Info badge (e.g., cyan)
 	BadgeSuccess string `yaml:"badge_success,omitempty"` // Success badge (e.g., green)
+
+	// Agent colors
+	AgentHues []float64 `yaml:"agent_hues,omitempty"` // Hue values (0-360) for agent color generation
 }
 
 // ChromaColors contains syntax highlighting colors (for code blocks).
@@ -758,6 +759,10 @@ func mergeColors(base, override ThemeColors) ThemeColors {
 	if override.BadgeSuccess != "" {
 		result.BadgeSuccess = override.BadgeSuccess
 	}
+	// Agent colors
+	if len(override.AgentHues) > 0 {
+		result.AgentHues = override.AgentHues
+	}
 	return result
 }
 
@@ -919,7 +924,7 @@ func ApplyTheme(theme *Theme) {
 	PlaceholderColor = lipgloss.Color(c.Placeholder)
 	// Badge colors
 	AgentBadgeBg = MobyBlue
-	AgentBadgeFg = lipgloss.Color(bestForegroundHex(
+	AgentBadgeFg = lipgloss.Color(BestForegroundHex(
 		c.Brand,
 		c.TextBright,
 		c.Background,
@@ -944,6 +949,9 @@ func ApplyTheme(theme *Theme) {
 
 	// Rebuild all derived styles
 	rebuildStyles()
+
+	// Rebuild cached agent color styles with new theme contrast values
+	InvalidateAgentColorCache()
 
 	// Clear style sequence cache (used by RenderComposite)
 	clearStyleSeqCache()
@@ -1215,92 +1223,6 @@ func rebuildStyles() {
 	SpinnerTextBrightStyle = BaseStyle.Foreground(lipgloss.Color(CurrentTheme().Colors.SpinnerBright))
 	SpinnerTextDimStyle = BaseStyle.Foreground(lipgloss.Color(CurrentTheme().Colors.SpinnerDim))
 	SpinnerTextDimmestStyle = BaseStyle.Foreground(Accent)
-}
-
-func bestForegroundHex(bgHex string, candidates ...string) string {
-	if len(candidates) == 0 {
-		return ""
-	}
-	best := candidates[0]
-	bestRatio := -1.0
-
-	for _, cand := range candidates {
-		ratio, ok := contrastRatioHex(cand, bgHex)
-		if !ok {
-			continue
-		}
-		if ratio > bestRatio {
-			bestRatio = ratio
-			best = cand
-		}
-	}
-
-	return best
-}
-
-func contrastRatioHex(fgHex, bgHex string) (float64, bool) {
-	fgLum, ok := relativeLuminanceHex(fgHex)
-	if !ok {
-		return 0, false
-	}
-	bgLum, ok := relativeLuminanceHex(bgHex)
-	if !ok {
-		return 0, false
-	}
-
-	L1, L2 := fgLum, bgLum
-	if L2 > L1 {
-		L1, L2 = L2, L1
-	}
-
-	return (L1 + 0.05) / (L2 + 0.05), true
-}
-
-func relativeLuminanceHex(hex string) (float64, bool) {
-	r, g, b, ok := parseHexRGB01(hex)
-	if !ok {
-		return 0, false
-	}
-
-	// WCAG 2.x relative luminance for sRGB
-	rl := 0.2126*srgbToLinear(r) + 0.7152*srgbToLinear(g) + 0.0722*srgbToLinear(b)
-	return rl, true
-}
-
-func srgbToLinear(c float64) float64 {
-	if c <= 0.03928 {
-		return c / 12.92
-	}
-	return math.Pow((c+0.055)/1.055, 2.4)
-}
-
-func parseHexRGB01(hex string) (float64, float64, float64, bool) {
-	if !strings.HasPrefix(hex, "#") {
-		return 0, 0, 0, false
-	}
-
-	h := strings.TrimPrefix(hex, "#")
-	if len(h) == 3 {
-		h = string([]byte{h[0], h[0], h[1], h[1], h[2], h[2]})
-	}
-	if len(h) != 6 {
-		return 0, 0, 0, false
-	}
-
-	r8, err := strconv.ParseUint(h[0:2], 16, 8)
-	if err != nil {
-		return 0, 0, 0, false
-	}
-	g8, err := strconv.ParseUint(h[2:4], 16, 8)
-	if err != nil {
-		return 0, 0, 0, false
-	}
-	b8, err := strconv.ParseUint(h[4:6], 16, 8)
-	if err != nil {
-		return 0, 0, 0, false
-	}
-
-	return float64(r8) / 255.0, float64(g8) / 255.0, float64(b8) / 255.0, true
 }
 
 // init applies the default theme at package initialization time.

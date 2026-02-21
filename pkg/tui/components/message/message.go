@@ -178,7 +178,7 @@ func (mv *messageModel) senderPrefix(sender string) string {
 	if sender == "" {
 		return ""
 	}
-	return styles.AgentBadgeStyle.MarginLeft(2).Render(sender) + "\n\n"
+	return styles.AgentBadgeStyleFor(sender).MarginLeft(2).Render(sender) + "\n\n"
 }
 
 // sameAgentAsPrevious returns true if the previous message was from the same agent

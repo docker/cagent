@@ -62,6 +62,9 @@ colors:
   badge_info: "#7DCFFF"
   badge_success: "#9ECE6A"
 
+  # Agent colors (hue values 0-360 for dynamic palette generation)
+  agent_hues: [220, 280, 170, 30, 330, 140, 200, 260, 50, 0, 185, 20, 235, 295, 155, 340]
+
 chroma:
   # Syntax highlighting colors (Monokai-inspired)
   error_fg: "#F1F1F1"

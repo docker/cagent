@@ -3,6 +3,7 @@ package service
 import (
 	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/session"
+	"github.com/docker/cagent/pkg/tui/styles"
 	"github.com/docker/cagent/pkg/tui/types"
 	"github.com/docker/cagent/pkg/userconfig"
 )
@@ -116,6 +117,12 @@ func (s *SessionState) AvailableAgents() []runtime.AgentDetails {
 
 func (s *SessionState) SetAvailableAgents(availableAgents []runtime.AgentDetails) {
 	s.availableAgents = availableAgents
+
+	names := make([]string, len(availableAgents))
+	for i, a := range availableAgents {
+		names[i] = a.Name
+	}
+	styles.SetAgentOrder(names)
 }
 
 func (s *SessionState) GetCurrentAgent() runtime.AgentDetails {

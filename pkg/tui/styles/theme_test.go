@@ -281,28 +281,38 @@ func TestDefaultTheme_AllColorsPopulated(t *testing.T) {
 func TestMergeColors_HandlesAllFields(t *testing.T) {
 	t.Parallel()
 
-	// Create a base with all fields set to "BASE"
+	// Create a base with all string fields set to "BASE"
 	base := ThemeColors{}
 	baseVal := reflect.ValueOf(&base).Elem()
 	for _, field := range baseVal.Fields() {
-		field.SetString("BASE")
+		if field.Kind() == reflect.String {
+			field.SetString("BASE")
+		}
 	}
+	base.AgentHues = []float64{10, 20}
 
-	// Create an override with all fields set to "OVERRIDE"
+	// Create an override with all string fields set to "OVERRIDE"
 	override := ThemeColors{}
 	overrideVal := reflect.ValueOf(&override).Elem()
 	for _, field := range overrideVal.Fields() {
-		field.SetString("OVERRIDE")
+		if field.Kind() == reflect.String {
+			field.SetString("OVERRIDE")
+		}
 	}
+	override.AgentHues = []float64{30, 40, 50}
 
 	// Merge should replace all base values with override values
 	merged := mergeColors(base, override)
 	mergedVal := reflect.ValueOf(merged)
 
 	for field, value := range mergedVal.Fields() {
-		assert.Equal(t, "OVERRIDE", value.String(),
-			"mergeColors() doesn't handle ThemeColors.%s - add merge logic in mergeColors()", field.Name)
+		if value.Kind() == reflect.String {
+			assert.Equal(t, "OVERRIDE", value.String(),
+				"mergeColors() doesn't handle ThemeColors.%s - add merge logic in mergeColors()", field.Name)
+		}
 	}
+	assert.Equal(t, []float64{30, 40, 50}, merged.AgentHues,
+		"mergeColors() doesn't handle ThemeColors.AgentHues")
 }
 
 // TestMergeChromaColors_HandlesAllFields ensures mergeChromaColors handles every ChromaColors field.

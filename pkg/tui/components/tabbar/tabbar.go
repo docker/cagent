@@ -408,11 +408,11 @@ func (t *TabBar) View() string {
 	}
 
 	// Compute "+" and arrow colors dynamically from the terminal background.
-	chromeFg := mutedContrastFg(styles.Background)
+	chromeFg := styles.MutedContrastFg(styles.Background)
 	plusStyle := lipgloss.NewStyle().Foreground(chromeFg)
 	arrowStyle := lipgloss.NewStyle().Foreground(chromeFg)
 	// Attention arrow style: warning-colored and bold so off-screen attention tabs are obvious.
-	attnArrowStyle := lipgloss.NewStyle().Foreground(ensureContrast(styles.Warning, styles.Background)).Bold(true)
+	attnArrowStyle := lipgloss.NewStyle().Foreground(styles.EnsureContrast(styles.Warning, styles.Background)).Bold(true)
 
 	var line string
 	var cursor int
@@ -436,7 +436,7 @@ func (t *TabBar) View() string {
 	var dropLine string
 	visualDrop := noTab
 	if t.drag.active && !t.drag.isNoOp() {
-		dropFg := ensureContrast(styles.TabAccentFg, styles.Background)
+		dropFg := styles.EnsureContrast(styles.TabAccentFg, styles.Background)
 		dropLine = lipgloss.NewStyle().Foreground(dropFg).Render(dropIndicator)
 		visualDrop = t.drag.dropIdx
 	}

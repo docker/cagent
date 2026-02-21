@@ -1111,17 +1111,17 @@ func (m *model) agentInfo(contentWidth int) string {
 }
 
 func (m *model) renderAgentEntry(content *strings.Builder, agent runtime.AgentDetails, isCurrent bool, index, contentWidth int) {
+	agentStyle := styles.AgentAccentStyleFor(agent.Name)
 	var prefix string
 	if isCurrent {
 		if m.workingAgent == agent.Name {
-			// Style the spinner with the same green as the agent name
-			prefix = styles.TabAccentStyle.Render(m.spinner.View()) + " "
+			prefix = agentStyle.Render(m.spinner.View()) + " "
 		} else {
-			prefix = styles.TabAccentStyle.Render("▶") + " "
+			prefix = agentStyle.Render("▶") + " "
 		}
 	}
 	// Agent name
-	agentNameText := prefix + styles.TabAccentStyle.Render(agent.Name)
+	agentNameText := prefix + agentStyle.Render(agent.Name)
 	// Shortcut hint (^1, ^2, etc.) - show for agents 1-9
 	var shortcutHint string
 	if index >= 0 && index < 9 {

@@ -25,9 +25,9 @@ func render(msg *types.Message, _ spinner.Spinner, _ service.SessionStateReader,
 		return ""
 	}
 
-	header := styles.AgentBadgeStyle.MarginLeft(2).Render(msg.Sender) +
+	header := styles.AgentBadgeStyleFor(msg.Sender).MarginLeft(2).Render(msg.Sender) +
 		" calls " +
-		styles.AgentBadgeStyle.Render(params.Agent)
+		styles.AgentBadgeStyleFor(params.Agent).Render(params.Agent)
 
 	// Calculate the icon with its margin
 	icon := styles.ToolCompletedIcon.Render("✓")

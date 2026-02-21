@@ -22,5 +22,5 @@ func render(msg *types.Message, _ spinner.Spinner, _ service.SessionStateReader,
 		return ""
 	}
 
-	return styles.AgentBadgeStyle.MarginLeft(2).Render(msg.Sender) + " ─► " + styles.AgentBadgeStyle.Render(params.Agent)
+	return styles.AgentBadgeStyleFor(msg.Sender).MarginLeft(2).Render(msg.Sender) + " ─► " + styles.AgentBadgeStyleFor(params.Agent).Render(params.Agent)
 }
