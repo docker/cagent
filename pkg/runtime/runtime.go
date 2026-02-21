@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1089,10 +1090,7 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 				}
 
 				// Determine the model name to store
-				messageModel := modelID
-				if res.ActualModel != "" {
-					messageModel = res.ActualModel
-				}
+				messageModel := cmp.Or(res.ActualModel, modelID)
 
 				assistantMessage := chat.Message{
 					Role:              chat.MessageRoleAssistant,
@@ -1282,7 +1280,7 @@ func (r *LocalRuntime) Run(ctx context.Context, sess *session.Session) ([]sessio
 	return sess.GetAllMessages(), nil
 }
 
-func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStream, a *agent.Agent, agentTools []tools.Tool, sess *session.Session, m *modelsdev.Model, events chan Event, providerID string) (streamResult, error) {
+func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStream, a *agent.Agent, agentTools []tools.Tool, sess *session.Session, m *modelsdev.Model, events chan Event) (streamResult, error) {
 	defer stream.Close()
 
 	var fullContent strings.Builder
@@ -1291,11 +1289,9 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 	var thoughtSignature []byte
 	var toolCalls []tools.ToolCall
 	var actualModel string
-	var actualModelEventEmitted bool
 	var messageUsage *chat.Usage
 	var messageRateLimit *chat.RateLimit
 
-	modelID := getAgentModelID(a)
 	toolCallIndex := make(map[string]int)   // toolCallID -> index in toolCalls slice
 	emittedPartial := make(map[string]bool) // toolCallID -> whether we've emitted a partial event
 	toolDefMap := make(map[string]tools.Tool, len(agentTools))
@@ -1339,19 +1335,8 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 		}
 
 		// Capture the actual model from the stream response (useful for model routing)
-		// Emit AgentInfo immediately when we discover the actual model differs from configured
 		if actualModel == "" && response.Model != "" {
 			actualModel = response.Model
-			if !actualModelEventEmitted && actualModel != modelID {
-				// Use the actual providerID (passed from caller) to construct the model ID.
-				// This is important for alloy models where different providers can be selected.
-				// The providerID comes from the actual provider used for this stream,
-				// not from parsing the configured model reference.
-				formattedModel := providerID + "/" + actualModel
-				slog.Debug("Detected actual model differs from configured model (streaming)", "configured", modelID, "actual", formattedModel)
-				events <- AgentInfo(a.Name(), formattedModel, a.Description(), a.WelcomeMessage())
-				actualModelEventEmitted = true
-			}
 		}
 
 		if choice.FinishReason == chat.FinishReasonStop || choice.FinishReason == chat.FinishReasonLength {

@@ -17,9 +17,11 @@ type Config struct {
 	Models map[string]latest.ModelConfig
 }
 
-// ID returns the provider and model ID in the format "provider/model"
+// ID returns the provider and model ID in the format "provider/model".
+// Uses DisplayModel (the original user-configured name) when available,
+// falling back to Model (the resolved/pinned name).
 func (c *Config) ID() string {
-	return c.ModelConfig.Provider + "/" + c.ModelConfig.Model
+	return c.ModelConfig.Provider + "/" + c.ModelConfig.DisplayOrModel()
 }
 
 func (c *Config) BaseConfig() Config {

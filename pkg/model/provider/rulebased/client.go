@@ -152,11 +152,6 @@ func filterOutMaxTokens(opts []options.Opt) []options.Opt {
 	return filtered
 }
 
-// ID returns the provider identifier.
-func (c *Client) ID() string {
-	return c.fallback.ID()
-}
-
 // CreateChatCompletionStream selects a provider based on input and delegates the call.
 func (c *Client) CreateChatCompletionStream(
 	ctx context.Context,

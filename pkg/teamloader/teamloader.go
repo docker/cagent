@@ -111,7 +111,8 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 	}
 
 	// Resolve model aliases (e.g., "claude-sonnet-4-5" -> "claude-sonnet-4-5-20250929")
-	// This ensures the sidebar and other UI elements show the actual model being used.
+	// This ensures the API uses the pinned model version. The original name is preserved
+	// in DisplayModel so the sidebar and other UI elements show the user-configured name.
 	modelsStore, err := modelsdev.NewStore()
 	if err != nil {
 		slog.Debug("Failed to create modelsdev store for alias resolution", "error", err)

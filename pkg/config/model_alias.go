@@ -29,6 +29,7 @@ func ResolveModelAliases(ctx context.Context, cfg *latest.Config, store *modelsd
 		}
 
 		if resolved := store.ResolveModelAlias(ctx, modelCfg.Provider, modelCfg.Model); resolved != modelCfg.Model {
+			modelCfg.DisplayModel = modelCfg.Model
 			modelCfg.Model = resolved
 			cfg.Models[name] = modelCfg
 		}

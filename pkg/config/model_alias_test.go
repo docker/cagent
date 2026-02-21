@@ -42,7 +42,7 @@ func TestResolveModelAliases(t *testing.T) {
 			},
 			expected: &latest.Config{
 				Models: map[string]latest.ModelConfig{
-					"my_model": {Provider: "anthropic", Model: "claude-sonnet-4-5-20250929"},
+					"my_model": {Provider: "anthropic", Model: "claude-sonnet-4-5-20250929", DisplayModel: "claude-sonnet-4-5"},
 				},
 			},
 		},
@@ -73,7 +73,7 @@ func TestResolveModelAliases(t *testing.T) {
 			},
 			expected: &latest.Config{
 				Models: map[string]latest.ModelConfig{
-					"my_model": {Provider: "anthropic", Model: "claude-sonnet-4-5-20250929"},
+					"my_model": {Provider: "anthropic", Model: "claude-sonnet-4-5-20250929", DisplayModel: "claude-sonnet-4-5"},
 				},
 				Agents: []latest.AgentConfig{
 					{Name: "root", Model: "my_model"},
@@ -139,8 +139,9 @@ func TestResolveModelAliases(t *testing.T) {
 			expected: &latest.Config{
 				Models: map[string]latest.ModelConfig{
 					"router": {
-						Provider: "anthropic",
-						Model:    "claude-sonnet-4-5-20250929",
+						Provider:     "anthropic",
+						Model:        "claude-sonnet-4-5-20250929",
+						DisplayModel: "claude-sonnet-4-5",
 						Routing: []latest.RoutingRule{
 							{Model: "anthropic/claude-sonnet-4-5-20250929", Examples: []string{"example"}},
 						},

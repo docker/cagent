@@ -528,9 +528,7 @@ func (r *LocalRuntime) tryModelWithFallback(
 
 			// Stream created successfully, now handle it
 			slog.Debug("Processing stream", "agent", a.Name(), "model", modelEntry.provider.ID())
-			// Extract provider name from the provider ID (e.g., "openai" from "openai/gpt-4o")
-			providerName, _, _ := strings.Cut(modelEntry.provider.ID(), "/")
-			res, err := r.handleStream(ctx, stream, a, agentTools, sess, m, events, providerName)
+			res, err := r.handleStream(ctx, stream, a, agentTools, sess, m, events)
 			if err != nil {
 				lastErr = err
 

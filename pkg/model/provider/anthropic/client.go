@@ -654,10 +654,6 @@ func ConvertParametersToSchema(params any) (anthropic.ToolInputSchemaParam, erro
 	return schema, nil
 }
 
-func (c *Client) ID() string {
-	return c.ModelConfig.Provider + "/" + c.ModelConfig.Model
-}
-
 // CleanupFiles removes all files uploaded during this session from Anthropic's storage.
 func (c *Client) CleanupFiles(ctx context.Context) error {
 	if c.fileManager == nil {

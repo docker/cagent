@@ -274,7 +274,7 @@ func (r *LocalRuntime) AvailableModels(ctx context.Context) []ModelChoice {
 			Name:      name,
 			Ref:       name,
 			Provider:  cfg.Provider,
-			Model:     cfg.Model,
+			Model:     cfg.DisplayOrModel(),
 			IsDefault: name == currentAgentDefault,
 		})
 	}

@@ -1,6 +1,7 @@
 package latest
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -261,9 +262,14 @@ func (a *AgentConfig) GetFallbackCooldown() time.Duration {
 type ModelConfig struct {
 	// Name is the manifest model name (map key), populated at runtime.
 	// Not serialized — set by teamloader/model_switcher when resolving models.
-	Name              string   `json:"-"`
-	Provider          string   `json:"provider,omitempty"`
-	Model             string   `json:"model,omitempty"`
+	Name     string `json:"-"`
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
+	// DisplayModel holds the original model name from the YAML config, before alias resolution.
+	// When set, provider.ID() returns Provider + "/" + DisplayModel instead of the resolved name.
+	// This ensures the UI shows the user-configured name (e.g., "claude-haiku-4-5")
+	// while the API uses the resolved name (e.g., "claude-haiku-4-5-20251001").
+	DisplayModel      string   `json:"-"`
 	Temperature       *float64 `json:"temperature,omitempty"`
 	MaxTokens         *int64   `json:"max_tokens,omitempty"`
 	TopP              *float64 `json:"top_p,omitempty"`
@@ -294,7 +300,16 @@ func (m *ModelConfig) Clone() *ModelConfig {
 	}
 	var c ModelConfig
 	types.CloneThroughJSON(m, &c)
+	// Preserve fields excluded from JSON serialization
+	c.Name = m.Name
+	c.DisplayModel = m.DisplayModel
 	return &c
+}
+
+// DisplayOrModel returns DisplayModel if set (i.e., alias resolution preserved the original name),
+// otherwise falls back to Model.
+func (m *ModelConfig) DisplayOrModel() string {
+	return cmp.Or(m.DisplayModel, m.Model)
 }
 
 // FlexibleModelConfig wraps ModelConfig to support both shorthand and full syntax.
