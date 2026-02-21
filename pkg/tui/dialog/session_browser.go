@@ -47,6 +47,10 @@ type sessionBrowserDialog struct {
 	keyMap     sessionBrowserKeyMap
 	openedAt   time.Time // when dialog was opened, for stable time display
 	starFilter int       // 0 = all, 1 = starred only, 2 = unstarred only
+
+	// Double-click detection
+	lastClickTime  time.Time
+	lastClickIndex int
 }
 
 // NewSessionBrowserDialog creates a new session browser dialog
@@ -105,6 +109,26 @@ func (d *sessionBrowserDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		d.textInput, cmd = d.textInput.Update(msg)
 		d.filterSessions()
 		return d, cmd
+
+	case tea.MouseClickMsg:
+		// Scrollbar clicks already handled above; this handles list item clicks
+		if msg.Button == tea.MouseLeft {
+			if idx := d.mouseYToSessionIndex(msg.Y); idx >= 0 {
+				now := time.Now()
+				if idx == d.lastClickIndex && now.Sub(d.lastClickTime) < styles.DoubleClickThreshold {
+					d.selected = idx
+					d.lastClickTime = time.Time{}
+					return d, tea.Sequence(
+						core.CmdHandler(CloseDialogMsg{}),
+						core.CmdHandler(messages.LoadSessionMsg{SessionID: d.filtered[d.selected].ID}),
+					)
+				}
+				d.selected = idx
+				d.lastClickTime = now
+				d.lastClickIndex = idx
+			}
+		}
+		return d, nil
 
 	case tea.KeyPressMsg:
 		if cmd := HandleQuit(msg); cmd != nil {
@@ -216,6 +240,24 @@ func (d *sessionBrowserDialog) filterSessions() {
 	d.scrollview.SetScrollOffset(0)
 }
 
+// mouseYToSessionIndex converts a mouse Y position to a session index in the filtered list.
+// Returns -1 if the position is not on a session.
+func (d *sessionBrowserDialog) mouseYToSessionIndex(y int) int {
+	dialogRow, _ := d.Position()
+	visLines := d.scrollview.VisibleHeight()
+	listStartY := dialogRow + sessionBrowserListStartY
+
+	if y < listStartY || y >= listStartY+visLines {
+		return -1
+	}
+	lineInView := y - listStartY
+	idx := d.scrollview.ScrollOffset() + lineInView
+	if idx < 0 || idx >= len(d.filtered) {
+		return -1
+	}
+	return idx
+}
+
 func (d *sessionBrowserDialog) dialogSize() (dialogWidth, maxHeight, contentWidth int) {
 	dialogWidth = max(min(d.Width()*85/100, 96), 60)
 	maxHeight = min(d.Height()*70/100, 30)
@@ -317,7 +359,7 @@ func (d *sessionBrowserDialog) renderSession(sess session.Summary, selected bool
 		title = "Untitled"
 	}
 
-	suffix := fmt.Sprintf(" (%d) • %s", sess.NumMessages, d.timeAgo(sess.CreatedAt))
+	suffix := fmt.Sprintf(" • (%d msg) • %s", sess.NumMessages, d.timeAgo(sess.CreatedAt))
 
 	starWidth := 3
 	maxTitleLen := max(1, maxWidth-len(suffix)-starWidth)
