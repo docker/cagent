@@ -181,6 +181,11 @@ func TestIsRetryableModelError(t *testing.T) {
 			err:      errors.New("something weird happened"),
 			expected: false,
 		},
+		{
+			name:     "anthropic streaming internal server error",
+			err:      fmt.Errorf("error receiving from stream: %w", errors.New(`received error while streaming: {"type":"error","error":{"details":null,"type":"api_error","message":"Internal server error"},"request_id":"req_test"}`)),
+			expected: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -719,12 +724,12 @@ func TestGetEffectiveRetries(t *testing.T) {
 	mockModel := &mockProvider{id: "test/model", stream: newStreamBuilder().AddContent("ok").AddStopWithUsage(1, 1).Build()}
 	mockFallback := &mockProvider{id: "test/fallback", stream: newStreamBuilder().AddContent("ok").AddStopWithUsage(1, 1).Build()}
 
-	// Agent with no retries configured and no fallback models should return 0
+	// Agent with no retries configured and no fallback models should still get default retries
 	agentNoFallback := agent.New("no-fallback", "test",
 		agent.WithModel(mockModel),
 	)
 	retries := getEffectiveRetries(agentNoFallback)
-	assert.Equal(t, 0, retries, "no fallback models = no retries (nothing to retry to)")
+	assert.Equal(t, DefaultFallbackRetries, retries, "no fallback models should still get default retries for transient errors")
 
 	// Agent with no retries configured but with fallback models should use default
 	agentWithFallback := agent.New("with-fallback", "test",
@@ -874,6 +879,49 @@ func TestFallbackModelsClonedWithThinkingEnabled(t *testing.T) {
 		assert.True(t, gotContent, "should receive content from fallback")
 		assert.GreaterOrEqual(t, fallback.baseConfigCalls, 1,
 			"BaseConfig() should be called on fallback provider when thinking is enabled")
+	})
+}
+
+func TestPrimaryRetriesWithoutFallbackModels(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		// Primary fails twice with retryable error (mimics Anthropic streaming internal
+		// server error), then succeeds. No fallback models are configured.
+		successStream := newStreamBuilder().
+			AddContent("Success after transient failures").
+			AddStopWithUsage(10, 5).
+			Build()
+		primary := &countingProvider{
+			id:        "primary/counting",
+			failCount: 2,
+			err:       errors.New(`error receiving from stream: received error while streaming: {"type":"error","error":{"details":null,"type":"api_error","message":"Internal server error"}}`),
+			stream:    successStream,
+		}
+
+		root := agent.New("root", "test",
+			agent.WithModel(primary),
+			// No fallback models
+		)
+
+		tm := team.New(team.WithAgents(root))
+		rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+		require.NoError(t, err)
+
+		sess := session.New(session.WithUserMessage("test"))
+		sess.Title = "No Fallback Retry Test"
+
+		events := rt.RunStream(t.Context(), sess)
+
+		var gotContent bool
+		for ev := range events {
+			if choice, ok := ev.(*AgentChoiceEvent); ok {
+				if choice.Content == "Success after transient failures" {
+					gotContent = true
+				}
+			}
+		}
+
+		assert.True(t, gotContent, "should recover from transient errors even without fallback models")
+		assert.Equal(t, 3, primary.callCount, "primary should be called 3 times (2 failures + 1 success)")
 	})
 }
 

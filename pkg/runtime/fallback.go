@@ -370,9 +370,10 @@ func getEffectiveCooldown(a *agent.Agent) time.Duration {
 }
 
 // getEffectiveRetries returns the number of retries to use for the agent.
-// If no retries are explicitly configured (retries == 0) and fallback models
-// are configured, returns DefaultFallbackRetries to provide sensible retry
-// behavior out of the box.
+// If no retries are explicitly configured (retries == 0), returns
+// DefaultFallbackRetries to provide sensible retry behavior out of the box.
+// Retries apply to retryable errors (5xx, timeouts) on the same model,
+// regardless of whether fallback models are configured.
 //
 // Note: Users who explicitly want 0 retries can set retries: -1 in their config
 // (though this is an edge case - most users want some retries for resilience).
@@ -382,8 +383,7 @@ func getEffectiveRetries(a *agent.Agent) int {
 	if retries < 0 {
 		return 0
 	}
-	// 0 means "use default" when fallback models are configured
-	if retries == 0 && len(a.FallbackModels()) > 0 {
+	if retries == 0 {
 		return DefaultFallbackRetries
 	}
 	return retries
