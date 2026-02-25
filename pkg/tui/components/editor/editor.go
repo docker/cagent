@@ -655,6 +655,15 @@ func (e *editor) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 			return e, msg.Execute()
 		}
 		if e.currentCompletion.AutoSubmit() {
+			if msg.Tab {
+				// Tab inserts the value without submitting, allowing the user
+				// to continue typing (e.g., adding arguments to a skill).
+				e.textarea.SetValue(msg.Value + " ")
+				e.textarea.MoveToEnd()
+				e.userTyped = true
+				e.clearSuggestion()
+				return e, nil
+			}
 			// For auto-submit completions (like commands), use the selected
 			// command value (e.g., "/exit") instead of what the user typed
 			// (e.g., "/e"). Append any extra text after the trigger word

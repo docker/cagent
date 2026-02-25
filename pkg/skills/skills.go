@@ -16,15 +16,22 @@ const skillFile = "SKILL.md"
 
 // Skill represents a loaded skill with its metadata and content location.
 type Skill struct {
-	Name          string            `yaml:"name"`
-	Description   string            `yaml:"description"`
-	FilePath      string            `yaml:"-"`
-	BaseDir       string            `yaml:"-"`
-	Files         []string          `yaml:"-"`
-	License       string            `yaml:"license"`
-	Compatibility string            `yaml:"compatibility"`
-	Metadata      map[string]string `yaml:"metadata"`
-	AllowedTools  []string          `yaml:"allowed-tools"`
+	Name            string            `yaml:"name"`
+	Description     string            `yaml:"description"`
+	ArgsDescription string            `yaml:"args"`
+	FilePath        string            `yaml:"-"`
+	BaseDir         string            `yaml:"-"`
+	Files           []string          `yaml:"-"`
+	License         string            `yaml:"license"`
+	Compatibility   string            `yaml:"compatibility"`
+	Metadata        map[string]string `yaml:"metadata"`
+	AllowedTools    []string          `yaml:"allowed-tools"`
+}
+
+// HasArgs returns true if the skill declares an args description,
+// indicating it accepts arguments when invoked as a slash command.
+func (s Skill) HasArgs() bool {
+	return s.ArgsDescription != ""
 }
 
 // Load discovers and loads skills from the given sources.

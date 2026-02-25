@@ -214,7 +214,7 @@ func (d *filePickerDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 			}
 			return d, nil
 
-		case key.Matches(msg, d.keyMap.Enter):
+		case key.Matches(msg, d.keyMap.Enter) || key.Matches(msg, d.keyMap.Tab):
 			if d.selected >= 0 && d.selected < len(d.filtered) {
 				entry := d.filtered[d.selected]
 				if entry.isDir {

@@ -581,6 +581,14 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cleanupAll()
 		return m, tea.Quit
 
+	case dialog.CommandAutoCompleteMsg:
+		// Tab was pressed in the command palette: insert the slash command into the editor
+		// so the user can continue typing (e.g., adding arguments).
+		if msg.Command.SlashCommand != "" {
+			m.editor.SetValue(msg.Command.SlashCommand + " ")
+		}
+		return m, m.editor.Focus()
+
 	case dialog.RuntimeResumeMsg:
 		m.application.Resume(msg.Request)
 		return m, nil
