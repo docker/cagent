@@ -185,6 +185,15 @@ type RAGInitializer interface {
 	StartBackgroundRAGInit(ctx context.Context, sendEvent func(Event))
 }
 
+// ToolsChangeSubscriber is implemented by runtimes that can notify when
+// toolsets report a change in their tool list (e.g. after an MCP
+// ToolListChanged notification). The provided callback is invoked
+// outside of any RunStream, so the UI can update the tool count
+// immediately.
+type ToolsChangeSubscriber interface {
+	OnToolsChanged(handler func(Event))
+}
+
 // LocalRuntime manages the execution of agents
 type LocalRuntime struct {
 	toolMap                     map[string]ToolHandler
@@ -209,6 +218,9 @@ type LocalRuntime struct {
 	// fallbackCooldowns tracks per-agent cooldown state for sticky fallback behavior
 	fallbackCooldowns    map[string]*fallbackCooldownState
 	fallbackCooldownsMux sync.RWMutex
+
+	// onToolsChanged is called when an MCP toolset reports a tool list change.
+	onToolsChanged func(Event)
 }
 
 type streamResult struct {
@@ -748,6 +760,40 @@ func (r *LocalRuntime) ResetStartupInfo() {
 	r.startupInfoEmitted = false
 }
 
+// OnToolsChanged registers a handler that is called when an MCP toolset
+// reports a tool list change outside of a RunStream. This allows the UI
+// to update the tool count immediately.
+func (r *LocalRuntime) OnToolsChanged(handler func(Event)) {
+	r.onToolsChanged = handler
+
+	for _, name := range r.team.AgentNames() {
+		a, err := r.team.Agent(name)
+		if err != nil {
+			continue
+		}
+		for _, ts := range a.ToolSets() {
+			if n, ok := tools.As[tools.ChangeNotifier](ts); ok {
+				n.SetToolsChangedHandler(r.emitToolsChanged)
+			}
+		}
+	}
+}
+
+// emitToolsChanged is the callback registered on MCP toolsets. It re-reads
+// the current agent's full tool list and pushes a ToolsetInfo event.
+func (r *LocalRuntime) emitToolsChanged() {
+	if r.onToolsChanged == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	agentTools, err := r.CurrentAgentTools(ctx)
+	if err != nil {
+		return
+	}
+	r.onToolsChanged(ToolsetInfo(len(agentTools), false, r.currentAgent))
+}
+
 // EmitStartupInfo emits initial agent, team, and toolset information for immediate sidebar display.
 // When sess is non-nil and contains token data, a TokenUsageEvent is also emitted so that the
 // sidebar can display context usage percentage on session restore.
@@ -969,6 +1015,11 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 				events <- Error(fmt.Sprintf("failed to get tools: %v", err))
 				return
 			}
+
+			// Emit updated tool count. After a ToolListChanged MCP notification
+			// the cache is invalidated, so getTools above re-fetches from the
+			// server and may return a different count.
+			events <- ToolsetInfo(len(agentTools), false, r.currentAgent)
 
 			// Check iteration limit
 			if runtimeMaxIterations > 0 && iteration >= runtimeMaxIterations {

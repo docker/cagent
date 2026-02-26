@@ -27,6 +27,11 @@ type mcpClient interface {
 	SetElicitationHandler(handler tools.ElicitationHandler)
 	SetOAuthSuccessHandler(handler func())
 	SetManagedOAuth(managed bool)
+	SetToolListChangedHandler(handler func())
+	SetPromptListChangedHandler(handler func())
+	// Wait blocks until the underlying connection is closed by the server.
+	// It returns nil if the connection was closed gracefully.
+	Wait() error
 	Close(ctx context.Context) error
 }
 
@@ -38,15 +43,36 @@ type Toolset struct {
 	instructions string
 	mu           sync.Mutex
 	started      bool
+	stopping     bool // true when Stop() has been called
+
+	// Cached tools and prompts, invalidated via MCP notifications.
+	// cacheGen is bumped on each invalidation so that a concurrent
+	// Tools()/ListPrompts() call can detect that its result is stale.
+	cachedTools   []tools.Tool
+	cachedPrompts []PromptInfo
+	cacheGen      uint64
+
+	// toolsChangedHandler is called after the tool cache is refreshed
+	// following a ToolListChanged notification from the server.
+	toolsChangedHandler func()
+}
+
+// invalidateCache clears the cached tools and prompts and bumps the
+// generation counter. The caller must hold ts.mu.
+func (ts *Toolset) invalidateCache() {
+	ts.cachedTools = nil
+	ts.cachedPrompts = nil
+	ts.cacheGen++
 }
 
 var _ tools.ToolSet = (*Toolset)(nil)
 
 // Verify that Toolset implements optional capability interfaces
 var (
-	_ tools.Instructable = (*Toolset)(nil)
-	_ tools.Elicitable   = (*Toolset)(nil)
-	_ tools.OAuthCapable = (*Toolset)(nil)
+	_ tools.Instructable   = (*Toolset)(nil)
+	_ tools.Elicitable     = (*Toolset)(nil)
+	_ tools.OAuthCapable   = (*Toolset)(nil)
+	_ tools.ChangeNotifier = (*Toolset)(nil)
 )
 
 // NewToolsetCommand creates a new MCP toolset from a command.
@@ -71,6 +97,12 @@ func NewRemoteToolset(name, url, transport string, headers map[string]string) *T
 	}
 }
 
+// errServerUnavailable is returned by doStart when the MCP server could not be
+// reached but the error is non-fatal (e.g. EOF). The toolset is considered
+// "started" so the agent can proceed, but watchConnection must not be spawned
+// because there is no live connection to monitor.
+var errServerUnavailable = errors.New("MCP server unavailable")
+
 func (ts *Toolset) Start(ctx context.Context) error {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
@@ -79,11 +111,27 @@ func (ts *Toolset) Start(ctx context.Context) error {
 		return nil
 	}
 
-	err := ts.doStart(ctx)
-	if err == nil {
-		ts.started = true
+	if err := ts.doStart(ctx); err != nil {
+		if errors.Is(err, errServerUnavailable) {
+			// The server is unreachable but the error is non-fatal.
+			// Mark as started so the agent can proceed; tools will simply
+			// be empty. Don't spawn a watcher — there's nothing to watch.
+			ts.started = true
+			return nil
+		}
+		return err
 	}
-	return err
+
+	ts.started = true
+
+	// Spawn the connection watcher only on the initial Start.
+	// Restarts from within watchConnection call doStart directly
+	// and must NOT spawn an additional watcher goroutine.
+	// Use WithoutCancel so the watcher outlives the caller's context;
+	// the only way to stop it is via Stop() setting ts.stopping.
+	go ts.watchConnection(context.WithoutCancel(ctx))
+
+	return nil
 }
 
 func (ts *Toolset) doStart(ctx context.Context) error {
@@ -95,6 +143,28 @@ func (ts *Toolset) doStart(ctx context.Context) error {
 	ctx = context.WithoutCancel(ctx)
 
 	slog.Debug("Starting MCP toolset", "server", ts.logID)
+
+	// Register notification handlers to invalidate caches when the server
+	// notifies us that its tools or prompts have changed.
+	// We invalidate the cache and then eagerly re-fetch the list so that
+	// subsequent Tools()/ListPrompts() calls return the up-to-date data
+	// without racing with the server.
+	ts.mcpClient.SetToolListChangedHandler(func() {
+		ts.mu.Lock()
+		ts.invalidateCache()
+		ts.mu.Unlock()
+
+		slog.Debug("MCP server notified tool list changed, refreshing", "server", ts.logID)
+		ts.refreshToolCache(ctx)
+	})
+	ts.mcpClient.SetPromptListChangedHandler(func() {
+		ts.mu.Lock()
+		ts.invalidateCache()
+		ts.mu.Unlock()
+
+		slog.Debug("MCP server notified prompt list changed, refreshing", "server", ts.logID)
+		ts.refreshPromptCache(ctx)
+	})
 
 	initRequest := &mcp.InitializeRequest{
 		Params: &mcp.InitializeParams{
@@ -124,14 +194,12 @@ func (ts *Toolset) doStart(ctx context.Context) error {
 		//
 		// Only retry when initialization fails due to sending the initialized notification.
 		if !isInitNotificationSendError(err) {
-			// EOF means the MCP server is unavailable or closed the connection.
-			// This is not a fatal error and should not fail the agent execution.
 			if errors.Is(err, io.EOF) {
 				slog.Debug(
 					"MCP client unavailable (EOF), skipping MCP toolset",
 					"server", ts.logID,
 				)
-				return nil
+				return errServerUnavailable
 			}
 
 			slog.Error("Failed to initialize MCP client", "error", err)
@@ -152,7 +220,67 @@ func (ts *Toolset) doStart(ctx context.Context) error {
 
 	slog.Debug("Started MCP toolset successfully", "server", ts.logID)
 	ts.instructions = result.Instructions
+
 	return nil
+}
+
+// watchConnection monitors the MCP server connection and auto-restarts it
+// if the server dies unexpectedly (i.e. we didn't call Stop()).
+// Only one watchConnection goroutine exists per Toolset; it is spawned by
+// Start() and loops across restarts without spawning additional goroutines.
+func (ts *Toolset) watchConnection(ctx context.Context) {
+	for {
+		err := ts.mcpClient.Wait()
+
+		ts.mu.Lock()
+		if ts.stopping {
+			ts.mu.Unlock()
+			return
+		}
+		ts.started = false
+		ts.invalidateCache()
+		ts.mu.Unlock()
+
+		slog.Warn("MCP server connection lost, attempting restart", "server", ts.logID, "error", err)
+
+		if !ts.tryRestart(ctx) {
+			return
+		}
+	}
+}
+
+// tryRestart attempts to restart the MCP server with exponential backoff.
+// Returns true if the server was restarted, false if all attempts failed or
+// Stop() was called.
+func (ts *Toolset) tryRestart(ctx context.Context) bool {
+	const maxAttempts = 5
+
+	for attempt := range maxAttempts {
+		backoff := time.Duration(1<<uint(attempt)) * time.Second
+		slog.Debug("Restarting MCP server", "server", ts.logID, "attempt", attempt+1, "backoff", backoff)
+		time.Sleep(backoff)
+
+		ts.mu.Lock()
+		if ts.stopping {
+			ts.mu.Unlock()
+			return false
+		}
+
+		if err := ts.doStart(ctx); err != nil {
+			ts.mu.Unlock()
+			slog.Warn("MCP server restart failed", "server", ts.logID, "attempt", attempt+1, "error", err)
+			continue
+		}
+
+		ts.started = true
+		ts.mu.Unlock()
+
+		slog.Info("MCP server restarted successfully", "server", ts.logID)
+		return true
+	}
+
+	slog.Error("MCP server restart failed after all attempts", "server", ts.logID)
+	return false
 }
 
 func (ts *Toolset) Instructions() string {
@@ -168,13 +296,20 @@ func (ts *Toolset) Instructions() string {
 
 func (ts *Toolset) Tools(ctx context.Context) ([]tools.Tool, error) {
 	ts.mu.Lock()
-	started := ts.started
-	ts.mu.Unlock()
-	if !started {
+	if !ts.started {
+		ts.mu.Unlock()
 		return nil, errors.New("toolset not started")
 	}
+	if ts.cachedTools != nil {
+		result := ts.cachedTools
+		ts.mu.Unlock()
+		return result, nil
+	}
+	// Snapshot the generation so we can detect invalidation after the unlock.
+	gen := ts.cacheGen
+	ts.mu.Unlock()
 
-	slog.Debug("Listing MCP tools")
+	slog.Debug("Listing MCP tools (cache miss)", "server", ts.logID)
 
 	resp := ts.mcpClient.ListTools(ctx, &mcp.ListToolsParams{})
 
@@ -204,8 +339,44 @@ func (ts *Toolset) Tools(ctx context.Context) ([]tools.Tool, error) {
 		slog.Debug("Added MCP tool", "tool", name)
 	}
 
-	slog.Debug("Listed MCP tools", "count", len(toolsList))
+	slog.Debug("Listed MCP tools", "count", len(toolsList), "server", ts.logID)
+
+	ts.mu.Lock()
+	// Only populate the cache if no invalidation happened while we were
+	// fetching from the server. Otherwise drop the result so the next
+	// caller re-fetches with the latest data.
+	if ts.cacheGen == gen {
+		ts.cachedTools = toolsList
+	}
+	ts.mu.Unlock()
+
 	return toolsList, nil
+}
+
+// refreshToolCache fetches the tool list from the server and populates the
+// cache. It is called by the ToolListChanged notification handler so that
+// the cache is already warm by the time the runtime loop calls Tools().
+func (ts *Toolset) refreshToolCache(ctx context.Context) {
+	if _, err := ts.Tools(ctx); err != nil {
+		slog.Warn("Failed to refresh tools after notification", "server", ts.logID, "error", err)
+		return
+	}
+
+	ts.mu.Lock()
+	handler := ts.toolsChangedHandler
+	ts.mu.Unlock()
+
+	if handler != nil {
+		handler()
+	}
+}
+
+// refreshPromptCache fetches the prompt list from the server and populates
+// the cache. It is called by the PromptListChanged notification handler.
+func (ts *Toolset) refreshPromptCache(ctx context.Context) {
+	if _, err := ts.ListPrompts(ctx); err != nil {
+		slog.Warn("Failed to refresh prompts after notification", "server", ts.logID, "error", err)
+	}
 }
 
 func (ts *Toolset) callTool(ctx context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
@@ -250,6 +421,11 @@ func (ts *Toolset) callTool(ctx context.Context, toolCall tools.ToolCall) (*tool
 
 func (ts *Toolset) Stop(ctx context.Context) error {
 	slog.Debug("Stopping MCP toolset", "server", ts.logID)
+
+	ts.mu.Lock()
+	ts.stopping = true
+	ts.started = false
+	ts.mu.Unlock()
 
 	if err := ts.mcpClient.Close(context.WithoutCancel(ctx)); err != nil {
 		if ctx.Err() != nil {
@@ -306,18 +482,30 @@ func (ts *Toolset) SetManagedOAuth(managed bool) {
 	ts.mcpClient.SetManagedOAuth(managed)
 }
 
+func (ts *Toolset) SetToolsChangedHandler(handler func()) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.toolsChangedHandler = handler
+}
+
 // ListPrompts retrieves available prompts from the MCP server.
 // Returns a slice of PromptInfo containing metadata about each available prompt
 // including name, description, and argument specifications.
 func (ts *Toolset) ListPrompts(ctx context.Context) ([]PromptInfo, error) {
 	ts.mu.Lock()
-	started := ts.started
-	ts.mu.Unlock()
-	if !started {
+	if !ts.started {
+		ts.mu.Unlock()
 		return nil, errors.New("toolset not started")
 	}
+	if ts.cachedPrompts != nil {
+		result := ts.cachedPrompts
+		ts.mu.Unlock()
+		return result, nil
+	}
+	gen := ts.cacheGen
+	ts.mu.Unlock()
 
-	slog.Debug("Listing MCP prompts")
+	slog.Debug("Listing MCP prompts (cache miss)", "server", ts.logID)
 
 	// Call the underlying MCP client to list prompts
 	resp := ts.mcpClient.ListPrompts(ctx, &mcp.ListPromptsParams{})
@@ -352,7 +540,14 @@ func (ts *Toolset) ListPrompts(ctx context.Context) ([]PromptInfo, error) {
 		slog.Debug("Added MCP prompt", "prompt", prompt.Name, "args_count", len(promptInfo.Arguments))
 	}
 
-	slog.Debug("Listed MCP prompts", "count", len(promptsList))
+	slog.Debug("Listed MCP prompts", "count", len(promptsList), "server", ts.logID)
+
+	ts.mu.Lock()
+	if ts.cacheGen == gen {
+		ts.cachedPrompts = promptsList
+	}
+	ts.mu.Unlock()
+
 	return promptsList, nil
 }
 

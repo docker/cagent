@@ -41,7 +41,6 @@ agents:
       - type: mcp
         command: docker
         args: ["mcp", "gateway", "run"]
-        tools: ["mcp-activate-profile", "mcp-add", "mcp-config-set", "mcp-create-profile", "mcp-remove"]
 
 permissions:
   allow:
@@ -50,5 +49,6 @@ permissions:
      - mcp-add
      - mcp-config-set
      - mcp-create-profile
+     - mcp-find
      - mcp-remove
   
