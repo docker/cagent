@@ -691,7 +691,9 @@ func (s *Session) GetMessages(a *agent.Agent) []chat.Message {
 
 // trimMessages ensures we don't exceed the maximum number of messages while maintaining
 // consistency between assistant messages and their tool call results.
-// System messages are always preserved and not counted against the limit.
+// System messages and user messages are always preserved and not counted against the limit.
+// User messages are protected from trimming to prevent the model from losing
+// track of what was asked in long agentic loops.
 func trimMessages(messages []chat.Message, maxItems int) []chat.Message {
 	// Separate system messages from conversation messages
 	var systemMessages []chat.Message
@@ -710,15 +712,27 @@ func trimMessages(messages []chat.Message, maxItems int) []chat.Message {
 		return messages
 	}
 
+	// Identify user message indices — these are protected from trimming
+	protected := make(map[int]bool)
+	for i, msg := range conversationMessages {
+		if msg.Role == chat.MessageRoleUser {
+			protected[i] = true
+		}
+	}
+
 	// Keep track of tool call IDs that need to be removed
 	toolCallsToRemove := make(map[string]bool)
 
 	// Calculate how many conversation messages we need to remove
 	toRemove := len(conversationMessages) - maxItems
 
-	// Start from the beginning (oldest messages)
-	for i := range toRemove {
-		// If this is an assistant message with tool calls, mark them for removal
+	// Mark the oldest non-protected messages for removal
+	removed := make(map[int]bool)
+	for i := 0; i < len(conversationMessages) && len(removed) < toRemove; i++ {
+		if protected[i] {
+			continue
+		}
+		removed[i] = true
 		if conversationMessages[i].Role == chat.MessageRoleAssistant {
 			for _, toolCall := range conversationMessages[i].ToolCalls {
 				toolCallsToRemove[toolCall.ID] = true
@@ -732,11 +746,13 @@ func trimMessages(messages []chat.Message, maxItems int) []chat.Message {
 	// Add all system messages first
 	result = append(result, systemMessages...)
 
-	// Add the most recent conversation messages
-	for i := toRemove; i < len(conversationMessages); i++ {
-		msg := conversationMessages[i]
+	// Add protected and non-removed conversation messages
+	for i, msg := range conversationMessages {
+		if removed[i] {
+			continue
+		}
 
-		// Skip tool messages that correspond to removed assistant messages
+		// Skip orphaned tool results whose assistant message was removed
 		if msg.Role == chat.MessageRoleTool && toolCallsToRemove[msg.ToolCallID] {
 			continue
 		}
