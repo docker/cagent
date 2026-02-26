@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/docker/cagent/pkg/chat"
+	"github.com/docker/cagent/pkg/chatgpt"
 	"github.com/docker/cagent/pkg/config/latest"
 	"github.com/docker/cagent/pkg/environment"
 	"github.com/docker/cagent/pkg/model/provider/anthropic"
@@ -101,6 +102,10 @@ var Aliases = map[string]Alias{
 	"ollama": {
 		APIType: "openai",
 		BaseURL: "http://localhost:11434/v1",
+	},
+	"chatgpt": {
+		APIType:     "openai_responses",
+		TokenEnvVar: chatgpt.TokenEnvVar,
 	},
 }
 

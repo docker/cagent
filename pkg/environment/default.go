@@ -1,6 +1,9 @@
 package environment
 
-import "github.com/docker/cagent/pkg/userconfig"
+import (
+	"github.com/docker/cagent/pkg/chatgpt"
+	"github.com/docker/cagent/pkg/userconfig"
+)
 
 // NewDefaultProvider creates a provider chain with OS env, run secrets,
 // credential helper (if configured), Docker Desktop, pass, and keychain providers.
@@ -15,8 +18,9 @@ func NewDefaultProvider() Provider {
 		providers = append(providers, NewCredentialHelperProvider(cfg.CredentialHelper.Command, cfg.CredentialHelper.Args...))
 	}
 
-	// Docker Desktop provider comes after credential helper
-	providers = append(providers, NewDockerDesktopProvider())
+	// Docker Desktop provider comes after credential helper.
+	// ChatGPT OAuth token provider for chatgpt/* models.
+	providers = append(providers, NewDockerDesktopProvider(), chatgpt.NewProvider())
 
 	// Append pass provider at the end if available
 	if passProvider, err := NewPassProvider(); err == nil {
