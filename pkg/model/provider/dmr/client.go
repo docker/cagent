@@ -472,10 +472,6 @@ func (c *Client) CreateChatCompletionStream(ctx context.Context, messages []chat
 		slog.Debug("Adding tools to DMR request", "tool_count", len(requestTools))
 		toolsParam := make([]openai.ChatCompletionToolUnionParam, len(requestTools))
 		for i, tool := range requestTools {
-			// DMR requires the `description` key to be present; ensure a non-empty value
-			// NOTE(krissetto): workaround, remove when fixed upstream, this shouldn't be necceessary
-			desc := cmp.Or(tool.Description, "Function "+tool.Name)
-
 			parameters, err := ConvertParametersToSchema(tool.Parameters)
 			if err != nil {
 				slog.Error("Failed to convert tool parameters to DMR schema", "error", err, "tool", tool.Name)
@@ -488,9 +484,11 @@ func (c *Client) CreateChatCompletionStream(ctx context.Context, messages []chat
 				return nil, fmt.Errorf("converted parameters is not a map for tool %s", tool.Name)
 			}
 
+			// DMR requires the `description` key to be present; ensure a non-empty value
+			// NOTE(krissetto): workaround, remove when fixed upstream, this shouldn't be necessary
 			toolsParam[i] = openai.ChatCompletionFunctionTool(shared.FunctionDefinitionParam{
 				Name:        tool.Name,
-				Description: openai.String(desc),
+				Description: openai.String(cmp.Or(tool.Description, "Function "+tool.Name)),
 				Parameters:  paramsMap,
 			})
 		}
@@ -870,20 +868,6 @@ func (c *Client) Rerank(ctx context.Context, query string, documents []types.Doc
 	}
 
 	return scores, nil
-}
-
-// ConvertParametersToSchema converts parameters to DMR Schema format
-func ConvertParametersToSchema(params any) (any, error) {
-	m, err := tools.SchemaToMap(params)
-	if err != nil {
-		return nil, err
-	}
-
-	// DMR models tend to dislike `additionalProperties` in the schema
-	// e.g. ai/qwen3 and ai/gpt-oss
-	delete(m, "additionalProperties")
-
-	return m, nil
 }
 
 type speculativeDecodingOpts struct {
