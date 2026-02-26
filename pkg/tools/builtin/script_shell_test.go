@@ -115,3 +115,38 @@ func TestNewScriptShellTool_MissingRequired(t *testing.T) {
 	require.Nil(t, tool)
 	require.ErrorContains(t, err, "tool 'docker_images' has required arg 'img' which is not defined in args")
 }
+
+func TestNewScriptShellTool_ArgWithoutType(t *testing.T) {
+	shellTools := map[string]latest.ScriptShellToolConfig{
+		"greet": {
+			Description: "Greet someone",
+			Cmd:         "echo Hello $name",
+			Args: map[string]any{
+				"name": map[string]any{
+					"description": "Name to greet",
+				},
+			},
+			Required: []string{"name"},
+		},
+	}
+
+	tool, err := NewScriptShellTool(shellTools, nil)
+	require.NoError(t, err)
+
+	allTools, err := tool.Tools(t.Context())
+	require.NoError(t, err)
+	assert.Len(t, allTools, 1)
+
+	schema, err := json.Marshal(allTools[0].Parameters)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{
+	"type": "object",
+	"properties": {
+		"name": {
+			"description": "Name to greet",
+			"type": "string"
+		}
+	},
+	"required": ["name"]
+}`, string(schema))
+}

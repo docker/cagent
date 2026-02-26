@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"slices"
@@ -110,7 +111,7 @@ func (t *ScriptShellTool) Tools(context.Context) ([]tools.Tool, error) {
 
 		inputSchema, err := tools.SchemaToMap(map[string]any{
 			"type":       "object",
-			"properties": cfg.Args,
+			"properties": defaultPropertyTypes(cfg.Args, "string"),
 			"required":   cfg.Required,
 		})
 		if err != nil {
@@ -157,4 +158,21 @@ func (t *ScriptShellTool) execute(ctx context.Context, toolConfig *latest.Script
 	}
 
 	return tools.ResultSuccess(limitOutput(string(output))), nil
+}
+
+// defaultPropertyTypes returns a copy of properties where any property
+// missing a "type" field gets the given default type.
+func defaultPropertyTypes(properties map[string]any, defaultType string) map[string]any {
+	result := make(map[string]any, len(properties))
+	for k, v := range properties {
+		if prop, ok := v.(map[string]any); ok && prop["type"] == nil {
+			propCopy := make(map[string]any, len(prop)+1)
+			maps.Copy(propCopy, prop)
+			propCopy["type"] = defaultType
+			result[k] = propCopy
+			continue
+		}
+		result[k] = v
+	}
+	return result
 }
