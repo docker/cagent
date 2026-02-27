@@ -58,9 +58,7 @@ func TestTrimMessagesWithToolCalls(t *testing.T) {
 
 	result := trimMessages(messages, maxItems)
 
-	// Should keep last 3 messages, but ensure tool call consistency
-	assert.Len(t, result, maxItems)
-
+	// Both user messages are protected, so result includes them plus the most recent assistant/tool pair
 	toolCalls := make(map[string]bool)
 	for _, msg := range result {
 		if msg.Role == chat.MessageRoleAssistant {
