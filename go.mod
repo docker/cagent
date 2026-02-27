@@ -7,7 +7,7 @@ replace github.com/charmbracelet/ultraviolet => github.com/dgageot/ultraviolet v
 require (
 	charm.land/bubbles/v2 v2.0.0-rc.1
 	charm.land/bubbletea/v2 v2.0.0-rc.2.0.20251202162339-5fa38b798f16
-	charm.land/lipgloss/v2 v2.0.0-beta.3.0.20251119143523-0334bb4562ca
+	charm.land/lipgloss/v2 v2.0.0
 	connectrpc.com/connect v1.19.1
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.0
 	github.com/Microsoft/go-winio v0.6.2
@@ -118,8 +118,8 @@ require (
 	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/charmbracelet/colorprofile v0.4.1 // indirect
-	github.com/charmbracelet/ultraviolet v0.0.0-20251202162030-ecc8c1ae4b2b // indirect
+	github.com/charmbracelet/colorprofile v0.4.2 // indirect
+	github.com/charmbracelet/ultraviolet v0.0.0-20251205161215-1948445e3318 // indirect
 	github.com/charmbracelet/x/exp/slice v0.0.0-20251113172435-cef867b85f6a // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect
 	github.com/charmbracelet/x/termios v0.1.1 // indirect

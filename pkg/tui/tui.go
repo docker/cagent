@@ -1956,8 +1956,8 @@ func (m *appModel) View() tea.View {
 			allLayers = append(allLayers, m.completions.GetLayers()...)
 		}
 
-		canvas := lipgloss.NewCanvas(allLayers...)
-		return toFullscreenView(canvas.Render(), windowTitle)
+		compositor := lipgloss.NewCompositor(allLayers...)
+		return toFullscreenView(compositor.Render(), windowTitle)
 	}
 
 	return toFullscreenView(baseView, windowTitle)
