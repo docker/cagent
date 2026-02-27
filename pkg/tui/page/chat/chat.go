@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	goruntime "runtime"
 	"strings"
@@ -611,8 +610,6 @@ func (p *chatPage) cancelStream(showCancelMessage bool) tea.Cmd {
 	p.msgCancel = nil
 	p.streamCancelled = true
 	p.setPendingResponse(false)
-	p.stopProgressBar()
-
 	// Send StreamCancelledMsg to all components to handle cleanup
 	return tea.Batch(
 		core.CmdHandler(msgtypes.StreamCancelledMsg{ShowMessage: showCancelMessage}),
@@ -853,8 +850,6 @@ func (p *chatPage) processMessage(msg msgtypes.SendMsg) tea.Cmd {
 	// Start working state immediately to show the user something is happening.
 	// This provides visual feedback while the runtime loads tools and prepares the stream.
 	spinnerCmd := p.setWorking(true)
-	p.startProgressBar()
-
 	// Check if this is an agent command that needs resolution
 	// If so, show a loading message with the command description
 	var loadingCmd tea.Cmd
@@ -892,7 +887,6 @@ func (p *chatPage) CompactSession(additionalPrompt string) tea.Cmd {
 }
 
 func (p *chatPage) Cleanup() {
-	p.stopProgressBar()
 	p.sidebar.Cleanup()
 }
 
@@ -998,14 +992,4 @@ func (p *chatPage) BlurMessages() {
 // ScrollToBottom scrolls the messages viewport to the bottom if auto-scroll is active.
 func (p *chatPage) ScrollToBottom() tea.Cmd {
 	return p.messages.ScrollToBottom()
-}
-
-// startProgressBar sets a terminal progress-bar indicator (ConEmu/Windows Terminal).
-// See: https://conemu.github.io/en/AnsiEscapeCodes.html#ConEmu_specific_OSC
-func (p *chatPage) startProgressBar() {
-	fmt.Fprint(os.Stderr, "\x1b]9;4;3;0\x1b\\")
-}
-
-func (p *chatPage) stopProgressBar() {
-	fmt.Fprint(os.Stderr, "\x1b]9;4;0;0\x1b\\")
 }

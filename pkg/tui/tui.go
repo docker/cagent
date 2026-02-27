@@ -1891,7 +1891,7 @@ func (m *appModel) View() tea.View {
 	windowTitle := m.windowTitle()
 
 	if m.err != nil {
-		return toFullscreenView(styles.ErrorStyle.Render(m.err.Error()), windowTitle)
+		return toFullscreenView(styles.ErrorStyle.Render(m.err.Error()), windowTitle, false)
 	}
 
 	if !m.ready {
@@ -1901,6 +1901,7 @@ func (m *appModel) View() tea.View {
 				Height(m.wHeight).
 				Render(styles.MutedStyle.Render("Loading…")),
 			windowTitle,
+			false,
 		)
 	}
 
@@ -1957,10 +1958,10 @@ func (m *appModel) View() tea.View {
 		}
 
 		compositor := lipgloss.NewCompositor(allLayers...)
-		return toFullscreenView(compositor.Render(), windowTitle)
+		return toFullscreenView(compositor.Render(), windowTitle, m.chatPage.IsWorking())
 	}
 
-	return toFullscreenView(baseView, windowTitle)
+	return toFullscreenView(baseView, windowTitle, m.chatPage.IsWorking())
 }
 
 // windowTitle returns the terminal window title.
@@ -2136,11 +2137,14 @@ func getEditorDisplayNameFromEnv(visual, editorEnv string) string {
 	return "$EDITOR"
 }
 
-func toFullscreenView(content, windowTitle string) tea.View {
+func toFullscreenView(content, windowTitle string, working bool) tea.View {
 	view := tea.NewView(content)
 	view.AltScreen = true
 	view.MouseMode = tea.MouseModeCellMotion
 	view.BackgroundColor = styles.Background
 	view.WindowTitle = windowTitle
+	if working {
+		view.ProgressBar = tea.NewProgressBar(tea.ProgressBarIndeterminate, 0)
+	}
 	return view
 }
