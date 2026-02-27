@@ -68,7 +68,7 @@ require (
 	golang.org/x/sys v0.41.0
 	golang.org/x/term v0.40.0
 	google.golang.org/adk v0.4.0
-	google.golang.org/genai v1.47.0
+	google.golang.org/genai v1.48.0
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/dnaeon/go-vcr.v4 v4.0.6
 	gotest.tools/v3 v3.5.2
