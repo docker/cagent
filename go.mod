@@ -44,7 +44,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/junegunn/fzf v0.68.0
 	github.com/k3a/html2text v1.3.0
-	github.com/labstack/echo/v4 v4.15.0
+	github.com/labstack/echo/v4 v4.15.1
 	github.com/mattn/go-isatty v0.0.20
 	github.com/mattn/go-runewidth v0.0.20
 	github.com/modelcontextprotocol/go-sdk v1.3.1
