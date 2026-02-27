@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -37,69 +38,13 @@ type Item struct {
 func builtInSessionCommands() []Item {
 	cmds := []Item{
 		{
-			ID:           "session.exit",
-			Label:        "Exit",
-			SlashCommand: "/exit",
-			Description:  "Exit the application",
-			Category:     "Session",
-			Execute: func(string) tea.Cmd {
-				return core.CmdHandler(messages.ExitSessionMsg{})
-			},
-		},
-		{
-			ID:           "session.new",
-			Label:        "New",
-			SlashCommand: "/new",
-			Description:  "Start a new conversation",
-			Category:     "Session",
-			Execute: func(string) tea.Cmd {
-				return core.CmdHandler(messages.NewSessionMsg{})
-			},
-		},
-		{
-			ID:           "session.history",
-			Label:        "Sessions",
-			SlashCommand: "/sessions",
-			Description:  "Browse and load past sessions",
-			Category:     "Session",
-			Execute: func(string) tea.Cmd {
-				return core.CmdHandler(messages.OpenSessionBrowserMsg{})
-			},
-		},
-		{
-			ID:           "session.star",
-			Label:        "Star",
-			SlashCommand: "/star",
-			Description:  "Toggle star on current session",
-			Category:     "Session",
-			Execute: func(string) tea.Cmd {
-				return core.CmdHandler(messages.ToggleSessionStarMsg{})
-			},
-		},
-		{
-			ID:           "session.title",
-			Label:        "Title",
-			SlashCommand: "/title",
-			Description:  "Set or regenerate session title (usage: /title [new title])",
+			ID:           "session.attach",
+			Label:        "Attach",
+			SlashCommand: "/attach",
+			Description:  "Attach a file to your message (usage: /attach [path])",
 			Category:     "Session",
 			Execute: func(arg string) tea.Cmd {
-				arg = strings.TrimSpace(arg)
-				if arg == "" {
-					// No argument: regenerate title
-					return core.CmdHandler(messages.RegenerateTitleMsg{})
-				}
-				// With argument: set title
-				return core.CmdHandler(messages.SetSessionTitleMsg{Title: arg})
-			},
-		},
-		{
-			ID:           "session.model",
-			Label:        "Model",
-			SlashCommand: "/model",
-			Description:  "Change the model for the current agent",
-			Category:     "Session",
-			Execute: func(string) tea.Cmd {
-				return core.CmdHandler(messages.OpenModelPickerMsg{})
+				return core.CmdHandler(messages.AttachFileMsg{FilePath: arg})
 			},
 		},
 		{
@@ -133,6 +78,16 @@ func builtInSessionCommands() []Item {
 			},
 		},
 		{
+			ID:           "session.cost",
+			Label:        "Cost",
+			SlashCommand: "/cost",
+			Description:  "Show detailed cost breakdown for this session",
+			Category:     "Session",
+			Execute: func(string) tea.Cmd {
+				return core.CmdHandler(messages.ShowCostDialogMsg{})
+			},
+		},
+		{
 			ID:           "session.eval",
 			Label:        "Eval",
 			SlashCommand: "/eval",
@@ -140,6 +95,16 @@ func builtInSessionCommands() []Item {
 			Category:     "Session",
 			Execute: func(arg string) tea.Cmd {
 				return core.CmdHandler(messages.EvalSessionMsg{Filename: arg})
+			},
+		},
+		{
+			ID:           "session.exit",
+			Label:        "Exit",
+			SlashCommand: "/exit",
+			Description:  "Exit the application",
+			Category:     "Session",
+			Execute: func(string) tea.Cmd {
+				return core.CmdHandler(messages.ExitSessionMsg{})
 			},
 		},
 		{
@@ -153,43 +118,23 @@ func builtInSessionCommands() []Item {
 			},
 		},
 		{
-			ID:           "session.yolo",
-			Label:        "Yolo",
-			SlashCommand: "/yolo",
-			Description:  "Toggle automatic approval of tool calls",
+			ID:           "session.model",
+			Label:        "Model",
+			SlashCommand: "/model",
+			Description:  "Change the model for the current agent",
 			Category:     "Session",
 			Execute: func(string) tea.Cmd {
-				return core.CmdHandler(messages.ToggleYoloMsg{})
+				return core.CmdHandler(messages.OpenModelPickerMsg{})
 			},
 		},
 		{
-			ID:           "session.think",
-			Label:        "Think",
-			SlashCommand: "/think",
-			Description:  "Toggle thinking/reasoning mode",
+			ID:           "session.new",
+			Label:        "New",
+			SlashCommand: "/new",
+			Description:  "Start a new conversation",
 			Category:     "Session",
 			Execute: func(string) tea.Cmd {
-				return core.CmdHandler(messages.ToggleThinkingMsg{})
-			},
-		},
-		{
-			ID:           "session.shell",
-			Label:        "Shell",
-			SlashCommand: "/shell",
-			Description:  "Start a shell",
-			Category:     "Session",
-			Execute: func(string) tea.Cmd {
-				return core.CmdHandler(messages.StartShellMsg{})
-			},
-		},
-		{
-			ID:           "session.cost",
-			Label:        "Cost",
-			SlashCommand: "/cost",
-			Description:  "Show detailed cost breakdown for this session",
-			Category:     "Session",
-			Execute: func(string) tea.Cmd {
-				return core.CmdHandler(messages.ShowCostDialogMsg{})
+				return core.CmdHandler(messages.NewSessionMsg{})
 			},
 		},
 		{
@@ -203,13 +148,69 @@ func builtInSessionCommands() []Item {
 			},
 		},
 		{
-			ID:           "session.attach",
-			Label:        "Attach",
-			SlashCommand: "/attach",
-			Description:  "Attach a file to your message (usage: /attach [path])",
+			ID:           "session.history",
+			Label:        "Sessions",
+			SlashCommand: "/sessions",
+			Description:  "Browse and load past sessions",
+			Category:     "Session",
+			Execute: func(string) tea.Cmd {
+				return core.CmdHandler(messages.OpenSessionBrowserMsg{})
+			},
+		},
+		{
+			ID:           "session.shell",
+			Label:        "Shell",
+			SlashCommand: "/shell",
+			Description:  "Start a shell",
+			Category:     "Session",
+			Execute: func(string) tea.Cmd {
+				return core.CmdHandler(messages.StartShellMsg{})
+			},
+		},
+		{
+			ID:           "session.star",
+			Label:        "Star",
+			SlashCommand: "/star",
+			Description:  "Toggle star on current session",
+			Category:     "Session",
+			Execute: func(string) tea.Cmd {
+				return core.CmdHandler(messages.ToggleSessionStarMsg{})
+			},
+		},
+		{
+			ID:           "session.think",
+			Label:        "Think",
+			SlashCommand: "/think",
+			Description:  "Toggle thinking/reasoning mode",
+			Category:     "Session",
+			Execute: func(string) tea.Cmd {
+				return core.CmdHandler(messages.ToggleThinkingMsg{})
+			},
+		},
+		{
+			ID:           "session.title",
+			Label:        "Title",
+			SlashCommand: "/title",
+			Description:  "Set or regenerate session title (usage: /title [new title])",
 			Category:     "Session",
 			Execute: func(arg string) tea.Cmd {
-				return core.CmdHandler(messages.AttachFileMsg{FilePath: arg})
+				arg = strings.TrimSpace(arg)
+				if arg == "" {
+					// No argument: regenerate title
+					return core.CmdHandler(messages.RegenerateTitleMsg{})
+				}
+				// With argument: set title
+				return core.CmdHandler(messages.SetSessionTitleMsg{Title: arg})
+			},
+		},
+		{
+			ID:           "session.yolo",
+			Label:        "Yolo",
+			SlashCommand: "/yolo",
+			Description:  "Toggle automatic approval of tool calls",
+			Category:     "Session",
+			Execute: func(string) tea.Cmd {
+				return core.CmdHandler(messages.ToggleYoloMsg{})
 			},
 		},
 	}
@@ -225,16 +226,6 @@ func builtInSessionCommands() []Item {
 func builtInSettingsCommands() []Item {
 	return []Item{
 		{
-			ID:           "settings.theme",
-			Label:        "Theme",
-			SlashCommand: "/theme",
-			Description:  "Change the color theme",
-			Category:     "Settings",
-			Execute: func(string) tea.Cmd {
-				return core.CmdHandler(messages.OpenThemePickerMsg{})
-			},
-		},
-		{
 			ID:           "settings.split-diff",
 			Label:        "Split Diff",
 			SlashCommand: "/split-diff",
@@ -244,20 +235,21 @@ func builtInSettingsCommands() []Item {
 				return core.CmdHandler(messages.ToggleSplitDiffMsg{})
 			},
 		},
+		{
+			ID:           "settings.theme",
+			Label:        "Theme",
+			SlashCommand: "/theme",
+			Description:  "Change the color theme",
+			Category:     "Settings",
+			Execute: func(string) tea.Cmd {
+				return core.CmdHandler(messages.OpenThemePickerMsg{})
+			},
+		},
 	}
 }
 
 func builtInFeedbackCommands() []Item {
 	return []Item{
-		{
-			ID:          "feedback.bug",
-			Label:       "Report Bug",
-			Description: "Report a bug or issue",
-			Category:    "Feedback",
-			Execute: func(string) tea.Cmd {
-				return core.CmdHandler(messages.OpenURLMsg{URL: "https://github.com/docker/cagent/issues/new/choose"})
-			},
-		},
 		{
 			ID:          "feedback.feedback",
 			Label:       "Give Feedback",
@@ -267,7 +259,24 @@ func builtInFeedbackCommands() []Item {
 				return core.CmdHandler(messages.OpenURLMsg{URL: feedback.Link})
 			},
 		},
+		{
+			ID:          "feedback.bug",
+			Label:       "Report Bug",
+			Description: "Report a bug or issue",
+			Category:    "Feedback",
+			Execute: func(string) tea.Cmd {
+				return core.CmdHandler(messages.OpenURLMsg{URL: "https://github.com/docker/cagent/issues/new/choose"})
+			},
+		},
 	}
+}
+
+// sortByLabel returns items sorted alphabetically by label.
+func sortByLabel(items []Item) []Item {
+	slices.SortFunc(items, func(a, b Item) int {
+		return strings.Compare(strings.ToLower(a.Label), strings.ToLower(b.Label))
+	})
+	return items
 }
 
 // BuildCommandCategories builds the list of command categories for the command palette
@@ -323,7 +332,7 @@ func BuildCommandCategories(ctx context.Context, application *app.App) []Categor
 
 		categories = append(categories, Category{
 			Name:     "Agent Commands",
-			Commands: commands,
+			Commands: sortByLabel(commands),
 		})
 	}
 
@@ -395,7 +404,7 @@ func BuildCommandCategories(ctx context.Context, application *app.App) []Categor
 
 		categories = append(categories, Category{
 			Name:     "MCP Prompts",
-			Commands: mcpCommands,
+			Commands: sortByLabel(mcpCommands),
 		})
 	}
 
@@ -425,7 +434,7 @@ func BuildCommandCategories(ctx context.Context, application *app.App) []Categor
 
 		categories = append(categories, Category{
 			Name:     "Skills",
-			Commands: skillCommands,
+			Commands: sortByLabel(skillCommands),
 		})
 	}
 
