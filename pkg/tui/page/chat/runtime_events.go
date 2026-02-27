@@ -8,12 +8,14 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/docker/cagent/pkg/runtime"
+	"github.com/docker/cagent/pkg/sound"
 	"github.com/docker/cagent/pkg/tui/components/notification"
 	"github.com/docker/cagent/pkg/tui/components/sidebar"
 	"github.com/docker/cagent/pkg/tui/core"
 	"github.com/docker/cagent/pkg/tui/dialog"
 	msgtypes "github.com/docker/cagent/pkg/tui/messages"
 	"github.com/docker/cagent/pkg/tui/types"
+	"github.com/docker/cagent/pkg/userconfig"
 )
 
 // Runtime Event Handling
@@ -51,6 +53,9 @@ func (p *chatPage) handleRuntimeEvent(msg tea.Msg) (bool, tea.Cmd) {
 	switch msg := msg.(type) {
 	// ===== Error and Warning Events =====
 	case *runtime.ErrorEvent:
+		if userconfig.Get().GetSound() {
+			sound.Play(sound.Failure)
+		}
 		return true, p.messages.AddErrorMessage(msg.Error)
 
 	case *runtime.WarningEvent:
@@ -184,6 +189,7 @@ func (p *chatPage) handleTokenUsage(msg *runtime.TokenUsageEvent) {
 func (p *chatPage) handleStreamStarted(msg *runtime.StreamStartedEvent) tea.Cmd {
 	slog.Debug("handleStreamStarted called", "agent", msg.AgentName, "session_id", msg.SessionID)
 	p.streamCancelled = false
+	p.streamStartTime = time.Now()
 	spinnerCmd := p.setWorking(true)
 	pendingCmd := p.setPendingResponse(true)
 	p.startProgressBar()
@@ -216,6 +222,13 @@ func (p *chatPage) handleStreamStopped(msg *runtime.StreamStoppedEvent) tea.Cmd 
 		"session_id", msg.SessionID,
 		"should_exit", p.app.ShouldExitAfterFirstResponse(),
 		"has_content", p.hasReceivedAssistantContent)
+	if userconfig.Get().GetSound() {
+		duration := time.Since(p.streamStartTime)
+		threshold := time.Duration(userconfig.Get().GetSoundThreshold()) * time.Second
+		if duration >= threshold {
+			sound.Play(sound.Success)
+		}
+	}
 	spinnerCmd := p.setWorking(false)
 	p.setPendingResponse(false)
 	if p.msgCancel != nil {

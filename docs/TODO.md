@@ -79,6 +79,7 @@
 - [x] Ctrl+L audio listening shortcut — *(Added)*
 - [x] Ctrl+X to clear queued messages — *(Added)*
 - [x] Permissions view dialog — *(Mentioned)*
+- [x] Sound notifications configuration — *(Added)*
 - [x] Model picker / switching during session — *(Already documented)*
 - [ ] Branching sessions (edit previous messages) — Mentioned but could have more detail.
 - [ ] Double-click title to edit — Minor feature.

@@ -220,3 +220,16 @@ markdown:
   <div class="callout-title">💡 YOLO mode</div>
   <p>Use <code>--yolo</code> or the <code>/yolo</code> command to auto-approve all tool calls. You can also toggle this mid-session. For aliases, set <code>--yolo</code> when creating the alias: <code>cagent alias add fast agentcatalog/coder --yolo</code>.</p>
 </div>
+
+<h2>Sound Notifications</h2>
+<p>cagent can play notification sounds to alert you when a task completes or fails. This is particularly useful for long-running tasks where you might have switched to another window.</p>
+
+<ul>
+  <li><strong>Success Sound:</strong> Played when an agent successfully completes its turn, but <strong>only if the task took longer than the configured threshold</strong> (default: 10 seconds).</li>
+  <li><strong>Error Sound:</strong> Played immediately when a runtime error occurs.</li>
+</ul>
+
+<div class="callout callout-info">
+  <div class="callout-title">ℹ️ Platform Support</div>
+  <p>Notification sounds use native system commands: <code>afplay</code> on macOS, <code>paplay</code> on Linux, and PowerShell on Windows.</p>
+</div>
