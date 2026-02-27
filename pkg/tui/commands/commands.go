@@ -212,6 +212,18 @@ func builtInSessionCommands() []Item {
 				return core.CmdHandler(messages.AttachFileMsg{FilePath: arg})
 			},
 		},
+	}
+
+	// Add speak command on supported platforms (macOS only)
+	if speak := speakCommand(); speak != nil {
+		cmds = append(cmds, *speak)
+	}
+
+	return cmds
+}
+
+func builtInSettingsCommands() []Item {
+	return []Item{
 		{
 			ID:           "settings.theme",
 			Label:        "Theme",
@@ -233,13 +245,6 @@ func builtInSessionCommands() []Item {
 			},
 		},
 	}
-
-	// Add speak command on supported platforms (macOS only)
-	if speak := speakCommand(); speak != nil {
-		cmds = append(cmds, *speak)
-	}
-
-	return cmds
 }
 
 func builtInFeedbackCommands() []Item {
@@ -297,10 +302,6 @@ func BuildCommandCategories(ctx context.Context, application *app.App) []Categor
 		{
 			Name:     "Session",
 			Commands: sessionCommands,
-		},
-		{
-			Name:     "Feedback",
-			Commands: builtInFeedbackCommands(),
 		},
 	}
 
@@ -428,6 +429,18 @@ func BuildCommandCategories(ctx context.Context, application *app.App) []Categor
 		})
 	}
 
+	// Settings and Feedback are always last, in that order.
+	categories = append(categories,
+		Category{
+			Name:     "Settings",
+			Commands: builtInSettingsCommands(),
+		},
+		Category{
+			Name:     "Feedback",
+			Commands: builtInFeedbackCommands(),
+		},
+	)
+
 	return categories
 }
 
@@ -444,6 +457,12 @@ func ParseSlashCommand(input string) tea.Cmd {
 
 	// Search through built-in commands
 	for _, item := range builtInSessionCommands() {
+		if item.SlashCommand == cmd {
+			return item.Execute(arg)
+		}
+	}
+
+	for _, item := range builtInSettingsCommands() {
 		if item.SlashCommand == cmd {
 			return item.Execute(arg)
 		}
