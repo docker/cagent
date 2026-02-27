@@ -3,7 +3,7 @@ module github.com/docker/cagent
 go 1.26.0
 
 require (
-	charm.land/bubbles/v2 v2.0.0-rc.1
+	charm.land/bubbles/v2 v2.0.0
 	charm.land/bubbletea/v2 v2.0.0
 	charm.land/lipgloss/v2 v2.0.0
 	connectrpc.com/connect v1.19.1
