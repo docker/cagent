@@ -330,12 +330,16 @@
 
 <h2>Tool Filtering</h2>
 
-<p>MCP servers often expose many tools. Use the <code>tools</code> property to whitelist only the ones your agent needs:</p>
+<p>Toolsets may expose many tools. Use the <code>tools</code> property to whitelist only the ones your agent needs. This works for any toolset type — not just MCP:</p>
 
 <pre><code class="language-yaml">toolsets:
   - type: mcp
     ref: docker:github-official
-    tools: ["list_issues", "create_issue", "get_pull_request"]</code></pre>
+    tools: ["list_issues", "create_issue", "get_pull_request"]
+  - type: filesystem
+    tools: ["read_file", "search_files_content"]
+  - type: shell
+    tools: ["shell"]</code></pre>
 
 <div class="callout callout-tip">
   <div class="callout-title">💡 Tip</div>
