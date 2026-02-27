@@ -13,7 +13,7 @@ import (
 )
 
 // stripANSI removes ANSI escape sequences from a string.
-var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*m|\x1b]8;[^\x07]*\x07`)
 
 func stripANSI(s string) string {
 	return ansiRegex.ReplaceAllString(s, "")
@@ -393,6 +393,59 @@ func TestFastRendererLinks(t *testing.T) {
 	plain := stripANSI(result)
 	assert.Contains(t, plain, "this link")
 	assert.Contains(t, plain, "example.com")
+
+	// Verify OSC 8 hyperlink sequences are present in raw output
+	assert.Contains(t, result, "\x1b]8;;https://example.com\x07", "should contain OSC 8 open sequence")
+	assert.Contains(t, result, "\x1b]8;;\x07", "should contain OSC 8 close sequence")
+}
+
+func TestFastRendererOSC8Links(t *testing.T) {
+	t.Parallel()
+
+	t.Run("text differs from url", func(t *testing.T) {
+		t.Parallel()
+		r := NewFastRenderer(80)
+		result, err := r.Render("[Click here](https://example.com)")
+		require.NoError(t, err)
+
+		plain := stripANSI(result)
+		assert.Contains(t, plain, "Click here")
+		assert.Contains(t, plain, "(https://example.com)")
+
+		// Both link text and URL portion should be wrapped in OSC 8
+		assert.Contains(t, result, "\x1b]8;;https://example.com\x07")
+		assert.Contains(t, result, "\x1b]8;;\x07")
+	})
+
+	t.Run("text equals url", func(t *testing.T) {
+		t.Parallel()
+		r := NewFastRenderer(80)
+		result, err := r.Render("[https://example.com](https://example.com)")
+		require.NoError(t, err)
+
+		plain := stripANSI(result)
+		assert.Contains(t, plain, "https://example.com")
+
+		assert.Contains(t, result, "\x1b]8;;https://example.com\x07")
+		assert.Contains(t, result, "\x1b]8;;\x07")
+	})
+
+	t.Run("width calculation excludes OSC 8 sequences", func(t *testing.T) {
+		t.Parallel()
+		r := NewFastRenderer(80)
+		result, err := r.Render("[link](https://example.com)")
+		require.NoError(t, err)
+
+		lines := strings.Split(result, "\n")
+		for _, line := range lines {
+			if strings.TrimSpace(stripANSI(line)) == "" {
+				continue
+			}
+			lineWidth := ansiStringWidth(line)
+			plainWidth := runewidth.StringWidth(stripANSI(line))
+			assert.Equal(t, plainWidth, lineWidth, "ansiStringWidth should match plain text width for line: %q", stripANSI(line))
+		}
+	})
 }
 
 func TestFastRendererUnorderedLists(t *testing.T) {

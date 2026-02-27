@@ -222,7 +222,7 @@ func (mv *messageModel) GetSize() (width, height int) {
 	return mv.width, mv.height
 }
 
-var ansiEscape = regexp.MustCompile("\x1b\\[[0-9;]*m")
+var ansiEscape = regexp.MustCompile("\x1b\\[[0-9;]*m|\x1b]8;[^\x07]*\x07")
 
 func stripANSI(s string) string {
 	return ansiEscape.ReplaceAllString(s, "")

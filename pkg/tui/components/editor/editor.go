@@ -33,7 +33,7 @@ import (
 
 // ansiRegexp matches ANSI escape sequences so they can be removed when
 // computing layout measurements.
-var ansiRegexp = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
+var ansiRegexp = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]|\x1b]8;[^\x07]*\x07`)
 
 const (
 	// maxInlinePasteLines is the maximum number of lines for inline paste.

@@ -48,6 +48,38 @@ func (s ansiStyle) renderTo(b *strings.Builder, text string) {
 	b.WriteString(s.suffix)
 }
 
+const (
+	osc8Open  = "\x1b]8;;"
+	osc8Close = "\x07"
+)
+
+// writeOSC8Link wraps styled visible text in OSC 8 hyperlink escape sequences,
+// making it clickable in terminals that support OSC 8.
+func writeOSC8Link(out *strings.Builder, url, visibleText string, style ansiStyle) {
+	out.WriteString(osc8Open)
+	out.WriteString(url)
+	out.WriteString(osc8Close)
+	style.renderTo(out, visibleText)
+	out.WriteString(osc8Open)
+	out.WriteString(osc8Close)
+}
+
+// skipOSC8Sequence checks if position i in s starts an OSC sequence (\x1b]...\x1b\\ or \x1b]...\x07).
+// Returns the index after the String Terminator, or -1 if not an OSC sequence.
+func skipOSC8Sequence(s string, i int) int {
+	if i+1 < len(s) && s[i] == '\x1b' && s[i+1] == ']' {
+		for j := i + 2; j < len(s); j++ {
+			if s[j] == '\x07' {
+				return j + 1
+			}
+			if s[j] == '\x1b' && j+1 < len(s) && s[j+1] == '\\' {
+				return j + 2
+			}
+		}
+	}
+	return -1
+}
+
 // withBold returns a new style with bold formatting added
 // Bold is applied first, then the parent color, to prevent "bright bold" terminals
 // from overriding the color when bold is enabled.
@@ -1722,16 +1754,21 @@ func (p *parser) renderInlineWithStyleTo(out *strings.Builder, text string, rest
 				if closeParen != -1 {
 					url := rest[:closeParen]
 					if linkText != url {
-						p.styles.ansiLinkText.renderTo(out, linkText)
+						writeOSC8Link(out, url, linkText, p.styles.ansiLinkText)
 						out.WriteByte(' ')
+						out.WriteString(osc8Open)
+						out.WriteString(url)
+						out.WriteString(osc8Close)
 						out.WriteString(p.styles.ansiLink.prefix)
 						out.WriteByte('(')
 						out.WriteString(url)
 						out.WriteByte(')')
 						out.WriteString(p.styles.ansiLink.suffix)
+						out.WriteString(osc8Open)
+						out.WriteString(osc8Close)
 						width += textWidth(linkText) + 1 + textWidth(url) + 2 // +1 for space, +2 for parens
 					} else {
-						p.styles.ansiLink.renderTo(out, linkText)
+						writeOSC8Link(out, url, linkText, p.styles.ansiLink)
 						width += textWidth(linkText)
 					}
 					i = i + closeBracket + 2 + closeParen + 1
@@ -2078,6 +2115,11 @@ func ansiStringWidth(s string) int {
 	width := 0
 	for i := 0; i < len(s); {
 		if s[i] == '\x1b' {
+			// Skip OSC sequences (e.g., \x1b]8;;...\x1b\\) - zero visual width
+			if end := skipOSC8Sequence(s, i); end != -1 {
+				i = end
+				continue
+			}
 			// Skip CSI sequences (e.g., \x1b[...m)
 			if i+1 < len(s) && s[i+1] == '[' {
 				i += 2
@@ -2410,7 +2452,15 @@ func splitWordsWithStyles(text string) []styledWord {
 
 	for i := 0; i < len(text); {
 		if text[i] == '\x1b' {
-			// Start of ANSI sequence
+			// Skip OSC sequences entirely (they're part of the word but have zero width)
+			if end := skipOSC8Sequence(text, i); end != -1 {
+				if wordStart == -1 {
+					wordStart = i
+				}
+				i = end
+				continue
+			}
+			// Start of CSI ANSI sequence
 			if wordStart == -1 {
 				wordStart = i
 			}
@@ -2469,6 +2519,10 @@ func splitWordsWithStyles(text string) []styledWord {
 // updateActiveStyles updates the list of active ANSI styles based on new codes
 func updateActiveStyles(active, newCodes []string) []string {
 	for _, code := range newCodes {
+		// Skip OSC sequences - hyperlinks should not persist across wrapped lines
+		if strings.HasPrefix(code, "\x1b]") {
+			continue
+		}
 		// Check if this is a reset sequence
 		if code == "\x1b[m" || code == "\x1b[0m" {
 			// Clear all active styles
@@ -2494,6 +2548,12 @@ func breakWord(word string, maxWidth int) []string {
 
 	for i := 0; i < len(word); {
 		if word[i] == '\x1b' {
+			// Skip OSC sequences entirely (pass through without counting width)
+			if end := skipOSC8Sequence(word, i); end != -1 {
+				current.WriteString(word[i:end])
+				i = end
+				continue
+			}
 			inAnsi = true
 			ansiSeq.WriteByte(word[i])
 			i++
