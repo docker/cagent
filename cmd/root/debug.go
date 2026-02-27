@@ -54,6 +54,8 @@ func newDebugCmd() *cobra.Command {
 
 	addRuntimeConfigFlags(cmd, &flags.runConfig)
 
+	cmd.AddCommand(newDebugAuthCmd())
+
 	return cmd
 }
 
