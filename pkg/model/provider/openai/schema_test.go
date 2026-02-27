@@ -167,6 +167,48 @@ func TestMakeAllRequired_ArrayItems(t *testing.T) {
 	assert.Contains(t, itemRequired, "name")
 }
 
+func TestMakeAllRequired_AdditionalProperties(t *testing.T) {
+	// Reproduces the Notion MCP tool schema where additionalProperties
+	// contains an object schema with its own properties (like bulleted_list_item).
+	// OpenAI requires all properties in additionalProperties schemas to also
+	// be listed in the required array.
+	schema := shared.FunctionParameters{
+		"type": "object",
+		"properties": map[string]any{
+			"children": map[string]any{
+				"type": "object",
+				"additionalProperties": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"bulleted_list_item": map[string]any{"type": "string"},
+						"numbered_list_item": map[string]any{"type": "string"},
+					},
+					"required": []any{"bulleted_list_item"},
+				},
+			},
+		},
+		"required": []any{"children"},
+	}
+
+	updated := makeAllRequired(schema)
+
+	// additionalProperties object: all properties must be required
+	children := updated["properties"].(map[string]any)["children"].(map[string]any)
+	additionalProps := children["additionalProperties"].(map[string]any)
+	additionalRequired := additionalProps["required"].([]any)
+	assert.Len(t, additionalRequired, 2)
+	assert.Contains(t, additionalRequired, "bulleted_list_item")
+	assert.Contains(t, additionalRequired, "numbered_list_item")
+
+	// numbered_list_item was not originally required, so its type should be nullable
+	numberedListItem := additionalProps["properties"].(map[string]any)["numbered_list_item"].(map[string]any)
+	assert.Equal(t, []string{"string", "null"}, numberedListItem["type"])
+
+	// bulleted_list_item was originally required, so its type should be unchanged
+	bulletedListItem := additionalProps["properties"].(map[string]any)["bulleted_list_item"].(map[string]any)
+	assert.Equal(t, "string", bulletedListItem["type"])
+}
+
 func TestRemoveFormatFields(t *testing.T) {
 	schema := map[string]any{
 		"type": "object",

@@ -20,7 +20,7 @@ func ConvertParametersToSchema(params any) (shared.FunctionParameters, error) {
 }
 
 // walkSchema calls fn on the given schema node, then recursively walks into
-// properties, anyOf/oneOf/allOf variants, and array items.
+// properties, anyOf/oneOf/allOf variants, array items, and additionalProperties.
 func walkSchema(schema map[string]any, fn func(map[string]any)) {
 	fn(schema)
 
@@ -44,6 +44,11 @@ func walkSchema(schema map[string]any, fn func(map[string]any)) {
 
 	if items, ok := schema["items"].(map[string]any); ok {
 		walkSchema(items, fn)
+	}
+
+	// additionalProperties can be a boolean or an object schema
+	if additionalProps, ok := schema["additionalProperties"].(map[string]any); ok {
+		walkSchema(additionalProps, fn)
 	}
 }
 
