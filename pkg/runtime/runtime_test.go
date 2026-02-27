@@ -270,8 +270,8 @@ func TestSimple(t *testing.T) {
 
 	// Extract the actual message from MessageAddedEvent to use in comparison
 	// (it contains dynamic fields like CreatedAt that we can't predict)
-	require.Len(t, events, 9)
-	msgAdded := events[6].(*MessageAddedEvent)
+	require.Len(t, events, 10)
+	msgAdded := events[7].(*MessageAddedEvent)
 	require.NotNil(t, msgAdded.Message)
 	require.Equal(t, "Hello", msgAdded.Message.Message.Content)
 	require.Equal(t, chat.MessageRoleAssistant, msgAdded.Message.Message.Role)
@@ -282,6 +282,7 @@ func TestSimple(t *testing.T) {
 		ToolsetInfo(0, false, "root"),
 		UserMessage("Hi", sess.ID, nil, 0),
 		StreamStarted(sess.ID, "root"),
+		ToolsetInfo(0, false, "root"),
 		AgentChoice("root", "Hello"),
 		MessageAdded(sess.ID, msgAdded.Message, "root"),
 		NewTokenUsageEvent(sess.ID, "root", &Usage{InputTokens: 3, OutputTokens: 2, ContextLength: 5, LastMessage: &MessageUsage{
@@ -310,8 +311,8 @@ func TestMultipleContentChunks(t *testing.T) {
 
 	// Extract the actual message from MessageAddedEvent to use in comparison
 	// (it contains dynamic fields like CreatedAt that we can't predict)
-	require.Len(t, events, 13)
-	msgAdded := events[10].(*MessageAddedEvent)
+	require.Len(t, events, 14)
+	msgAdded := events[11].(*MessageAddedEvent)
 	require.NotNil(t, msgAdded.Message)
 
 	expectedEvents := []Event{
@@ -320,6 +321,7 @@ func TestMultipleContentChunks(t *testing.T) {
 		ToolsetInfo(0, false, "root"),
 		UserMessage("Please greet me", sess.ID, nil, 0),
 		StreamStarted(sess.ID, "root"),
+		ToolsetInfo(0, false, "root"),
 		AgentChoice("root", "Hello "),
 		AgentChoice("root", "there, "),
 		AgentChoice("root", "how "),
@@ -350,8 +352,8 @@ func TestWithReasoning(t *testing.T) {
 
 	// Extract the actual message from MessageAddedEvent to use in comparison
 	// (it contains dynamic fields like CreatedAt that we can't predict)
-	require.Len(t, events, 11)
-	msgAdded := events[8].(*MessageAddedEvent)
+	require.Len(t, events, 12)
+	msgAdded := events[9].(*MessageAddedEvent)
 	require.NotNil(t, msgAdded.Message)
 
 	expectedEvents := []Event{
@@ -360,6 +362,7 @@ func TestWithReasoning(t *testing.T) {
 		ToolsetInfo(0, false, "root"),
 		UserMessage("Hi", sess.ID, nil, 0),
 		StreamStarted(sess.ID, "root"),
+		ToolsetInfo(0, false, "root"),
 		AgentChoiceReasoning("root", "Let me think about this..."),
 		AgentChoiceReasoning("root", " I should respond politely."),
 		AgentChoice("root", "Hello, how can I help you?"),
@@ -389,8 +392,8 @@ func TestMixedContentAndReasoning(t *testing.T) {
 
 	// Extract the actual message from MessageAddedEvent to use in comparison
 	// (it contains dynamic fields like CreatedAt that we can't predict)
-	require.Len(t, events, 12)
-	msgAdded := events[9].(*MessageAddedEvent)
+	require.Len(t, events, 13)
+	msgAdded := events[10].(*MessageAddedEvent)
 	require.NotNil(t, msgAdded.Message)
 
 	expectedEvents := []Event{
@@ -399,6 +402,7 @@ func TestMixedContentAndReasoning(t *testing.T) {
 		ToolsetInfo(0, false, "root"),
 		UserMessage("Hi there", sess.ID, nil, 0),
 		StreamStarted(sess.ID, "root"),
+		ToolsetInfo(0, false, "root"),
 		AgentChoiceReasoning("root", "The user wants a greeting"),
 		AgentChoice("root", "Hello!"),
 		AgentChoiceReasoning("root", " I should be friendly"),
@@ -450,16 +454,17 @@ func TestErrorEvent(t *testing.T) {
 		events = append(events, ev)
 	}
 
-	require.Len(t, events, 7)
+	require.Len(t, events, 8)
 	require.IsType(t, &AgentInfoEvent{}, events[0])
 	require.IsType(t, &TeamInfoEvent{}, events[1])
 	require.IsType(t, &ToolsetInfoEvent{}, events[2])
 	require.IsType(t, &UserMessageEvent{}, events[3])
 	require.IsType(t, &StreamStartedEvent{}, events[4])
-	require.IsType(t, &ErrorEvent{}, events[5])
-	require.IsType(t, &StreamStoppedEvent{}, events[6])
+	require.IsType(t, &ToolsetInfoEvent{}, events[5])
+	require.IsType(t, &ErrorEvent{}, events[6])
+	require.IsType(t, &StreamStoppedEvent{}, events[7])
 
-	errorEvent := events[5].(*ErrorEvent)
+	errorEvent := events[6].(*ErrorEvent)
 	require.Contains(t, errorEvent.Error, "simulated error")
 }
 

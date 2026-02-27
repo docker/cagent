@@ -43,6 +43,12 @@ func (m *mockMCPClient) SetOAuthSuccessHandler(func()) {}
 
 func (m *mockMCPClient) SetManagedOAuth(bool) {}
 
+func (m *mockMCPClient) SetToolListChangedHandler(func()) {}
+
+func (m *mockMCPClient) SetPromptListChangedHandler(func()) {}
+
+func (m *mockMCPClient) Wait() error { return nil }
+
 func (m *mockMCPClient) Close(context.Context) error { return nil }
 
 func TestCallToolStripsNullArguments(t *testing.T) {

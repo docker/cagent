@@ -34,6 +34,12 @@ func GetInstructions(ts ToolSet) string {
 	return ""
 }
 
+// ChangeNotifier is implemented by toolsets that can notify when their
+// tool list changes (e.g. after an MCP ToolListChanged notification).
+type ChangeNotifier interface {
+	SetToolsChangedHandler(handler func())
+}
+
 // ConfigureHandlers sets all applicable handlers on a toolset.
 // It checks for Elicitable and OAuthCapable interfaces and configures them.
 // This is a convenience function that handles the capability checking internally.
