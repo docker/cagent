@@ -108,22 +108,11 @@ func NewTasksTool(storagePath string) *TasksTool {
 func (t *TasksTool) Instructions() string {
 	return `## Using the Tasks Tools
 
-These tools provide persistent task management with priorities, dependencies, and status tracking.
+Persistent task management with priorities (critical > high > medium > low), statuses (pending, in_progress, done, blocked), and dependencies.
 
-Tasks are persisted to a JSON file so they survive across sessions.
+Tasks are saved to a JSON file and survive across sessions. A task is automatically blocked if any dependency is not done.
 
-### Key concepts:
-- **Priority**: critical > high > medium > low
-- **Status**: pending, in_progress, done, blocked
-- **Dependencies**: A task is automatically blocked if any of its dependencies are not done
-- **Effective status**: The computed status taking dependencies into account
-
-### Workflow:
-1. Use create_task to create tasks with titles, descriptions, priorities, and dependencies
-2. Use list_tasks to see all tasks sorted by priority (blocked tasks last)
-3. Use next_task to find the highest-priority actionable task
-4. Use update_task to change status, priority, or other fields as work progresses
-5. Use add_dependency / remove_dependency to manage task ordering`
+Workflow: create_task → list_tasks/next_task → update_task as work progresses. Use add_dependency/remove_dependency to manage ordering.`
 }
 
 func (t *TasksTool) load() taskStore {

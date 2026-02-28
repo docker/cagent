@@ -35,14 +35,11 @@ func NewThinkTool() *ThinkTool {
 func (t *ThinkTool) Instructions() string {
 	return `## Using the think tool
 
-Before taking any action or responding to the user after receiving tool results, use the think tool as a scratchpad to:
-- List the specific rules that apply to the current request
+Use the think tool as a scratchpad before acting or responding. Use it to:
+- List rules that apply to the current request
 - Check if all required information is collected
-- Verify that the planned action complies with all policies
-- Iterate over tool results for correctness
-
-## Rules
-- Use the think tool generously to jot down thoughts and ideas.`
+- Verify planned actions comply with policies
+- Iterate over tool results for correctness`
 }
 
 func (t *ThinkTool) Tools(context.Context) ([]tools.Tool, error) {

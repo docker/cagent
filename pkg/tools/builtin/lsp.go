@@ -357,62 +357,32 @@ func (t *LSPTool) Stop(ctx context.Context) error {
 func (t *LSPTool) Instructions() string {
 	return `# LSP Code Intelligence Tools
 
-These tools provide comprehensive code intelligence by connecting to a Language Server Protocol (LSP) server.
-All tools are stateless - just call them with the file path and position.
+Stateless code intelligence tools via Language Server Protocol. Just provide file path and position.
 
 ## Getting Started
 
-At the start of every session working with code, you should use the lsp_workspace tool to learn about the workspace and verify the LSP server is available. This will tell you what language features are supported.
+Use lsp_workspace at the start of every session to learn about the workspace and available capabilities.
 
-EXAMPLE: lsp_workspace({})
+## Read Workflow
 
-## Workflows
+1. **Find symbols**: Use lsp_workspace_symbols for fuzzy search. Example: lsp_workspace_symbols({"query":"server"})
+2. **Understand file structure**: Use lsp_document_symbols for a hierarchical symbol list
+3. **Inspect symbols**: Use lsp_hover for type signatures and documentation
+4. **Navigate**: Use lsp_definition to jump to definitions
+5. **Understand dependencies**: Use lsp_call_hierarchy (outgoing) or lsp_type_hierarchy (supertypes)
 
-These guidelines should be followed when working with code. There are two workflows: the 'Read Workflow' for understanding code, and the 'Edit Workflow' for modifying code.
+## Edit Workflow
 
-### Read Workflow
-
-The goal of the read workflow is to understand the codebase.
-
-1. **Find relevant symbols**: If you're looking for a specific type, function, or variable, use lsp_workspace_symbols. This is a fuzzy search that will help you locate symbols even if you don't know the exact name or location.
-   EXAMPLE: search for the 'Server' type: lsp_workspace_symbols({"query":"server"})
-
-2. **Understand a file's structure**: When you have a file path and want to understand its contents, use lsp_document_symbols to get a hierarchical list of all symbols in the file.
-   EXAMPLE: lsp_document_symbols({"file":"/path/to/server.go"})
-
-3. **Understand a symbol**: When you need to understand what a symbol is, use lsp_hover to get its type signature, documentation, and other details.
-   EXAMPLE: lsp_hover({"file":"/path/to/server.go", "line": 42, "character": 15})
-
-4. **Navigate to definitions**: Use lsp_definition to jump to where a symbol is defined.
-   EXAMPLE: lsp_definition({"file":"/path/to/server.go", "line": 42, "character": 15})
-
-5. **Understand dependencies**: Use lsp_call_hierarchy (outgoing) to see what a function calls, or lsp_type_hierarchy (supertypes) to understand inheritance.
-
-### Edit Workflow
-
-The editing workflow is iterative. Cycle through these steps until the task is complete.
-
-1. **Read first**: Before making any edits, follow the Read Workflow to understand the relevant code.
-
-2. **Find references**: Before modifying the definition of any symbol, you MUST use lsp_references to find all references to that identifier. This is critical for understanding the impact of your change. Read the files containing references to evaluate if any further edits are required.
-   EXAMPLE: lsp_references({"file":"/path/to/server.go", "line": 42, "character": 15})
-
-3. **Check implementations**: Before modifying an interface or abstract method, use lsp_implementations to find all concrete implementations that will need updates.
-   EXAMPLE: lsp_implementations({"file":"/path/to/interface.go", "line": 15, "character": 2})
-
-4. **Make edits**: Make the required edits, including edits to references you identified. Don't proceed to the next step until all planned edits are complete.
-
-5. **Check for errors**: After every code modification, you MUST call lsp_diagnostics on the files you have edited. This tool will report any build or analysis errors. The tool may provide suggested quick fixes - review these and apply them if correct.
-   EXAMPLE: lsp_diagnostics({"file":"/path/to/server.go"})
-
-6. **Fix errors**: If lsp_diagnostics reports errors, fix them. Use lsp_code_actions to get available quick fixes. Once you've applied a fix, re-run lsp_diagnostics to confirm the issue is resolved. It is OK to ignore 'hint' or 'info' diagnostics if they are not relevant to the current task.
-
-7. **Format code**: After all edits are complete and error-free, use lsp_format to ensure consistent code style.
-   EXAMPLE: lsp_format({"file":"/path/to/server.go"})
+1. **Read first**: Follow the Read Workflow to understand relevant code
+2. **Find references**: Before modifying any symbol definition, you MUST use lsp_references to find all usages. Example: lsp_references({"file":"/path/to/file.go", "line": 42, "character": 15})
+3. **Check implementations**: Before modifying interfaces, use lsp_implementations to find all concrete implementations
+4. **Make edits**: Apply all planned changes
+5. **Check errors**: After every modification, you MUST call lsp_diagnostics on edited files. Use lsp_code_actions for suggested fixes. Ignore irrelevant hint/info diagnostics
+6. **Format**: Once error-free, use lsp_format for consistent style
 
 ## Position Format
 
-Line and character positions are 1-based (first line is line 1, first character is character 1).`
+Line and character positions are 1-based.`
 }
 
 // WorkspaceArgs is empty - the workspace tool takes no arguments.
@@ -434,331 +404,77 @@ func (t *LSPTool) Tools(context.Context) ([]tools.Tool, error) {
 		{
 			name: ToolNameLSPWorkspace, title: "Get Workspace Info", readOnly: true,
 			params: tools.MustSchemaFor[WorkspaceArgs](), handler: tools.NewHandler(h.workspace),
-			description: `Get information about the current workspace and LSP server capabilities.
-
-Use this tool at the start of every session to understand the workspace layout and what language features are available. This helps you know which LSP tools will work.
-
-Takes no arguments.
-
-Output format:
-  Workspace Information:
-  - Root: /path/to/project
-  - Server: gopls v0.14.0
-  - File types: .go
-
-  Available Capabilities:
-  - Hover: Yes
-  - Go to Definition: Yes
-  - Find References: Yes
-  - Rename: Yes
-  - Code Actions: Yes
-  - Formatting: Yes
-  ...
-
-Example:
-  {}`,
+			description: `Get workspace info and LSP server capabilities. Use at session start to discover available features. Takes no arguments.`,
 		},
 		{
 			name: ToolNameLSPHover, title: "Get Symbol Info", readOnly: true,
 			params: tools.MustSchemaFor[PositionArgs](), handler: tools.NewHandler(h.hover),
-			description: `Get type information and documentation for a symbol at a specific position.
-
-Returns the type signature, documentation, and any other hover information the language server provides for the symbol under the cursor.
-
-Output format:
-- For functions: signature, parameter types, return type, and docstring
-- For variables: type and any inline documentation
-- For types: full type definition
-
-Example: To get info about a function call on line 42, character 15:
-  {"file": "/path/to/file.go", "line": 42, "character": 15}`,
+			description: `Get type signature, documentation, and hover info for a symbol at a given position.`,
 		},
 		{
 			name: ToolNameLSPDefinition, title: "Go to Definition", readOnly: true,
 			params: tools.MustSchemaFor[PositionArgs](), handler: tools.NewHandler(h.definition),
-			description: `Find the definition location of a symbol at a specific position.
-
-Returns the file path and line number where the symbol is defined. Works for functions, variables, types, imports, etc.
-
-Output format:
-  Found N location(s):
-  - /path/to/file.go:123:5
-  - /path/to/other.go:45:10
-
-Example: To find where a function is defined:
-  {"file": "/path/to/file.go", "line": 42, "character": 15}`,
+			description: `Find the definition location of a symbol. Returns file path and line number.`,
 		},
 		{
 			name: ToolNameLSPReferences, title: "Find References", readOnly: true,
 			params: tools.MustSchemaFor[ReferencesArgs](), handler: tools.NewHandler(h.references),
-			description: `Find all references to a symbol across the codebase.
-
-Returns all locations where the symbol at the given position is used.
-
-IMPORTANT: Before modifying the definition of any symbol, you MUST use this tool to find all references. This is critical for understanding the impact of your change. Read the files containing references to evaluate if any further edits are required.
-
-Output format:
-  Found N location(s):
-  - /path/to/file1.go:10:5
-  - /path/to/file2.go:25:12
-  - /path/to/file3.go:100:3
-
-Example: To find all usages of a function:
-  {"file": "/path/to/file.go", "line": 42, "character": 15}
-
-Set include_declaration to false to exclude the symbol's definition from results.`,
+			description: `Find all references to a symbol across the codebase. IMPORTANT: You MUST use this before modifying any symbol definition. Set include_declaration to false to exclude the definition itself.`,
 		},
 		{
 			name: ToolNameLSPDocumentSymbols, title: "List File Symbols", readOnly: true,
 			params: tools.MustSchemaFor[FileArgs](), handler: tools.NewHandler(h.documentSymbols),
-			description: `List all symbols defined in a file.
-
-Returns a hierarchical list of all functions, classes, methods, variables, constants, and other symbols in the file.
-
-Output format:
-  - Function main (line 10)
-  - Struct MyType (line 25)
-    - Method MyType.DoSomething (line 30)
-    - Field MyType.Name (line 26)
-  - Variable globalConfig (line 5)
-
-Example: To get an overview of a file's structure:
-  {"file": "/path/to/file.go"}`,
+			description: `List all symbols (functions, types, methods, variables, etc.) defined in a file as a hierarchical list.`,
 		},
 		{
 			name: ToolNameLSPWorkspaceSymbols, title: "Search Workspace Symbols", readOnly: true,
 			params: tools.MustSchemaFor[WorkspaceSymbolsArgs](), handler: tools.NewHandler(h.workspaceSymbols),
-			description: `Search for symbols across the entire workspace/project.
-
-Returns symbols matching the query from all files in the project. Supports fuzzy matching - you don't need the exact name or location. This is the primary tool for locating symbols in a codebase.
-
-Output format:
-  - Function main (/path/to/main.go:10) [in package main]
-  - Struct Config (/path/to/config.go:25)
-  - Method Handler.ServeHTTP (/path/to/handler.go:50) [in Handler]
-
-Example: To find all functions containing "handle":
-  {"query": "handle"}
-
-Example: To find the 'Server' type:
-  {"query": "Server"}
-  
-Leave query empty to list all symbols (may be slow on large projects).`,
+			description: `Search for symbols across the workspace using fuzzy matching. Primary tool for locating symbols.`,
 		},
 		{
 			name: ToolNameLSPDiagnostics, title: "Get Diagnostics", readOnly: true,
 			params: tools.MustSchemaFor[FileArgs](), handler: tools.NewHandler(h.getDiagnostics),
-			description: `Get compiler errors, warnings, and hints for a file.
-
-Returns all diagnostics reported by the language server for the file, including syntax errors, type errors, unused variables, etc.
-
-IMPORTANT: After every code modification, you MUST call this tool on the files you have edited. This ensures your changes are valid and don't introduce errors.
-
-Output format:
-  Diagnostics for /path/to/file.go:
-  - [Error] Line 15: undefined: someFunction
-  - [Warning] Line 42: unused variable 'x'
-  - [Hint] Line 50: consider using short variable declaration
-
-If errors are reported, fix them. Use lsp_code_actions to get suggested quick fixes. It is OK to ignore 'hint' or 'info' diagnostics if they are not relevant to the current task.
-
-Example: To check for errors in a file:
-  {"file": "/path/to/file.go"}`,
+			description: `Get compiler errors, warnings, and hints for a file. IMPORTANT: You MUST call this after every code modification on edited files. Use lsp_code_actions for suggested fixes.`,
 		},
 		{
 			name: ToolNameLSPRename, title: "Rename Symbol", readOnly: false,
 			params: tools.MustSchemaFor[RenameArgs](), handler: tools.NewHandler(h.rename),
-			description: `Rename a symbol across the entire workspace.
-
-Safely renames a variable, function, type, or other symbol everywhere it's used. The language server ensures all references are updated correctly.
-
-This is a WRITE operation that modifies files on disk.
-
-Before renaming:
-1. Use lsp_hover to understand what the symbol is
-2. Use lsp_references to see all locations that will be affected
-
-After renaming:
-- Run lsp_diagnostics on modified files to verify the rename didn't break anything
-
-Output format:
-  Renamed 'oldName' to 'newName'
-  Modified 3 file(s):
-  - /path/to/file1.go (2 changes)
-  - /path/to/file2.go (1 change)
-  - /path/to/file3.go (1 change)
-
-Example: To rename a function from 'processData' to 'handleData':
-  {"file": "/path/to/file.go", "line": 42, "character": 6, "new_name": "handleData"}`,
+			description: `Rename a symbol across the entire workspace. WRITE operation - modifies files on disk. Run lsp_diagnostics on modified files afterward.`,
 		},
 		{
 			name: ToolNameLSPCodeActions, title: "Get Code Actions", readOnly: true,
 			params: tools.MustSchemaFor[CodeActionsArgs](), handler: tools.NewHandler(h.codeActions),
-			description: `Get available code actions (quick fixes, refactorings) for a line or range.
-
-Returns a list of suggested actions like:
-- Quick fixes for diagnostics (e.g., add missing import, fix typo)
-- Refactorings (e.g., extract function, inline variable)
-- Source actions (e.g., organize imports, generate code)
-
-Use this after lsp_diagnostics reports errors to get suggested fixes. Review the suggested fixes and apply them if they are correct.
-
-Output format:
-  Available code actions for /path/to/file.go:42:
-  1. [quickfix] Add import "fmt"
-  2. [refactor.extract] Extract to function
-  3. [source.organizeImports] Organize imports
-
-Example: To get actions for line 42:
-  {"file": "/path/to/file.go", "start_line": 42}
-
-For a range of lines:
-  {"file": "/path/to/file.go", "start_line": 42, "end_line": 50}`,
+			description: `Get available code actions (quick fixes, refactorings) for a line or range. Use after lsp_diagnostics reports errors.`,
 		},
 		{
 			name: ToolNameLSPFormat, title: "Format File", readOnly: false,
 			params: tools.MustSchemaFor[FileArgs](), handler: tools.NewHandler(h.format),
-			description: `Format a file according to language standards.
-
-Applies the language's standard formatting rules to the entire file. For example:
-- Go: gofmt style
-- Python: PEP 8 (via black, autopep8, etc.)
-- TypeScript/JavaScript: prettier, eslint
-- Rust: rustfmt
-
-This is a WRITE operation that modifies the file on disk.
-
-Use this after making changes to ensure consistent code style. Only format after lsp_diagnostics reports no errors.
-
-Output format:
-  Formatted /path/to/file.go
-  Applied 5 formatting changes
-
-Example: To format a file:
-  {"file": "/path/to/file.go"}`,
+			description: `Format a file according to language standards. WRITE operation - modifies the file on disk. Only format after lsp_diagnostics reports no errors.`,
 		},
 		{
 			name: ToolNameLSPCallHierarchy, title: "Call Hierarchy", readOnly: true,
 			params: tools.MustSchemaFor[CallHierarchyArgs](), handler: tools.NewHandler(h.callHierarchy),
-			description: `Analyze the call hierarchy of a function or method.
-
-Returns either:
-- Incoming calls: All functions/methods that call the target function
-- Outgoing calls: All functions/methods that the target function calls
-
-Use this to understand code dependencies before refactoring:
-- Use 'incoming' to find all callers before changing a function's signature
-- Use 'outgoing' to understand what a function depends on
-
-Output format (incoming):
-  Incoming calls to 'processData':
-  - handleRequest (/path/to/handler.go:45) calls at lines 52, 67
-  - main (/path/to/main.go:10) calls at line 15
-
-Output format (outgoing):
-  Outgoing calls from 'processData':
-  - validateInput (/path/to/validate.go:20)
-  - transformData (/path/to/transform.go:30)
-
-Example: Find who calls a function:
-  {"file": "/path/to/file.go", "line": 42, "character": 6, "direction": "incoming"}
-
-Example: Find what a function calls:
-  {"file": "/path/to/file.go", "line": 42, "character": 6, "direction": "outgoing"}`,
+			description: `Analyze the call hierarchy of a function or method. Direction: 'incoming' (who calls this) or 'outgoing' (what this calls).`,
 		},
 		{
 			name: ToolNameLSPTypeHierarchy, title: "Type Hierarchy", readOnly: true,
 			params: tools.MustSchemaFor[TypeHierarchyArgs](), handler: tools.NewHandler(h.typeHierarchy),
-			description: `Analyze the type hierarchy of a class, interface, or struct.
-
-Returns either:
-- Supertypes: Parent types (interfaces implemented, base classes extended)
-- Subtypes: Child types (classes that implement/extend this type)
-
-This is essential for understanding inheritance chains before refactoring.
-
-Output format (supertypes):
-  Supertypes of 'MyHandler':
-  - Handler (/path/to/handler.go:10) [Interface]
-  - BaseHandler (/path/to/base.go:20) [Class]
-
-Output format (subtypes):
-  Subtypes of 'Handler':
-  - MyHandler (/path/to/my_handler.go:15) [Class]
-  - MockHandler (/path/to/mock.go:8) [Class]
-
-Example: Find parent types:
-  {"file": "/path/to/file.go", "line": 10, "character": 6, "direction": "supertypes"}
-
-Example: Find child types:
-  {"file": "/path/to/file.go", "line": 10, "character": 6, "direction": "subtypes"}`,
+			description: `Analyze the type hierarchy. Direction: 'supertypes' (parent types) or 'subtypes' (child types).`,
 		},
 		{
 			name: ToolNameLSPImplementations, title: "Find Implementations", readOnly: true,
 			params: tools.MustSchemaFor[PositionArgs](), handler: tools.NewHandler(h.implementations),
-			description: `Find all implementations of an interface or abstract method.
-
-Returns all concrete implementations of the symbol at the given position.
-This differs from references in that it only returns actual implementations,
-not usages or type references.
-
-IMPORTANT: Before modifying an interface or abstract method, you MUST use this tool to find all implementations that will need to be updated. This ensures interface changes are complete across the codebase.
-
-Output format:
-  Found 3 implementation(s):
-  - /path/to/handler.go:45:6
-  - /path/to/mock_handler.go:12:6
-  - /path/to/test_handler.go:8:6
-
-Example: Find all implementations of an interface method:
-  {"file": "/path/to/interface.go", "line": 15, "character": 2}`,
+			description: `Find all concrete implementations of an interface or abstract method. IMPORTANT: You MUST use this before modifying interfaces to find all implementations needing updates.`,
 		},
 		{
 			name: ToolNameLSPSignatureHelp, title: "Signature Help", readOnly: true,
 			params: tools.MustSchemaFor[PositionArgs](), handler: tools.NewHandler(h.signatureHelp),
-			description: `Get function signature and parameter information at a call site.
-
-Returns detailed information about function parameters when the cursor is inside
-a function call. Shows which parameter is currently being typed.
-
-Output format:
-  Function: processData(ctx context.Context, data []byte, opts ...Option) error
-
-  Parameters:
-  1. ctx context.Context - The context for cancellation
-  2. data []byte - The data to process [ACTIVE]
-  3. opts ...Option - Optional configuration
-
-  Currently typing parameter 2 of 3
-
-Example: Get signature help inside a function call:
-  {"file": "/path/to/file.go", "line": 42, "character": 25}
-
-Tip: Position the cursor inside the parentheses of a function call.`,
+			description: `Get function signature and parameter information at a call site. Position the cursor inside a function call's parentheses.`,
 		},
 		{
 			name: ToolNameLSPInlayHints, title: "Inlay Hints", readOnly: true,
 			params: tools.MustSchemaFor[InlayHintsArgs](), handler: tools.NewHandler(h.inlayHints),
-			description: `Get inlay hints (type annotations, parameter names) for a range of code.
-
-Returns hints that would be displayed inline in an editor, such as:
-- Variable type annotations (for languages with type inference)
-- Parameter names at call sites
-- Return type hints
-- Chained method type hints
-
-Output format:
-  Inlay hints for /path/to/file.go:10-50:
-  - Line 15, Col 10: ': string' (type)
-  - Line 20, Col 25: 'ctx:' (parameter)
-  - Line 20, Col 35: 'data:' (parameter)
-  - Line 30, Col 5: ': error' (type)
-
-Example: Get inlay hints for lines 10-50:
-  {"file": "/path/to/file.go", "start_line": 10, "end_line": 50}
-
-Example: Get all inlay hints in a file:
-  {"file": "/path/to/file.go"}`,
+			description: `Get inlay hints (type annotations, parameter names) for a file or line range. Omit start_line/end_line to get hints for the entire file.`,
 		},
 	}
 
