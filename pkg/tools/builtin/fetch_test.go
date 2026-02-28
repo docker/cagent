@@ -77,7 +77,7 @@ func TestFetchTool_Instructions(t *testing.T) {
 
 	instructions := tools.GetInstructions(tool)
 
-	assert.Contains(t, instructions, `"fetch" tool instructions`)
+	assert.Contains(t, instructions, "Fetch Tool")
 }
 
 func TestFetchTool_StartStop(t *testing.T) {

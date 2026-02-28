@@ -49,11 +49,8 @@ type DeleteMemoryArgs struct {
 func (t *MemoryTool) Instructions() string {
 	return `## Using the memory tool
 
-Before taking any action or responding to the user use the "get_memories" tool to remember things about the user.
-Do not talk about using the tool, just use it.
-
-## Rules
-- Use the memory tool generously to remember things about the user.`
+Before taking any action or responding, use "get_memories" to recall stored information about the user.
+Use the memory tool generously to remember things about the user. Do not mention using this tool.`
 }
 
 func (t *MemoryTool) Tools(context.Context) ([]tools.Tool, error) {

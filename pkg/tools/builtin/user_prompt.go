@@ -79,51 +79,17 @@ func (t *UserPromptTool) userPrompt(ctx context.Context, params UserPromptArgs) 
 func (t *UserPromptTool) Instructions() string {
 	return `## Using the user_prompt tool
 
-Use the user_prompt tool when you need to ask the user a question or gather input interactively.
-This tool displays a dialog to the user and waits for their response.
+Use user_prompt to ask the user a question or gather input when you need clarification, specific information, or a decision.
 
-### When to use this tool:
-- When you need clarification from the user before proceeding
-- When you need to collect specific information (e.g., credentials, preferences, choices)
-- When the user needs to make a decision between multiple options
+Optionally provide a JSON schema to structure the expected response (object, primitive, or enum types).
 
-### Schema support:
-You can optionally provide a JSON schema to define the expected response structure:
-- Object schemas with properties for collecting multiple fields
-- Primitive type schemas (string, number, boolean) for simple inputs
-- Enum types for presenting a list of choices
-- Required fields to ensure necessary information is collected
+Example schema for multiple choice:
+{"type": "string", "enum": ["option1", "option2"], "title": "Select an option"}
 
-### Example schemas:
+Example schema for structured input:
+{"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}
 
-Simple string input:
-{
-  "type": "string",
-  "title": "API Key",
-  "description": "Enter your API key"
-}
-
-Multiple choice:
-{
-  "type": "string",
-  "enum": ["option1", "option2", "option3"],
-  "title": "Select an option"
-}
-
-Object with multiple fields:
-{
-  "type": "object",
-  "properties": {
-    "username": {"type": "string", "description": "Your username"},
-    "remember": {"type": "boolean", "description": "Remember me"}
-  },
-  "required": ["username"]
-}
-
-### Response format:
-The tool returns a JSON object with:
-- action: "accept" (user provided response), "decline" (user declined), or "cancel" (user cancelled)
-- content: The user's response data (only present when action is "accept")`
+Response contains "action" (accept/decline/cancel) and "content" (user data, only when accepted).`
 }
 
 func (t *UserPromptTool) Tools(context.Context) ([]tools.Tool, error) {

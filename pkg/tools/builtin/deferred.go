@@ -68,13 +68,10 @@ func (d *DeferredToolset) HasSources() bool {
 func (d *DeferredToolset) Instructions() string {
 	return `## Deferred Tool Loading
 
-This agent has access to additional tools that can be discovered and loaded on-demand.
+Additional tools can be discovered and loaded on-demand.
 
-Use the search_tool to find available tools by name or description pattern.
-When searching a tool, prefer to search by action keywords (e.g., "remote", "read", "write") rather than specific tool names.
-Use single words to maximize matching results.
-
-Use the add_tool to activate a discovered tool for use.`
+Use search_tool to find tools by action keywords (e.g., "remote", "read", "write"). Prefer single words to maximize matches.
+Use add_tool to activate a discovered tool.`
 }
 
 type SearchToolArgs struct {

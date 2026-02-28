@@ -287,20 +287,9 @@ func WithTimeout(timeout time.Duration) FetchToolOption {
 }
 
 func (t *FetchTool) Instructions() string {
-	return `## "fetch" tool instructions
+	return `## Fetch Tool
 
-This tool allows you to fetch content from HTTP and HTTPS URLs.
-
-FEATURES
-
-- Support for multiple URLs in a single call
-- Returns response body and metadata (status code, content type, length)
-- Specify the output format (text, markdown, html)
-- Respects robots.txt restrictions
-
-USAGE TIPS
-- Use single URLs for simple content fetching
-- Use multiple URLs for batch operations`
+Fetch content from HTTP/HTTPS URLs. Supports multiple URLs in a single call, output format selection (text, markdown, html), and respects robots.txt.`
 }
 
 func (t *FetchTool) Tools(context.Context) ([]tools.Tool, error) {
