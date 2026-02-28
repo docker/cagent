@@ -1,4 +1,4 @@
-package builtin
+package sandbox
 
 import (
 	"bytes"
@@ -28,8 +28,8 @@ const (
 	sandboxLabelPID = "com.docker.cagent.sandbox.pid"
 )
 
-// sandboxRunner handles command execution in a Docker container sandbox.
-type sandboxRunner struct {
+// DockerRunner handles command execution in a Docker container sandbox.
+type DockerRunner struct {
 	config      *latest.SandboxConfig
 	workingDir  string
 	env         []string
@@ -37,11 +37,15 @@ type sandboxRunner struct {
 	mu          sync.Mutex
 }
 
-func newSandboxRunner(config *latest.SandboxConfig, workingDir string, env []string) *sandboxRunner {
-	// Clean up any orphaned containers from previous cagent runs
+// Verify interface compliance.
+var _ Runner = (*DockerRunner)(nil)
+
+// NewDockerRunner creates a new Docker sandbox runner.
+// It cleans up any orphaned containers from previous cagent runs.
+func NewDockerRunner(config *latest.SandboxConfig, workingDir string, env []string) *DockerRunner {
 	cleanupOrphanedSandboxContainers()
 
-	return &sandboxRunner{
+	return &DockerRunner{
 		config:     config,
 		workingDir: workingDir,
 		env:        env,
@@ -96,15 +100,15 @@ func isProcessRunning(pid int) bool {
 	return err == nil
 }
 
-// runCommand executes a command inside the sandbox container.
-func (s *sandboxRunner) runCommand(timeoutCtx, ctx context.Context, command, cwd string, timeout time.Duration) *tools.ToolCallResult {
-	containerID, err := s.ensureContainer(ctx)
+// RunCommand executes a command inside the Docker sandbox container.
+func (d *DockerRunner) RunCommand(timeoutCtx, ctx context.Context, command, cwd string, timeout time.Duration) *tools.ToolCallResult {
+	containerID, err := d.ensureContainer(ctx)
 	if err != nil {
 		return tools.ResultError(fmt.Sprintf("Failed to start sandbox container: %s", err))
 	}
 
 	args := []string{"exec", "-w", cwd}
-	args = append(args, s.buildEnvVars()...)
+	args = append(args, d.buildEnvVars()...)
 	args = append(args, containerID, "/bin/sh", "-c", command)
 
 	cmd := exec.CommandContext(timeoutCtx, "docker", args...)
@@ -114,47 +118,53 @@ func (s *sandboxRunner) runCommand(timeoutCtx, ctx context.Context, command, cwd
 
 	err = cmd.Run()
 
-	output := formatCommandOutput(timeoutCtx, ctx, err, outBuf.String(), timeout)
-	return tools.ResultSuccess(limitOutput(output))
+	output := FormatCommandOutput(timeoutCtx, ctx, err, outBuf.String(), timeout)
+	return tools.ResultSuccess(LimitOutput(output))
 }
 
-// stop stops and removes the sandbox container.
-func (s *sandboxRunner) stop() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+// Start is a no-op for Docker runner; containers are lazily started.
+func (d *DockerRunner) Start(context.Context) error {
+	return nil
+}
 
-	if s.containerID == "" {
-		return
+// Stop stops and removes the sandbox container.
+func (d *DockerRunner) Stop(context.Context) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if d.containerID == "" {
+		return nil
 	}
 
-	stopCmd := exec.Command("docker", "stop", "-t", "1", s.containerID)
+	stopCmd := exec.Command("docker", "stop", "-t", "1", d.containerID)
 	_ = stopCmd.Run()
 
-	s.containerID = ""
+	d.containerID = ""
+	return nil
 }
 
 // ensureContainer ensures the sandbox container is running, starting it if necessary.
-func (s *sandboxRunner) ensureContainer(ctx context.Context) (string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (d *DockerRunner) ensureContainer(ctx context.Context) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 
-	if s.containerID != "" && s.isContainerRunning(ctx) {
-		return s.containerID, nil
+	if d.containerID != "" && d.isContainerRunning(ctx) {
+		return d.containerID, nil
 	}
-	s.containerID = ""
+	d.containerID = ""
 
-	return s.startContainer(ctx)
+	return d.startContainer(ctx)
 }
 
-func (s *sandboxRunner) isContainerRunning(ctx context.Context) bool {
-	cmd := exec.CommandContext(ctx, "docker", "container", "inspect", "-f", "{{.State.Running}}", s.containerID)
+func (d *DockerRunner) isContainerRunning(ctx context.Context) bool {
+	cmd := exec.CommandContext(ctx, "docker", "container", "inspect", "-f", "{{.State.Running}}", d.containerID)
 	output, err := cmd.Output()
 	return err == nil && strings.TrimSpace(string(output)) == "true"
 }
 
-func (s *sandboxRunner) startContainer(ctx context.Context) (string, error) {
-	containerName := s.generateContainerName()
-	image := cmp.Or(s.config.Image, "alpine:latest")
+func (d *DockerRunner) startContainer(ctx context.Context) (string, error) {
+	containerName := d.generateContainerName()
+	image := cmp.Or(d.config.Image, "alpine:latest")
 
 	args := []string{
 		"run", "-d",
@@ -163,9 +173,9 @@ func (s *sandboxRunner) startContainer(ctx context.Context) (string, error) {
 		"--label", sandboxLabelKey + "=true",
 		"--label", fmt.Sprintf("%s=%d", sandboxLabelPID, os.Getpid()),
 	}
-	args = append(args, s.buildVolumeMounts()...)
-	args = append(args, s.buildEnvVars()...)
-	args = append(args, "-w", s.workingDir, image, "tail", "-f", "/dev/null")
+	args = append(args, d.buildVolumeMounts()...)
+	args = append(args, d.buildEnvVars()...)
+	args = append(args, "-w", d.workingDir, image, "tail", "-f", "/dev/null")
 
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	var stderr bytes.Buffer
@@ -176,25 +186,25 @@ func (s *sandboxRunner) startContainer(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("failed to start sandbox container: %w\nstderr: %s", err, stderr.String())
 	}
 
-	s.containerID = strings.TrimSpace(string(output))
-	return s.containerID, nil
+	d.containerID = strings.TrimSpace(string(output))
+	return d.containerID, nil
 }
 
-func (s *sandboxRunner) generateContainerName() string {
+func (d *DockerRunner) generateContainerName() string {
 	randomBytes := make([]byte, 4)
 	_, _ = rand.Read(randomBytes)
 	return fmt.Sprintf("cagent-sandbox-%s", hex.EncodeToString(randomBytes))
 }
 
-func (s *sandboxRunner) buildVolumeMounts() []string {
+func (d *DockerRunner) buildVolumeMounts() []string {
 	var args []string
-	for _, pathSpec := range s.config.Paths {
-		hostPath, mode := parseSandboxPath(pathSpec)
+	for _, pathSpec := range d.config.Paths {
+		hostPath, mode := ParseSandboxPath(pathSpec)
 
 		// Resolve to absolute path
 		if !filepath.IsAbs(hostPath) {
-			if s.workingDir != "" {
-				hostPath = filepath.Join(s.workingDir, hostPath)
+			if d.workingDir != "" {
+				hostPath = filepath.Join(d.workingDir, hostPath)
 			} else {
 				// If workingDir is empty, resolve relative to current directory
 				var err error
@@ -215,16 +225,13 @@ func (s *sandboxRunner) buildVolumeMounts() []string {
 }
 
 // buildEnvVars creates Docker -e flags for environment variables.
-// This forwards the host environment to the sandbox container.
 // Only variables with valid POSIX names are forwarded.
-func (s *sandboxRunner) buildEnvVars() []string {
+func (d *DockerRunner) buildEnvVars() []string {
 	var args []string
-	for _, envVar := range s.env {
-		// Each env var is in KEY=VALUE format
-		// Only forward variables with valid names to avoid Docker issues
+	for _, envVar := range d.env {
 		if idx := strings.Index(envVar, "="); idx > 0 {
 			key := envVar[:idx]
-			if isValidEnvVarName(key) {
+			if IsValidEnvVarName(key) {
 				args = append(args, "-e", envVar)
 			}
 		}
@@ -232,9 +239,9 @@ func (s *sandboxRunner) buildEnvVars() []string {
 	return args
 }
 
-// isValidEnvVarName checks if an environment variable name is valid for POSIX.
+// IsValidEnvVarName checks if an environment variable name is valid for POSIX.
 // Valid names start with a letter or underscore and contain only alphanumerics and underscores.
-func isValidEnvVarName(name string) bool {
+func IsValidEnvVarName(name string) bool {
 	if name == "" {
 		return false
 	}
@@ -247,8 +254,8 @@ func isValidEnvVarName(name string) bool {
 	return true
 }
 
-// parseSandboxPath parses a path specification like "./path" or "/path:ro" into path and mode.
-func parseSandboxPath(pathSpec string) (path, mode string) {
+// ParseSandboxPath parses a path specification like "./path" or "/path:ro" into path and mode.
+func ParseSandboxPath(pathSpec string) (path, mode string) {
 	mode = "rw" // Default to read-write
 
 	switch {
@@ -263,4 +270,31 @@ func parseSandboxPath(pathSpec string) (path, mode string) {
 	}
 
 	return path, mode
+}
+
+// FormatCommandOutput formats command output handling timeout, cancellation, and errors.
+func FormatCommandOutput(timeoutCtx, ctx context.Context, err error, rawOutput string, timeout time.Duration) string {
+	var output string
+	if timeoutCtx.Err() != nil {
+		if ctx.Err() != nil {
+			output = "Command cancelled"
+		} else {
+			output = fmt.Sprintf("Command timed out after %v\nOutput: %s", timeout, rawOutput)
+		}
+	} else {
+		output = rawOutput
+		if err != nil {
+			output = fmt.Sprintf("Error executing command: %s\nOutput: %s", err, output)
+		}
+	}
+	return cmp.Or(strings.TrimSpace(output), "<no output>")
+}
+
+// LimitOutput truncates output to a maximum size.
+func LimitOutput(output string) string {
+	const maxOutputSize = 30000
+	if len(output) > maxOutputSize {
+		return output[:maxOutputSize] + "\n\n[Output truncated: exceeded 30,000 character limit]"
+	}
+	return output
 }
