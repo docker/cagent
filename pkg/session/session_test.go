@@ -294,6 +294,104 @@ func TestGetLastUserMessages(t *testing.T) {
 	})
 }
 
+func TestGetMessages_FiltersSubAgentMessages(t *testing.T) {
+	t.Parallel()
+
+	rootAgent := agent.New("root", "You are root")
+
+	s := New()
+
+	// User message (no agent name)
+	s.AddMessage(UserMessage("hello"))
+
+	// Root assistant with a transfer_task tool call
+	s.AddMessage(&Message{
+		AgentName: "root",
+		Message: chat.Message{
+			Role:    chat.MessageRoleAssistant,
+			Content: "I will transfer this task",
+			ToolCalls: []tools.ToolCall{
+				{ID: "call_transfer", Function: tools.FunctionCall{Name: "transfer_task", Arguments: `{}`}},
+			},
+		},
+	})
+
+	// Sub-agent messages that leaked into the parent session (historical corruption)
+	s.AddMessage(&Message{
+		AgentName: "code-reviewer",
+		Message: chat.Message{
+			Role:    chat.MessageRoleAssistant,
+			Content: "Reviewing the code...",
+			ToolCalls: []tools.ToolCall{
+				{ID: "sub_tool_1", Function: tools.FunctionCall{Name: "read_file", Arguments: `{}`}},
+			},
+		},
+	})
+	s.AddMessage(&Message{
+		AgentName: "code-reviewer",
+		Message: chat.Message{
+			Role:       chat.MessageRoleTool,
+			Content:    "file contents",
+			ToolCallID: "sub_tool_1",
+		},
+	})
+	s.AddMessage(&Message{
+		AgentName: "code-reviewer",
+		Message: chat.Message{
+			Role:    chat.MessageRoleAssistant,
+			Content: "Review complete",
+		},
+	})
+
+	// Sub-session (should be skipped by IsMessage())
+	s.AddSubSession(&Session{ID: "sub-session-1"})
+
+	// Root tool result for the transfer
+	s.AddMessage(&Message{
+		AgentName: "root",
+		Message: chat.Message{
+			Role:       chat.MessageRoleTool,
+			Content:    "Review complete",
+			ToolCallID: "call_transfer",
+		},
+	})
+
+	// Root continues
+	s.AddMessage(&Message{
+		AgentName: "root",
+		Message: chat.Message{
+			Role:    chat.MessageRoleAssistant,
+			Content: "The review is done.",
+		},
+	})
+
+	messages := s.GetMessages(rootAgent)
+
+	// Extract non-system messages
+	var conversationMessages []chat.Message
+	for _, msg := range messages {
+		if msg.Role != chat.MessageRoleSystem {
+			conversationMessages = append(conversationMessages, msg)
+		}
+	}
+
+	// Should have: user, root assistant (tool_call), root tool result, root assistant
+	require.Len(t, conversationMessages, 4)
+	assert.Equal(t, chat.MessageRoleUser, conversationMessages[0].Role)
+	assert.Equal(t, chat.MessageRoleAssistant, conversationMessages[1].Role)
+	assert.Equal(t, "call_transfer", conversationMessages[1].ToolCalls[0].ID)
+	assert.Equal(t, chat.MessageRoleTool, conversationMessages[2].Role)
+	assert.Equal(t, "call_transfer", conversationMessages[2].ToolCallID)
+	assert.Equal(t, chat.MessageRoleAssistant, conversationMessages[3].Role)
+	assert.Equal(t, "The review is done.", conversationMessages[3].Content)
+
+	// Verify no sub-agent content leaked
+	for _, msg := range conversationMessages {
+		assert.NotContains(t, msg.Content, "Reviewing the code")
+		assert.NotContains(t, msg.Content, "file contents")
+	}
+}
+
 func TestTransferTaskPromptExcludesParents(t *testing.T) {
 	t.Parallel()
 

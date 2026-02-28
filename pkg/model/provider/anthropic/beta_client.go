@@ -43,14 +43,6 @@ func (c *Client) createBetaStream(
 		slog.Error("Failed to convert messages for Anthropic Beta request", "error", err)
 		return nil, err
 	}
-	if err := validateAnthropicSequencingBeta(converted); err != nil {
-		slog.Warn("Invalid message sequencing for Anthropic Beta API detected, attempting self-repair", "error", err)
-		converted = repairAnthropicSequencingBeta(converted)
-		if err2 := validateAnthropicSequencingBeta(converted); err2 != nil {
-			slog.Error("Failed to self-repair Anthropic Beta sequencing", "error", err2)
-			return nil, err
-		}
-	}
 	if len(converted) == 0 {
 		return nil, errors.New("no messages to send after conversion: all messages were filtered out")
 	}
@@ -148,114 +140,6 @@ func (c *Client) createBetaStream(
 	slog.Debug("Anthropic Beta API chat completion stream created successfully", "model", c.ModelConfig.Model)
 	return ad, nil
 }
-
-// validateAnthropicSequencingBeta performs the same validation as standard API but for Beta payloads
-func validateAnthropicSequencingBeta(msgs []anthropic.BetaMessageParam) error {
-	for i := range msgs {
-		m, ok := marshalToMapBeta(msgs[i])
-		if !ok || m["role"] != "assistant" {
-			continue
-		}
-
-		toolUseIDs := collectToolUseIDs(contentArrayBeta(m))
-		if len(toolUseIDs) == 0 {
-			continue
-		}
-
-		if i+1 >= len(msgs) {
-			slog.Warn("Anthropic (beta) sequencing invalid: assistant tool_use present but no next user tool_result message", "assistant_index", i)
-			return errors.New("assistant tool_use present but no subsequent user message with tool_result blocks (beta)")
-		}
-
-		next, ok := marshalToMapBeta(msgs[i+1])
-		if !ok || next["role"] != "user" {
-			slog.Warn("Anthropic (beta) sequencing invalid: next message after assistant tool_use is not user", "assistant_index", i, "next_role", next["role"])
-			return errors.New("assistant tool_use must be followed by a user message containing corresponding tool_result blocks (beta)")
-		}
-
-		toolResultIDs := collectToolResultIDs(contentArrayBeta(next))
-		missing := differenceIDs(toolUseIDs, toolResultIDs)
-		if len(missing) > 0 {
-			slog.Warn("Anthropic (beta) sequencing invalid: missing tool_result for tool_use id in next user message", "assistant_index", i, "tool_use_id", missing[0], "missing_count", len(missing))
-			return fmt.Errorf("missing tool_result for tool_use id %s in the next user message (beta)", missing[0])
-		}
-	}
-	return nil
-}
-
-// repairAnthropicSequencingBeta inserts a synthetic user message with tool_result blocks
-// for any assistant tool_use blocks that don't have corresponding tool_result blocks
-// in the immediate next user message.
-func repairAnthropicSequencingBeta(msgs []anthropic.BetaMessageParam) []anthropic.BetaMessageParam {
-	if len(msgs) == 0 {
-		return msgs
-	}
-	repaired := make([]anthropic.BetaMessageParam, 0, len(msgs)+2)
-	for i := range msgs {
-		m, ok := marshalToMapBeta(msgs[i])
-		if !ok || m["role"] != "assistant" {
-			repaired = append(repaired, msgs[i])
-			continue
-		}
-
-		toolUseIDs := collectToolUseIDs(contentArrayBeta(m))
-		if len(toolUseIDs) == 0 {
-			repaired = append(repaired, msgs[i])
-			continue
-		}
-
-		// Check if the next message is a user message with tool_results
-		needsSyntheticMessage := true
-		if i+1 < len(msgs) {
-			if next, ok := marshalToMapBeta(msgs[i+1]); ok && next["role"] == "user" {
-				toolResultIDs := collectToolResultIDs(contentArrayBeta(next))
-				// Remove tool_use IDs that have corresponding tool_results
-				for id := range toolResultIDs {
-					delete(toolUseIDs, id)
-				}
-				// If all tool_use IDs have results, no synthetic message needed
-				if len(toolUseIDs) == 0 {
-					needsSyntheticMessage = false
-				}
-			}
-		}
-
-		// Append the assistant message first
-		repaired = append(repaired, msgs[i])
-
-		// If there are missing tool_results, insert a synthetic user message immediately after
-		if needsSyntheticMessage && len(toolUseIDs) > 0 {
-			slog.Debug("Inserting synthetic user message for missing tool_results",
-				"assistant_index", i,
-				"missing_count", len(toolUseIDs))
-
-			blocks := make([]anthropic.BetaContentBlockParamUnion, 0, len(toolUseIDs))
-			for id := range toolUseIDs {
-				slog.Debug("Creating synthetic tool_result", "tool_use_id", id)
-				blocks = append(blocks, anthropic.BetaContentBlockParamUnion{
-					OfToolResult: &anthropic.BetaToolResultBlockParam{
-						ToolUseID: id,
-						Content: []anthropic.BetaToolResultBlockParamContentUnion{
-							{OfText: &anthropic.BetaTextBlockParam{Text: "(tool execution failed)"}},
-						},
-					},
-				})
-			}
-			repaired = append(repaired, anthropic.BetaMessageParam{
-				Role:    anthropic.BetaMessageParamRoleUser,
-				Content: blocks,
-			})
-		}
-	}
-	return repaired
-}
-
-// marshalToMapBeta is an alias for marshalToMap - shared with standard API.
-// Kept as separate function for clarity in Beta-specific code paths.
-var marshalToMapBeta = marshalToMap
-
-// contentArrayBeta is an alias for contentArray - shared with standard API.
-var contentArrayBeta = contentArray
 
 // countAnthropicTokensBeta calls Anthropic's Count Tokens API for the provided Beta API payload
 // and returns the number of input tokens.
