@@ -23,6 +23,7 @@ type streamingState struct {
 	reasoningContent strings.Builder
 	agentName        string
 	messageID        int64 // ID of the current streaming message (0 if none)
+	subSessionDepth  int   // >0 when inside a sub-session (task transfer); skip parent persistence
 }
 
 // New creates a new runtime for an agent and its team.
@@ -72,7 +73,21 @@ func (r *PersistentRuntime) handleEvent(ctx context.Context, sess *session.Sessi
 	}
 
 	switch e := event.(type) {
+	case *AgentSwitchingEvent:
+		switch {
+		case e.Switching:
+			streaming.subSessionDepth++
+		case streaming.subSessionDepth > 0:
+			streaming.subSessionDepth--
+		default:
+			slog.Warn("Received AgentSwitching(false) without matching AgentSwitching(true)",
+				"session_id", sess.ID, "from_agent", e.FromAgent, "to_agent", e.ToAgent)
+		}
+
 	case *AgentChoiceEvent:
+		if streaming.subSessionDepth > 0 {
+			return
+		}
 		// Accumulate streaming content
 		streaming.content.WriteString(e.Content)
 		streaming.agentName = e.AgentName
@@ -80,6 +95,9 @@ func (r *PersistentRuntime) handleEvent(ctx context.Context, sess *session.Sessi
 		r.persistStreamingContent(ctx, sess.ID, streaming)
 
 	case *AgentChoiceReasoningEvent:
+		if streaming.subSessionDepth > 0 {
+			return
+		}
 		// Accumulate streaming reasoning content
 		streaming.reasoningContent.WriteString(e.Content)
 		streaming.agentName = e.AgentName
@@ -98,6 +116,9 @@ func (r *PersistentRuntime) handleEvent(ctx context.Context, sess *session.Sessi
 		}
 
 	case *MessageAddedEvent:
+		if streaming.subSessionDepth > 0 {
+			return
+		}
 		// Finalize the streaming message with complete metadata
 		if streaming.messageID != 0 {
 			// Update the existing streaming message with final content
