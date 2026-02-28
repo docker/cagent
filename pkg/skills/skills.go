@@ -214,10 +214,16 @@ func loadSkillsRecursive(dir string) []Skill {
 	var skills []Skill
 
 	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil {
 			return nil
 		}
-		if isHiddenOrSymlink(d) || d.Name() != skillFile {
+		if d.IsDir() {
+			if path != dir && isHiddenOrSymlink(d) {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if d.Name() != skillFile {
 			return nil
 		}
 
