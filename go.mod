@@ -2,52 +2,50 @@ module github.com/docker/cagent
 
 go 1.26.0
 
-replace github.com/charmbracelet/ultraviolet => github.com/dgageot/ultraviolet v0.0.0-20260106070720-e493364e381d
-
 require (
-	charm.land/bubbles/v2 v2.0.0-rc.1
-	charm.land/bubbletea/v2 v2.0.0-rc.2.0.20251202162339-5fa38b798f16
-	charm.land/lipgloss/v2 v2.0.0-beta.3.0.20251119143523-0334bb4562ca
+	charm.land/bubbles/v2 v2.0.0
+	charm.land/bubbletea/v2 v2.0.0
+	charm.land/lipgloss/v2 v2.0.0
 	connectrpc.com/connect v1.19.1
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.0
 	github.com/Microsoft/go-winio v0.6.2
-	github.com/a2aproject/a2a-go v0.3.6
+	github.com/a2aproject/a2a-go v0.3.7
 	github.com/alecthomas/chroma/v2 v2.23.1
 	github.com/alpkeskin/gotoon v0.1.1
 	github.com/anthropics/anthropic-sdk-go v1.26.0
 	github.com/atotto/clipboard v0.1.4
-	github.com/aws/aws-sdk-go-v2 v1.41.1
-	github.com/aws/aws-sdk-go-v2/config v1.32.9
-	github.com/aws/aws-sdk-go-v2/credentials v1.19.9
-	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.49.0
-	github.com/aws/aws-sdk-go-v2/service/sts v1.41.6
+	github.com/aws/aws-sdk-go-v2 v1.41.2
+	github.com/aws/aws-sdk-go-v2/config v1.32.10
+	github.com/aws/aws-sdk-go-v2/credentials v1.19.10
+	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.50.0
+	github.com/aws/aws-sdk-go-v2/service/sts v1.41.7
 	github.com/aymanbagabas/go-udiff v0.4.0
 	github.com/blevesearch/bleve/v2 v2.5.7
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/charmbracelet/glamour/v2 v2.0.0-20251106195642-800eb8175930
 	github.com/charmbracelet/x/ansi v0.11.6
-	github.com/clipperhouse/displaywidth v0.10.0
+	github.com/clipperhouse/displaywidth v0.11.0
 	github.com/clipperhouse/uax29/v2 v2.7.0
 	github.com/coder/acp-go-sdk v0.6.3
 	github.com/docker/cli v29.2.1+incompatible
 	github.com/docker/go-units v0.5.0
-	github.com/dop251/goja v0.0.0-20260219130522-0ba9a5494a59
+	github.com/dop251/goja v0.0.0-20260226184354-913bd86fb70c
 	github.com/fatih/color v1.18.0
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/getkin/kin-openapi v0.132.0
-	github.com/go-git/go-git/v5 v5.16.5
+	github.com/go-git/go-git/v5 v5.17.0
 	github.com/goccy/go-yaml v1.19.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
-	github.com/google/go-containerregistry v0.21.0
+	github.com/google/go-containerregistry v0.21.1
 	github.com/google/jsonschema-go v0.4.2
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/junegunn/fzf v0.68.0
 	github.com/k3a/html2text v1.3.0
-	github.com/labstack/echo/v4 v4.15.0
+	github.com/labstack/echo/v4 v4.15.1
 	github.com/mattn/go-isatty v0.0.20
 	github.com/mattn/go-runewidth v0.0.20
-	github.com/modelcontextprotocol/go-sdk v1.3.1
+	github.com/modelcontextprotocol/go-sdk v1.4.0
 	github.com/natefinch/atomic v1.0.1
 	github.com/openai/openai-go/v3 v3.22.0
 	github.com/rivo/uniseg v0.4.7
@@ -62,13 +60,13 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.40.0
 	go.opentelemetry.io/otel/sdk v1.40.0
 	go.opentelemetry.io/otel/trace v1.40.0
-	golang.org/x/net v0.50.0
+	golang.org/x/net v0.51.0
 	golang.org/x/oauth2 v0.35.0
 	golang.org/x/sync v0.19.0
 	golang.org/x/sys v0.41.0
 	golang.org/x/term v0.40.0
 	google.golang.org/adk v0.4.0
-	google.golang.org/genai v1.47.0
+	google.golang.org/genai v1.48.0
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/dnaeon/go-vcr.v4 v4.0.6
 	gotest.tools/v3 v3.5.2
@@ -84,17 +82,17 @@ require (
 	github.com/JohannesKaufmann/dom v0.2.0 // indirect
 	github.com/ProtonMail/go-crypto v1.1.6 // indirect
 	github.com/RoaringBitmap/roaring/v2 v2.4.5 // indirect
-	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.4 // indirect
-	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.17 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.17 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.17 // indirect
+	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.5 // indirect
+	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.18 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.18 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.18 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/ini v1.8.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.17 // indirect
-	github.com/aws/aws-sdk-go-v2/service/signin v1.0.5 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sso v1.30.10 // indirect
-	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.14 // indirect
-	github.com/aws/smithy-go v1.24.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.5 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.18 // indirect
+	github.com/aws/aws-sdk-go-v2/service/signin v1.0.6 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sso v1.30.11 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.15 // indirect
+	github.com/aws/smithy-go v1.24.1 // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/bits-and-blooms/bitset v1.24.4 // indirect
@@ -118,8 +116,8 @@ require (
 	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/charmbracelet/colorprofile v0.4.1 // indirect
-	github.com/charmbracelet/ultraviolet v0.0.0-20251202162030-ecc8c1ae4b2b // indirect
+	github.com/charmbracelet/colorprofile v0.4.2 // indirect
+	github.com/charmbracelet/ultraviolet v0.0.0-20260205113103-524a6607adb8 // indirect
 	github.com/charmbracelet/x/exp/slice v0.0.0-20251113172435-cef867b85f6a // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect
 	github.com/charmbracelet/x/termios v0.1.1 // indirect
@@ -141,7 +139,7 @@ require (
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fvbommel/sortorder v1.1.0 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
-	github.com/go-git/go-billy/v5 v5.6.2 // indirect
+	github.com/go-git/go-billy/v5 v5.8.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-openapi/jsonpointer v0.21.0 // indirect

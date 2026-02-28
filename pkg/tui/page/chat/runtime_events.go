@@ -186,7 +186,6 @@ func (p *chatPage) handleStreamStarted(msg *runtime.StreamStartedEvent) tea.Cmd 
 	p.streamCancelled = false
 	spinnerCmd := p.setWorking(true)
 	pendingCmd := p.setPendingResponse(true)
-	p.startProgressBar()
 	sidebarCmd := p.forwardToSidebar(msg)
 	return tea.Batch(pendingCmd, spinnerCmd, sidebarCmd)
 }
@@ -222,7 +221,6 @@ func (p *chatPage) handleStreamStopped(msg *runtime.StreamStoppedEvent) tea.Cmd 
 		p.msgCancel = nil
 	}
 	p.streamCancelled = false
-	p.stopProgressBar()
 	sidebarCmd := p.forwardToSidebar(msg)
 
 	// Check if there are queued messages to process

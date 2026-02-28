@@ -417,8 +417,8 @@ func (e *editor) applySuggestionOverlay(view string) string {
 	allLayers = append(allLayers, baseLayer)
 	allLayers = append(allLayers, overlays...)
 
-	canvas := lipgloss.NewCanvas(allLayers...)
-	return canvas.Render()
+	compositor := lipgloss.NewCompositor(allLayers...)
+	return compositor.Render()
 }
 
 // splitFirstRune splits a string into its first rune and the rest.
