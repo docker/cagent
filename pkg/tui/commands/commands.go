@@ -414,7 +414,11 @@ func BuildCommandCategories(ctx context.Context, application *app.App) []Categor
 		skillCommands := make([]Item, 0, len(skillsList))
 		for _, skill := range skillsList {
 			skillName := skill.Name
-			description := toolcommon.TruncateText(skill.Description, 55)
+			description := skill.Description
+			if skill.HasArgs() {
+				description += " (args: " + skill.ArgsDescription + ")"
+			}
+			description = toolcommon.TruncateText(description, 55)
 
 			skillCommands = append(skillCommands, Item{
 				ID:           "skill." + skillName,

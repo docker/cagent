@@ -22,6 +22,12 @@ type CommandExecuteMsg struct {
 	Command commands.Item
 }
 
+// CommandAutoCompleteMsg is sent when a command is auto-completed via tab.
+// The dialog closes and the slash command is inserted into the editor for further typing.
+type CommandAutoCompleteMsg struct {
+	Command commands.Item
+}
+
 // commandPaletteDialog implements Dialog for the command palette
 type commandPaletteDialog struct {
 	BaseDialog
@@ -40,6 +46,7 @@ type commandPaletteKeyMap struct {
 	Up     key.Binding
 	Down   key.Binding
 	Enter  key.Binding
+	Tab    key.Binding
 	Escape key.Binding
 }
 
@@ -57,6 +64,10 @@ func defaultCommandPaletteKeyMap() commandPaletteKeyMap {
 		Enter: key.NewBinding(
 			key.WithKeys("enter"),
 			key.WithHelp("enter", "execute"),
+		),
+		Tab: key.NewBinding(
+			key.WithKeys("tab"),
+			key.WithHelp("tab", "complete"),
 		),
 		Escape: key.NewBinding(
 			key.WithKeys("esc"),
@@ -120,7 +131,7 @@ func (d *commandPaletteDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 				if cmdIdx == d.lastClickIndex && now.Sub(d.lastClickTime) < styles.DoubleClickThreshold {
 					d.selected = cmdIdx
 					d.lastClickTime = time.Time{}
-					cmd := d.executeSelected()
+					cmd := d.selectCommand(false)
 					return d, cmd
 				}
 				d.selected = cmdIdx
@@ -154,7 +165,11 @@ func (d *commandPaletteDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 			return d, nil
 
 		case key.Matches(msg, d.keyMap.Enter):
-			cmd := d.executeSelected()
+			cmd := d.selectCommand(false)
+			return d, cmd
+
+		case key.Matches(msg, d.keyMap.Tab):
+			cmd := d.selectCommand(true)
 			return d, cmd
 
 		default:
@@ -168,12 +183,20 @@ func (d *commandPaletteDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	return d, nil
 }
 
-// executeSelected executes the currently selected command and closes the dialog.
-func (d *commandPaletteDialog) executeSelected() tea.Cmd {
+// selectCommand handles both enter (execute) and tab (auto-complete) on the
+// selected command. When autoComplete is true, the slash command is inserted
+// into the editor for further typing instead of being executed.
+func (d *commandPaletteDialog) selectCommand(autoComplete bool) tea.Cmd {
 	if d.selected < 0 || d.selected >= len(d.filtered) {
 		return nil
 	}
 	selectedCmd := d.filtered[d.selected]
+	if autoComplete {
+		return tea.Sequence(
+			core.CmdHandler(CloseDialogMsg{}),
+			core.CmdHandler(CommandAutoCompleteMsg{Command: selectedCmd}),
+		)
+	}
 	cmds := []tea.Cmd{core.CmdHandler(CloseDialogMsg{})}
 	if selectedCmd.Execute != nil {
 		cmds = append(cmds, selectedCmd.Execute(""))
@@ -338,7 +361,7 @@ func (d *commandPaletteDialog) View() string {
 		AddSeparator().
 		AddContent(scrollableContent).
 		AddSpace().
-		AddHelpKeys("↑/↓", "navigate", "enter", "execute", "esc", "close").
+		AddHelpKeys("↑/↓", "navigate", "enter", "execute", "tab", "complete", "esc", "close").
 		Build()
 
 	return styles.DialogStyle.Width(dialogWidth).Render(content)

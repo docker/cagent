@@ -198,7 +198,7 @@ func (d *themePickerDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 			}
 			return d, nil
 
-		case key.Matches(msg, d.keyMap.Enter):
+		case key.Matches(msg, d.keyMap.Enter) || key.Matches(msg, d.keyMap.Tab):
 			cmd := d.handleSelection()
 			return d, cmd
 

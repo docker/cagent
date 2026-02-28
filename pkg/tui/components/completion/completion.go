@@ -54,6 +54,7 @@ type QueryMsg struct {
 type SelectedMsg struct {
 	Value   string
 	Execute func() tea.Cmd
+	Tab     bool // Tab selects without submitting, allowing the user to continue typing.
 }
 
 // SelectionChangedMsg is sent when the selected item changes (for preview in editor)
@@ -88,6 +89,7 @@ type completionKeyMap struct {
 	Up     key.Binding
 	Down   key.Binding
 	Enter  key.Binding
+	Tab    key.Binding
 	Escape key.Binding
 }
 
@@ -103,8 +105,12 @@ func defaultCompletionKeyMap() completionKeyMap {
 			key.WithHelp("↓", "down"),
 		),
 		Enter: key.NewBinding(
-			key.WithKeys("enter", "tab"),
-			key.WithHelp("enter/tab", "select"),
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "select"),
+		),
+		Tab: key.NewBinding(
+			key.WithKeys("tab"),
+			key.WithHelp("tab", "complete"),
 		),
 		Escape: key.NewBinding(
 			key.WithKeys("esc"),
@@ -257,6 +263,20 @@ func (c *manager) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 				core.CmdHandler(SelectedMsg{
 					Value:   selectedItem.Value,
 					Execute: selectedItem.Execute,
+				}),
+				core.CmdHandler(ClosedMsg{}),
+			)
+
+		case key.Matches(msg, c.keyMap.Tab):
+			c.visible = false
+			if len(c.filteredItems) == 0 || c.selected >= len(c.filteredItems) {
+				return c, core.CmdHandler(ClosedMsg{})
+			}
+			selectedItem := c.filteredItems[c.selected]
+			return c, tea.Sequence(
+				core.CmdHandler(SelectedMsg{
+					Value: selectedItem.Value,
+					Tab:   true,
 				}),
 				core.CmdHandler(ClosedMsg{}),
 			)
