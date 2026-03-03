@@ -306,6 +306,14 @@ Session compacted. Summary generated and history trimmed.</code></pre>
 
 <p>This model is used when you run <code>cagent run</code> without a config file.</p>
 
+<h3>Sound Notifications</h3>
+<p>Notification sounds are <strong>enabled by default</strong>. You can disable them or adjust the minimum duration threshold (default: 10s) by adding the following to your global user configuration in <code>~/.config/cagent/config.yaml</code>:</p>
+
+<pre><code class="language-yaml">settings:
+  sound: false           # disable all sounds
+  sound_threshold: 30    # only play success sound for tasks > 30s</code></pre>
+</p>
+
 <h3>GitHub PR Reviewer Example</h3>
 
 <p>Use cagent as a GitHub Actions PR reviewer:</p>

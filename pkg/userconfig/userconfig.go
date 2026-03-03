@@ -55,10 +55,19 @@ type Settings struct {
 	// RestoreTabs restores previously open tabs when launching the TUI.
 	// Defaults to false when not set (user must explicitly opt-in).
 	RestoreTabs *bool `yaml:"restore_tabs,omitempty"`
+	// Sound enables playing notification sounds on task success or failure.
+	// Defaults to false when not set (user must explicitly opt-in).
+	Sound *bool `yaml:"sound,omitempty"`
+	// SoundThreshold is the minimum duration in seconds a task must run
+	// before a success sound is played. Defaults to 5 seconds.
+	SoundThreshold int `yaml:"sound_threshold,omitempty"`
 }
 
 // DefaultTabTitleMaxLength is the default maximum tab title length when not configured.
 const DefaultTabTitleMaxLength = 20
+
+// DefaultSoundThreshold is the default duration threshold for sound notifications.
+const DefaultSoundThreshold = 10
 
 // GetTabTitleMaxLength returns the configured tab title max length, falling back to the default.
 func (s *Settings) GetTabTitleMaxLength() int {
@@ -66,6 +75,22 @@ func (s *Settings) GetTabTitleMaxLength() int {
 		return DefaultTabTitleMaxLength
 	}
 	return s.TabTitleMaxLength
+}
+
+// GetSound returns whether sound notifications are enabled, defaulting to true.
+func (s *Settings) GetSound() bool {
+	if s == nil || s.Sound == nil {
+		return true
+	}
+	return *s.Sound
+}
+
+// GetSoundThreshold returns the minimum duration for sound notifications, defaulting to 5s.
+func (s *Settings) GetSoundThreshold() int {
+	if s == nil || s.SoundThreshold <= 0 {
+		return DefaultSoundThreshold
+	}
+	return s.SoundThreshold
 }
 
 // GetSplitDiffView returns whether split diff view is enabled, defaulting to true.
