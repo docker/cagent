@@ -30,7 +30,7 @@ func newACPCmd() *cobra.Command {
 		RunE: flags.runACPCommand,
 	}
 
-	cmd.Flags().StringVarP(&flags.sessionDB, "session-db", "s", filepath.Join(paths.GetHomeDir(), ".cagent", "session.db"), "Path to the session database")
+	cmd.Flags().StringVarP(&flags.sessionDB, "session-db", "s", filepath.Join(paths.GetDataDir(), "session.db"), "Path to the session database")
 	addRuntimeConfigFlags(cmd, &flags.runConfig)
 
 	return cmd

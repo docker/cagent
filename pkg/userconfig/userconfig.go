@@ -45,7 +45,7 @@ type Settings struct {
 	// Defaults to true when not set.
 	SplitDiffView *bool `yaml:"split_diff_view,omitempty"`
 	// Theme is the default theme reference (e.g., "dark", "light")
-	// Theme files are loaded from ~/.cagent/themes/<theme>.yaml
+	// Theme files are loaded from <data-dir>/themes/<theme>.yaml
 	Theme string `yaml:"theme,omitempty"`
 	// YOLO enables auto-approve mode for all tool calls globally
 	YOLO bool `yaml:"YOLO,omitempty"`

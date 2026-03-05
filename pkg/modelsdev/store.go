@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/docker/docker-agent/pkg/paths"
 )
 
 const (
@@ -31,12 +33,7 @@ type Store struct {
 // NewStore creates a new models.dev store.
 // The database is loaded on first access via GetDatabase.
 func NewStore() (*Store, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user home directory: %w", err)
-	}
-
-	cacheDir := filepath.Join(homeDir, ".cagent")
+	cacheDir := paths.GetCacheDir()
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create cache directory: %w", err)
 	}

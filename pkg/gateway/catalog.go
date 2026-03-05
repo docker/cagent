@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/docker/docker-agent/pkg/paths"
 )
 
 const (
@@ -169,11 +171,7 @@ func refreshCatalogFromNetwork() bool {
 }
 
 func getCacheFilePath() string {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(homeDir, ".cagent", catalogCacheFileName)
+	return filepath.Join(paths.GetCacheDir(), catalogCacheFileName)
 }
 
 func loadCatalogFromCache(cacheFile string) (Catalog, time.Duration, error) {
