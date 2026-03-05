@@ -51,19 +51,16 @@ func SetDataDir(dir string) { dataDirOverride.Set(dir) }
 //
 // If an override has been set via [SetCacheDir] it is returned instead.
 //
-// On Linux this follows XDG: $XDG_CACHE_HOME/cagent (default ~/.cache/cagent).
-// On macOS this uses ~/Library/Caches/cagent.
-// On Windows this uses %LocalAppData%/cagent.
+// The default location follows the XDG Base Directory Specification:
+//   - $XDG_CACHE_HOME/cagent (Linux, default ~/.cache/cagent)
+//   - ~/Library/Caches/cagent (macOS)
+//   - %LocalAppData%/cagent (Windows)
 //
-// If the cache directory cannot be determined, it falls back to a directory
-// under the system temporary directory.
+// For backward compatibility, if the legacy ~/.cagent directory exists and
+// the XDG directory does not, the legacy path is used instead.
 func GetCacheDir() string {
 	return cacheDirOverride.get(func() string {
-		cacheDir, err := os.UserCacheDir()
-		if err != nil {
-			return filepath.Clean(filepath.Join(os.TempDir(), ".cagent-cache"))
-		}
-		return filepath.Clean(filepath.Join(cacheDir, "cagent"))
+		return resolveWithLegacyFallback(xdgCacheDir())
 	})
 }
 
@@ -71,32 +68,36 @@ func GetCacheDir() string {
 //
 // If an override has been set via [SetConfigDir] it is returned instead.
 //
-// If the home directory cannot be determined, it falls back to a directory
-// under the system temporary directory. This is a best-effort fallback and
-// not intended to be a security boundary.
+// The default location is the OS-standard user config directory
+// (as returned by [os.UserConfigDir]) with a "cagent" subdirectory:
+//   - $XDG_CONFIG_HOME/cagent on Linux (default ~/.config/cagent)
+//   - ~/Library/Application Support/cagent on macOS
+//   - %AppData%/cagent on Windows
+//
+// For backward compatibility, if the legacy ~/.cagent directory exists and
+// the standard directory does not, the legacy path is used instead.
 func GetConfigDir() string {
 	return configDirOverride.get(func() string {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return filepath.Clean(filepath.Join(os.TempDir(), ".cagent-config"))
-		}
-		return filepath.Clean(filepath.Join(homeDir, ".config", "cagent"))
+		return resolveWithLegacyFallback(xdgConfigDir())
 	})
 }
 
-// GetDataDir returns the user's data directory for cagent (caches, content, logs).
+// GetDataDir returns the user's data directory for cagent (sessions, history,
+// installed tools, OCI store, etc.).
 //
 // If an override has been set via [SetDataDir] it is returned instead.
 //
-// If the home directory cannot be determined, it falls back to a directory
-// under the system temporary directory.
+// The default location follows the XDG Base Directory Specification on Linux:
+//   - $XDG_DATA_HOME/cagent (default ~/.local/share/cagent)
+//
+// On macOS and Windows the same Linux-style path is used for consistency
+// (~/.local/share/cagent), since Go does not provide an os.UserDataDir.
+//
+// For backward compatibility, if the legacy ~/.cagent directory exists and
+// the XDG directory does not, the legacy path is used instead.
 func GetDataDir() string {
 	return dataDirOverride.get(func() string {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return filepath.Clean(filepath.Join(os.TempDir(), ".cagent"))
-		}
-		return filepath.Clean(filepath.Join(homeDir, ".cagent"))
+		return resolveWithLegacyFallback(xdgDataDir())
 	})
 }
 
@@ -109,4 +110,61 @@ func GetHomeDir() string {
 		return ""
 	}
 	return filepath.Clean(homeDir)
+}
+
+// --- XDG directory helpers ---
+
+func xdgCacheDir() string {
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		return filepath.Join(os.TempDir(), ".cagent-cache")
+	}
+	return filepath.Join(cacheDir, "cagent")
+}
+
+func xdgConfigDir() string {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return filepath.Join(os.TempDir(), ".cagent-config")
+	}
+	return filepath.Join(configDir, "cagent")
+}
+
+func xdgDataDir() string {
+	if dir := os.Getenv("XDG_DATA_HOME"); dir != "" {
+		return filepath.Join(dir, "cagent")
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(os.TempDir(), ".cagent")
+	}
+	return filepath.Join(homeDir, ".local", "share", "cagent")
+}
+
+// --- Legacy fallback ---
+
+// resolveWithLegacyFallback returns the legacy ~/.cagent path when it exists
+// and xdgDir does not yet exist, preserving data for existing users.
+// Otherwise it returns xdgDir.
+func resolveWithLegacyFallback(xdgDir string) string {
+	if legacy := legacyDir(); legacy != "" && dirExists(legacy) && !dirExists(xdgDir) {
+		return filepath.Clean(legacy)
+	}
+	return filepath.Clean(xdgDir)
+}
+
+// legacyDir returns the legacy ~/.cagent directory path, or empty string
+// if the home directory cannot be determined.
+func legacyDir() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(homeDir, ".cagent")
+}
+
+// dirExists reports whether dir exists and is a directory.
+func dirExists(dir string) bool {
+	info, err := os.Stat(dir)
+	return err == nil && info.IsDir()
 }

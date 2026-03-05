@@ -37,8 +37,8 @@ func NewThemeWatcher(onThemeChanged func(themeRef string)) *ThemeWatcher {
 }
 
 // Watch starts watching the theme file for the given theme reference.
-// Only watches if a user theme file exists for this ref (in ~/.cagent/themes/).
-// Handles "user:" prefix - e.g., "user:nord" watches ~/.cagent/themes/nord.yaml.
+// Only watches if a user theme file exists for this ref (in <data-dir>/themes/).
+// Handles "user:" prefix - e.g., "user:nord" watches <data-dir>/themes/nord.yaml.
 // If the theme is the built-in default or no user file exists, no watching occurs.
 func (tw *ThemeWatcher) Watch(themeRef string) error {
 	tw.mu.Lock()

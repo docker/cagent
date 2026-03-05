@@ -141,10 +141,10 @@ func TestHistory_MultilineMessage(t *testing.T) {
 
 func TestHistory_MigrateOldFormat(t *testing.T) {
 	tmpDir := t.TempDir()
-	err := os.MkdirAll(filepath.Join(tmpDir, ".cagent"), 0o755)
+	err := os.MkdirAll(tmpDir, 0o755)
 	require.NoError(t, err)
-	oldHistFile := filepath.Join(tmpDir, ".cagent", "history.json")
-	newHistFile := filepath.Join(tmpDir, ".cagent", "history")
+	oldHistFile := filepath.Join(tmpDir, "history.json")
+	newHistFile := filepath.Join(tmpDir, "history")
 
 	require.NoError(t, os.WriteFile(oldHistFile, []byte(`{"messages":["old1","old2","old3"]}`), 0o644))
 
