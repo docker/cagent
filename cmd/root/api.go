@@ -86,10 +86,11 @@ func (f *apiFlags) runAPICommand(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--pull-interval flag can only be used with OCI references, not local files")
 	}
 
-	ln, err := listenAndCloseOnCancel(ctx, f.listenAddr)
+	ln, lnCleanup, err := newListener(ctx, f.listenAddr)
 	if err != nil {
 		return err
 	}
+	defer lnCleanup()
 
 	out.Println("Listening on", ln.Addr().String())
 

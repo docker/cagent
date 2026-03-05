@@ -129,16 +129,21 @@ func parseModelShorthand(s string) *latest.ModelConfig {
 	return nil
 }
 
-// listenAndCloseOnCancel starts a listener and spawns a goroutine
-// that closes it when the context is cancelled.
-func listenAndCloseOnCancel(ctx context.Context, addr string) (net.Listener, error) {
+// newListener creates a TCP listener and returns a cleanup function that
+// must be deferred by the caller. The cleanup function closes the listener.
+// The listener is also closed if the context is cancelled, which unblocks
+// any in-progress Serve call.
+func newListener(ctx context.Context, addr string) (net.Listener, func(), error) {
 	ln, err := server.Listen(ctx, addr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to listen on %s: %w", addr, err)
+		return nil, nil, fmt.Errorf("failed to listen on %s: %w", addr, err)
 	}
-	go func() {
-		<-ctx.Done()
+	stop := context.AfterFunc(ctx, func() {
 		_ = ln.Close()
-	}()
-	return ln, nil
+	})
+	cleanup := func() {
+		stop()
+		_ = ln.Close()
+	}
+	return ln, cleanup, nil
 }

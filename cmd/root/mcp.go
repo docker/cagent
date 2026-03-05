@@ -48,10 +48,11 @@ func (f *mcpFlags) runMCPCommand(cmd *cobra.Command, args []string) error {
 		return mcp.StartMCPServer(ctx, agentFilename, f.agentName, &f.runConfig)
 	}
 
-	ln, err := listenAndCloseOnCancel(ctx, f.listenAddr)
+	ln, cleanup, err := newListener(ctx, f.listenAddr)
 	if err != nil {
 		return err
 	}
+	defer cleanup()
 
 	return mcp.StartHTTPServer(ctx, agentFilename, f.agentName, &f.runConfig, ln)
 }

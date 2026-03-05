@@ -42,10 +42,11 @@ func (f *a2aFlags) runA2ACommand(cmd *cobra.Command, args []string) error {
 	out := cli.NewPrinter(cmd.OutOrStdout())
 	agentFilename := args[0]
 
-	ln, err := listenAndCloseOnCancel(ctx, f.listenAddr)
+	ln, cleanup, err := newListener(ctx, f.listenAddr)
 	if err != nil {
 		return err
 	}
+	defer cleanup()
 
 	out.Println("Listening on", ln.Addr().String())
 	return a2a.Run(ctx, agentFilename, f.agentName, &f.runConfig, ln)
