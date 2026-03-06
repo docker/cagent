@@ -93,8 +93,6 @@
       url: /providers/xai/
     - title: Nebius
       url: /providers/nebius/
-    - title: MiniMax
-      url: /providers/minimax/
     - title: Local Models
       url: /providers/local/
     - title: Custom Providers

@@ -15,7 +15,7 @@ docker-agent can be used as a Go library, allowing you to build AI agents direct
 <div class="callout callout-info">
 <div class="callout-title">ℹ️ Import Path
 </div>
-<pre><code class="language-go">import "github.com/docker/docker-agent/pkg/..."</code></pre>
+<pre><code class="language-go">import "github.com/docker/cagent/pkg/..."</code></pre>
 </div>
 
 ## Core Packages
@@ -350,7 +350,7 @@ for event := range rt.RunStream(ctx, sess) {
 
 ## Complete Example
 
-See the [examples/golibrary](https://github.com/docker/docker-agent/tree/main/examples/golibrary) directory for complete working examples:
+See the [examples/golibrary](https://github.com/docker/cagent/tree/main/examples/golibrary) directory for complete working examples:
 
 - `simple/` — Basic agent with no tools
 - `tool/` — Custom tool implementation

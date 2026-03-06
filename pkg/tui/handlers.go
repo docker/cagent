@@ -519,13 +519,20 @@ func (m *appModel) handleAgentCommand(command string) (tea.Model, tea.Cmd) {
 
 func (m *appModel) handleAttachFile(filePath string) (tea.Model, tea.Cmd) {
 	if filePath != "" {
-		info, err := os.Stat(filePath)
-		if err == nil && !info.IsDir() {
-			// Attach file to the editor directly
-			m.editor.AttachFile(filePath)
-			return m, notification.SuccessCmd("File attached: " + filePath)
+		if err := m.editor.AttachFile(filePath); err != nil {
+			slog.Warn("failed to attach file", "path", filePath, "error", err)
+			// Attachment failed — open the file picker with an error notification
+			return m, tea.Batch(
+				notification.ErrorCmd(fmt.Sprintf("Failed to attach %s", filePath)),
+				core.CmdHandler(dialog.OpenDialogMsg{
+					Model: dialog.NewFilePickerDialog(filePath),
+				}),
+			)
 		}
+		return m, notification.SuccessCmd("File attached: " + filePath)
 	}
+
+	// No path provided — open the file picker dialog
 	return m, core.CmdHandler(dialog.OpenDialogMsg{
 		Model: dialog.NewFilePickerDialog(filePath),
 	})

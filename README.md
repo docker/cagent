@@ -45,7 +45,7 @@ docker agent run agent.yaml
 
 **Homebrew** — `brew install docker-agent`. Run `docker-agent` directly or symlink the binary to `~/.docker/cli-plugins/docker-agent` and run `docker agent`.
 
-**Binary releases** — Download from [GitHub Releases](https://github.com/docker/docker-agent/releases). Symlink the `docker-agent` binary to `~/.docker/cli-plugins/docker-agent` to be able to use `docker agent`, or use `docker-agent` directly.
+**Binary releases** — Download from [GitHub Releases](https://github.com/docker/cagent/releases). Symlink the `docker-agent` binary to `~/.docker/cli-plugins/docker-agent` to be able to use `docker agent`, or use `docker-agent` directly.
 
 Set at least one API key (or use [Docker Model Runner](https://docs.docker.com/ai/model-runner/) for local models):
 
@@ -73,17 +73,17 @@ More examples in the [`examples/`](examples/README.md) directory.
 
 ## Documentation
 
-📖 **[Full documentation](https://docker.github.io/docker-agent/)**
+📖 **[Full documentation](https://docker.github.io/cagent/)**
 
-- [Installation](https://docker.github.io/docker-agent/#getting-started/installation) · [Quick Start](https://docker.github.io/docker-agent/#getting-started/quickstart)
-- [Agents](https://docker.github.io/docker-agent/#concepts/agents) · [Models](https://docker.github.io/docker-agent/#concepts/models) · [Tools](https://docker.github.io/docker-agent/#concepts/tools) · [Multi-Agent](https://docker.github.io/docker-agent/#concepts/multi-agent)
-- [Configuration Reference](https://docker.github.io/docker-agent/#configuration/overview)
-- [TUI](https://docker.github.io/docker-agent/#features/tui) · [CLI](https://docker.github.io/docker-agent/#features/cli) · [MCP Mode](https://docker.github.io/docker-agent/#features/mcp-mode) · [RAG](https://docker.github.io/docker-agent/#features/rag)
-- [Model Providers](https://docker.github.io/docker-agent/#providers/overview) · [Docker Model Runner](https://docker.github.io/docker-agent/#providers/dmr)
+- [Installation](https://docker.github.io/cagent/#getting-started/installation) · [Quick Start](https://docker.github.io/cagent/#getting-started/quickstart)
+- [Agents](https://docker.github.io/cagent/#concepts/agents) · [Models](https://docker.github.io/cagent/#concepts/models) · [Tools](https://docker.github.io/cagent/#concepts/tools) · [Multi-Agent](https://docker.github.io/cagent/#concepts/multi-agent)
+- [Configuration Reference](https://docker.github.io/cagent/#configuration/overview)
+- [TUI](https://docker.github.io/cagent/#features/tui) · [CLI](https://docker.github.io/cagent/#features/cli) · [MCP Mode](https://docker.github.io/cagent/#features/mcp-mode) · [RAG](https://docker.github.io/cagent/#features/rag)
+- [Model Providers](https://docker.github.io/cagent/#providers/overview) · [Docker Model Runner](https://docker.github.io/cagent/#providers/dmr)
 
 ## Contributing
 
-Read the [Contributing guide](https://docker.github.io/docker-agent/#community/contributing) to get started. We use `docker-agent` to build `docker-agent`:
+Read the [Contributing guide](https://docker.github.io/cagent/#community/contributing) to get started. We use `docker-agent` to build `docker-agent`:
 
 ```sh
 docker agent run ./golang_developer.yaml
@@ -91,7 +91,7 @@ docker agent run ./golang_developer.yaml
 
 ## Telemetry
 
-We collect anonymous usage data to improve the tool. See [Telemetry](https://docker.github.io/docker-agent/#community/telemetry).
+We collect anonymous usage data to improve the tool. See [Telemetry](https://docker.github.io/cagent/#community/telemetry).
 
 ## Community
 

@@ -169,19 +169,12 @@ function renderSearchResults(query) {
     return;
   }
 
-  // Group results by section to avoid repeating section names
-  let html = '';
-  let lastSection = '';
-  for (const r of results) {
-    if (r.section && r.section !== lastSection) {
-      html += `<div class="search-result-group">${r.section}</div>`;
-      lastSection = r.section;
-    }
-    html += `<a class="search-result" href="${r.url}" tabindex="0" role="option">
+  $searchResults.innerHTML = results.map(r => `
+    <a class="search-result" href="${r.url}" tabindex="0" role="option">
       <div class="search-result-title">${r.title}</div>
-    </a>`;
-  }
-  $searchResults.innerHTML = html;
+      ${r.section ? `<div class="search-result-section">${r.section}</div>` : ''}
+    </a>
+  `).join('');
 
   $searchResults.querySelectorAll('.search-result').forEach(el => {
     el.addEventListener('click', () => closeSearch());

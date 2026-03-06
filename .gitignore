@@ -4,6 +4,7 @@ dist
 .DS_Store
 evals
 *.db*
+/cagent
 .crush
 .vscode
 .idea/

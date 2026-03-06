@@ -18,7 +18,7 @@ Execute shell commands in the user's environment with full control over working 
 - Quote arguments with spaces or special characters
 - Use pipes, redirections, and heredocs to combine operations
 - Prefer inline heredocs over writing shell scripts to disk
-- For git commits, add trailer: git commit -m "message" -m "" -m "Assisted-By: docker-agent"
+- For git commits, add trailer: git commit -m "message" -m "" -m "Assisted-By: cagent"
 
 ## Examples
 

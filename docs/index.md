@@ -10,7 +10,7 @@ permalink: /
   <p>Build, run, and share powerful AI agents with a declarative YAML config, rich tool ecosystem, and multi-agent orchestration — by Docker.</p>
   <div class="hero-buttons">
     <a href="{{ '/getting-started/introduction/' | relative_url }}" class="btn btn-primary">Get Started</a>
-    <a href="https://github.com/docker/docker-agent" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">GitHub →</a>
+    <a href="https://github.com/docker/cagent" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">GitHub →</a>
   </div>
 </div>
 

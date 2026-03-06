@@ -73,7 +73,7 @@ type Editor interface {
 	// InsertText inserts text at the current cursor position
 	InsertText(text string)
 	// AttachFile adds a file as an attachment and inserts @filepath into the editor
-	AttachFile(filePath string)
+	AttachFile(filePath string) error
 	Cleanup()
 	GetSize() (width, height int)
 	BannerHeight() int
@@ -676,7 +676,9 @@ func (e *editor) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		}
 		// Track file references when using @ completion (but not paste placeholders)
 		if e.currentCompletion != nil && e.currentCompletion.Trigger() == "@" && !strings.HasPrefix(msg.Value, "@paste-") {
-			e.addFileAttachment(msg.Value)
+			if err := e.addFileAttachment(msg.Value); err != nil {
+				slog.Warn("failed to add file attachment from completion", "value", msg.Value, "error", err)
+			}
 		}
 		e.clearSuggestion()
 		return e, nil
@@ -1274,14 +1276,16 @@ func (e *editor) InsertText(text string) {
 }
 
 // AttachFile adds a file as an attachment and inserts @filepath into the editor
-func (e *editor) AttachFile(filePath string) {
+func (e *editor) AttachFile(filePath string) error {
 	placeholder := "@" + filePath
-	e.addFileAttachment(placeholder)
-	currentValue := e.textarea.Value()
-	e.textarea.SetValue(currentValue + placeholder + " ")
+	if err := e.addFileAttachment(placeholder); err != nil {
+		return err
+	}
+	e.textarea.SetValue(e.textarea.Value() + placeholder + " ")
 	e.textarea.MoveToEnd()
 	e.userTyped = true
 	e.updateAttachmentBanner()
+	return nil
 }
 
 // tryAddFileRef checks if word is a valid @filepath and adds it as attachment.
@@ -1302,33 +1306,48 @@ func (e *editor) tryAddFileRef(word string) {
 		return // not a path-like reference (e.g., @username)
 	}
 
-	e.addFileAttachment(word)
+	if err := e.addFileAttachment(word); err != nil {
+		slog.Debug("speculative file ref not valid", "word", word, "error", err)
+	}
 }
 
 // addFileAttachment adds a file reference as an attachment if valid.
 // The path is resolved to an absolute path so downstream consumers
 // (e.g. processFileAttachment) always receive a fully qualified path.
-func (e *editor) addFileAttachment(placeholder string) {
+func (e *editor) addFileAttachment(placeholder string) error {
 	path := strings.TrimPrefix(placeholder, "@")
+
+	// Reject path traversal before resolving to an absolute path.
+	// filepath.Abs calls filepath.Clean which resolves ".." components,
+	// so checking the raw path is the only way to catch traversal attempts.
+	if strings.Contains(path, "..") {
+		return fmt.Errorf("invalid file path %s: path traversal not allowed", path)
+	}
 
 	// Resolve to absolute path so the attachment carries a fully qualified
 	// path regardless of the working directory at send time.
 	absPath, err := filepath.Abs(path)
 	if err != nil {
-		slog.Warn("skipping attachment: cannot resolve path", "path", path, "error", err)
-		return
+		return fmt.Errorf("cannot resolve path %s: %w", path, err)
 	}
 
-	// Check if it's an existing file (not directory)
-	info, err := os.Stat(absPath)
-	if err != nil || info.IsDir() {
-		return
+	info, err := validateFilePath(absPath)
+	if err != nil {
+		return fmt.Errorf("invalid file path %s: %w", absPath, err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("path is a directory: %s", absPath)
+	}
+
+	const maxFileSize = 5 * 1024 * 1024
+	if info.Size() >= maxFileSize {
+		return fmt.Errorf("file too large: %s (%s)", absPath, units.HumanSize(float64(info.Size())))
 	}
 
 	// Avoid duplicates
 	for _, att := range e.attachments {
 		if att.placeholder == placeholder {
-			return
+			return nil
 		}
 	}
 
@@ -1339,6 +1358,7 @@ func (e *editor) addFileAttachment(placeholder string) {
 		sizeBytes:   int(info.Size()),
 		isTemp:      false,
 	})
+	return nil
 }
 
 // collectAttachments returns structured attachments for all items referenced in
@@ -1438,6 +1458,16 @@ func (e *editor) SendContent() tea.Cmd {
 }
 
 func (e *editor) handlePaste(content string) bool {
+	// Try drag-and-drop: parse as file paths and attach all of them.
+	// If any file fails (unsupported type, too large, etc.), roll back and
+	// fall through to the normal text-paste path.
+	if filePaths := ParsePastedFiles(content); len(filePaths) > 0 {
+		if e.tryAttachAllFiles(filePaths) {
+			return true
+		}
+	}
+
+	// Normal text paste
 	// Count lines (newlines + 1 for content without trailing newline)
 	lines := strings.Count(content, "\n") + 1
 	if strings.HasSuffix(content, "\n") {
@@ -1462,6 +1492,49 @@ func (e *editor) handlePaste(content string) bool {
 	e.attachments = append(e.attachments, att)
 
 	return true
+}
+
+// tryAttachAllFiles attempts to attach every path as a supported file.
+// Returns true if all files were successfully attached, false otherwise
+// (partial attachments are rolled back).
+func (e *editor) tryAttachAllFiles(filePaths []string) bool {
+	var attached int
+	for _, path := range filePaths {
+		if !IsSupportedFileType(path) {
+			break
+		}
+		if err := e.AttachFile(path); err != nil {
+			slog.Debug("paste path not attachable, treating as text", "path", path, "error", err)
+			break
+		}
+		attached++
+	}
+	if attached == len(filePaths) {
+		return true
+	}
+	e.removeLastNAttachments(attached)
+	return false
+}
+
+// removeLastNAttachments removes the last n non-temp attachments and their
+// placeholder text from the textarea. Used to roll back partial file-drop
+// attachments when not all files in a paste are valid.
+func (e *editor) removeLastNAttachments(n int) {
+	if n <= 0 {
+		return
+	}
+	value := e.textarea.Value()
+	removed := 0
+	for i := len(e.attachments) - 1; i >= 0 && removed < n; i-- {
+		if !e.attachments[i].isTemp {
+			// Strip the placeholder text ("@/path/file.png ") that AttachFile inserted
+			value = strings.Replace(value, e.attachments[i].placeholder+" ", "", 1)
+			e.attachments = append(e.attachments[:i], e.attachments[i+1:]...)
+			removed++
+		}
+	}
+	e.textarea.SetValue(value)
+	e.textarea.MoveToEnd()
 }
 
 func (e *editor) updateAttachmentBanner() {

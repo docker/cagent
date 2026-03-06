@@ -40,27 +40,6 @@ var CoreProviders = []string{
 	"amazon-bedrock",
 }
 
-// AllProviders returns all known provider names (core providers + aliases),
-// sorted for deterministic output.
-func AllProviders() []string {
-	providers := make([]string, 0, len(CoreProviders)+len(Aliases))
-	providers = append(providers, CoreProviders...)
-	for name := range Aliases {
-		providers = append(providers, name)
-	}
-	slices.Sort(providers)
-	return providers
-}
-
-// IsKnownProvider returns true if the provider name is a core provider or an alias.
-func IsKnownProvider(name string) bool {
-	if slices.Contains(CoreProviders, strings.ToLower(name)) {
-		return true
-	}
-	_, exists := Aliases[strings.ToLower(name)]
-	return exists
-}
-
 // CatalogProviders returns the list of provider names that should be shown in the model catalog.
 // This includes core providers and aliases that have a defined BaseURL (self-contained endpoints).
 // Aliases without a BaseURL (like azure) require user configuration and are excluded.
@@ -122,11 +101,6 @@ var Aliases = map[string]Alias{
 	"ollama": {
 		APIType: "openai",
 		BaseURL: "http://localhost:11434/v1",
-	},
-	"minimax": {
-		APIType:     "openai",
-		BaseURL:     "https://api.minimax.io/v1",
-		TokenEnvVar: "MINIMAX_API_KEY",
 	},
 }
 

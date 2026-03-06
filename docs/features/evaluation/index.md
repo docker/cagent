@@ -227,6 +227,6 @@ $ docker agent eval agent.yaml ./evals
 <div class="callout callout-info">
 <div class="callout-title">ℹ️ See also
 </div>
-  <p>Use <code>/eval</code> in the <a href="{{ '/features/tui/' | relative_url }}">TUI</a> to create eval sessions from conversations. See the <a href="{{ '/features/cli/' | relative_url }}">CLI Reference</a> for all <code>docker agent eval</code> flags. Example eval configs are in <a href="https://github.com/docker/docker-agent/tree/main/examples/eval">examples/eval</a> on GitHub.</p>
+  <p>Use <code>/eval</code> in the <a href="{{ '/features/tui/' | relative_url }}">TUI</a> to create eval sessions from conversations. See the <a href="{{ '/features/cli/' | relative_url }}">CLI Reference</a> for all <code>docker agent eval</code> flags. Example eval configs are in <a href="https://github.com/docker/cagent/tree/main/examples/eval">examples/eval</a> on GitHub.</p>
 
 </div>

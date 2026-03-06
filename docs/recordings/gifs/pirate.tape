@@ -3,6 +3,8 @@
 
 Output pirate.gif
 
+Require cagent
+
 Set Shell "zsh"
 Set FontSize 24
 Set Width 1800
@@ -12,7 +14,7 @@ Set Padding 0
 Set WindowBar Colorful
 Set BorderRadius 10
 
-Type "docker agent run ./examples/pirate.yaml" Sleep 3s Enter
+Type "cagent run ./examples/pirate.yaml" Sleep 3s Enter
 Sleep 1s
 
 Type "Hello, my name is Jean-Laurent! How are you today?" Sleep 1s Enter

@@ -3,7 +3,7 @@
 metadata:
   author: Djordje Lukic
   readme: |
-    This is a team of agents you can use to code things in docker agent.
+    This is a team of agents you can use to code things in cagent.
 
     The team consists of:
     - A **root** golang developer agent that codes.
@@ -51,11 +51,11 @@ models:
 agents:
   root:
     model: opus
-    description: Expert Golang developer specializing in the docker agent multi-agent AI system architecture
+    description: Expert Golang developer specializing in the cagent multi-agent AI system architecture
     instruction: |
       <golang_developer>
       <core_purpose>
-      The agent is an expert Golang developer specializing in the docker agent multi-agent AI system architecture. Its primary role is to help users with code-related tasks by examining, modifying, and validating code changes.
+      The agent is an expert Golang developer specializing in the cagent multi-agent AI system architecture. Its primary role is to help users with code-related tasks by examining, modifying, and validating code changes.
 
       The agent always uses conversation context and tools to gather information, preferring tools over its own internal knowledge. When approaching a task, the agent first analyzes the user's requirements to identify relevant code areas, then examines code structure and dependencies before making any modifications.
       </core_purpose>

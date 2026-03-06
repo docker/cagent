@@ -239,31 +239,29 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 		agentsByName[agentConfig.Name] = ag
 	}
 
-	// Connect sub-agents and handoff agents.
-	// externalAgents caches agents loaded from external references (OCI/URL),
-	// keyed by the original reference string, to avoid loading the same
-	// external agent twice. This is kept separate from agentsByName to
-	// prevent external agents from shadowing locally-defined agents.
-	externalAgents := make(map[string]*agent.Agent)
+	// Connect sub-agents and handoff agents
 	for _, agentConfig := range cfg.Agents {
-		a, exists := agentsByName[agentConfig.Name]
-		if !exists {
-			continue
+		name := agentConfig.Name
+
+		subAgents := make([]*agent.Agent, 0, len(agentConfig.SubAgents))
+		for _, subName := range agentConfig.SubAgents {
+			if subAgent, exists := agentsByName[subName]; exists {
+				subAgents = append(subAgents, subAgent)
+			}
 		}
 
-		subAgents, err := resolveAgentRefs(ctx, agentConfig.SubAgents, agentsByName, externalAgents, &agents, runConfig, &loadOpts)
-		if err != nil {
-			return nil, fmt.Errorf("agent '%s': resolving sub-agents: %w", agentConfig.Name, err)
-		}
-		if len(subAgents) > 0 {
+		if a, exists := agentsByName[name]; exists && len(subAgents) > 0 {
 			agent.WithSubAgents(subAgents...)(a)
 		}
 
-		handoffs, err := resolveAgentRefs(ctx, agentConfig.Handoffs, agentsByName, externalAgents, &agents, runConfig, &loadOpts)
-		if err != nil {
-			return nil, fmt.Errorf("agent '%s': resolving handoffs: %w", agentConfig.Name, err)
+		handoffs := make([]*agent.Agent, 0, len(agentConfig.Handoffs))
+		for _, handoffName := range agentConfig.Handoffs {
+			if handoffAgent, exists := agentsByName[handoffName]; exists {
+				handoffs = append(handoffs, handoffAgent)
+			}
 		}
-		if len(handoffs) > 0 {
+
+		if a, exists := agentsByName[name]; exists && len(handoffs) > 0 {
 			agent.WithHandoffs(handoffs...)(a)
 		}
 	}
@@ -477,95 +475,6 @@ func getToolsForAgent(ctx context.Context, a *latest.AgentConfig, parentDir stri
 	}
 
 	return toolSets, warnings
-}
-
-// resolveAgentRefs resolves a list of agent references to agent instances.
-// References that match a locally-defined agent name are looked up directly.
-// References that are external (OCI or URL) are loaded on-demand and cached
-// in externalAgents so the same reference isn't loaded twice.
-func resolveAgentRefs(
-	ctx context.Context,
-	refs []string,
-	agentsByName map[string]*agent.Agent,
-	externalAgents map[string]*agent.Agent,
-	agents *[]*agent.Agent,
-	runConfig *config.RuntimeConfig,
-	loadOpts *loadOptions,
-) ([]*agent.Agent, error) {
-	resolved := make([]*agent.Agent, 0, len(refs))
-	for _, ref := range refs {
-		// First, try local agents by name.
-		if a, ok := agentsByName[ref]; ok {
-			resolved = append(resolved, a)
-			continue
-		}
-
-		// Then, check whether this ref was already loaded as an external agent.
-		if a, ok := externalAgents[ref]; ok {
-			resolved = append(resolved, a)
-			continue
-		}
-
-		if !config.IsExternalReference(ref) {
-			continue
-		}
-
-		a, err := loadExternalAgent(ctx, ref, runConfig, loadOpts)
-		if err != nil {
-			return nil, fmt.Errorf("loading %q: %w", ref, err)
-		}
-		*agents = append(*agents, a)
-		externalAgents[ref] = a
-		resolved = append(resolved, a)
-	}
-	return resolved, nil
-}
-
-// maxExternalDepth is the maximum nesting depth for loading external agents.
-// This prevents infinite recursion when external agents reference each other.
-const maxExternalDepth = 10
-
-// loadExternalAgent loads an agent from an external reference (OCI or URL).
-// It resolves the reference, loads its config, and returns the default agent.
-func loadExternalAgent(ctx context.Context, ref string, runConfig *config.RuntimeConfig, loadOpts *loadOptions) (*agent.Agent, error) {
-	depth := externalDepthFromContext(ctx)
-	if depth >= maxExternalDepth {
-		return nil, fmt.Errorf("maximum external agent nesting depth (%d) exceeded — check for circular references", maxExternalDepth)
-	}
-
-	source, err := config.Resolve(ref, runConfig.EnvProvider())
-	if err != nil {
-		return nil, err
-	}
-
-	var opts []Opt
-	if loadOpts.toolsetRegistry != nil {
-		opts = append(opts, WithToolsetRegistry(loadOpts.toolsetRegistry))
-	}
-
-	result, err := Load(contextWithExternalDepth(ctx, depth+1), source, runConfig, opts...)
-	if err != nil {
-		return nil, err
-	}
-
-	return result.DefaultAgent()
-}
-
-// contextKey is an unexported type for context keys defined in this package.
-type contextKey int
-
-// externalDepthKey is the context key for tracking external agent loading depth.
-var externalDepthKey contextKey
-
-func externalDepthFromContext(ctx context.Context) int {
-	if v, ok := ctx.Value(externalDepthKey).(int); ok {
-		return v
-	}
-	return 0
-}
-
-func contextWithExternalDepth(ctx context.Context, depth int) context.Context {
-	return context.WithValue(ctx, externalDepthKey, depth)
 }
 
 // createRAGToolsForAgent creates RAG tools for an agent, one for each referenced RAG source

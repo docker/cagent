@@ -41,33 +41,22 @@ type FunctionCall struct {
 	Arguments string `json:"arguments,omitempty"`
 }
 
-// MediaContent represents base64-encoded binary data (image, audio, etc.)
-// returned by a tool.
-type MediaContent struct {
-	// Data is the base64-encoded payload.
+// ImageContent represents a base64-encoded image returned by a tool.
+type ImageContent struct {
+	// Data is the base64-encoded image data.
 	Data string `json:"data"`
-	// MimeType identifies the content type (e.g. "image/png", "audio/wav").
+	// MimeType is the MIME type of the image (e.g. "image/png", "image/jpeg").
 	MimeType string `json:"mimeType"`
 }
-
-// ImageContent is an alias kept for readability at call sites.
-type ImageContent = MediaContent
-
-// AudioContent is an alias kept for readability at call sites.
-type AudioContent = MediaContent
 
 type ToolCallResult struct {
 	Output  string `json:"output"`
 	IsError bool   `json:"isError,omitempty"`
 	Meta    any    `json:"meta,omitempty"`
 	// Images contains optional image attachments returned by the tool.
-	Images []MediaContent `json:"images,omitempty"`
-	// Audios contains optional audio attachments returned by the tool.
-	Audios []MediaContent `json:"audios,omitempty"`
-	// StructuredContent holds optional structured output returned by an MCP
-	// tool whose definition includes an OutputSchema. When non-nil it is the
-	// JSON-decoded structured result from the server.
-	StructuredContent any `json:"structuredContent,omitempty"`
+	// When present, these are forwarded to the LLM as image content alongside
+	// the text output.
+	Images []ImageContent `json:"images,omitempty"`
 }
 
 func ResultError(output string) *ToolCallResult {

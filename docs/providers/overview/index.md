@@ -62,7 +62,6 @@ docker-agent also includes built-in aliases for these providers:
 | Mistral    | `MISTRAL_API_KEY` |
 | xAI (Grok) | `XAI_API_KEY`     |
 | Nebius     | `NEBIUS_API_KEY`  |
-| MiniMax    | `MINIMAX_API_KEY` |
 
 ```bash
 # Use built-in providers inline

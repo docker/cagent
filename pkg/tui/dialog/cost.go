@@ -92,9 +92,8 @@ func (d *costDialog) View() string {
 
 type totalUsage struct {
 	chat.Usage
-	label  string
-	cost   float64
-	marker bool // true for visual separators (sub-session boundaries)
+	label string
+	cost  float64
 }
 
 func (u *totalUsage) add(cost float64, usage *chat.Usage) {
@@ -109,12 +108,6 @@ func (u *totalUsage) totalInput() int64 {
 	return u.InputTokens + u.CachedInputTokens + u.CacheWriteTokens
 }
 
-// isSubSessionMarker returns true if this entry is a visual separator rather
-// than an actual usage record (e.g. "── sub-session start ──").
-func (u *totalUsage) isSubSessionMarker() bool {
-	return u.marker
-}
-
 // costData holds aggregated cost data for display.
 type costData struct {
 	total             totalUsage
@@ -126,7 +119,6 @@ type costData struct {
 func (d *costDialog) gatherCostData() costData {
 	var data costData
 	modelMap := make(map[string]*totalUsage)
-	msgCounter := 0 // sequential counter across parent and sub-sessions
 
 	// Helper to add a usage record to the aggregated data
 	addRecord := func(agentName, model string, cost float64, usage *chat.Usage) {
@@ -141,10 +133,9 @@ func (d *costDialog) gatherCostData() costData {
 		modelMap[model].add(cost, usage)
 
 		// Per-message usage
-		msgCounter++
-		msgLabel := fmt.Sprintf("#%d", msgCounter)
+		msgLabel := fmt.Sprintf("#%d", len(data.messages)+1)
 		if agentName != "" {
-			msgLabel = fmt.Sprintf("#%d [%s]", msgCounter, agentName)
+			msgLabel = fmt.Sprintf("#%d [%s]", len(data.messages)+1, agentName)
 		}
 		data.messages = append(data.messages, totalUsage{
 			label: msgLabel,
@@ -164,45 +155,24 @@ func (d *costDialog) gatherCostData() costData {
 		})
 	}
 
-	// addSubSessionMarker adds a visual separator for a sub-session boundary.
-	addSubSessionMarker := func(label string) {
-		data.messages = append(data.messages, totalUsage{label: label, marker: true})
-	}
-
-	// walkSession recursively walks session items, inserting sub-session
-	// boundary markers so the "By Message" section shows clear grouping.
-	var walkSession func(sess *session.Session)
-	walkSession = func(sess *session.Session) {
-		for _, item := range sess.Messages {
-			switch {
-			case item.IsMessage():
-				msg := item.Message
-				if msg.Message.Role != chat.MessageRoleSystem && msg.Message.Usage != nil {
-					addRecord(msg.AgentName, msg.Message.Model, msg.Message.Cost, msg.Message.Usage)
-				}
-			case item.IsSubSession():
-				addSubSessionMarker("── sub-session start ──")
-				walkSession(item.SubSession)
-				subCost := item.SubSession.TotalCost()
-				if subCost > 0 {
-					addSubSessionMarker(fmt.Sprintf("── sub-session end (%s) ──", formatCost(subCost)))
-				} else {
-					addSubSessionMarker("── sub-session end ──")
-				}
-			}
-			if item.Summary != "" && item.Cost > 0 {
-				addCompactionCost(item.Cost)
-			}
+	// Try session messages first (local mode), then MessageUsageHistory (remote mode)
+	for _, msg := range d.session.GetAllMessages() {
+		if msg.Message.Usage != nil {
+			addRecord(msg.AgentName, msg.Message.Model, msg.Message.Cost, msg.Message.Usage)
 		}
 	}
-
-	// Walk session items (local mode) to preserve sub-session structure.
-	walkSession(d.session)
-
-	// Fall back to remote mode if no per-message data was found.
 	if !data.hasPerMessageData {
 		for _, record := range d.session.MessageUsageHistory {
 			addRecord(record.AgentName, record.Model, record.Cost, &record.Usage)
+		}
+	}
+
+	// Include compaction costs from summary items. These are stored on
+	// session items that have a Summary but no Message, so they are not
+	// returned by GetAllMessages().
+	for _, item := range d.session.Messages {
+		if item.Summary != "" && item.Cost > 0 {
+			addCompactionCost(item.Cost)
 		}
 	}
 
@@ -257,11 +227,7 @@ func (d *costDialog) renderContent(contentWidth, maxHeight int) string {
 	if len(data.messages) > 0 {
 		lines = append(lines, sectionStyle().Render("By Message"), "")
 		for _, m := range data.messages {
-			if m.isSubSessionMarker() {
-				lines = append(lines, styles.MutedStyle.Render(m.label))
-			} else {
-				lines = append(lines, d.renderUsageLine(m))
-			}
+			lines = append(lines, d.renderUsageLine(m))
 		}
 		lines = append(lines, "")
 	} else if !data.hasPerMessageData && data.total.cost > 0 {
@@ -344,12 +310,8 @@ func (d *costDialog) renderPlainText() string {
 	if len(data.messages) > 0 {
 		lines = append(lines, "By Message")
 		for _, m := range data.messages {
-			if m.isSubSessionMarker() {
-				lines = append(lines, m.label)
-			} else {
-				lines = append(lines, fmt.Sprintf("%-8s  input: %-8s  output: %-8s  %s",
-					formatCostPadded(m.cost), formatTokenCount(m.totalInput()), formatTokenCount(m.OutputTokens), m.label))
-			}
+			lines = append(lines, fmt.Sprintf("%-8s  input: %-8s  output: %-8s  %s",
+				formatCostPadded(m.cost), formatTokenCount(m.totalInput()), formatTokenCount(m.OutputTokens), m.label))
 		}
 	}
 

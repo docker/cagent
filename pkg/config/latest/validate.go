@@ -2,6 +2,7 @@ package latest
 
 import (
 	"errors"
+	"strings"
 )
 
 func (t *Config) UnmarshalYAML(unmarshal func(any) error) error {
@@ -137,6 +138,10 @@ func (t *Toolset) validate() error {
 		}
 		if count > 1 {
 			return errors.New("either command, remote or ref must be set, but only one of those")
+		}
+
+		if t.Ref != "" && !strings.Contains(t.Ref, "docker:") {
+			return errors.New("only docker refs are supported for MCP tools, e.g., 'docker:context7'")
 		}
 	case "a2a":
 		if t.URL == "" {

@@ -27,9 +27,9 @@ require (
 	github.com/clipperhouse/displaywidth v0.11.0
 	github.com/clipperhouse/uax29/v2 v2.7.0
 	github.com/coder/acp-go-sdk v0.6.3
-	github.com/docker/cli v29.3.0+incompatible
+	github.com/docker/cli v29.2.1+incompatible
 	github.com/docker/go-units v0.5.0
-	github.com/dop251/goja v0.0.0-20260305124333-6a7976c22267
+	github.com/dop251/goja v0.0.0-20260226184354-913bd86fb70c
 	github.com/fatih/color v1.18.0
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/getkin/kin-openapi v0.132.0
@@ -47,7 +47,7 @@ require (
 	github.com/mattn/go-runewidth v0.0.20
 	github.com/modelcontextprotocol/go-sdk v1.4.0
 	github.com/natefinch/atomic v1.0.1
-	github.com/openai/openai-go/v3 v3.25.0
+	github.com/openai/openai-go/v3 v3.24.0
 	github.com/rivo/uniseg v0.4.7
 	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
 	github.com/spf13/cobra v1.10.2
@@ -66,8 +66,8 @@ require (
 	golang.org/x/sync v0.19.0
 	golang.org/x/sys v0.41.0
 	golang.org/x/term v0.40.0
-	google.golang.org/adk v0.5.0
-	google.golang.org/genai v1.49.0
+	google.golang.org/adk v0.4.0
+	google.golang.org/genai v1.48.0
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/dnaeon/go-vcr.v4 v4.0.6
 	gotest.tools/v3 v3.5.2

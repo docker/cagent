@@ -18,38 +18,24 @@ import (
 	"github.com/docker/cagent/pkg/config"
 )
 
-// a2aResponse is a simplified representation of a JSON-RPC response
-// that only captures the fields we care about in tests.
 type a2aResponse struct {
-	Jsonrpc string `json:"jsonrpc"`
-	ID      string `json:"id"`
-	Error   any    `json:"error,omitempty"`
-
-	// Result holds the task with its artifacts.
-	Result *struct {
-		Artifacts []struct {
-			Parts []struct {
-				Kind string `json:"kind"`
-				Text string `json:"text"`
-			} `json:"parts"`
-		} `json:"artifacts"`
-	} `json:"result,omitempty"`
+	Jsonrpc string     `json:"jsonrpc"`
+	ID      string     `json:"id"`
+	Result  *a2aResult `json:"result,omitempty"`
+	Error   any        `json:"error,omitempty"`
 }
 
-// textParts returns all text parts across every artifact in the response.
-func (r *a2aResponse) textParts() []string {
-	if r.Result == nil {
-		return nil
-	}
-	var texts []string
-	for _, a := range r.Result.Artifacts {
-		for _, p := range a.Parts {
-			if p.Kind == "text" {
-				texts = append(texts, p.Text)
-			}
-		}
-	}
-	return texts
+type a2aResult struct {
+	Artifacts []a2aArtifact `json:"artifacts"`
+}
+
+type a2aArtifact struct {
+	Parts []a2aPart `json:"parts"`
+}
+
+type a2aPart struct {
+	Kind string `json:"kind"`
+	Text string `json:"text"`
 }
 
 func TestA2AServer_AgentCard(t *testing.T) {
@@ -72,18 +58,55 @@ func TestA2AServer_Invoke(t *testing.T) {
 	_, runConfig := startRecordingAIProxy(t)
 	agentCard := startA2AServer(t, "testdata/basic.yaml", runConfig)
 
-	resp := sendA2AMessage(t, agentCard.URL, "test-request-1", "msg-1", "What is 2+2? Answer with just the number.")
-
-	assert.Equal(t, "2.0", resp.Jsonrpc)
-	assert.Equal(t, "test-request-1", resp.ID)
-	assert.Nil(t, resp.Error)
-	require.NotNil(t, resp.Result)
-
-	texts := resp.textParts()
-	require.NotEmpty(t, texts)
-	for _, text := range texts {
-		assert.Equal(t, "4", text)
+	requestID := "test-request-1"
+	jsonRPCRequest := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      requestID,
+		"method":  "message/send",
+		"params": map[string]any{
+			"message": map[string]any{
+				"messageId": "msg-1",
+				"role":      "user",
+				"parts": []map[string]any{
+					{
+						"kind": "text",
+						"text": "What is 2+2? Answer with just the number.",
+					},
+				},
+			},
+		},
 	}
+
+	requestBody, err := json.Marshal(jsonRPCRequest)
+	require.NoError(t, err)
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, agentCard.URL, bytes.NewReader(requestBody))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	responseBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	var jsonRPCResponse a2aResponse
+	err = json.Unmarshal(responseBody, &jsonRPCResponse)
+	require.NoError(t, err)
+
+	assert.Equal(t, "2.0", jsonRPCResponse.Jsonrpc)
+	assert.Equal(t, requestID, jsonRPCResponse.ID)
+	assert.Nil(t, jsonRPCResponse.Error)
+	require.NotNil(t, jsonRPCResponse.Result)
+	assert.Len(t, jsonRPCResponse.Result.Artifacts, 1)
+	assert.Len(t, jsonRPCResponse.Result.Artifacts[0].Parts, 2)
+	assert.Equal(t, "text", jsonRPCResponse.Result.Artifacts[0].Parts[0].Kind)
+	assert.Equal(t, "4", jsonRPCResponse.Result.Artifacts[0].Parts[0].Text)
+	assert.Equal(t, "text", jsonRPCResponse.Result.Artifacts[0].Parts[1].Kind)
+	assert.Equal(t, "4", jsonRPCResponse.Result.Artifacts[0].Parts[1].Text)
 }
 
 func TestA2AServer_MultipleRequests(t *testing.T) {
@@ -100,13 +123,47 @@ func TestA2AServer_MultipleRequests(t *testing.T) {
 	for i, message := range messages {
 		t.Run(fmt.Sprintf("request_%d", i), func(t *testing.T) {
 			requestID := fmt.Sprintf("test-request-%d", i)
-			msgID := fmt.Sprintf("msg-%d", i)
+			jsonRPCRequest := map[string]any{
+				"jsonrpc": "2.0",
+				"id":      requestID,
+				"method":  "message/send",
+				"params": map[string]any{
+					"message": map[string]any{
+						"messageId": fmt.Sprintf("msg-%d", i),
+						"role":      "user",
+						"parts": []map[string]any{
+							{
+								"kind": "text",
+								"text": message,
+							},
+						},
+					},
+				},
+			}
 
-			resp := sendA2AMessage(t, agentCard.URL, requestID, msgID, message)
+			requestBody, err := json.Marshal(jsonRPCRequest)
+			require.NoError(t, err)
 
-			assert.Equal(t, requestID, resp.ID)
-			assert.Nil(t, resp.Error)
-			assert.NotNil(t, resp.Result)
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, agentCard.URL, bytes.NewReader(requestBody))
+			require.NoError(t, err)
+			req.Header.Set("Content-Type", "application/json")
+
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+			responseBody, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+
+			var jsonRPCResponse a2aResponse
+			err = json.Unmarshal(responseBody, &jsonRPCResponse)
+			require.NoError(t, err)
+
+			assert.Equal(t, requestID, jsonRPCResponse.ID)
+			assert.Nil(t, jsonRPCResponse.Error)
+			assert.NotNil(t, jsonRPCResponse.Result)
 		})
 	}
 }
@@ -117,36 +174,29 @@ func TestA2AServer_MultiAgent(t *testing.T) {
 	_, runConfig := startRecordingAIProxy(t)
 	agentCard := startA2AServer(t, "testdata/multi.yaml", runConfig)
 
-	resp := sendA2AMessage(t, agentCard.URL, "test-multi-1", "msg-multi-1", "Say hello.")
-
-	assert.Equal(t, "test-multi-1", resp.ID)
-	assert.Nil(t, resp.Error)
-	require.NotNil(t, resp.Result)
-
-	texts := resp.textParts()
-	require.NotEmpty(t, texts)
-	assert.Contains(t, texts[len(texts)-1], "Hello")
-}
-
-// sendA2AMessage sends a message/send JSON-RPC request and returns the parsed response.
-func sendA2AMessage(t *testing.T, url, requestID, messageID, text string) a2aResponse {
-	t.Helper()
-
-	body, err := json.Marshal(map[string]any{
+	requestID := "test-multi-1"
+	jsonRPCRequest := map[string]any{
 		"jsonrpc": "2.0",
 		"id":      requestID,
 		"method":  "message/send",
 		"params": map[string]any{
 			"message": map[string]any{
-				"messageId": messageID,
+				"messageId": "msg-multi-1",
 				"role":      "user",
-				"parts":     []map[string]any{{"kind": "text", "text": text}},
+				"parts": []map[string]any{
+					{
+						"kind": "text",
+						"text": "Say hello.",
+					},
+				},
 			},
 		},
-	})
+	}
+
+	requestBody, err := json.Marshal(jsonRPCRequest)
 	require.NoError(t, err)
 
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, agentCard.URL, bytes.NewReader(requestBody))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -154,15 +204,25 @@ func sendA2AMessage(t *testing.T, url, requestID, messageID, text string) a2aRes
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	data, err := io.ReadAll(resp.Body)
+	responseBody, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 
-	var parsed a2aResponse
-	require.NoError(t, json.Unmarshal(data, &parsed))
+	var jsonRPCResponse a2aResponse
+	err = json.Unmarshal(responseBody, &jsonRPCResponse)
+	require.NoError(t, err)
 
-	return parsed
+	assert.Equal(t, requestID, jsonRPCResponse.ID)
+	assert.Nil(t, jsonRPCResponse.Error)
+	require.NotNil(t, jsonRPCResponse.Result)
+	require.Len(t, jsonRPCResponse.Result.Artifacts, 1)
+	require.NotEmpty(t, jsonRPCResponse.Result.Artifacts[0].Parts)
+
+	// The last part contains the complete response text
+	lastPart := jsonRPCResponse.Result.Artifacts[0].Parts[len(jsonRPCResponse.Result.Artifacts[0].Parts)-1]
+	assert.Equal(t, "text", lastPart.Kind)
+	assert.Contains(t, lastPart.Text, "Hello")
 }
 
 func startA2AServer(t *testing.T, agentFile string, runConfig *config.RuntimeConfig) a2a.AgentCard {

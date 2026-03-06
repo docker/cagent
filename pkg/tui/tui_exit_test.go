@@ -63,7 +63,7 @@ func (m *mockEditor) ScrollByWheel(int)                      {}
 func (m *mockEditor) Value() string                          { return "" }
 func (m *mockEditor) SetValue(string)                        {}
 func (m *mockEditor) InsertText(string)                      {}
-func (m *mockEditor) AttachFile(string)                      {}
+func (m *mockEditor) AttachFile(string) error                { return nil }
 func (m *mockEditor) Cleanup()                               { m.cleanupCalled = true }
 func (m *mockEditor) GetSize() (int, int)                    { return 0, 0 }
 func (m *mockEditor) BannerHeight() int                      { return 0 }

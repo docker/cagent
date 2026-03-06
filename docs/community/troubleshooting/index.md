@@ -149,7 +149,7 @@ docker-agent validates config at startup and reports errors with line numbers. C
 <div class="callout callout-info">
 <div class="callout-title">ℹ️ Schema Validation
 </div>
-  <p>Use the <a href="https://github.com/docker/docker-agent/blob/main/agent-schema.json">JSON schema</a> in your editor for real-time config validation and autocompletion.</p>
+  <p>Use the <a href="https://github.com/docker/cagent/blob/main/agent-schema.json">JSON schema</a> in your editor for real-time config validation and autocompletion.</p>
 
 </div>
 
@@ -237,6 +237,6 @@ When reviewing debug logs, search for these key patterns:
 <div class="callout callout-warning">
 <div class="callout-title">⚠️ Still stuck?
 </div>
-  <p>If these steps don't resolve your issue, file a bug on the <a href="https://github.com/docker/docker-agent/issues">GitHub issue tracker</a> with your debug log attached, or ask on <a href="https://dockercommunity.slack.com/archives/C09DASHHRU4">Slack</a>.</p>
+  <p>If these steps don't resolve your issue, file a bug on the <a href="https://github.com/docker/cagent/issues">GitHub issue tracker</a> with your debug log attached, or ask on <a href="https://dockercommunity.slack.com/archives/C09DASHHRU4">Slack</a>.</p>
 
 </div>

@@ -488,45 +488,32 @@ func isInitNotificationSendError(err error) bool {
 }
 
 func processMCPContent(toolResult *mcp.CallToolResult) *tools.ToolCallResult {
-	var text string
-	var images, audios []tools.MediaContent
+	finalContent := ""
+	var images []tools.ImageContent
 
-	for _, c := range toolResult.Content {
-		switch c := c.(type) {
+	for _, resultContent := range toolResult.Content {
+		switch c := resultContent.(type) {
 		case *mcp.TextContent:
-			text += c.Text
+			finalContent += c.Text
 		case *mcp.ImageContent:
-			images = append(images, encodeMedia(c.Data, c.MIMEType))
-		case *mcp.AudioContent:
-			audios = append(audios, encodeMedia(c.Data, c.MIMEType))
-		case *mcp.ResourceLink:
-			if c.Name != "" {
-				// Escape ] in name and ) in URI to prevent broken markdown links.
-				name := strings.ReplaceAll(c.Name, "]", "\\]")
-				uri := strings.ReplaceAll(c.URI, ")", "%29")
-				text += fmt.Sprintf("[%s](%s)", name, uri)
-			} else {
-				text += c.URI
-			}
+			// MCP SDK decodes the base64 wire format into raw bytes,
+			// so we need to re-encode to base64 for our ImageContent.
+			images = append(images, tools.ImageContent{
+				Data:     base64.StdEncoding.EncodeToString(c.Data),
+				MimeType: c.MIMEType,
+			})
 		}
 	}
 
-	return &tools.ToolCallResult{
-		Output:            cmp.Or(text, "no output"),
-		IsError:           toolResult.IsError,
-		Images:            images,
-		Audios:            audios,
-		StructuredContent: toolResult.StructuredContent,
-	}
-}
+	// Handle an empty response. This can happen if the MCP tool does not return any content.
+	finalContent = cmp.Or(finalContent, "no output")
 
-// encodeMedia re-encodes raw bytes (as decoded by the MCP SDK) back to base64
-// for our internal MediaContent representation.
-func encodeMedia(data []byte, mimeType string) tools.MediaContent {
-	return tools.MediaContent{
-		Data:     base64.StdEncoding.EncodeToString(data),
-		MimeType: mimeType,
+	result := &tools.ToolCallResult{
+		Output:  finalContent,
+		IsError: toolResult.IsError,
+		Images:  images,
 	}
+	return result
 }
 
 func (ts *Toolset) SetElicitationHandler(handler tools.ElicitationHandler) {

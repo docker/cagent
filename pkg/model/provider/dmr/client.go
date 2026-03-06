@@ -971,39 +971,19 @@ func parseDMRProviderOpts(cfg *latest.ModelConfig) (contextSize *int64, runtimeF
 }
 
 func pullDockerModelIfNeeded(ctx context.Context, model string) error {
+	// Check if running in interactive mode (stdin is a terminal)
+	interactive := term.IsTerminal(int(os.Stdin.Fd()))
+	if !interactive {
+		// In non-interactive mode (CI / Servers), do not attempt to pull the model
+		return nil
+	}
+
 	if modelExists(ctx, model) {
 		slog.Debug("Model already exists, skipping pull", "model", model)
 		return nil
 	}
 
-	if err := confirmModelPull(ctx, model); err != nil {
-		return err
-	}
-
-	slog.Info("Pulling DMR model", "model", model)
-	fmt.Printf("Pulling model %s...\n", model)
-
-	cmd := exec.CommandContext(ctx, "docker", "model", "pull", model)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to pull model %s: %w", model, err)
-	}
-
-	slog.Info("Model pulled successfully", "model", model)
-	fmt.Printf("Model %s pulled successfully.\n", model)
-
-	return nil
-}
-
-// confirmModelPull asks for user confirmation in interactive mode.
-// In non-interactive mode (e.g. devcontainers, CI), it proceeds automatically.
-func confirmModelPull(ctx context.Context, model string) error {
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		slog.Info("Model not found locally, pulling automatically (non-interactive mode)", "model", model)
-		return nil
-	}
-
+	// Prompt user for confirmation in interactive mode
 	fmt.Printf("\nModel %s not found locally.\n", model)
 	fmt.Printf("Do you want to pull it now? ([y]es/[n]o): ")
 
@@ -1016,6 +996,19 @@ func confirmModelPull(ctx context.Context, model string) error {
 	if response != "y" && response != "yes" {
 		return fmt.Errorf("model pull declined by user")
 	}
+
+	// Pull the model
+	slog.Info("Pulling DMR model", "model", model)
+	fmt.Printf("Pulling model %s...\n", model)
+	cmd := exec.CommandContext(ctx, "docker", "model", "pull", model)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to pull model %s: %w", model, err)
+	}
+
+	slog.Info("Model pulled successfully", "model", model)
+	fmt.Printf("Model %s pulled successfully.\n", model)
 
 	return nil
 }

@@ -95,10 +95,6 @@ type appModel struct {
 	// Working state indicator (resize handle spinner)
 	workingSpinner spinner.Spinner
 
-	// animFrame is the current animation frame, used to rotate the window
-	// title spinner so that tmux can detect pane activity.
-	animFrame int
-
 	// Window state
 	wWidth, wHeight int
 	width, height   int
@@ -449,8 +445,6 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.workingSpinner = model.(spinner.Spinner)
 			cmds = append(cmds, cmd)
 		}
-		// Track frame for window-title spinner (tmux activity detection)
-		m.animFrame = msg.Frame
 		// Forward frame to tab bar for running indicator animation
 		m.tabBar.SetAnimFrame(msg.Frame)
 		if animation.HasActive() {
@@ -686,8 +680,11 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// --- File attachments (routed to editor) ---
 
 	case messages.InsertFileRefMsg:
-		m.editor.AttachFile(msg.FilePath)
-		return m, nil
+		if err := m.editor.AttachFile(msg.FilePath); err != nil {
+			slog.Warn("failed to attach file", "path", msg.FilePath, "error", err)
+			return m, nil
+		}
+		return m, notification.SuccessCmd("File attached: " + msg.FilePath)
 
 	// --- Agent management ---
 
@@ -1998,17 +1995,11 @@ func (m *appModel) View() tea.View {
 }
 
 // windowTitle returns the terminal window title.
-// When the agent is working, a rotating spinner character is prepended so that
-// terminal multiplexers (tmux) can detect activity in the pane.
 func (m *appModel) windowTitle() string {
-	title := "cagent"
 	if sessionTitle := m.sessionState.SessionTitle(); sessionTitle != "" {
-		title = sessionTitle + " - cagent"
+		return sessionTitle + " - cagent"
 	}
-	if m.chatPage.IsWorking() {
-		title = spinner.Frame(m.animFrame) + " " + title
-	}
-	return title
+	return "cagent"
 }
 
 // cleanupAll cleans up all sessions, editors, and resources.

@@ -44,13 +44,13 @@ You can also install docker-agent as a docker CLI plugin, by copying `docker-age
 
 ## Download Binary Releases
 
-Download [prebuilt binary releases](https://github.com/docker/docker-agent/releases) for Windows, macOS, and Linux from the GitHub Releases page.
+Download [prebuilt binary releases](https://github.com/docker/cagent/releases) for Windows, macOS, and Linux from the GitHub Releases page.
 
 ### macOS / Linux
 
 ```bash
 # Download the latest release (adjust URL for your platform)
-curl -L https://github.com/docker/docker-agent/releases/latest/download/docker-agent-$(uname -s)-$(uname -m) -o docker-agent
+curl -L https://github.com/docker/cagent/releases/latest/download/docker-agent-$(uname -s)-$(uname -m) -o docker-agent
 chmod +x docker-agent
 sudo mv docker-agent /usr/local/bin/
 docker-agent version
@@ -63,7 +63,7 @@ docker agent version
 
 ### Windows
 
-Download `docker-agent-Windows-amd64.exe` from the [releases page](https://github.com/docker/docker-agent/releases), rename it to `docker-agent.exe` and add it to your PATH. Alternatively you can move it to `~/.docker/cli-plugins`
+Download `docker-agent-Windows-amd64.exe` from the [releases page](https://github.com/docker/cagent/releases), rename it to `docker-agent.exe` and add it to your PATH. Alternatively you can move it to `~/.docker/cli-plugins`
 
 ## Build from Source
 
@@ -77,8 +77,8 @@ For the latest features, or to contribute, build from source:
 
 ```bash
 # Clone the repository
-git clone https://github.com/docker/docker-agent.git
-cd docker-agent
+git clone https://github.com/docker/cagent.git
+cd cagent
 
 # Build the binary
 task build

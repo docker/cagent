@@ -389,25 +389,22 @@ func (r *LocalRuntime) getAvailableProviders(ctx context.Context) map[string]boo
 		return available
 	}
 
-	// Check credentials for each alias provider
-	for name, alias := range provider.Aliases {
-		if alias.TokenEnvVar == "" {
-			continue
-		}
-		if key, _ := env.Get(ctx, alias.TokenEnvVar); key != "" {
-			available[name] = true
-		}
+	// Check credentials for each provider
+	providerEnvVars := map[string]string{
+		"openai":    "OPENAI_API_KEY",
+		"anthropic": "ANTHROPIC_API_KEY",
+		"google":    "GOOGLE_API_KEY",
+		"mistral":   "MISTRAL_API_KEY",
+		"xai":       "XAI_API_KEY",
+		"nebius":    "NEBIUS_API_KEY",
+		"requesty":  "REQUESTY_API_KEY",
+		"azure":     "AZURE_API_KEY",
 	}
 
-	// Check core providers with well-known env vars
-	if key, _ := env.Get(ctx, "OPENAI_API_KEY"); key != "" {
-		available["openai"] = true
-	}
-	if key, _ := env.Get(ctx, "ANTHROPIC_API_KEY"); key != "" {
-		available["anthropic"] = true
-	}
-	if key, _ := env.Get(ctx, "GOOGLE_API_KEY"); key != "" {
-		available["google"] = true
+	for providerName, envVar := range providerEnvVars {
+		if key, _ := env.Get(ctx, envVar); key != "" {
+			available[providerName] = true
+		}
 	}
 
 	// DMR and ollama don't require credentials (local models)

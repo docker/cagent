@@ -21,32 +21,9 @@ type Config struct {
 	Agents      Agents                    `json:"agents,omitempty"`
 	Providers   map[string]ProviderConfig `json:"providers,omitempty"`
 	Models      map[string]ModelConfig    `json:"models,omitempty"`
-	MCPs        map[string]MCPToolset     `json:"mcps,omitempty"`
 	RAG         map[string]RAGConfig      `json:"rag,omitempty"`
 	Metadata    Metadata                  `json:"metadata"`
 	Permissions *PermissionsConfig        `json:"permissions,omitempty"`
-}
-
-// MCPToolset is a reusable MCP server definition stored in the top-level
-// "mcps" section. It is identical to a Toolset but skips the normal
-// Toolset.validate() call during YAML unmarshaling because the "type"
-// field is implicit (always "mcp") and the source (command/remote/ref)
-// is validated later during config resolution.
-type MCPToolset struct {
-	Toolset `json:",inline" yaml:",inline"`
-}
-
-func (m *MCPToolset) UnmarshalYAML(unmarshal func(any) error) error {
-	// Use a plain alias to avoid triggering Toolset.UnmarshalYAML
-	// (which calls validate and requires "type" to be set).
-	type alias Toolset
-	var tmp alias
-	if err := unmarshal(&tmp); err != nil {
-		return err
-	}
-	m.Toolset = Toolset(tmp)
-	m.Type = "mcp"
-	return m.validate()
 }
 
 type Agents []AgentConfig

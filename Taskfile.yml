@@ -1,7 +1,7 @@
 version: "3"
 
 vars:
-  DEPRECATED_BINARY_NAME: cagent{{if eq OS "windows"}}.exe{{end}}
+  BINARY_NAME: cagent{{if eq OS "windows"}}.exe{{end}}
   CLI_PLUGIN_BINARY_NAME: docker-agent{{if eq OS "windows"}}.exe{{end}}
   MAIN_PKG: ./main.go
   BUILD_DIR: ./bin
@@ -24,9 +24,8 @@ tasks:
     aliases: [b]
     desc: Build the application binary
     cmds:
-      - go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.CLI_PLUGIN_BINARY_NAME}} {{.MAIN_PKG}}
-      - cp "{{.BUILD_DIR}}/{{.CLI_PLUGIN_BINARY_NAME}}" {{.BUILD_DIR}}/{{.DEPRECATED_BINARY_NAME}}
-      - '{{if ne .CI "true"}}ln -sf {{.USER_WORKING_DIR}}/{{.BUILD_DIR}}/{{.CLI_PLUGIN_BINARY_NAME}} {{.HOME}}/bin/{{.CLI_PLUGIN_BINARY_NAME}}{{end}}'
+      - go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.BINARY_NAME}} {{.MAIN_PKG}}
+      - '{{if ne .CI "true"}}ln -sf {{.USER_WORKING_DIR}}/{{.BUILD_DIR}}/{{.BINARY_NAME}} {{.HOME}}/bin/{{.BINARY_NAME}}{{end}}'
     sources:
       - "{{.GO_SOURCES}}"
       - "**/*.template"
@@ -35,15 +34,15 @@ tasks:
       - "go.mod"
       - "go.sum"
     generates:
-      - "{{.BUILD_DIR}}/{{.CLI_PLUGIN_BINARY_NAME}}"
-      - "{{.BUILD_DIR}}/{{.DEPRECATED_BINARY_NAME}}"
+      - "{{.BUILD_DIR}}/{{.BINARY_NAME}}"
 
   deploy-local:
     desc: Deploy the docker agent cli-plugin
     deps: ["build"]
     cmds:
       - mkdir -p ~/.docker/cli-plugins
-      - cp -P "{{.BUILD_DIR}}/{{.CLI_PLUGIN_BINARY_NAME}}" ~/.docker/cli-plugins/{{.CLI_PLUGIN_BINARY_NAME}}
+      - cp "{{.BUILD_DIR}}/{{.BINARY_NAME}}" ~/.docker/cli-plugins/{{.CLI_PLUGIN_BINARY_NAME}}
+      - cp "{{.BUILD_DIR}}/{{.BINARY_NAME}}" {{.BUILD_DIR}}/{{.CLI_PLUGIN_BINARY_NAME}}
 
   lint:
     desc: Run golangci-lint

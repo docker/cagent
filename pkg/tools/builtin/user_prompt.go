@@ -25,7 +25,6 @@ var (
 
 type UserPromptArgs struct {
 	Message string         `json:"message" jsonschema:"The message/question to display to the user"`
-	Title   string         `json:"title,omitempty" jsonschema:"Optional title for the dialog window (defaults to 'Question')"`
 	Schema  map[string]any `json:"schema,omitempty" jsonschema:"JSON Schema defining the expected response structure. Supports object schemas with properties or primitive type schemas."`
 }
 
@@ -47,15 +46,9 @@ func (t *UserPromptTool) userPrompt(ctx context.Context, params UserPromptArgs) 
 		return tools.ResultError("user_prompt tool is not available in this context (no elicitation handler configured)"), nil
 	}
 
-	var meta mcp.Meta
-	if params.Title != "" {
-		meta = mcp.Meta{"cagent/title": params.Title}
-	}
-
 	req := &mcp.ElicitParams{
 		Message:         params.Message,
 		RequestedSchema: params.Schema,
-		Meta:            meta,
 	}
 
 	result, err := t.elicitationHandler(ctx, req)
@@ -88,10 +81,7 @@ func (t *UserPromptTool) Instructions() string {
 
 Use user_prompt to ask the user a question or gather input when you need clarification, specific information, or a decision.
 
-Optionally provide a "title" to label the dialog (defaults to "Question").
-
 Optionally provide a JSON schema to structure the expected response (object, primitive, or enum types).
-If no schema is provided, the user can type a free-form response.
 
 Example schema for multiple choice:
 {"type": "string", "enum": ["option1", "option2"], "title": "Select an option"}

@@ -11,7 +11,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/docker/cagent/pkg/model/provider"
 	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/tui/components/scrollview"
 	"github.com/docker/cagent/pkg/tui/components/toolcommon"
@@ -20,6 +19,15 @@ import (
 	"github.com/docker/cagent/pkg/tui/messages"
 	"github.com/docker/cagent/pkg/tui/styles"
 )
+
+// SupportedProviders lists the valid provider names that can be used in custom model specs.
+// This includes both core providers and aliases.
+var SupportedProviders = []string{
+	// Core providers
+	"openai", "anthropic", "google", "dmr",
+	// Aliases (these map to core providers with different defaults)
+	"requesty", "azure", "xai", "nebius", "mistral", "ollama",
+}
 
 // modelPickerDialog is a dialog for selecting a model for the current agent.
 type modelPickerDialog struct {
@@ -305,13 +313,23 @@ func validateCustomModelSpec(spec string) error {
 			return fmt.Errorf("model name cannot be empty (got '%s/')", providerName)
 		}
 
-		if !provider.IsKnownProvider(providerName) {
+		if !isValidProvider(providerName) {
 			return fmt.Errorf("unknown provider '%s'. Supported: %s",
-				providerName, strings.Join(provider.AllProviders(), ", "))
+				providerName, strings.Join(SupportedProviders, ", "))
 		}
 	}
 
 	return nil
+}
+
+// isValidProvider checks if the provider name is in the list of supported providers.
+func isValidProvider(name string) bool {
+	for _, p := range SupportedProviders {
+		if strings.EqualFold(p, name) {
+			return true
+		}
+	}
+	return false
 }
 
 func (d *modelPickerDialog) filterModels() {

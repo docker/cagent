@@ -211,11 +211,3 @@ func fileNameWithoutExt(path string) string {
 	ext := filepath.Ext(base)
 	return strings.TrimSuffix(base, ext)
 }
-
-// IsExternalReference reports whether the input is an external agent reference
-// (OCI image or URL) rather than a local agent name defined in the same config.
-// Local agent names never contain "/", so the slash check distinguishes them
-// from OCI references like "agentcatalog/pirate" or "docker.io/org/agent:v1".
-func IsExternalReference(input string) bool {
-	return IsURLReference(input) || (strings.Contains(input, "/") && IsOCIReference(input))
-}

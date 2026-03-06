@@ -1,7 +1,7 @@
 title: Docker Agent
 description: Build, run, and share powerful AI agents with a declarative YAML config, rich tool ecosystem, and multi-agent orchestration — by Docker.
 url: "https://docker.github.io"
-baseurl: "/docker-agent"
+baseurl: "/cagent"
 
 # Use kramdown (GitHub Pages default) with GFM
 markdown: kramdown

@@ -385,19 +385,3 @@ agents:
 	expected := []string{"AGENTS.md", "CLAUDE.md", "extra.md"}
 	assert.Equal(t, expected, rootAgent.AddPromptFiles())
 }
-
-func TestExternalDepthContext(t *testing.T) {
-	t.Parallel()
-
-	// Default depth is 0
-	ctx := t.Context()
-	assert.Equal(t, 0, externalDepthFromContext(ctx))
-
-	// Setting depth works
-	ctx = contextWithExternalDepth(ctx, 3)
-	assert.Equal(t, 3, externalDepthFromContext(ctx))
-
-	// Nested overrides
-	ctx = contextWithExternalDepth(ctx, 7)
-	assert.Equal(t, 7, externalDepthFromContext(ctx))
-}

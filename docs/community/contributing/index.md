@@ -28,8 +28,8 @@ _docker-agent is open source. Here's how to set up your development environment 
 
 ```bash
 # Clone and build
-git clone https://github.com/docker/docker-agent.git
-cd docker-agent
+git clone https://github.com/docker/cagent.git
+cd cagent
 task build
 
 # Set API keys
@@ -84,7 +84,7 @@ Key conventions:
 
 ## Opening Issues
 
-File issues on the [GitHub issue tracker](https://github.com/docker/docker-agent/issues). Please:
+File issues on the [GitHub issue tracker](https://github.com/docker/cagent/issues). Please:
 
 <div class="callout callout-info">
 <div class="callout-title">ℹ️ See also

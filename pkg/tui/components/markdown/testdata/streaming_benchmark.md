@@ -37,7 +37,7 @@ curl -fsSL https://example.com/install.sh | bash
 Then verify the installation:
 
 ```bash
-docker agent version
+cagent version
 ```
 
 ## Core Concepts

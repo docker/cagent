@@ -130,7 +130,6 @@ type model struct {
 	toolsLoading       bool // true when more tools may still be loading
 	sessionState       *service.SessionState
 	workingAgent       string // Name of the agent currently working (empty if none)
-	currentSessionID   string // Session ID of the currently active stream
 	scrollview         *scrollview.Model
 	workingDirectory   string
 	queuedMessages     []string // Truncated preview of queued messages
@@ -485,22 +484,17 @@ func formatCost(cost float64) string {
 	return fmt.Sprintf("%.2f", cost)
 }
 
-// currentSessionUsage returns the usage snapshot for the current agent's session.
-// It uses a 3-tier lookup: session ID (most reliable) → agent name → single-session fallback.
-func (m *model) currentSessionUsage() (*runtime.Usage, bool) {
-	// Direct lookup by current session ID (most reliable, no map iteration ambiguity).
-	if m.currentSessionID != "" {
-		if usage, ok := m.sessionUsage[m.currentSessionID]; ok {
-			return usage, true
-		}
-	}
-
-	// Fallback: search by current agent name.
+// contextPercent returns a context usage percentage string for the current agent's session.
+// It looks up the session belonging to the current agent; if none is found, it falls back
+// to returning the percentage when there is exactly one session.
+func (m *model) contextPercent() string {
+	// Try to find the session belonging to the current agent.
 	if m.currentAgent != "" {
 		for sessionID, agentName := range m.sessionAgent {
 			if agentName == m.currentAgent {
-				if usage, ok := m.sessionUsage[sessionID]; ok {
-					return usage, true
+				if usage, ok := m.sessionUsage[sessionID]; ok && usage.ContextLimit > 0 {
+					percent := (float64(usage.ContextLength) / float64(usage.ContextLimit)) * 100
+					return fmt.Sprintf("%.0f%%", percent)
 				}
 			}
 		}
@@ -509,25 +503,11 @@ func (m *model) currentSessionUsage() (*runtime.Usage, bool) {
 	// Fallback: if there's exactly one session, use it.
 	if len(m.sessionUsage) == 1 {
 		for _, usage := range m.sessionUsage {
-			return usage, true
+			if usage.ContextLimit > 0 {
+				percent := (float64(usage.ContextLength) / float64(usage.ContextLimit)) * 100
+				return fmt.Sprintf("%.0f%%", percent)
+			}
 		}
-	}
-	return nil, false
-}
-
-// currentSessionTokens returns the token count for the current agent's session.
-func (m *model) currentSessionTokens() (tokens int64, found bool) {
-	if usage, ok := m.currentSessionUsage(); ok {
-		return usage.InputTokens + usage.OutputTokens, true
-	}
-	return 0, false
-}
-
-// contextPercent returns a context usage percentage string for the current agent's session.
-func (m *model) contextPercent() string {
-	if usage, ok := m.currentSessionUsage(); ok && usage.ContextLimit > 0 {
-		percent := (float64(usage.ContextLength) / float64(usage.ContextLimit)) * 100
-		return fmt.Sprintf("%.0f%%", percent)
 	}
 	return ""
 }
@@ -646,7 +626,6 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		// New stream starting - reset cancelled flag and enable spinner
 		m.streamCancelled = false
 		m.workingAgent = msg.AgentName
-		m.currentSessionID = msg.SessionID
 		// If title hasn't been generated yet, show the title generation spinner
 		if !m.titleGenerated {
 			m.titleRegenerating = true
@@ -1008,40 +987,22 @@ func (m *model) formatProgress(state *ragIndexingState) string {
 	return ""
 }
 
-// usageStats holds aggregated usage statistics across all sessions, computed
-// once so both tokenUsage (vertical) and tokenUsageSummary (collapsed) can
-// reuse the values without duplicating the computation logic.
-type usageStats struct {
-	tokens       int64
-	contextPct   string
-	totalCost    float64
-	sessionCount int
-}
-
-func (m *model) computeUsageStats() usageStats {
-	var s usageStats
-	for _, usage := range m.sessionUsage {
-		s.totalCost += usage.Cost
-		s.sessionCount++
-	}
-	s.tokens, _ = m.currentSessionTokens()
-	s.contextPct = m.contextPercent()
-	return s
-}
-
 func (m *model) tokenUsage(contentWidth int) string {
-	s := m.computeUsageStats()
-
-	line := formatTokenCount(s.tokens)
-	if s.contextPct != "" {
-		line += " (" + s.contextPct + ")"
-	}
-	line += " " + styles.TabAccentStyle.Render("$"+formatCost(s.totalCost))
-	if s.sessionCount > 1 {
-		line += " " + styles.MutedStyle.Render(fmt.Sprintf("(%d sub-sessions)", s.sessionCount-1))
+	var totalTokens int64
+	var totalCost float64
+	for _, usage := range m.sessionUsage {
+		totalTokens += usage.InputTokens + usage.OutputTokens
+		totalCost += usage.Cost
 	}
 
-	return m.renderTab("Token Usage", line, contentWidth)
+	var tokenUsage strings.Builder
+	fmt.Fprintf(&tokenUsage, "%s", formatTokenCount(totalTokens))
+	if ctxText := m.contextPercent(); ctxText != "" {
+		fmt.Fprintf(&tokenUsage, " (%s)", ctxText)
+	}
+	fmt.Fprintf(&tokenUsage, " %s", styles.TabAccentStyle.Render("$"+formatCost(totalCost)))
+
+	return m.renderTab("Token Usage", tokenUsage.String(), contentWidth)
 }
 
 // tokenUsageSummary returns a single-line summary for horizontal layout.
@@ -1050,22 +1011,18 @@ func (m *model) tokenUsageSummary() string {
 		return ""
 	}
 
-	s := m.computeUsageStats()
-
-	parts := []string{fmt.Sprintf("Tokens: %s", formatTokenCount(s.tokens))}
-	if s.sessionCount > 1 {
-		if s.contextPct != "" {
-			parts = append(parts, fmt.Sprintf("Context: %s", s.contextPct))
-		}
-		parts = append(parts, fmt.Sprintf("Cost: $%s", formatCost(s.totalCost)), fmt.Sprintf("%d sub-sessions", s.sessionCount-1))
-	} else {
-		parts = append(parts, fmt.Sprintf("Cost: $%s", formatCost(s.totalCost)))
-		if s.contextPct != "" {
-			parts = append(parts, fmt.Sprintf("Context: %s", s.contextPct))
-		}
+	var totalTokens int64
+	var totalCost float64
+	for _, usage := range m.sessionUsage {
+		totalTokens += usage.InputTokens + usage.OutputTokens
+		totalCost += usage.Cost
 	}
 
-	return strings.Join(parts, " | ")
+	if ctxText := m.contextPercent(); ctxText != "" {
+		return fmt.Sprintf("Tokens: %s | Cost: $%s | Context: %s", formatTokenCount(totalTokens), formatCost(totalCost), ctxText)
+	}
+
+	return fmt.Sprintf("Tokens: %s | Cost: $%s", formatTokenCount(totalTokens), formatCost(totalCost))
 }
 
 func (m *model) sessionInfo(contentWidth int) string {

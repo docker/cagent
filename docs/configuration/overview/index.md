@@ -172,7 +172,7 @@ docker-agent validates your configuration at startup:
 
 ## JSON Schema
 
-For editor autocompletion and validation, use the [Docker Agent JSON Schema](https://github.com/docker/docker-agent/blob/main/agent-schema.json). Add this to the top of your YAML file:
+For editor autocompletion and validation, use the [Docker Agent JSON Schema](https://github.com/docker/cagent/blob/main/agent-schema.json). Add this to the top of your YAML file:
 
 ```bash
 # yaml-language-server: $schema=https://raw.githubusercontent.com/docker/docker-agent/main/agent-schema.json

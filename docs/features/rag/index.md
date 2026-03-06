@@ -184,7 +184,7 @@ Look for log tags: `[RAG Manager]`, `[Chunked-Embeddings Strategy]`, `[BM25 Stra
 <div class="callout callout-tip">
 <div class="callout-title">💡 Examples
 </div>
-  <p>See the <a href="https://github.com/docker/docker-agent/tree/main/examples/rag">RAG examples</a> in the GitHub repo for complete, runnable configurations.</p>
+  <p>See the <a href="https://github.com/docker/cagent/tree/main/examples/rag">RAG examples</a> in the GitHub repo for complete, runnable configurations.</p>
 
 </div>
 

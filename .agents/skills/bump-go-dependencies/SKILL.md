@@ -53,7 +53,7 @@ task test
 - **If both pass**: stage and commit the changes:
   ```sh
   git add -A
-  git commit -m "bump <module_path> from <old_version> to <new_version>" -m "" -m "Assisted-By: docker-agent"
+  git commit -m "bump <module_path> from <old_version> to <new_version>" -m "" -m "Assisted-By: cagent"
   ```
   Record the dependency as **bumped** in your tracking table.
 

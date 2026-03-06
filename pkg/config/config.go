@@ -113,10 +113,6 @@ func validateConfig(cfg *latest.Config) error {
 		return err
 	}
 
-	if err := resolveMCPDefinitions(cfg); err != nil {
-		return err
-	}
-
 	allNames := map[string]bool{}
 	for _, agent := range cfg.Agents {
 		allNames[agent.Name] = true
@@ -124,14 +120,8 @@ func validateConfig(cfg *latest.Config) error {
 
 	for _, agent := range cfg.Agents {
 		for _, subAgentName := range agent.SubAgents {
-			if _, exists := allNames[subAgentName]; !exists && !IsExternalReference(subAgentName) {
+			if _, exists := allNames[subAgentName]; !exists {
 				return fmt.Errorf("agent '%s' references non-existent sub-agent '%s'", agent.Name, subAgentName)
-			}
-		}
-
-		for _, handoffName := range agent.Handoffs {
-			if _, exists := allNames[handoffName]; !exists && !IsExternalReference(handoffName) {
-				return fmt.Errorf("agent '%s' references non-existent handoff agent '%s'", agent.Name, handoffName)
 			}
 		}
 

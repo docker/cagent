@@ -831,38 +831,24 @@ body {
   padding: 8px;
 }
 .search-result {
-  display: block;
-  padding: 10px 16px;
+  padding: 12px 16px;
   border-radius: var(--radius);
   cursor: pointer;
   transition: background 0.15s;
-  text-decoration: none;
-  color: var(--text);
 }
 .search-result:hover,
 .search-result:focus {
   background: var(--bg-hover);
   outline: none;
-  text-decoration: none;
 }
 .search-result-title {
-  font-weight: 500;
+  font-weight: 600;
   font-size: 0.9rem;
   color: var(--text);
 }
-.search-result-group {
-  padding: 12px 16px 4px;
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+.search-result-section {
+  font-size: 0.8rem;
   color: var(--text-muted);
-  user-select: none;
-}
-.search-result-group:not(:first-child) {
-  margin-top: 4px;
-  border-top: 1px solid var(--border-light);
-  padding-top: 12px;
 }
 .search-result-match {
   font-size: 0.78rem;

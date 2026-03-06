@@ -110,144 +110,70 @@ func TestCallToolStripsNullArguments(t *testing.T) {
 	}
 }
 
-func TestProcessMCPContent(t *testing.T) {
+func TestProcessMCPContent_WithImages(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name           string
-		input          *mcp.CallToolResult
-		wantOutput     string
-		wantIsError    bool
-		wantImages     []tools.MediaContent
-		wantAudios     []tools.MediaContent
-		wantStructured any
-	}{
-		// --- text ---
-		{
-			name:       "text only",
-			input:      callToolResult(&mcp.TextContent{Text: "hello"}),
-			wantOutput: "hello",
-		},
-		{
-			name:       "empty response",
-			input:      &mcp.CallToolResult{},
-			wantOutput: "no output",
-		},
-
-		// --- images ---
-		{
-			name:       "image only",
-			input:      callToolResult(&mcp.ImageContent{Data: []byte("imagedata"), MIMEType: "image/png"}),
-			wantOutput: "no output",
-			wantImages: []tools.MediaContent{{Data: "aW1hZ2VkYXRh", MimeType: "image/png"}},
-		},
-		{
-			name:       "text and image",
-			input:      callToolResult(&mcp.TextContent{Text: "Here is the screenshot"}, &mcp.ImageContent{Data: []byte("screenshot"), MIMEType: "image/jpeg"}),
-			wantOutput: "Here is the screenshot",
-			wantImages: []tools.MediaContent{{Data: "c2NyZWVuc2hvdA==", MimeType: "image/jpeg"}},
-		},
-		{
-			name:        "error with image",
-			input:       &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "error occurred"}, &mcp.ImageContent{Data: []byte("error"), MIMEType: "image/png"}}},
-			wantOutput:  "error occurred",
-			wantIsError: true,
-			wantImages:  []tools.MediaContent{{Data: "ZXJyb3I=", MimeType: "image/png"}},
-		},
-
-		// --- audio ---
-		{
-			name:       "audio only",
-			input:      callToolResult(&mcp.AudioContent{Data: []byte("audiodata"), MIMEType: "audio/wav"}),
-			wantOutput: "no output",
-			wantAudios: []tools.MediaContent{{Data: "YXVkaW9kYXRh", MimeType: "audio/wav"}},
-		},
-		{
-			name:       "text and audio",
-			input:      callToolResult(&mcp.TextContent{Text: "Here is the recording"}, &mcp.AudioContent{Data: []byte("recording"), MIMEType: "audio/mp3"}),
-			wantOutput: "Here is the recording",
-			wantAudios: []tools.MediaContent{{Data: "cmVjb3JkaW5n", MimeType: "audio/mp3"}},
-		},
-		{
-			name:       "text image and audio",
-			input:      callToolResult(&mcp.TextContent{Text: "multimedia"}, &mcp.ImageContent{Data: []byte("img"), MIMEType: "image/png"}, &mcp.AudioContent{Data: []byte("aud"), MIMEType: "audio/wav"}),
-			wantOutput: "multimedia",
-			wantImages: []tools.MediaContent{{Data: "aW1n", MimeType: "image/png"}},
-			wantAudios: []tools.MediaContent{{Data: "YXVk", MimeType: "audio/wav"}},
-		},
-
-		// --- resource links ---
-		{
-			name:       "resource link with name",
-			input:      callToolResult(&mcp.ResourceLink{Name: "my-doc", URI: "file:///path/to/doc.txt"}),
-			wantOutput: "[my-doc](file:///path/to/doc.txt)",
-		},
-		{
-			name:       "resource link without name",
-			input:      callToolResult(&mcp.ResourceLink{URI: "file:///path/to/doc.txt"}),
-			wantOutput: "file:///path/to/doc.txt",
-		},
-		{
-			name:       "text and resource link",
-			input:      callToolResult(&mcp.TextContent{Text: "See: "}, &mcp.ResourceLink{Name: "readme", URI: "file:///README.md"}),
-			wantOutput: "See: [readme](file:///README.md)",
-		},
-		{
-			name:       "resource link name with bracket is escaped",
-			input:      callToolResult(&mcp.ResourceLink{Name: "doc]name", URI: "file:///doc.txt"}),
-			wantOutput: `[doc\]name](file:///doc.txt)`,
-		},
-		{
-			name:       "resource link URI with paren is escaped",
-			input:      callToolResult(&mcp.ResourceLink{Name: "doc", URI: "file:///path(1)/doc.txt"}),
-			wantOutput: "[doc](file:///path(1%29/doc.txt)",
-		},
-
-		// --- structured content ---
-		{
-			name:           "structured content passed through",
-			input:          &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "done"}}, StructuredContent: map[string]any{"status": "ok", "count": float64(42)}},
-			wantOutput:     "done",
-			wantStructured: map[string]any{"status": "ok", "count": float64(42)},
-		},
-		{
-			name:       "nil structured content",
-			input:      callToolResult(&mcp.TextContent{Text: "hello"}),
-			wantOutput: "hello",
-		},
-		{
-			name:           "structured content without text",
-			input:          &mcp.CallToolResult{StructuredContent: map[string]any{"key": "value"}},
-			wantOutput:     "no output",
-			wantStructured: map[string]any{"key": "value"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			result := processMCPContent(tt.input)
-
-			assert.Equal(t, tt.wantOutput, result.Output)
-			assert.Equal(t, tt.wantIsError, result.IsError)
-
-			if tt.wantImages != nil {
-				assert.Equal(t, tt.wantImages, result.Images)
-			} else {
-				assert.Empty(t, result.Images)
-			}
-			if tt.wantAudios != nil {
-				assert.Equal(t, tt.wantAudios, result.Audios)
-			} else {
-				assert.Empty(t, result.Audios)
-			}
-			assert.Equal(t, tt.wantStructured, result.StructuredContent)
+	t.Run("text only", func(t *testing.T) {
+		t.Parallel()
+		result := processMCPContent(&mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "hello"}},
 		})
-	}
-}
+		assert.Equal(t, "hello", result.Output)
+		assert.Empty(t, result.Images)
+		assert.False(t, result.IsError)
+	})
 
-// callToolResult is a helper to build a CallToolResult from content blocks.
-func callToolResult(content ...mcp.Content) *mcp.CallToolResult {
-	return &mcp.CallToolResult{Content: content}
+	t.Run("image only", func(t *testing.T) {
+		t.Parallel()
+		// mcp.ImageContent.Data holds raw bytes (SDK decodes base64 from wire)
+		rawImageData := []byte("imagedata")
+		result := processMCPContent(&mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.ImageContent{
+					Data:     rawImageData,
+					MIMEType: "image/png",
+				},
+			},
+		})
+		assert.Equal(t, "no output", result.Output) // no text content, so default
+		require.Len(t, result.Images, 1)
+		assert.Equal(t, "image/png", result.Images[0].MimeType)
+		// Output should be base64-encoded
+		assert.Equal(t, "aW1hZ2VkYXRh", result.Images[0].Data)
+	})
+
+	t.Run("text and image", func(t *testing.T) {
+		t.Parallel()
+		result := processMCPContent(&mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: "Here is the screenshot"},
+				&mcp.ImageContent{
+					Data:     []byte("screenshot"),
+					MIMEType: "image/jpeg",
+				},
+			},
+		})
+		assert.Equal(t, "Here is the screenshot", result.Output)
+		require.Len(t, result.Images, 1)
+		assert.Equal(t, "image/jpeg", result.Images[0].MimeType)
+		assert.Equal(t, "c2NyZWVuc2hvdA==", result.Images[0].Data)
+	})
+
+	t.Run("error with image", func(t *testing.T) {
+		t.Parallel()
+		result := processMCPContent(&mcp.CallToolResult{
+			IsError: true,
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: "error occurred"},
+				&mcp.ImageContent{
+					Data:     []byte("error"),
+					MIMEType: "image/png",
+				},
+			},
+		})
+		assert.True(t, result.IsError)
+		assert.Equal(t, "error occurred", result.Output)
+		require.Len(t, result.Images, 1)
+		assert.Equal(t, "ZXJyb3I=", result.Images[0].Data)
+	})
 }
