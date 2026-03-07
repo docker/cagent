@@ -1,4 +1,4 @@
-// Package export provides HTML export functionality for cagent sessions.
+// Package export provides HTML export functionality for docker agent sessions.
 package export
 
 import (
@@ -341,7 +341,7 @@ func Generate(data SessionData) (string, error) {
 
 	title := data.Title
 	if title == "" {
-		title = "cagent Session"
+		title = "Docker Agent Session"
 	}
 
 	totalTokens := data.InputTokens + data.OutputTokens

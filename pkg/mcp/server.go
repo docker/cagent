@@ -100,7 +100,7 @@ func createMCPServer(ctx context.Context, agentFilename, agentName string, runCo
 	}
 
 	server := mcp.NewServer(&mcp.Implementation{
-		Name:    "cagent",
+		Name:    "docker agent",
 		Version: version.Version,
 	}, nil)
 

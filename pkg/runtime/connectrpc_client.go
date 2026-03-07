@@ -20,7 +20,7 @@ import (
 	"github.com/docker/cagent/pkg/tools"
 )
 
-// ConnectRPCClient is a Connect-RPC client for the cagent server API
+// ConnectRPCClient is a Connect-RPC client for the docker agent server API
 type ConnectRPCClient struct {
 	client cagentv1connect.AgentServiceClient
 }
@@ -39,7 +39,7 @@ func WithConnectRPCHTTPClient(client *http.Client) ConnectRPCClientOption {
 	}
 }
 
-// NewConnectRPCClient creates a new Connect-RPC client for the cagent server
+// NewConnectRPCClient creates a new Connect-RPC client for the docker agent server
 func NewConnectRPCClient(baseURL string, opts ...ConnectRPCClientOption) (*ConnectRPCClient, error) {
 	options := &connectRPCClientOptions{
 		httpClient: &http.Client{

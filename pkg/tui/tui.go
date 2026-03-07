@@ -2004,9 +2004,9 @@ func (m *appModel) View() tea.View {
 // When the agent is working, a rotating spinner character is prepended so that
 // terminal multiplexers (tmux) can detect activity in the pane.
 func (m *appModel) windowTitle() string {
-	title := "cagent"
+	title := "docker agent"
 	if sessionTitle := m.sessionState.SessionTitle(); sessionTitle != "" {
-		title = sessionTitle + " - cagent"
+		title = sessionTitle + " - docker agent"
 	}
 	if m.chatPage.IsWorking() {
 		title = spinner.Frame(m.animFrame) + " " + title

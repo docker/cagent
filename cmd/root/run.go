@@ -69,14 +69,14 @@ func newRunCmd() *cobra.Command {
 		Use:   "run [<agent-file>|<registry-ref>] [message]...",
 		Short: "Run an agent",
 		Long:  "Run an agent with the specified configuration and prompt",
-		Example: `  cagent run ./agent.yaml
-  cagent run ./team.yaml --agent root
-  cagent run # built-in default agent
-  cagent run coder # built-in coding agent
-  cagent run ./echo.yaml "INSTRUCTIONS"
-  cagent run ./echo.yaml "First question" "Follow-up question"
-  echo "INSTRUCTIONS" | cagent run ./echo.yaml -
-  cagent run ./agent.yaml --record  # Records session to auto-generated file`,
+		Example: `  docker-agent run ./agent.yaml
+  docker-agent run ./team.yaml --agent root
+  docker-agent run # built-in default agent
+  docker-agent run coder # built-in coding agent
+  docker-agent run ./echo.yaml "INSTRUCTIONS"
+  docker-agent run ./echo.yaml "First question" "Follow-up question"
+  echo "INSTRUCTIONS" | docker-agent run ./echo.yaml -
+  docker-agent run ./agent.yaml --record  # Records session to auto-generated file`,
 		GroupID:           "core",
 		ValidArgsFunction: completeRunExec,
 		Args:              cobra.ArbitraryArgs,

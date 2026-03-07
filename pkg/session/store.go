@@ -336,7 +336,7 @@ type SQLiteSessionStore struct {
 }
 
 // syncMessagesColumn rebuilds the messages JSON column from session_items for backward compatibility.
-// This allows older versions of cagent to read sessions created by newer versions.
+// This allows older versions of docker agent to read sessions created by newer versions.
 func (s *SQLiteSessionStore) syncMessagesColumn(ctx context.Context, sessionID string) error {
 	return s.syncMessagesColumnWith(ctx, s.db, sessionID)
 }
@@ -742,7 +742,7 @@ type sessionItemRow struct {
 
 // loadSessionItems loads all items for a session from the session_items table.
 // If no items exist in session_items, it falls back to the legacy messages JSON column
-// for backward compatibility with sessions created by older cagent versions.
+// for backward compatibility with sessions created by older docker agent versions.
 func (s *SQLiteSessionStore) loadSessionItems(ctx context.Context, sessionID string) ([]Item, error) {
 	return s.loadSessionItemsWith(ctx, s.db, sessionID)
 }
@@ -846,7 +846,7 @@ func (s *SQLiteSessionStore) loadSessionWith(ctx context.Context, q querier, id 
 }
 
 // loadMessagesFromLegacyColumn loads messages from the legacy messages JSON column.
-// This is used for backward compatibility with sessions created by older cagent versions
+// This is used for backward compatibility with sessions created by older docker agent versions
 // that haven't been migrated to the session_items table yet.
 func (s *SQLiteSessionStore) loadMessagesFromLegacyColumn(ctx context.Context, sessionID string) ([]Item, error) {
 	var messagesJSON sql.NullString
@@ -1138,7 +1138,7 @@ func (s *SQLiteSessionStore) AddMessage(ctx context.Context, sessionID string, m
 		return 0, fmt.Errorf("getting last insert id: %w", err)
 	}
 
-	// Update messages column for backward compatibility with older cagent versions
+	// Update messages column for backward compatibility with older docker agent versions
 	if err := s.syncMessagesColumn(ctx, sessionID); err != nil {
 		slog.Warn("[STORE] Failed to sync messages column", "session_id", sessionID, "error", err)
 	}
@@ -1355,7 +1355,7 @@ func (s *SQLiteSessionStore) AddSummary(ctx context.Context, sessionID, summary 
 		return err
 	}
 
-	// Update messages column for backward compatibility with older cagent versions
+	// Update messages column for backward compatibility with older docker agent versions
 	if syncErr := s.syncMessagesColumn(ctx, sessionID); syncErr != nil {
 		slog.Warn("[STORE] Failed to sync messages column", "session_id", sessionID, "error", syncErr)
 	}

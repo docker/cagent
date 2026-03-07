@@ -59,7 +59,7 @@ func (c *remoteMCPClient) Initialize(ctx context.Context, _ *gomcp.InitializeReq
 
 	// Create an MCP client with elicitation support
 	impl := &gomcp.Implementation{
-		Name:    "cagent",
+		Name:    "docker agent",
 		Version: "1.0.0",
 	}
 

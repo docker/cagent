@@ -13,7 +13,7 @@ import (
 )
 
 // EnsureCommand makes sure a command binary is available.
-// It checks PATH first, then the cagent tools directory, then
+// It checks PATH first, then the docker agent tools directory, then
 // attempts to install from the aqua registry if auto-install is enabled.
 //
 // Returns the resolved command (may be the same string if found in PATH,

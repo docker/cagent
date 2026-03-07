@@ -12,11 +12,11 @@ import (
 	"github.com/docker/cagent/cmd/root"
 )
 
-// cagent runs a cagent CLI command and returns its stdout.
+// runCLI runs a docker agent CLI command and returns its stdout.
 // The first argument is the command name ("exec", "debug", etc.).
 // Commands that talk to an AI model ("exec", "debug title") automatically
 // get a recording AI proxy. The "exec" command also gets a unique session DB.
-func cagent(t *testing.T, command string, moreArgs ...string) string {
+func runCLI(t *testing.T, command string, moreArgs ...string) string {
 	t.Helper()
 
 	args := []string{command}

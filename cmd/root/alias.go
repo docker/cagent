@@ -22,16 +22,16 @@ func newAliasCmd() *cobra.Command {
 		Short: "Manage aliases",
 		Long:  "Create and manage aliases for agent configurations or catalog references.",
 		Example: `  # Create an alias for a catalog agent
-  cagent alias add code agentcatalog/notion-expert
+  docker-agent alias add code agentcatalog/notion-expert
 
   # Create an alias for a local agent file
-  cagent alias add myagent ~/myagent.yaml
+  docker-agent alias add myagent ~/myagent.yaml
 
   # List all registered aliases
-  cagent alias list
+  docker-agent alias list
 
   # Remove an alias
-  cagent alias remove code`,
+  docker-agent alias remove code`,
 		GroupID: "advanced",
 	}
 
@@ -63,19 +63,19 @@ the alias is used:
   --model              Override the agent's model (format: [agent=]provider/model)
   --hide-tool-results  Hide tool call results in the TUI`,
 		Example: `  # Create a simple alias
-  cagent alias add code agentcatalog/notion-expert
+  docker-agent alias add code agentcatalog/notion-expert
 
   # Create an alias that always runs in yolo mode
-  cagent alias add yolo-coder agentcatalog/coder --yolo
+  docker-agent alias add yolo-coder agentcatalog/coder --yolo
 
   # Create an alias with a specific model
-  cagent alias add fast-coder agentcatalog/coder --model openai/gpt-4o-mini
+  docker-agent alias add fast-coder agentcatalog/coder --model openai/gpt-4o-mini
 
   # Create an alias with hidden tool results
-  cagent alias add quiet agentcatalog/coder --hide-tool-results
+  docker-agent alias add quiet agentcatalog/coder --hide-tool-results
 
   # Create an alias with multiple options
-  cagent alias add turbo agentcatalog/coder --yolo --model anthropic/claude-sonnet-4-0`,
+  docker-agent alias add turbo agentcatalog/coder --yolo --model anthropic/claude-sonnet-4-0`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runAliasAddCommand(cmd, args, &flags)
@@ -168,9 +168,9 @@ func runAliasAddCommand(cmd *cobra.Command, args []string, flags *aliasAddFlags)
 	}
 
 	if name == "default" {
-		out.Printf("\nYou can now run: cagent run %s (or even cagent run)\n", name)
+		out.Printf("\nYou can now run: docker agent run %s (or even docker agent run)\n", name)
 	} else {
-		out.Printf("\nYou can now run: cagent run %s\n", name)
+		out.Printf("\nYou can now run: docker agent run %s\n", name)
 	}
 
 	return nil
@@ -189,7 +189,7 @@ func runAliasListCommand(cmd *cobra.Command, args []string) error {
 	allAliases := cfg.Aliases
 	if len(allAliases) == 0 {
 		out.Println("No aliases registered.")
-		out.Println("\nCreate an alias with: cagent alias add <name> <agent-path>")
+		out.Println("\nCreate an alias with: docker agent alias add <name> <agent-path>")
 		return nil
 	}
 
@@ -231,7 +231,7 @@ func runAliasListCommand(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	out.Println("\nRun an alias with: cagent run <alias>")
+	out.Println("\nRun an alias with: docker agent run <alias>")
 
 	return nil
 }

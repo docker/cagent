@@ -202,6 +202,15 @@ type noEnvProvider struct{}
 
 func (p *noEnvProvider) Get(context.Context, string) (string, bool) { return "", false }
 
+type fakeEnvProvider struct {
+	vars map[string]string
+}
+
+func (p *fakeEnvProvider) Get(_ context.Context, name string) (string, bool) {
+	v, ok := p.vars[name]
+	return v, ok
+}
+
 func TestCheckRequiredEnvVars(t *testing.T) {
 	t.Parallel()
 
@@ -282,12 +291,29 @@ func TestCheckRequiredEnvVars(t *testing.T) {
 func TestCheckRequiredEnvVarsWithModelGateway(t *testing.T) {
 	t.Parallel()
 
-	cfg, err := Load(t.Context(), NewFileSource("testdata/env/all.yaml"))
-	require.NoError(t, err)
+	t.Run("with token", func(t *testing.T) {
+		t.Parallel()
 
-	err = CheckRequiredEnvVars(t.Context(), cfg, "gateway:8080", &noEnvProvider{})
+		cfg, err := Load(t.Context(), NewFileSource("testdata/env/all.yaml"))
+		require.NoError(t, err)
 
-	require.NoError(t, err)
+		env := &fakeEnvProvider{vars: map[string]string{
+			environment.DockerDesktopTokenEnv: "some-jwt-token",
+		}}
+
+		err = CheckRequiredEnvVars(t.Context(), cfg, "gateway:8080", env)
+		require.NoError(t, err)
+	})
+
+	t.Run("without token", func(t *testing.T) {
+		t.Parallel()
+
+		cfg, err := Load(t.Context(), NewFileSource("testdata/env/all.yaml"))
+		require.NoError(t, err)
+
+		err = CheckRequiredEnvVars(t.Context(), cfg, "gateway:8080", &noEnvProvider{})
+		require.ErrorContains(t, err, "sign in Docker Desktop")
+	})
 }
 
 func TestApplyModelOverrides(t *testing.T) {

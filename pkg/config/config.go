@@ -3,6 +3,7 @@ package config
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -53,6 +54,12 @@ func Load(ctx context.Context, source Source) (*latest.Config, error) {
 //
 // This allows exiting early with a proper error message instead of failing later when trying to use a model or tool.
 func CheckRequiredEnvVars(ctx context.Context, cfg *latest.Config, modelsGateway string, env environment.Provider) error {
+	if modelsGateway != "" {
+		if jwt, _ := env.Get(ctx, environment.DockerDesktopTokenEnv); jwt == "" {
+			return errors.New("sorry, you first need to sign in Docker Desktop to use the Docker AI Gateway")
+		}
+	}
+
 	missing, err := gatherMissingEnvVars(ctx, cfg, modelsGateway, env)
 	if err != nil {
 		// If there's a tool preflight error, log it but continue

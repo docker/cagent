@@ -126,7 +126,7 @@ func NewRegistry() *Registry {
 }
 
 // SharedRegistry returns a package-level Registry instance that is reused
-// across all tool resolutions within a cagent session, avoiding repeated
+// across all tool resolutions within a docker agent session, avoiding repeated
 // YAML parsing and HTTP fetches.
 func SharedRegistry() *Registry {
 	sharedRegistryOnce.Do(func() {

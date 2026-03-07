@@ -567,7 +567,7 @@ type Toolset struct {
 
 	// For `mcp` and `lsp` tools - version/package reference for auto-installation.
 	// Format: "owner/repo" or "owner/repo@version"
-	// When empty and auto-install is enabled, cagent auto-detects from the command name.
+	// When empty and auto-install is enabled, docker agent auto-detects from the command name.
 	// Set to "false" or "off" to disable auto-install for this toolset.
 	Version string `json:"version,omitempty"`
 

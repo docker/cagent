@@ -253,7 +253,7 @@ func builtInFeedbackCommands() []Item {
 		{
 			ID:          "feedback.feedback",
 			Label:       "Give Feedback",
-			Description: "Provide feedback about cagent",
+			Description: "Provide feedback about docker agent",
 			Category:    "Feedback",
 			Execute: func(string) tea.Cmd {
 				return core.CmdHandler(messages.OpenURLMsg{URL: feedback.Link})

@@ -10,7 +10,7 @@ import (
 )
 
 // RemoteClient is the interface that both HTTP and Connect-RPC clients implement
-// for communicating with a remote cagent server.
+// for communicating with a remote docker agent server.
 type RemoteClient interface {
 	// GetAgent retrieves an agent configuration by ID
 	GetAgent(ctx context.Context, id string) (*latest.Config, error)

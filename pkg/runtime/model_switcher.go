@@ -314,11 +314,11 @@ func (r *LocalRuntime) buildCatalogChoices(ctx context.Context) []ModelChoice {
 	var choices []ModelChoice
 	for providerID, prov := range db.Providers {
 		// Check if this provider is supported and user has credentials
-		cagentProvider, supported := mapModelsDevProvider(providerID)
+		dockerAgentProvider, supported := mapModelsDevProvider(providerID)
 		if !supported {
 			continue
 		}
-		if !availableProviders[cagentProvider] {
+		if !availableProviders[dockerAgentProvider] {
 			continue
 		}
 
@@ -332,7 +332,7 @@ func (r *LocalRuntime) buildCatalogChoices(ctx context.Context) []ModelChoice {
 				continue
 			}
 
-			ref := cagentProvider + "/" + modelID
+			ref := dockerAgentProvider + "/" + modelID
 			if existingRefs[ref] {
 				continue
 			}
@@ -341,7 +341,7 @@ func (r *LocalRuntime) buildCatalogChoices(ctx context.Context) []ModelChoice {
 			choices = append(choices, ModelChoice{
 				Name:      model.Name,
 				Ref:       ref,
-				Provider:  cagentProvider,
+				Provider:  dockerAgentProvider,
 				Model:     modelID,
 				IsCatalog: true,
 			})
@@ -352,8 +352,8 @@ func (r *LocalRuntime) buildCatalogChoices(ctx context.Context) []ModelChoice {
 	return choices
 }
 
-// mapModelsDevProvider maps a models.dev provider ID to a cagent provider name.
-// Returns the cagent provider name and whether it's supported.
+// mapModelsDevProvider maps a models.dev provider ID to a docker agent provider name.
+// Returns the docker agent provider name and whether it's supported.
 // Uses provider.IsCatalogProvider to dynamically include all core providers
 // and aliases with defined base URLs.
 func mapModelsDevProvider(providerID string) (string, bool) {

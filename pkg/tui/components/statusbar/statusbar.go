@@ -79,7 +79,7 @@ func (s *StatusBar) rebuild() {
 	// Build the styled right side: optional new-tab button + version.
 	var right string
 	var rightW, newTabW int
-	ver := styles.MutedStyle.Render("cagent " + version.Version)
+	ver := styles.MutedStyle.Render("docker agent " + version.Version)
 	if s.showNewTab {
 		newTab := styles.MutedStyle.Render(" \u2502 ") +
 			styles.HighlightWhiteStyle.Render("+") +
@@ -134,7 +134,7 @@ func (s *StatusBar) rebuild() {
 
 // View renders the status bar.
 //
-// Layout: [ help text ...           (+ new tab)  cagent VERSION ]
+// Layout: [ help text ...           (+ new tab)  docker agent VERSION ]
 func (s *StatusBar) View() string {
 	if s.cacheDirty {
 		s.rebuild()

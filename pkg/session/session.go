@@ -223,7 +223,7 @@ type EvalCriteria struct {
 	Relevance  []string `json:"relevance"`             // Statements that should be true about the response
 	WorkingDir string   `json:"working_dir,omitempty"` // Subdirectory under evals/working_dirs/
 	Size       string   `json:"size,omitempty"`        // Expected response size: S, M, L, XL
-	Setup      string   `json:"setup,omitempty"`       // Optional sh script to run in the container before cagent run --exec
+	Setup      string   `json:"setup,omitempty"`       // Optional sh script to run in the container before docker agent run --exec
 }
 
 // deepCopyMessage returns a deep copy of a session Message.

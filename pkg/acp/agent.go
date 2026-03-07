@@ -24,7 +24,7 @@ import (
 	"github.com/docker/cagent/pkg/version"
 )
 
-// Agent implements the ACP Agent interface for cagent
+// Agent implements the ACP Agent interface for docker agent
 type Agent struct {
 	agentSource  config.Source
 	runConfig    *config.RuntimeConfig
@@ -86,11 +86,11 @@ func (a *Agent) Initialize(ctx context.Context, params acp.InitializeRequest) (a
 	a.team = t
 	slog.Debug("Teams loaded successfully", "source", a.agentSource.Name(), "agent_count", t.Size())
 
-	agentTitle := "cagent"
+	agentTitle := "docker agent"
 	return acp.InitializeResponse{
 		ProtocolVersion: acp.ProtocolVersionNumber,
 		AgentInfo: &acp.Implementation{
-			Name:    "cagent",
+			Name:    "docker agent",
 			Version: version.Version,
 			Title:   &agentTitle,
 		},
@@ -362,7 +362,7 @@ func stringOrDefault(s *string, def string) string {
 
 // SetSessionMode implements acp.Agent (optional)
 func (a *Agent) SetSessionMode(context.Context, acp.SetSessionModeRequest) (acp.SetSessionModeResponse, error) {
-	// We don't implement session modes, cagent agents have only one mode (for now? ;) ).
+	// We don't implement session modes, agents have only one mode (for now? ;) ).
 	return acp.SetSessionModeResponse{}, nil
 }
 
@@ -803,7 +803,7 @@ func buildPlanUpdateFromTodos(meta any) *acp.SessionUpdate {
 	return &update
 }
 
-// mapTodoStatusToACP converts cagent todo status to ACP plan entry status
+// mapTodoStatusToACP converts docker agent todo status to ACP plan entry status
 func mapTodoStatusToACP(status string) acp.PlanEntryStatus {
 	switch status {
 	case "pending":

@@ -18,12 +18,6 @@ func TestHelpInAllExecMode(t *testing.T) {
 		require.Contains(t, res.Stdout, "docker agent run ./agent.yaml")
 	})
 
-	t.Run("cagent help", func(t *testing.T) {
-		res, err := Exec(binDir+"/cagent", "help")
-		require.NoError(t, err)
-		require.Contains(t, res.Stdout, "cagent run ./agent.yaml")
-	})
-
 	t.Run("docker-agent help", func(t *testing.T) {
 		res, err := Exec(binDir+"/docker-agent", "help")
 		require.NoError(t, err)
@@ -34,13 +28,6 @@ func TestHelpInAllExecMode(t *testing.T) {
 func TestExecMissingKeys(t *testing.T) {
 	t.Run("cli plugin exec", func(t *testing.T) {
 		res, err := Exec("docker", "agent", "run", "--exec", "./test-agent.yaml")
-		require.Error(t, err)
-		require.Contains(t, res.Stderr, "environment variables must be set")
-		require.Contains(t, res.Stderr, "OPENAI_API_KEY")
-	})
-
-	t.Run("cagent exec", func(t *testing.T) {
-		res, err := Exec(binDir+"/cagent", "run", "--exec", "./test-agent.yaml")
 		require.Error(t, err)
 		require.Contains(t, res.Stderr, "environment variables must be set")
 		require.Contains(t, res.Stderr, "OPENAI_API_KEY")

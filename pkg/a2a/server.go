@@ -73,7 +73,7 @@ func Run(ctx context.Context, agentFilename, agentName string, runConfig *config
 			ID:          fmt.Sprintf("%s_%s", name, agentName),
 			Name:        agentName,
 			Description: adkAgent.Description(),
-			Tags:        []string{"llm", "cagent"},
+			Tags:        []string{"llm", "docker agent"},
 		}},
 		PreferredTransport: a2a.TransportProtocolJSONRPC,
 		URL:                baseURL.JoinPath(agentPath).String(),

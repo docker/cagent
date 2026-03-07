@@ -31,8 +31,7 @@ func newAPICmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "api <agent-file>|<agents-dir>",
-		Short: "Start the cagent API server",
-		Long:  `Start the API server that exposes the agent via a cagent-specific HTTP API`,
+		Short: "Start the API server",
 		Args:  cobra.ExactArgs(1),
 		RunE:  flags.runAPICommand,
 	}

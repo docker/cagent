@@ -19,7 +19,7 @@ import (
 	"github.com/docker/cagent/pkg/tools"
 )
 
-// Client is an HTTP client for the cagent server API
+// Client is an HTTP client for the docker agent server API
 type Client struct {
 	baseURL    *url.URL
 	httpClient *http.Client
@@ -46,7 +46,7 @@ func WithTimeout(timeout time.Duration) ClientOption {
 	}
 }
 
-// NewClient creates a new HTTP client for the cagent server
+// NewClient creates a new HTTP client for the docker agent server
 func NewClient(baseURL string, opts ...ClientOption) (*Client, error) {
 	parsedURL, err := url.Parse(baseURL)
 	if err != nil {

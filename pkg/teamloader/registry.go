@@ -230,7 +230,7 @@ func createMCPTool(ctx context.Context, toolset latest.Toolset, _ string, runCon
 			return nil, fmt.Errorf("fetching MCP server spec for %q: %w", mcpServerName, err)
 		}
 
-		// TODO(dga): until the MCP Gateway supports oauth with cagent, we fetch the remote url and directly connect to it.
+		// TODO(dga): until the MCP Gateway supports oauth with docker agent, we fetch the remote url and directly connect to it.
 		if serverSpec.Type == "remote" {
 			return mcp.NewRemoteToolset(toolset.Name, serverSpec.Remote.URL, serverSpec.Remote.TransportType, nil), nil
 		}

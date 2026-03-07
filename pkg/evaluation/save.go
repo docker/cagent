@@ -53,7 +53,7 @@ func SaveRunSessions(ctx context.Context, run *EvalRun, outputDir string) (strin
 }
 
 // SessionFromEvents reconstructs a session from raw container output events.
-// This parses the JSON events emitted by cagent --json and builds a session
+// This parses the JSON events emitted by docker agent run --exec --json and builds a session
 // with the conversation history.
 func SessionFromEvents(events []map[string]any, title string, questions []string) *session.Session {
 	sess := session.New(

@@ -311,7 +311,7 @@ func (r *Runner) runSingleEval(ctx context.Context, evalSess *InputSession) (Res
 
 	events, err := r.runCagentInContainer(ctx, imageID, getUserMessages(evalSess.Session), evals.Setup)
 	if err != nil {
-		return result, fmt.Errorf("running cagent in container: %w", err)
+		return result, fmt.Errorf("running docker agent in container: %w", err)
 	}
 
 	response, cost, outputTokens, actualToolCalls := parseContainerEvents(events)
@@ -397,7 +397,7 @@ func (r *Runner) runCagentInContainer(ctx context.Context, imageID string, quest
 	}
 
 	// When a setup script is provided, mount it into the container and
-	// override the entrypoint to run it before cagent run --exec.
+	// override the entrypoint to run it before docker agent run --exec.
 	// The default entrypoint is: /run.sh /cagent run --exec --yolo --json
 	// /run.sh starts dockerd then exec's "$@".
 	if setup != "" {
@@ -416,7 +416,7 @@ func (r *Runner) runCagentInContainer(ctx context.Context, imageID string, quest
 	args = append(args, imageID)
 
 	if setup != "" {
-		// Run setup script, then cagent run --exec with the original arguments.
+		// Run setup script, then docker agent run --exec with the original arguments.
 		args = append(args, "sh", "-c", "sh /setup.sh && exec /cagent run --exec --yolo --json \"$@\"", "--", "/configs/"+agentFile)
 	} else {
 		args = append(args, "/configs/"+agentFile)

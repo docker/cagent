@@ -164,7 +164,7 @@ func TestFetch_Call_NoURLs(t *testing.T) {
 func TestFetch_Markdown(t *testing.T) {
 	url := runHTTPServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, "<h1>Hello cagent</h1>")
+		fmt.Fprint(w, "<h1>Hello docker agent</h1>")
 	})
 
 	tool := NewFetchTool()
@@ -177,14 +177,14 @@ func TestFetch_Markdown(t *testing.T) {
 
 	assert.Contains(t, result.Output, "Successfully fetched")
 	assert.Contains(t, result.Output, "Status: 200")
-	assert.Contains(t, result.Output, "Length: 14 bytes")
-	assert.Contains(t, result.Output, "# Hello cagent")
+	assert.Contains(t, result.Output, "Length: 20 bytes")
+	assert.Contains(t, result.Output, "# Hello docker agent")
 }
 
 func TestFetch_Text(t *testing.T) {
 	url := runHTTPServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, "<h1>Hello cagent</h1>")
+		fmt.Fprint(w, "<h1>Hello docker agent</h1>")
 	})
 
 	tool := NewFetchTool()
@@ -197,8 +197,8 @@ func TestFetch_Text(t *testing.T) {
 
 	assert.Contains(t, result.Output, "Successfully fetched")
 	assert.Contains(t, result.Output, "Status: 200")
-	assert.Contains(t, result.Output, "Length: 12 bytes")
-	assert.Contains(t, result.Output, "Hello cagent")
+	assert.Contains(t, result.Output, "Length: 18 bytes")
+	assert.Contains(t, result.Output, "Hello docker agent")
 }
 
 func runHTTPServer(t *testing.T, handler http.HandlerFunc) string {

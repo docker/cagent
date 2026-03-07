@@ -22,10 +22,10 @@ func newMCPCmd() *cobra.Command {
 		Use:   "mcp <agent-file>|<registry-ref>",
 		Short: "Start an agent as an MCP (Model Context Protocol) server",
 		Long:  "Start an MCP server that exposes the agent via the Model Context Protocol. By default, uses stdio transport. Use --http to start a streaming HTTP server instead.",
-		Example: `  cagent serve mcp ./agent.yaml
-  cagent serve mcp ./team.yaml
-  cagent serve mcp agentcatalog/pirate
-  cagent serve mcp ./agent.yaml --http --listen 127.0.0.1:9090`,
+		Example: `  docker-agent serve mcp ./agent.yaml
+  docker-agent serve mcp ./team.yaml
+  docker-agent serve mcp agentcatalog/pirate
+  docker-agent serve mcp ./agent.yaml --http --listen 127.0.0.1:9090`,
 		Args: cobra.ExactArgs(1),
 		RunE: flags.runMCPCommand,
 	}

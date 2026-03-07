@@ -33,7 +33,7 @@ func TestDebug_Title(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			title := cagent(t, "debug", "title", "testdata/basic.yaml", "--model="+tt.model, "What can you do?")
+			title := runCLI(t, "debug", "title", "testdata/basic.yaml", "--model="+tt.model, "What can you do?")
 
 			assert.Equal(t, tt.want, title)
 		})

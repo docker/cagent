@@ -256,7 +256,7 @@ type HTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
-// Client provides simplified telemetry functionality for cagent
+// Client provides simplified telemetry functionality for docker agent
 type Client struct {
 	logger     *telemetryLogger
 	userUUID   string

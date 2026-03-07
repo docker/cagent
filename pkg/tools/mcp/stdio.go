@@ -45,7 +45,7 @@ func (c *stdioMCPClient) Initialize(ctx context.Context, _ *gomcp.InitializeRequ
 	}
 
 	client := gomcp.NewClient(&gomcp.Implementation{
-		Name:    "cagent",
+		Name:    "docker agent",
 		Version: "1.0.0",
 	}, opts)
 

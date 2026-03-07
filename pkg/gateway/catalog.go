@@ -25,7 +25,7 @@ func RequiredEnvVars(ctx context.Context, serverName string) ([]Secret, error) {
 		return nil, err
 	}
 
-	// TODO(dga): until the MCP Gateway supports oauth with cagent,
+	// TODO(dga): until the MCP Gateway supports oauth with docker agent,
 	// we ignore every secret listed on `remote` servers and assume
 	// we can use oauth by connecting directly to the server's url.
 	if server.Type == "remote" {

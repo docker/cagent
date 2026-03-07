@@ -203,7 +203,7 @@ func (ts *Toolset) doStart(ctx context.Context) error {
 	initRequest := &mcp.InitializeRequest{
 		Params: &mcp.InitializeParams{
 			ClientInfo: &mcp.Implementation{
-				Name:    "cagent",
+				Name:    "docker agent",
 				Version: "1.0.0",
 			},
 			Capabilities: &mcp.ClientCapabilities{

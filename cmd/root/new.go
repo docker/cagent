@@ -33,12 +33,12 @@ func newNewCmd() *cobra.Command {
 		Long: `Create a new agent configuration interactively.
 
 The agent builder will ask questions about what you want the agent to do,
-then generate a YAML configuration file you can use with 'cagent run'.
+then generate a YAML configuration file you can use with 'docker-agent run'.
 
 Optionally provide a description as an argument to skip the initial prompt.`,
-		Example: `  cagent new
-  cagent new "a web scraper that extracts product prices"
-  cagent new --model openai/gpt-4o "a code reviewer agent"`,
+		Example: `  docker-agent new
+  docker-agent new "a web scraper that extracts product prices"
+  docker-agent new --model openai/gpt-4o "a code reviewer agent"`,
 		GroupID: "core",
 		RunE:    flags.runNewCommand,
 	}

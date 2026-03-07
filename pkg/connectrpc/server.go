@@ -1,4 +1,4 @@
-// Package connectrpc provides a Connect-RPC server implementation for the cagent API.
+// Package connectrpc provides a Connect-RPC server implementation for the docker agent API.
 package connectrpc
 
 import (

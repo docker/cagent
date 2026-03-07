@@ -34,7 +34,7 @@ func Pull(ctx context.Context, registryRef string, force bool, opts ...crane.Opt
 		if meta, metaErr := store.GetArtifactMetadata(localRef); metaErr == nil {
 			if meta.Digest == remoteDigest {
 				if !hasCagentAnnotation(meta.Annotations) {
-					return "", fmt.Errorf("artifact %s found in store wasn't created by `cagent share push`\nTry to push again with `cagent share push` (cagent >= v1.10.0)", localRef)
+					return "", fmt.Errorf("artifact %s found in store wasn't created by `docker agent share push`\nTry to push again with `docker agent share push`", localRef)
 				}
 				return meta.Digest, nil
 			}
@@ -51,7 +51,7 @@ func Pull(ctx context.Context, registryRef string, force bool, opts ...crane.Opt
 		return "", fmt.Errorf("getting manifest from pulled image: %w", err)
 	}
 	if !hasCagentAnnotation(manifest.Annotations) {
-		return "", fmt.Errorf("artifact %s wasn't created by `cagent share push`\nTry to push again with `cagent share push` (cagent >= v1.10.0)", localRef)
+		return "", fmt.Errorf("artifact %s wasn't created by `docker agent share push`\nTry to push again with `docker agent share push`", localRef)
 	}
 
 	digest, err := store.StoreArtifact(img, localRef)

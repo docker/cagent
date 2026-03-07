@@ -1,4 +1,4 @@
-// Package userconfig provides user-level configuration for cagent.
+// Package userconfig provides user-level configuration for docker agent.
 // This configuration is stored in ~/.config/cagent/config.yaml and contains
 // user preferences like aliases.
 package userconfig
@@ -88,7 +88,7 @@ type CredentialHelper struct {
 // CurrentVersion is the current version of the user config format
 const CurrentVersion = "v1"
 
-// Config represents the user-level cagent configuration
+// Config represents the user-level docker agent configuration
 type Config struct {
 	// mu protects concurrent access to the Aliases map.
 	// Config methods may be called from parallel tests or goroutines.

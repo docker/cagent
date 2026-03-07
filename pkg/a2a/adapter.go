@@ -11,13 +11,13 @@ import (
 	adksession "google.golang.org/adk/session"
 	"google.golang.org/genai"
 
-	cagent "github.com/docker/cagent/pkg/agent"
+	dagent "github.com/docker/cagent/pkg/agent"
 	"github.com/docker/cagent/pkg/runtime"
 	"github.com/docker/cagent/pkg/session"
 	"github.com/docker/cagent/pkg/team"
 )
 
-// newCAgentAdapter creates a new ADK agent adapter from a cagent team and agent name
+// newCAgentAdapter creates a new ADK agent adapter from a docker agent team and agent name
 func newCAgentAdapter(t *team.Team, agentName string) (agent.Agent, error) {
 	a, err := t.Agent(agentName)
 	if err != nil {
@@ -35,14 +35,14 @@ func newCAgentAdapter(t *team.Team, agentName string) (agent.Agent, error) {
 	})
 }
 
-// runCAgent executes a cagent agent and returns ADK session events
-func runCAgent(ctx agent.InvocationContext, t *team.Team, agentName string, a *cagent.Agent) iter.Seq2[*adksession.Event, error] {
+// runCAgent executes a docker agent and returns ADK session events
+func runCAgent(ctx agent.InvocationContext, t *team.Team, agentName string, a *dagent.Agent) iter.Seq2[*adksession.Event, error] {
 	return func(yield func(*adksession.Event, error) bool) {
 		// Extract user message from the ADK context
 		userContent := ctx.UserContent()
 		message := contentToMessage(userContent)
 
-		// Create a cagent session
+		// Create a session
 		sess := session.New(
 			session.WithUserMessage(message),
 			session.WithMaxIterations(a.MaxIterations()),
@@ -64,7 +64,7 @@ func runCAgent(ctx agent.InvocationContext, t *team.Team, agentName string, a *c
 		// Track accumulated content for chunked responses
 		var contentBuilder string
 
-		// Convert cagent events to ADK events and yield them
+		// Convert docker agent events to ADK events and yield them
 		for event := range eventsChan {
 			if ctx.Ended() {
 				slog.Debug("Invocation ended, stopping agent", "agent", agentName)

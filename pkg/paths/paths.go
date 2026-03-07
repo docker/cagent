@@ -47,7 +47,7 @@ func SetConfigDir(dir string) { configDirOverride.Set(dir) }
 // An empty value restores the default behaviour.
 func SetDataDir(dir string) { dataDirOverride.Set(dir) }
 
-// GetCacheDir returns the user's cache directory for cagent.
+// GetCacheDir returns the user's cache directory for docker agent.
 //
 // If an override has been set via [SetCacheDir] it is returned instead.
 //
@@ -67,7 +67,7 @@ func GetCacheDir() string {
 	})
 }
 
-// GetConfigDir returns the user's config directory for cagent.
+// GetConfigDir returns the user's config directory for docker agent.
 //
 // If an override has been set via [SetConfigDir] it is returned instead.
 //
@@ -84,7 +84,7 @@ func GetConfigDir() string {
 	})
 }
 
-// GetDataDir returns the user's data directory for cagent (caches, content, logs).
+// GetDataDir returns the user's data directory for docker agent (caches, content, logs).
 //
 // If an override has been set via [SetDataDir] it is returned instead.
 //

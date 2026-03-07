@@ -802,7 +802,7 @@ func TestBackupDatabase(t *testing.T) {
 }
 
 // TestBackwardCompatibility_ReadLegacyMessages verifies that new code can read
-// sessions that were created by older cagent versions (messages in JSON column only).
+// sessions that were created by older docker agent versions (messages in JSON column only).
 func TestBackwardCompatibility_ReadLegacyMessages(t *testing.T) {
 	tempDB := filepath.Join(t.TempDir(), "test_legacy.db")
 
@@ -847,7 +847,7 @@ func TestBackwardCompatibility_ReadLegacyMessages(t *testing.T) {
 }
 
 // TestForwardCompatibility_MessagesColumnPopulated verifies that new code populates
-// the messages column so older cagent versions can read sessions.
+// the messages column so older docker agent versions can read sessions.
 func TestForwardCompatibility_MessagesColumnPopulated(t *testing.T) {
 	tempDB := filepath.Join(t.TempDir(), "test_forward.db")
 
@@ -878,7 +878,7 @@ func TestForwardCompatibility_MessagesColumnPopulated(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Verify messages column is populated (how old cagent would read it)
+	// Verify messages column is populated (how old docker agent would read it)
 	var messagesJSON string
 	err = sqliteStore.db.QueryRowContext(t.Context(),
 		"SELECT messages FROM sessions WHERE id = ?", "new-session").Scan(&messagesJSON)

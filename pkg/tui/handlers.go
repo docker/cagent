@@ -614,18 +614,18 @@ func (m *appModel) startShell() (tea.Model, tea.Cmd) {
 	if goruntime.GOOS == "windows" {
 		if path, err := exec.LookPath("pwsh.exe"); err == nil {
 			cmd = exec.Command(path, "-NoLogo", "-NoExit", "-Command",
-				`Write-Host ""; Write-Host "Type 'exit' to return to cagent 🐳"`)
+				`Write-Host ""; Write-Host "Type 'exit' to return to docker agent 🐳"`)
 		} else if path, err := exec.LookPath("powershell.exe"); err == nil {
 			cmd = exec.Command(path, "-NoLogo", "-NoExit", "-Command",
-				`Write-Host ""; Write-Host "Type 'exit' to return to cagent 🐳"`)
+				`Write-Host ""; Write-Host "Type 'exit' to return to docker agent 🐳"`)
 		} else {
 			shell := cmp.Or(os.Getenv("ComSpec"), "cmd.exe")
-			cmd = exec.Command(shell, "/K", `echo. & echo Type 'exit' to return to cagent`)
+			cmd = exec.Command(shell, "/K", `echo. & echo Type 'exit' to return to docker agent`)
 		}
 	} else {
 		shell := cmp.Or(os.Getenv("SHELL"), "/bin/sh")
 		cmd = exec.Command(shell, "-i", "-c",
-			`echo -e "\nType 'exit' to return to cagent 🐳"; exec `+shell)
+			`echo -e "\nType 'exit' to return to docker agent 🐳"; exec `+shell)
 	}
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout

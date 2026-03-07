@@ -18,7 +18,7 @@ import (
 
 // runInSandbox delegates the current command to a Docker sandbox.
 // It ensures a sandbox exists (creating or recreating as needed), then
-// executes cagent inside it via `docker sandbox exec`.
+// executes docker agent inside it via `docker sandbox exec`.
 func runInSandbox(cmd *cobra.Command, runConfig *config.RuntimeConfig, template string) error {
 	if environment.InSandbox() {
 		return fmt.Errorf("already running inside a Docker sandbox (VM %s)", os.Getenv("SANDBOX_VM_ID"))
@@ -34,7 +34,7 @@ func runInSandbox(cmd *cobra.Command, runConfig *config.RuntimeConfig, template 
 	configDir := paths.GetConfigDir()
 
 	// Always forward config directory paths so the sandbox-side
-	// cagent resolves it to the same host directories
+	// docker agent resolves it to the same host directories
 	// (which is mounted read-write by ensureSandbox).
 	cagentArgs = sandbox.AppendFlagIfMissing(cagentArgs, "--config-dir", configDir)
 
