@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/docker/cagent/pkg/chat"
+	"github.com/docker/cagent/pkg/chatgpt"
 	"github.com/docker/cagent/pkg/config/latest"
 	"github.com/docker/cagent/pkg/environment"
 	"github.com/docker/cagent/pkg/model/provider/anthropic"
@@ -127,6 +128,10 @@ var Aliases = map[string]Alias{
 		APIType:     "openai",
 		BaseURL:     "https://api.minimax.io/v1",
 		TokenEnvVar: "MINIMAX_API_KEY",
+	},
+	"chatgpt": {
+		APIType:     "openai_responses",
+		TokenEnvVar: chatgpt.TokenEnvVar,
 	},
 }
 
