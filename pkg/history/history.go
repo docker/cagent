@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/docker/cagent/pkg/paths"
 )
 
 type History struct {
@@ -17,14 +19,14 @@ type History struct {
 }
 
 type options struct {
-	homeDir string
+	dataDir string
 }
 
 type Opt func(*options)
 
 func WithBaseDir(dir string) Opt {
 	return func(o *options) {
-		o.homeDir = dir
+		o.dataDir = dir
 	}
 }
 
@@ -34,20 +36,17 @@ func New(opts ...Opt) (*History, error) {
 		opt(o)
 	}
 
-	homeDir := o.homeDir
-	if homeDir == "" {
-		var err error
-		if homeDir, err = os.UserHomeDir(); err != nil {
-			return nil, err
-		}
+	dataDir := o.dataDir
+	if dataDir == "" {
+		dataDir = paths.GetDataDir()
 	}
 
 	h := &History{
-		path:    filepath.Join(homeDir, ".cagent", "history"),
+		path:    filepath.Join(dataDir, "history"),
 		current: -1,
 	}
 
-	if err := h.migrateOldHistory(homeDir); err != nil {
+	if err := h.migrateOldHistory(dataDir); err != nil {
 		return nil, err
 	}
 
@@ -58,8 +57,8 @@ func New(opts ...Opt) (*History, error) {
 	return h, nil
 }
 
-func (h *History) migrateOldHistory(homeDir string) error {
-	oldPath := filepath.Join(homeDir, ".cagent", "history.json")
+func (h *History) migrateOldHistory(dataDir string) error {
+	oldPath := filepath.Join(dataDir, "history.json")
 
 	data, err := os.ReadFile(oldPath)
 	if os.IsNotExist(err) {

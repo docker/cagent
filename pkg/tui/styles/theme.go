@@ -216,7 +216,7 @@ func DefaultTheme() *Theme {
 const UserThemePrefix = "user:"
 
 // ListThemeRefs returns the list of available theme references.
-// It includes all built-in themes (including "default") and user themes from ~/.cagent/themes/.
+// It includes all built-in themes (including "default") and user themes from <data-dir>/themes/.
 // User themes with names matching built-in themes are prefixed with "user:" to distinguish them.
 // The "default" theme is always listed first for UX purposes.
 func ListThemeRefs() ([]string, error) {
@@ -292,15 +292,15 @@ func listBuiltinThemeRefs() ([]string, error) {
 	return refs, nil
 }
 
-// listUserThemeRefs returns the list of user theme references from ~/.cagent/themes/.
+// listUserThemeRefs returns the list of user theme references from <data-dir>/themes/.
 func listUserThemeRefs() ([]string, error) {
 	return listThemeRefsFrom(ThemesDir())
 }
 
 // UserThemeExists returns true if a user theme file exists for the given ref
-// in the user themes directory (typically ~/.cagent/themes/).
+// in the user themes directory (typically <data-dir>/themes/).
 //
-// This handles the "user:" prefix - "user:nord" checks for ~/.cagent/themes/nord.yaml.
+// This handles the "user:" prefix - "user:nord" checks for <data-dir>/themes/nord.yaml.
 func UserThemeExists(ref string) bool {
 	if ref == "" {
 		return false
