@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "jaeger",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up", "jaeger"],
+      "port": 16686
+    },
+    {
+      "name": "dhi-mcp-server",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["examples/dhi/dhi_mcp_server/server.py"],
+      "port": 0
+    },
+    {
+      "name": "elicitation-mcp-server",
+      "runtimeExecutable": "uvx",
+      "runtimeArgs": ["--with", "mcp[cli]", "mcp", "run", "examples/elicitation/server.py"],
+      "port": 0
+    }
+  ]
+}
