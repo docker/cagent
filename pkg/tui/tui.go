@@ -60,6 +60,9 @@ const (
 	appPaddingHorizontal = 2 * styles.AppPadding
 )
 
+// mouseResetMsg clears the mouseNeedsReset flag after one frame.
+type mouseResetMsg struct{}
+
 // Model is the top-level TUI model that wraps the chat page.
 type appModel struct {
 	supervisor *supervisor.Supervisor
@@ -140,6 +143,11 @@ type appModel struct {
 	// pendingActiveTab is the tab ID to switch to on Init(). Set when the
 	// previously focused tab differs from the initial tab.
 	pendingActiveTab string
+
+	// mouseNeedsReset forces a one-frame MouseModeNone so the renderer
+	// re-sends mouse tracking escape sequences after terminal focus is
+	// regained. See tea.FocusMsg handling in Update.
+	mouseNeedsReset bool
 
 	ready bool
 	err   error
@@ -535,6 +543,22 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	// --- Window / Terminal ---
+
+	case tea.FocusMsg:
+		// Some terminals reset mouse tracking when the window loses focus.
+		// Toggle the mode off for one frame so the renderer re-sends the
+		// enable escape sequences on the next frame.
+		m.mouseNeedsReset = true
+		return m, func() tea.Msg { return mouseResetMsg{} }
+
+	case tea.BlurMsg:
+		// Terminal lost focus; nothing to do but consume the event so it
+		// doesn't get forwarded to child components.
+		return m, nil
+
+	case mouseResetMsg:
+		m.mouseNeedsReset = false
+		return m, nil
 
 	case tea.WindowSizeMsg:
 		m.wWidth, m.wHeight = msg.Width, msg.Height
@@ -1927,11 +1951,11 @@ func (m *appModel) View() tea.View {
 	windowTitle := m.windowTitle()
 
 	if m.err != nil {
-		return toFullscreenView(styles.ErrorStyle.Render(m.err.Error()), windowTitle, false)
+		return m.toFullscreenView(styles.ErrorStyle.Render(m.err.Error()), windowTitle, false)
 	}
 
 	if !m.ready {
-		return toFullscreenView(
+		return m.toFullscreenView(
 			styles.CenterStyle.
 				Width(m.wWidth).
 				Height(m.wHeight).
@@ -1994,10 +2018,10 @@ func (m *appModel) View() tea.View {
 		}
 
 		compositor := lipgloss.NewCompositor(allLayers...)
-		return toFullscreenView(compositor.Render(), windowTitle, m.chatPage.IsWorking())
+		return m.toFullscreenView(compositor.Render(), windowTitle, m.chatPage.IsWorking())
 	}
 
-	return toFullscreenView(baseView, windowTitle, m.chatPage.IsWorking())
+	return m.toFullscreenView(baseView, windowTitle, m.chatPage.IsWorking())
 }
 
 // windowTitle returns the terminal window title.
@@ -2181,14 +2205,22 @@ func getEditorDisplayNameFromEnv(visual, editorEnv string) string {
 	return "$EDITOR"
 }
 
-func toFullscreenView(content, windowTitle string, working bool) tea.View {
+func (m *appModel) toFullscreenView(content, windowTitle string, working bool) tea.View {
 	view := tea.NewView(content)
 	view.AltScreen = true
-	view.MouseMode = tea.MouseModeCellMotion
+	view.ReportFocus = true
 	view.BackgroundColor = styles.Background
 	view.WindowTitle = windowTitle
 	if working {
 		view.ProgressBar = tea.NewProgressBar(tea.ProgressBarIndeterminate, 0)
+	}
+	// When mouseNeedsReset is set (right after a FocusMsg), temporarily
+	// return MouseModeNone so the renderer re-sends the enable sequences
+	// on the next frame when the mode switches back to CellMotion.
+	if m.mouseNeedsReset {
+		view.MouseMode = tea.MouseModeNone
+	} else {
+		view.MouseMode = tea.MouseModeCellMotion
 	}
 	return view
 }
