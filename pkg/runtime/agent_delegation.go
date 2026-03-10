@@ -168,13 +168,13 @@ func (r *LocalRuntime) handleTaskTransfer(ctx context.Context, sess *session.Ses
 
 		// Restore original agent info in sidebar
 		if originalAgent, err := r.team.Agent(ca); err == nil {
-			evts <- AgentInfo(originalAgent.Name(), getAgentModelID(originalAgent), originalAgent.Description(), originalAgent.WelcomeMessage())
+			evts <- AgentInfo(originalAgent.Name(), r.getEffectiveModelID(originalAgent), originalAgent.Description(), originalAgent.WelcomeMessage())
 		}
 	}()
 
 	// Emit agent info for the new agent
 	if newAgent, err := r.team.Agent(params.Agent); err == nil {
-		evts <- AgentInfo(newAgent.Name(), getAgentModelID(newAgent), newAgent.Description(), newAgent.WelcomeMessage())
+		evts <- AgentInfo(newAgent.Name(), r.getEffectiveModelID(newAgent), newAgent.Description(), newAgent.WelcomeMessage())
 	}
 
 	slog.Debug("Creating new session with parent session", "parent_session_id", sess.ID, "tools_approved", sess.ToolsApproved, "thinking", sess.Thinking)

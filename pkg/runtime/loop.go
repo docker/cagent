@@ -91,9 +91,21 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 
 		a := r.resolveSessionAgent(sess)
 
+		// lastEmittedModelID tracks what the TUI currently displays.
+		// emitModelInfo sends an AgentInfo only when the model actually changed,
+		// so new features (routing, alloy, fallback, model picker, …) never need
+		// to notify the TUI themselves — the loop handles it.
+		lastEmittedModelID := r.getEffectiveModelID(a)
+		emitModelInfo := func(a *agent.Agent, modelID string) {
+			if modelID == lastEmittedModelID {
+				return
+			}
+			lastEmittedModelID = modelID
+			events <- AgentInfo(a.Name(), modelID, a.Description(), a.WelcomeMessage())
+		}
+
 		// Emit agent information for sidebar display
-		// Use getEffectiveModelID to account for active fallback cooldowns
-		events <- AgentInfo(a.Name(), r.getEffectiveModelID(a), a.Description(), a.WelcomeMessage())
+		events <- AgentInfo(a.Name(), lastEmittedModelID, a.Description(), a.WelcomeMessage())
 
 		// Emit team information
 		events <- TeamInfo(r.agentDetailsFromTeam(), a.Name())
@@ -241,10 +253,9 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 
 			modelID := model.ID()
 
-			// Notify sidebar when this turn uses a different model (per-tool override).
-			if modelID != defaultModelID {
-				events <- AgentInfo(a.Name(), modelID, a.Description(), a.WelcomeMessage())
-			}
+			// Notify sidebar when this turn uses a different model
+			// (per-tool override, model picker, fallback cooldown, …).
+			emitModelInfo(a, modelID)
 
 			slog.Debug("Using agent", "agent", a.Name(), "model", modelID)
 			slog.Debug("Getting model definition", "model_id", modelID)
@@ -319,17 +330,15 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 				return
 			}
 
-			// Update sidebar model info to reflect what was actually used this turn.
-			// Fallback models are sticky (cooldown system persists them), so we only
-			// emit once. Per-tool model overrides are temporary (one turn), so we
-			// emit the override and then revert to the agent's default.
+			// Update sidebar to reflect the model actually used this turn.
+			// When no fallback kicked in, revert to the agent's default
+			// (undoes any temporary per-tool override).
+			actualModelID := defaultModelID
 			if usedModel != nil && usedModel.ID() != model.ID() {
 				slog.Info("Used fallback model", "agent", a.Name(), "primary", model.ID(), "used", usedModel.ID())
-				events <- AgentInfo(a.Name(), usedModel.ID(), a.Description(), a.WelcomeMessage())
-			} else if model.ID() != defaultModelID {
-				// Per-tool override was active: revert sidebar to the agent's default model.
-				events <- AgentInfo(a.Name(), defaultModelID, a.Description(), a.WelcomeMessage())
+				actualModelID = usedModel.ID()
 			}
+			emitModelInfo(a, actualModelID)
 			streamSpan.SetAttributes(
 				attribute.Int("tool.calls", len(res.Calls)),
 				attribute.Int("content.length", len(res.Content)),
@@ -349,6 +358,11 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 			messageCountBeforeTools := len(sess.GetAllMessages())
 
 			r.processToolCalls(ctx, sess, res.Calls, agentTools, events)
+
+			// Tool handlers (e.g. change_model, revert_model) may have
+			// switched the effective model. Notify the TUI now so the
+			// sidebar updates even when the model stops after the tool call.
+			emitModelInfo(a, r.getEffectiveModelID(a))
 
 			// Record per-toolset model override for the next LLM turn.
 			toolModelOverride = resolveToolCallModelOverride(res.Calls, agentTools)
