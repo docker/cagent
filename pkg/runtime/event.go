@@ -138,29 +138,33 @@ func StreamStarted(sessionID, agentName string) Event {
 }
 
 type AgentChoiceEvent struct {
-	Type    string `json:"type"`
-	Content string `json:"content"`
+	Type      string `json:"type"`
+	Content   string `json:"content"`
+	SessionID string `json:"session_id,omitempty"`
 	AgentContext
 }
 
-func AgentChoice(agentName, content string) Event {
+func AgentChoice(agentName, sessionID, content string) Event {
 	return &AgentChoiceEvent{
 		Type:         "agent_choice",
 		Content:      content,
+		SessionID:    sessionID,
 		AgentContext: newAgentContext(agentName),
 	}
 }
 
 type AgentChoiceReasoningEvent struct {
-	Type    string `json:"type"`
-	Content string `json:"content"`
+	Type      string `json:"type"`
+	Content   string `json:"content"`
+	SessionID string `json:"session_id,omitempty"`
 	AgentContext
 }
 
-func AgentChoiceReasoning(agentName, content string) Event {
+func AgentChoiceReasoning(agentName, sessionID, content string) Event {
 	return &AgentChoiceReasoningEvent{
 		Type:         "agent_choice_reasoning",
 		Content:      content,
+		SessionID:    sessionID,
 		AgentContext: newAgentContext(agentName),
 	}
 }

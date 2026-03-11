@@ -73,6 +73,9 @@ func (r *PersistentRuntime) handleEvent(ctx context.Context, sess *session.Sessi
 
 	switch e := event.(type) {
 	case *AgentChoiceEvent:
+		if e.SessionID != sess.ID {
+			return
+		}
 		// Accumulate streaming content
 		streaming.content.WriteString(e.Content)
 		streaming.agentName = e.AgentName
@@ -80,6 +83,9 @@ func (r *PersistentRuntime) handleEvent(ctx context.Context, sess *session.Sessi
 		r.persistStreamingContent(ctx, sess.ID, streaming)
 
 	case *AgentChoiceReasoningEvent:
+		if e.SessionID != sess.ID {
+			return
+		}
 		// Accumulate streaming reasoning content
 		streaming.reasoningContent.WriteString(e.Content)
 		streaming.agentName = e.AgentName
@@ -98,6 +104,9 @@ func (r *PersistentRuntime) handleEvent(ctx context.Context, sess *session.Sessi
 		}
 
 	case *MessageAddedEvent:
+		if e.SessionID != sess.ID {
+			return
+		}
 		// Finalize the streaming message with complete metadata
 		if streaming.messageID != 0 {
 			// Update the existing streaming message with final content
