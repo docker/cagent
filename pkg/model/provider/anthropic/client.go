@@ -776,67 +776,103 @@ func contentArray(m map[string]any) []any {
 	return nil
 }
 
-// validateSequencing generically validates that every assistant message with tool_use blocks
-// is immediately followed by a user message with corresponding tool_result blocks.
-// It works on both standard (MessageParam) and Beta (BetaMessageParam) types by
-// marshaling to map[string]any for inspection.
+// validateSequencing generically validates that:
+//  1. Every assistant message with tool_use blocks is immediately followed by a user
+//     message with corresponding tool_result blocks.
+//  2. Every user message with tool_result blocks is immediately preceded by an assistant
+//     message that contains the corresponding tool_use blocks.
 func validateSequencing[T any](msgs []T) error {
 	for i := range msgs {
 		m, ok := marshalToMap(msgs[i])
-		if !ok || m["role"] != "assistant" {
+		if !ok {
 			continue
 		}
 
-		toolUseIDs := collectToolUseIDs(contentArray(m))
-		if len(toolUseIDs) == 0 {
-			continue
+		// Forward check: assistant tool_use → next user must have matching tool_results
+		if m["role"] == "assistant" {
+			toolUseIDs := collectToolUseIDs(contentArray(m))
+			if len(toolUseIDs) == 0 {
+				continue
+			}
+
+			if i+1 >= len(msgs) {
+				slog.Warn("Anthropic sequencing invalid: assistant tool_use present but no next user tool_result message", "assistant_index", i)
+				return errors.New("assistant tool_use present but no subsequent user message with tool_result blocks")
+			}
+
+			next, ok := marshalToMap(msgs[i+1])
+			if !ok || next["role"] != "user" {
+				slog.Warn("Anthropic sequencing invalid: next message after assistant tool_use is not user", "assistant_index", i, "next_role", next["role"])
+				return errors.New("assistant tool_use must be followed by a user message containing corresponding tool_result blocks")
+			}
+
+			toolResultIDs := collectToolResultIDs(contentArray(next))
+			missing := differenceIDs(toolUseIDs, toolResultIDs)
+			if len(missing) > 0 {
+				slog.Warn("Anthropic sequencing invalid: missing tool_result for tool_use id in next user message", "assistant_index", i, "tool_use_id", missing[0], "missing_count", len(missing))
+				return fmt.Errorf("missing tool_result for tool_use id %s in the next user message", missing[0])
+			}
 		}
 
-		if i+1 >= len(msgs) {
-			slog.Warn("Anthropic sequencing invalid: assistant tool_use present but no next user tool_result message", "assistant_index", i)
-			return errors.New("assistant tool_use present but no subsequent user message with tool_result blocks")
-		}
+		// Reverse check: user with tool_result → previous message must be assistant with matching tool_use
+		if m["role"] == "user" {
+			toolResultIDs := collectToolResultIDs(contentArray(m))
+			if len(toolResultIDs) == 0 {
+				continue
+			}
 
-		next, ok := marshalToMap(msgs[i+1])
-		if !ok || next["role"] != "user" {
-			slog.Warn("Anthropic sequencing invalid: next message after assistant tool_use is not user", "assistant_index", i, "next_role", next["role"])
-			return errors.New("assistant tool_use must be followed by a user message containing corresponding tool_result blocks")
-		}
+			if i == 0 {
+				slog.Warn("Anthropic sequencing invalid: user tool_result with no preceding assistant message", "user_index", i)
+				return errors.New("user tool_result blocks with no preceding assistant message")
+			}
 
-		toolResultIDs := collectToolResultIDs(contentArray(next))
-		missing := differenceIDs(toolUseIDs, toolResultIDs)
-		if len(missing) > 0 {
-			slog.Warn("Anthropic sequencing invalid: missing tool_result for tool_use id in next user message", "assistant_index", i, "tool_use_id", missing[0], "missing_count", len(missing))
-			return fmt.Errorf("missing tool_result for tool_use id %s in the next user message", missing[0])
+			prev, ok := marshalToMap(msgs[i-1])
+			if !ok || prev["role"] != "assistant" {
+				slog.Warn("Anthropic sequencing invalid: user tool_result not preceded by assistant", "user_index", i)
+				return errors.New("user tool_result blocks must be preceded by an assistant message with corresponding tool_use blocks")
+			}
+
+			toolUseIDs := collectToolUseIDs(contentArray(prev))
+			orphan := differenceIDs(toolResultIDs, toolUseIDs)
+			if len(orphan) > 0 {
+				slog.Warn("Anthropic sequencing invalid: orphan tool_result referencing non-existent tool_use", "user_index", i, "tool_use_id", orphan[0], "orphan_count", len(orphan))
+				return fmt.Errorf("orphan tool_result for tool_use id %s: no matching tool_use in preceding assistant message", orphan[0])
+			}
 		}
 	}
 	return nil
 }
 
 // repairSequencing generically inserts a synthetic user message after any assistant
-// tool_use message that is missing corresponding tool_result blocks. The makeSynthetic
+// tool_use message that is missing corresponding tool_result blocks. When the next
+// message is already a user message with partial tool_results, the missing results
+// are merged into that message to avoid splitting results across messages (which
+// would cause the API to reject orphan tool_result references). The makeSynthetic
 // callback builds the appropriate user message type for the remaining tool_use IDs.
 func repairSequencing[T any](msgs []T, makeSynthetic func(toolUseIDs map[string]struct{}) T) []T {
 	if len(msgs) == 0 {
 		return msgs
 	}
 	repaired := make([]T, 0, len(msgs)+2)
-	for i := range msgs {
-		repaired = append(repaired, msgs[i])
-
+	for i := 0; i < len(msgs); i++ {
 		m, ok := marshalToMap(msgs[i])
 		if !ok || m["role"] != "assistant" {
+			repaired = append(repaired, msgs[i])
 			continue
 		}
+
+		repaired = append(repaired, msgs[i])
 
 		toolUseIDs := collectToolUseIDs(contentArray(m))
 		if len(toolUseIDs) == 0 {
 			continue
 		}
 
-		// Remove any IDs that already have results in the next user message
+		// Check if the next message is a user message with some tool_results
+		hasNextUser := false
 		if i+1 < len(msgs) {
 			if next, ok := marshalToMap(msgs[i+1]); ok && next["role"] == "user" {
+				hasNextUser = true
 				toolResultIDs := collectToolResultIDs(contentArray(next))
 				for id := range toolResultIDs {
 					delete(toolUseIDs, id)
@@ -844,7 +880,46 @@ func repairSequencing[T any](msgs []T, makeSynthetic func(toolUseIDs map[string]
 			}
 		}
 
-		if len(toolUseIDs) > 0 {
+		if len(toolUseIDs) == 0 {
+			continue
+		}
+
+		if hasNextUser {
+			// Merge the synthetic results into the existing next user message
+			// by replacing it with a combined message (synthetic first, then original).
+			// This avoids splitting tool_results across separate user messages.
+			synthetic := makeSynthetic(toolUseIDs)
+			synthMap, _ := marshalToMap(synthetic)
+			nextMap, _ := marshalToMap(msgs[i+1])
+
+			synthContent := contentArray(synthMap)
+			nextContent := contentArray(nextMap)
+
+			mergedContent := append(synthContent, nextContent...)
+			nextMap["content"] = mergedContent
+
+			// Re-marshal the merged message back into the typed parameter
+			mergedBytes, err := json.Marshal(nextMap)
+			if err != nil {
+				slog.Warn("Failed to marshal merged tool_result message, inserting synthetic instead", "error", err)
+				repaired = append(repaired, synthetic)
+				i++ // skip msgs[i+1] — it would split tool_results across user messages
+				continue
+			}
+			var merged T
+			if err := json.Unmarshal(mergedBytes, &merged); err != nil {
+				slog.Warn("Failed to unmarshal merged tool_result message, inserting synthetic instead", "error", err)
+				repaired = append(repaired, synthetic)
+				i++ // skip msgs[i+1] — it would split tool_results across user messages
+				continue
+			}
+
+			slog.Debug("Merged synthetic tool_results into existing user message",
+				"assistant_index", i,
+				"missing_count", len(toolUseIDs))
+			// Replace the next message so we emit the merged version
+			msgs[i+1] = merged
+		} else {
 			slog.Debug("Inserting synthetic user message for missing tool_results",
 				"assistant_index", i,
 				"missing_count", len(toolUseIDs))
