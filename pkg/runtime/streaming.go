@@ -164,7 +164,7 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 		}
 
 		if choice.Delta.ReasoningContent != "" {
-			events <- AgentChoiceReasoning(a.Name(), choice.Delta.ReasoningContent)
+			events <- AgentChoiceReasoning(a.Name(), sess.ID, choice.Delta.ReasoningContent)
 			fullReasoningContent.WriteString(choice.Delta.ReasoningContent)
 		}
 
@@ -174,7 +174,7 @@ func (r *LocalRuntime) handleStream(ctx context.Context, stream chat.MessageStre
 		}
 
 		if choice.Delta.Content != "" {
-			events <- AgentChoice(a.Name(), choice.Delta.Content)
+			events <- AgentChoice(a.Name(), sess.ID, choice.Delta.Content)
 			fullContent.WriteString(choice.Delta.Content)
 		}
 	}

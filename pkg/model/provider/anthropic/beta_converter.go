@@ -23,6 +23,7 @@ import (
 // blocks from the same assistant message MUST be grouped into a single user message.
 func (c *Client) convertBetaMessages(ctx context.Context, messages []chat.Message) ([]anthropic.BetaMessageParam, error) {
 	var betaMessages []anthropic.BetaMessageParam
+	pendingAssistantToolUse := false
 
 	for i := 0; i < len(messages); i++ {
 		msg := &messages[i]
@@ -75,20 +76,19 @@ func (c *Client) convertBetaMessages(ctx context.Context, messages []chat.Messag
 			}
 
 			// Add tool calls
-			if len(msg.ToolCalls) > 0 {
-				for _, toolCall := range msg.ToolCalls {
-					var inpts map[string]any
-					if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &inpts); err != nil {
-						inpts = map[string]any{}
-					}
-					contentBlocks = append(contentBlocks, anthropic.BetaContentBlockParamUnion{
-						OfToolUse: &anthropic.BetaToolUseBlockParam{
-							ID:    toolCall.ID,
-							Input: inpts,
-							Name:  toolCall.Function.Name,
-						},
-					})
+			hasToolCalls := len(msg.ToolCalls) > 0
+			for _, toolCall := range msg.ToolCalls {
+				var inpts map[string]any
+				if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &inpts); err != nil {
+					inpts = map[string]any{}
 				}
+				contentBlocks = append(contentBlocks, anthropic.BetaContentBlockParamUnion{
+					OfToolUse: &anthropic.BetaToolUseBlockParam{
+						ID:    toolCall.ID,
+						Input: inpts,
+						Name:  toolCall.Function.Name,
+					},
+				})
 			}
 
 			if len(contentBlocks) > 0 {
@@ -97,28 +97,29 @@ func (c *Client) convertBetaMessages(ctx context.Context, messages []chat.Messag
 					Content: contentBlocks,
 				})
 			}
+			pendingAssistantToolUse = hasToolCalls
 			continue
 		}
 		if msg.Role == chat.MessageRoleTool {
 			// Collect consecutive tool messages and merge them into a single user message
 			// This is required by Anthropic API: all tool_result blocks for tool_use blocks
 			// from the same assistant message must be in the same user message
-			toolResultBlocks := []anthropic.BetaContentBlockParamUnion{
-				convertBetaToolResultBlock(msg),
-			}
-
-			// Look ahead for consecutive tool messages and merge them
-			j := i + 1
+			var toolResultBlocks []anthropic.BetaContentBlockParamUnion
+			j := i
 			for j < len(messages) && messages[j].Role == chat.MessageRoleTool {
 				toolResultBlocks = append(toolResultBlocks, convertBetaToolResultBlock(&messages[j]))
 				j++
 			}
 
-			// Add the merged user message with all tool results
-			betaMessages = append(betaMessages, anthropic.BetaMessageParam{
-				Role:    anthropic.BetaMessageParamRoleUser,
-				Content: toolResultBlocks,
-			})
+			// Only include tool results if they follow an assistant message with tool_use.
+			// Orphan tool_result blocks (e.g. from corrupted session history) are dropped.
+			if pendingAssistantToolUse && len(toolResultBlocks) > 0 {
+				betaMessages = append(betaMessages, anthropic.BetaMessageParam{
+					Role:    anthropic.BetaMessageParamRoleUser,
+					Content: toolResultBlocks,
+				})
+			}
+			pendingAssistantToolUse = false
 
 			// Skip the messages we've already processed
 			i = j - 1

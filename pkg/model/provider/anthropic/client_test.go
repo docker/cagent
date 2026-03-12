@@ -600,3 +600,208 @@ func TestExtractSystemBlocksCacheControl(t *testing.T) {
 	assert.Equal(t, "ephemeral", string(blocks[3].CacheControl.Type))
 	assert.Empty(t, string(blocks[3].CacheControl.TTL))
 }
+
+func TestValidateSequencing_ReverseOrphanToolResult(t *testing.T) {
+	// A user message with tool_result that references a tool_use_id not present
+	// in the preceding assistant message should be caught by reverse validation.
+	msgs := []anthropic.MessageParam{
+		anthropic.NewUserMessage(anthropic.NewTextBlock("start")),
+		anthropic.NewAssistantMessage(
+			anthropic.ContentBlockParamUnion{
+				OfToolUse: &anthropic.ToolUseBlockParam{
+					ID:    "tool-A",
+					Input: map[string]any{},
+					Name:  "read_file",
+				},
+			},
+		),
+		// User message with tool_results for A (matching) and B (orphan)
+		anthropic.NewUserMessage(
+			anthropic.NewToolResultBlock("tool-A", "result-A", false),
+			anthropic.NewToolResultBlock("tool-B", "result-B", false),
+		),
+	}
+
+	err := validateAnthropicSequencing(msgs)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "orphan tool_result")
+	assert.Contains(t, err.Error(), "tool-B")
+}
+
+func TestValidateSequencing_ReverseNoAssistantBeforeToolResult(t *testing.T) {
+	// A user message with tool_result as the first message should fail.
+	msgs := []anthropic.MessageParam{
+		anthropic.NewUserMessage(
+			anthropic.NewToolResultBlock("tool-A", "result-A", false),
+		),
+	}
+
+	err := validateAnthropicSequencing(msgs)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no preceding assistant message")
+}
+
+func TestRepairSequencing_MergesIntoExistingUserMessage(t *testing.T) {
+	// When an assistant has tool_use A and B, but the next user message only has
+	// tool_result for A, repair should merge a synthetic tool_result for B into
+	// the same user message rather than inserting a separate synthetic message.
+	msgs := []anthropic.MessageParam{
+		anthropic.NewUserMessage(anthropic.NewTextBlock("start")),
+		anthropic.NewAssistantMessage(
+			anthropic.ContentBlockParamUnion{
+				OfToolUse: &anthropic.ToolUseBlockParam{
+					ID:    "tool-A",
+					Input: map[string]any{},
+					Name:  "t1",
+				},
+			},
+			anthropic.ContentBlockParamUnion{
+				OfToolUse: &anthropic.ToolUseBlockParam{
+					ID:    "tool-B",
+					Input: map[string]any{},
+					Name:  "t2",
+				},
+			},
+		),
+		// Next user message only has tool_result for A, missing B
+		anthropic.NewUserMessage(
+			anthropic.NewToolResultBlock("tool-A", "result-A", false),
+		),
+		anthropic.NewUserMessage(anthropic.NewTextBlock("continue")),
+	}
+
+	// Should fail validation
+	require.Error(t, validateAnthropicSequencing(msgs))
+
+	// Repair
+	repaired := repairAnthropicSequencing(msgs)
+
+	// Should pass validation after repair
+	require.NoError(t, validateAnthropicSequencing(repaired))
+
+	// The total message count should NOT increase (merged, not inserted)
+	assert.Len(t, repaired, 4, "repair should merge into existing user message, not insert a new one")
+
+	// Verify the user message at index 2 now has both tool_results
+	b, err := json.Marshal(repaired[2])
+	require.NoError(t, err)
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(b, &m))
+
+	content, ok := m["content"].([]any)
+	require.True(t, ok)
+
+	toolResultIDs := make(map[string]struct{})
+	for _, c := range content {
+		if cb, ok := c.(map[string]any); ok {
+			if cb["type"] == "tool_result" {
+				if id, _ := cb["tool_use_id"].(string); id != "" {
+					toolResultIDs[id] = struct{}{}
+				}
+			}
+		}
+	}
+	assert.Contains(t, toolResultIDs, "tool-A")
+	assert.Contains(t, toolResultIDs, "tool-B")
+}
+
+func TestRepairSequencing_InsertsWhenNoNextUserMessage(t *testing.T) {
+	// When an assistant has tool_use but there's no following user message at all,
+	// repair should insert a synthetic user message.
+	msgs := []anthropic.MessageParam{
+		anthropic.NewUserMessage(anthropic.NewTextBlock("start")),
+		anthropic.NewAssistantMessage(
+			anthropic.ContentBlockParamUnion{
+				OfToolUse: &anthropic.ToolUseBlockParam{
+					ID:    "tool-X",
+					Input: map[string]any{},
+					Name:  "do_thing",
+				},
+			},
+		),
+	}
+
+	require.Error(t, validateAnthropicSequencing(msgs))
+
+	repaired := repairAnthropicSequencing(msgs)
+
+	require.NoError(t, validateAnthropicSequencing(repaired))
+	assert.Len(t, repaired, 3, "should insert a synthetic user message")
+}
+
+func TestConvertBetaMessages_DropsOrphanToolResults(t *testing.T) {
+	// When a tool result message appears without a preceding assistant message
+	// with tool_use, the beta converter should drop it.
+	msgs := []chat.Message{
+		{Role: chat.MessageRoleUser, Content: "start"},
+		{Role: chat.MessageRoleAssistant, Content: "sure, let me help"},
+		// Orphan tool result — previous assistant has no tool_use
+		{Role: chat.MessageRoleTool, ToolCallID: "tool-orphan", Content: "orphan result"},
+		{Role: chat.MessageRoleUser, Content: "continue"},
+	}
+
+	converted, err := testClient().convertBetaMessages(t.Context(), msgs)
+	require.NoError(t, err)
+
+	// Should have: user(start), assistant(text), user(continue)
+	// The orphan tool result should be dropped
+	require.Len(t, converted, 3)
+
+	for _, msg := range converted {
+		b, err := json.Marshal(msg)
+		require.NoError(t, err)
+		var m map[string]any
+		require.NoError(t, json.Unmarshal(b, &m))
+		content, _ := m["content"].([]any)
+		for _, c := range content {
+			if cb, ok := c.(map[string]any); ok {
+				assert.NotEqual(t, "tool_result", cb["type"],
+					"orphan tool_result should not be included in beta messages")
+			}
+		}
+	}
+}
+
+func TestConvertBetaMessages_IncludesToolResultsAfterToolUse(t *testing.T) {
+	// Normal case: assistant with tool_use followed by tool results should work.
+	msgs := []chat.Message{
+		{Role: chat.MessageRoleUser, Content: "start"},
+		{
+			Role: chat.MessageRoleAssistant,
+			ToolCalls: []tools.ToolCall{
+				{ID: "tool-1", Function: tools.FunctionCall{Name: "read_file", Arguments: "{}"}},
+				{ID: "tool-2", Function: tools.FunctionCall{Name: "write_file", Arguments: "{}"}},
+			},
+		},
+		{Role: chat.MessageRoleTool, ToolCallID: "tool-1", Content: "file content"},
+		{Role: chat.MessageRoleTool, ToolCallID: "tool-2", Content: "ok"},
+		{Role: chat.MessageRoleUser, Content: "done"},
+	}
+
+	converted, err := testClient().convertBetaMessages(t.Context(), msgs)
+	require.NoError(t, err)
+
+	// Should have: user(start), assistant(tool_use x2), user(tool_result x2), user(done)
+	require.Len(t, converted, 4)
+
+	// Verify the tool results are in the third message
+	b, err := json.Marshal(converted[2])
+	require.NoError(t, err)
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(b, &m))
+	assert.Equal(t, "user", m["role"])
+	content, ok := m["content"].([]any)
+	require.True(t, ok)
+	assert.Len(t, content, 2)
+
+	ids := make(map[string]struct{})
+	for _, c := range content {
+		if cb, ok := c.(map[string]any); ok && cb["type"] == "tool_result" {
+			if id, _ := cb["tool_use_id"].(string); id != "" {
+				ids[id] = struct{}{}
+			}
+		}
+	}
+	assert.Contains(t, ids, "tool-1")
+	assert.Contains(t, ids, "tool-2")
+}
