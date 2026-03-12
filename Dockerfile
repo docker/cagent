@@ -14,9 +14,8 @@ FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine${ALPINE_VERSION} AS b
 COPY --from=xx / /
 RUN apk add --no-cache clang zig
 WORKDIR /src
+COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=bind,source=go.mod,target=go.mod \
-    --mount=type=bind,source=go.sum,target=go.sum \
     go mod download
 ENV CGO_ENABLED=1
 
@@ -26,6 +25,7 @@ ARG TARGETOS
 ARG TARGETARCH
 RUN --mount=type=cache,target=/var/cache/apk,id=apk-$TARGETPLATFORM,sharing=locked \
     xx-apk add musl-dev
+
 COPY . ./
 ARG GIT_TAG
 ARG GIT_COMMIT
