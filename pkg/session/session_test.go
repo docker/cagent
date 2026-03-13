@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -290,6 +291,52 @@ func TestGetLastUserMessages(t *testing.T) {
 		assert.Equal(t, "First", msgs[0])
 		assert.Equal(t, "Third", msgs[1])
 	})
+}
+
+func TestEvalCriteriaUnmarshalJSON(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		input   string
+		want    EvalCriteria
+		wantErr bool
+	}{
+		{
+			name:  "valid fields",
+			input: `{"relevance":["is correct"],"size":"M","setup":"echo hello","working_dir":"mydir"}`,
+			want: EvalCriteria{
+				Relevance:  []string{"is correct"},
+				Size:       "M",
+				Setup:      "echo hello",
+				WorkingDir: "mydir",
+			},
+		},
+		{
+			name:  "empty object",
+			input: `{}`,
+			want:  EvalCriteria{},
+		},
+		{
+			name:    "unknown field rejected",
+			input:   `{"relevance":[],"unknown_field":"value"}`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var got EvalCriteria
+			err := json.Unmarshal([]byte(tt.input), &got)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }
 
 func TestTransferTaskPromptExcludesParents(t *testing.T) {

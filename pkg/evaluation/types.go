@@ -25,7 +25,6 @@ type Result struct {
 	SizeExpected      string            `json:"size_expected"`
 	ToolCallsScore    float64           `json:"tool_calls_score"`
 	ToolCallsExpected float64           `json:"tool_calls_score_expected"`
-	HandoffsMatch     bool              `json:"handoffs"`
 	RelevancePassed   float64           `json:"relevance"`
 	RelevanceExpected float64           `json:"relevance_expected"`
 	FailedRelevance   []RelevanceResult `json:"failed_relevance,omitempty"`
@@ -58,13 +57,6 @@ func (r *Result) checkResults() (successes, failures []string) {
 		}
 	}
 
-	// Check handoffs
-	if r.HandoffsMatch {
-		successes = append(successes, "handoffs")
-	} else {
-		failures = append(failures, "handoffs mismatch")
-	}
-
 	// Check relevance
 	if r.RelevanceExpected > 0 {
 		if r.RelevancePassed >= r.RelevanceExpected {
@@ -92,8 +84,6 @@ type Summary struct {
 	SizesTotal      int     `json:"sizes_total"`
 	ToolsF1Sum      float64 `json:"tools_f1_sum"`
 	ToolsCount      int     `json:"tools_count"`
-	HandoffsPassed  int     `json:"handoffs_passed"`
-	HandoffsTotal   int     `json:"handoffs_total"`
 	RelevancePassed float64 `json:"relevance_passed"`
 	RelevanceTotal  float64 `json:"relevance_total"`
 }

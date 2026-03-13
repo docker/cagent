@@ -49,7 +49,7 @@ type Runner struct {
 func newRunner(agentSource config.Source, runConfig *config.RuntimeConfig, judgeModel provider.Provider, cfg Config) *Runner {
 	var judge *Judge
 	if judgeModel != nil {
-		judge = NewJudge(judgeModel, runConfig, cfg.Concurrency)
+		judge = NewJudge(judgeModel, cfg.Concurrency)
 	}
 	return &Runner{
 		Config:      cfg,
@@ -115,6 +115,20 @@ func (r *Runner) Run(ctx context.Context, ttyOut, out io.Writer, isTTY bool) ([]
 	evals, err := r.loadEvalSessions(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("loading evaluations: %w", err)
+	}
+
+	// Check whether any evaluations require relevance checking.
+	// If so, the judge must be configured and working; validate eagerly
+	// to fail fast on configuration issues (bad API key, wrong model, etc.)
+	// instead of silently producing zero-relevance results.
+	if needsJudge(evals) {
+		if r.judge == nil {
+			return nil, errors.New("some evaluations have relevance criteria but no judge model is configured (use --judge-model)")
+		}
+		fmt.Fprintln(out, "Validating judge model...")
+		if err := r.judge.Validate(ctx); err != nil {
+			return nil, fmt.Errorf("%w", err)
+		}
 	}
 
 	// Pre-build all unique Docker images in parallel before running evaluations.
@@ -336,17 +350,15 @@ func (r *Runner) runSingleEval(ctx context.Context, evalSess *InputSession) (Res
 		result.ToolCallsScore = toolCallF1Score(expectedToolCalls, actualToolCalls)
 	}
 
-	result.HandoffsMatch = countHandoffs(expectedToolCalls) == countHandoffs(actualToolCalls)
-
 	if r.judge != nil && len(evals.Relevance) > 0 {
 		// Use transcript for relevance checking to preserve temporal ordering
 		transcript := buildTranscript(events)
-		passed, failed, errs := r.judge.CheckRelevance(ctx, transcript, evals.Relevance)
+		passed, failed, err := r.judge.CheckRelevance(ctx, transcript, evals.Relevance)
+		if err != nil {
+			return result, fmt.Errorf("relevance check failed: %w", err)
+		}
 		result.RelevancePassed = float64(passed)
 		result.FailedRelevance = failed
-		for _, e := range errs {
-			slog.Warn("Relevance check error", "title", evalSess.Title, "error", e)
-		}
 	}
 
 	slog.Debug("Evaluation complete", "title", evalSess.Title, "duration", time.Since(startTime))
@@ -590,6 +602,14 @@ func matchesAnyPattern(name string, patterns []string) bool {
 	})
 }
 
+// needsJudge returns true if any evaluation session has relevance criteria,
+// meaning a judge model is required to evaluate them.
+func needsJudge(evals []InputSession) bool {
+	return slices.ContainsFunc(evals, func(s InputSession) bool {
+		return s.Evals != nil && len(s.Evals.Relevance) > 0
+	})
+}
+
 // createJudgeModel creates a provider.Provider from a model string (format: provider/model).
 // Returns nil if judgeModel is empty.
 func createJudgeModel(ctx context.Context, judgeModel string, runConfig *config.RuntimeConfig) (provider.Provider, error) {
@@ -602,7 +622,10 @@ func createJudgeModel(ctx context.Context, judgeModel string, runConfig *config.
 		return nil, fmt.Errorf("invalid judge model format %q: expected 'provider/model'", judgeModel)
 	}
 
-	var opts []options.Opt
+	opts := []options.Opt{
+		options.WithThinking(false),
+		options.WithStructuredOutput(judgeResponseSchema),
+	}
 	if runConfig.ModelsGateway != "" {
 		opts = append(opts, options.WithGateway(runConfig.ModelsGateway))
 	}

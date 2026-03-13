@@ -130,7 +130,6 @@ docker-agent evaluates agents across four dimensions:
 | **Tool Calls (F1)** | F1 score between the expected tool call sequence (from the recorded session) and the actual tool calls made by the agent. |
 | **Relevance**       | An LLM judge (configurable via `--judge-model`) evaluates whether each relevance statement is satisfied by the response.  |
 | **Size**            | Whether the response length matches the expected size category (S/M/L/XL).                                                |
-| **Handoffs**        | For multi-agent configs, whether task delegation matched the expected agent handoff pattern.                              |
 
 ## Creating Eval Sessions
 
@@ -192,7 +191,6 @@ $ docker agent eval demo.yaml ./evals
 Summary: 2/2 passed
   Sizes:      0/0
   Tool Calls: avg F1 1.00 (2 evals)
-  Handoffs:   2/2
   Relevance:  3/3
 
 Sessions DB: ./evals/results/happy-panda-1234.db

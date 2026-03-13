@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewJudge(t *testing.T) {
@@ -36,7 +37,7 @@ func TestNewJudge(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			judge := NewJudge(nil, nil, tt.concurrency)
+			judge := NewJudge(nil, tt.concurrency)
 			assert.Equal(t, tt.expectedConcurrency, judge.concurrency)
 		})
 	}
@@ -45,30 +46,28 @@ func TestNewJudge(t *testing.T) {
 func TestJudge_CheckRelevance_EmptyCriteria(t *testing.T) {
 	t.Parallel()
 
-	judge := NewJudge(nil, nil, 1)
-	passed, failed, errs := judge.CheckRelevance(t.Context(), "some response", nil)
+	judge := NewJudge(nil, 1)
+	passed, failed, err := judge.CheckRelevance(t.Context(), "some response", nil)
 
 	assert.Equal(t, 0, passed)
 	assert.Empty(t, failed)
-	assert.Empty(t, errs)
+	assert.NoError(t, err)
 }
 
 func TestJudge_CheckRelevance_ContextCanceled(t *testing.T) {
 	t.Parallel()
 
-	judge := NewJudge(nil, nil, 2)
+	judge := NewJudge(nil, 2)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel() // Cancel immediately
 
 	criteria := []string{"criterion1", "criterion2", "criterion3"}
-	passed, failed, errs := judge.CheckRelevance(ctx, "some response", criteria)
+	passed, failed, err := judge.CheckRelevance(ctx, "some response", criteria)
 
 	// All should have errors due to context cancellation
 	assert.Equal(t, 0, passed)
 	assert.Empty(t, failed)
-	assert.Len(t, errs, 3)
-	for _, err := range errs {
-		assert.Contains(t, err, "context cancelled")
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "context cancelled")
 }

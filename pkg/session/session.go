@@ -1,6 +1,8 @@
 package session
 
 import (
+	"bytes"
+	"encoding/json"
 	"log/slog"
 	"os"
 	"slices"
@@ -215,6 +217,21 @@ type EvalCriteria struct {
 	WorkingDir string   `json:"working_dir,omitempty"` // Subdirectory under evals/working_dirs/
 	Size       string   `json:"size,omitempty"`        // Expected response size: S, M, L, XL
 	Setup      string   `json:"setup,omitempty"`       // Optional sh script to run in the container before docker agent run --exec
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for EvalCriteria that
+// rejects unknown fields. This ensures eval JSON files don't contain typos
+// or unsupported fields that would be silently ignored.
+func (e *EvalCriteria) UnmarshalJSON(data []byte) error {
+	type evalCriteria EvalCriteria // alias to avoid infinite recursion
+	var v evalCriteria
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&v); err != nil {
+		return err
+	}
+	*e = EvalCriteria(v)
+	return nil
 }
 
 // deepCopyMessage returns a deep copy of a session Message.

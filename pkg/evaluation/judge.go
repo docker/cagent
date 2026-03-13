@@ -11,10 +11,8 @@ import (
 	"sync"
 
 	"github.com/docker/docker-agent/pkg/chat"
-	"github.com/docker/docker-agent/pkg/config"
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/model/provider"
-	"github.com/docker/docker-agent/pkg/model/provider/options"
 )
 
 // relevancePrompt is the prompt template for the judge model to evaluate responses.
@@ -58,28 +56,42 @@ var judgeResponseSchema = &latest.StructuredOutput{
 // Judge runs LLM-as-a-judge relevance checks concurrently.
 type Judge struct {
 	model       provider.Provider
-	runConfig   *config.RuntimeConfig
 	concurrency int
-
-	// judgeWithSchema is a provider pre-configured with structured output.
-	// Created lazily on first use and reused across all relevance checks.
-	// Protected by judgeWithSchemaMu; only cached on success so that
-	// transient errors (e.g. context cancellation) can be retried.
-	judgeWithSchema   provider.Provider
-	judgeWithSchemaMu sync.Mutex
 }
 
 // NewJudge creates a new Judge that runs relevance checks with the given concurrency.
 // Concurrency defaults to 1 if n < 1.
-func NewJudge(model provider.Provider, runConfig *config.RuntimeConfig, concurrency int) *Judge {
+func NewJudge(model provider.Provider, concurrency int) *Judge {
 	if concurrency < 1 {
 		concurrency = 1
 	}
 	return &Judge{
 		model:       model,
-		runConfig:   runConfig,
 		concurrency: concurrency,
 	}
+}
+
+// Validate performs an end-to-end check of the judge model by sending a
+// trivial relevance prompt and verifying the response is valid structured
+// JSON. This catches configuration errors (bad API key, unsupported model,
+// missing structured-output support, etc.) before running any evaluations,
+// allowing the framework to fail fast.
+func (j *Judge) Validate(ctx context.Context) error {
+	const (
+		testResponse  = "The sky is blue."
+		testCriterion = "The response mentions a color."
+	)
+
+	passed, _, err := j.checkSingle(ctx, testResponse, testCriterion)
+	if err != nil {
+		return fmt.Errorf("judge model validation failed: %w", err)
+	}
+
+	if !passed {
+		return errors.New("judge model validation failed: expected the test criterion to pass but the judge returned 'fail'")
+	}
+
+	return nil
 }
 
 // RelevanceResult contains the result of a single relevance check.
@@ -89,8 +101,11 @@ type RelevanceResult struct {
 }
 
 // CheckRelevance runs all relevance checks concurrently with the configured concurrency.
-// It returns the number of passed checks, a slice of failed results with reasons, and any errors encountered.
-func (j *Judge) CheckRelevance(ctx context.Context, response string, criteria []string) (passed int, failed []RelevanceResult, errs []string) {
+// It returns the number of passed checks, a slice of failed results with reasons, and an error
+// if any check encountered an error (e.g. judge model misconfiguration). Errors cause a hard
+// failure so that configuration issues are surfaced immediately rather than silently producing
+// zero-relevance results.
+func (j *Judge) CheckRelevance(ctx context.Context, response string, criteria []string) (passed int, failed []RelevanceResult, err error) {
 	if len(criteria) == 0 {
 		return 0, nil, nil
 	}
@@ -122,17 +137,19 @@ func (j *Judge) CheckRelevance(ctx context.Context, response string, criteria []
 					results[item.index] = result{err: fmt.Errorf("context cancelled: %w", ctx.Err())}
 					continue
 				}
-				pass, reason, err := j.checkSingle(ctx, response, item.criterion)
-				results[item.index] = result{passed: pass, reason: reason, err: err}
+				pass, reason, checkErr := j.checkSingle(ctx, response, item.criterion)
+				results[item.index] = result{passed: pass, reason: reason, err: checkErr}
 			}
 		})
 	}
 	wg.Wait()
 
-	// Aggregate results
+	// Aggregate results. Any error is fatal — return it immediately so the
+	// caller can fail fast on judge misconfiguration.
+	var errs []error
 	for i, r := range results {
 		if r.err != nil {
-			errs = append(errs, fmt.Sprintf("error checking %q: %v", criteria[i], r.err))
+			errs = append(errs, fmt.Errorf("checking %q: %w", criteria[i], r.err))
 			continue
 		}
 		if r.passed {
@@ -145,50 +162,20 @@ func (j *Judge) CheckRelevance(ctx context.Context, response string, criteria []
 		}
 	}
 
-	return passed, failed, errs
-}
-
-// getOrCreateJudgeWithSchema returns a provider pre-configured with structured output.
-// The provider is created once and reused across all relevance checks.
-// Unlike sync.Once, transient failures (e.g. context cancellation) are not
-// cached, allowing subsequent calls to retry.
-func (j *Judge) getOrCreateJudgeWithSchema(ctx context.Context) (provider.Provider, error) {
-	j.judgeWithSchemaMu.Lock()
-	defer j.judgeWithSchemaMu.Unlock()
-
-	if j.judgeWithSchema != nil {
-		return j.judgeWithSchema, nil
+	if len(errs) > 0 {
+		return passed, failed, errors.Join(errs...)
 	}
 
-	opts := []options.Opt{
-		options.WithStructuredOutput(judgeResponseSchema),
-	}
-	if j.runConfig.ModelsGateway != "" {
-		opts = append(opts, options.WithGateway(j.runConfig.ModelsGateway))
-	}
-
-	modelCfg := j.model.BaseConfig().ModelConfig
-	p, err := provider.New(ctx, &modelCfg, j.runConfig.EnvProvider(), opts...)
-	if err != nil {
-		return nil, err
-	}
-
-	j.judgeWithSchema = p
-	return j.judgeWithSchema, nil
+	return passed, failed, nil
 }
 
 // checkSingle checks a single relevance criterion against the response.
 // It returns whether the check passed, the reason provided by the judge, and any error.
 func (j *Judge) checkSingle(ctx context.Context, response, criterion string) (passed bool, reason string, err error) {
-	judgeWithSchema, err := j.getOrCreateJudgeWithSchema(ctx)
-	if err != nil {
-		return false, "", fmt.Errorf("creating judge provider with structured output: %w", err)
-	}
-
 	prompt := fmt.Sprintf(relevancePrompt, response, criterion)
 	messages := []chat.Message{{Role: chat.MessageRoleUser, Content: prompt}}
 
-	stream, err := judgeWithSchema.CreateChatCompletionStream(ctx, messages, nil)
+	stream, err := j.model.CreateChatCompletionStream(ctx, messages, nil)
 	if err != nil {
 		return false, "", fmt.Errorf("creating chat completion: %w", err)
 	}

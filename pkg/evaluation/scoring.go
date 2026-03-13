@@ -62,16 +62,6 @@ func countStrings(strs []string) map[string]int {
 	return counts
 }
 
-func countHandoffs(toolCalls []string) int {
-	count := 0
-	for _, name := range toolCalls {
-		if name == "handoff" {
-			count++
-		}
-	}
-	return count
-}
-
 func computeSummary(results []Result) Summary {
 	summary := Summary{
 		TotalEvals: len(results),
@@ -96,11 +86,6 @@ func computeSummary(results []Result) Summary {
 			summary.ToolsCount++
 		}
 
-		summary.HandoffsTotal++
-		if r.HandoffsMatch {
-			summary.HandoffsPassed++
-		}
-
 		summary.RelevanceTotal += r.RelevanceExpected
 		summary.RelevancePassed += r.RelevancePassed
 	}
@@ -118,7 +103,6 @@ func printSummary(out io.Writer, summary Summary, duration time.Duration) {
 
 	printMetric(out, "Sizes", summary.SizesPassed, summary.SizesTotal)
 	printF1Score(out, "Tool Calls", summary.ToolsF1Sum, summary.ToolsCount)
-	printMetric(out, "Handoffs", summary.HandoffsPassed, summary.HandoffsTotal)
 	printMetric(out, "Relevance", int(summary.RelevancePassed), int(summary.RelevanceTotal))
 
 	fmt.Fprintf(out, "\nTotal Cost: $%.6f\n", summary.TotalCost)
