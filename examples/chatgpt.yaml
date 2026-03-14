@@ -1,0 +1,10 @@
+#!/usr/bin/env docker agent run
+
+# This example uses a ChatGPT Plus/Pro subscription via OAuth login.
+# Run `docker agent login chatgpt` first to authenticate.
+
+agents:
+  root:
+    description: A helpful assistant powered by ChatGPT o3
+    instruction: You are a helpful assistant. Answer questions clearly and concisely.
+    model: chatgpt/o3
