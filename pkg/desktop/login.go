@@ -60,18 +60,12 @@ func GetToken(ctx context.Context) string {
 }
 
 // GetTokenWithSource returns the user's Docker access token and where it came
-// from. The secrets engine, which holds the session of the account signed in to
-// Docker Desktop, is asked first. Docker Desktop's newer auth stack (auth v2)
-// serves whatever its in-memory token source holds and never refreshes on GET,
-// so a stuck background refresher makes it return the same expired JWT forever
-// — or nothing at all when its read-time refresh failed. When that happens we
-// mint a token ourselves from the access token `docker login` stored, and only
-// then fall back to nudging Desktop.
-//
-// Only the "docker-desktop" source of the environment chain gets here: a
-// DOCKER_TOKEN set in the environment, a run secret, an env file or a
-// credential helper (CI runners, for instance) is used as-is, and never
-// shadowed by any of these.
+// from. Docker Desktop's newer auth stack (auth v2) serves whatever its
+// in-memory token source holds and never refreshes on GET, so a stuck
+// background refresher makes it return the same expired JWT forever — or
+// nothing at all when its read-time refresh failed. When that happens we mint
+// a token ourselves from the access token `docker login` stored, and only then
+// fall back to nudging Desktop. The secrets engine is asked before all of these.
 func GetTokenWithSource(ctx context.Context) (string, Source) {
 	if token, source, ok := cached(); ok {
 		return token, source
@@ -192,10 +186,8 @@ func remember(token string, source Source) bool {
 	return true
 }
 
-// secretsEngineToken looks the token up in the secrets engine and reports
-// whether it can be served, caching it if so. Misses are logged at debug level
-// only: most machines without Docker Desktop, or with a release that predates
-// the engine, have none to offer, and the sources after it take over.
+// secretsEngineToken returns a usable token from the secrets engine and caches
+// it. Misses are only logged at debug level: many machines have no engine.
 func secretsEngineToken(ctx context.Context) (string, bool) {
 	token, err := fetchSecretsEngineToken(ctx)
 	switch {
@@ -206,8 +198,7 @@ func secretsEngineToken(ctx context.Context) (string, bool) {
 		slog.DebugContext(ctx, "No Docker Hub session in the secrets engine")
 		return "", false
 	case !usable(token):
-		// Same token source as Desktop's backend: falling through gives
-		// minting, then the forced refresh, a chance to replace it.
+		// Fall through so minting or a forced refresh can replace it.
 		slog.DebugContext(ctx, "The secrets engine served a token that expired, is about to, or was refused",
 			"fingerprint", tokenFingerprint(token),
 			"expires_in", expiresIn(token))

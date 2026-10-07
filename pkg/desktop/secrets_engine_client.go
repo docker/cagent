@@ -8,10 +8,8 @@ import (
 	"github.com/docker/secrets-engine/x/api"
 )
 
-// newSecretsEngineHubAuth connects to the secrets engine Docker Desktop serves
-// on its engine socket. The SDK defaults to the standalone daemon's socket,
-// which Docker Desktop does not use. Creating the client dials nothing: an
-// absent engine only shows up, as an error, on the first lookup.
+// newSecretsEngineHubAuth connects to Docker Desktop's engine socket, not the
+// SDK's default standalone daemon socket.
 func newSecretsEngineHubAuth() (dockerhub.ClientAuth, error) {
 	engine, err := secretsengine.New(secretsengine.WithSocketPath(api.DesktopSocketPath()))
 	if err != nil {

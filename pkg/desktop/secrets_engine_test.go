@@ -56,8 +56,7 @@ func TestGetTokenFromSecretsEngine(t *testing.T) {
 			assert.Equal(t, fromDesktop, token)
 			assert.Equal(t, SourceDesktop, source)
 
-			// The user signs in: the engine is asked again as soon as the
-			// cached token is due for a re-check.
+			// The user signs in: the next re-check picks it up.
 			fromEngine := makeToken(t, time.Now().Add(time.Hour))
 			engine.setToken(fromEngine)
 			expireCache()
@@ -129,8 +128,7 @@ func TestGetTokenFromSecretsEngine(t *testing.T) {
 
 	t.Run("an expired engine token falls through to minting", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
-			// The engine and Desktop's backend share Desktop's token source: a
-			// stuck refresher leaves both stale.
+			// A stuck Desktop refresher leaves both sources stale.
 			expired := makeToken(t, time.Now().Add(-time.Hour))
 			minted := makeToken(t, time.Now().Add(time.Hour))
 			backend := &fakeBackend{token: expired}
@@ -200,8 +198,7 @@ func TestFetchSecretsEngineTokenCanceledCaller(t *testing.T) {
 		_, err := fetchSecretsEngineToken(ctx)
 		require.ErrorIs(t, err, context.Canceled)
 
-		// A caller giving up says nothing about the engine: it is not cooled
-		// down, so the next caller asks it again.
+		// A canceled caller doesn't trigger the cooldown.
 		fromEngine := makeToken(t, time.Now().Add(time.Hour))
 		engine.setBlock(false)
 		engine.setToken(fromEngine)
@@ -212,8 +209,7 @@ func TestFetchSecretsEngineTokenCanceledCaller(t *testing.T) {
 	})
 }
 
-// installFakeEngine points the secrets engine lookup at engine, through the
-// real SDK accessor so the realms and payloads it decodes are exercised too.
+// installFakeEngine serves engine through the real dockerhub accessor.
 func installFakeEngine(t *testing.T, engine *fakeEngine) {
 	t.Helper()
 
@@ -231,8 +227,7 @@ func endSecretsEngineCooldown() {
 	secretsEngineState.nextAttempt = time.Time{}
 }
 
-// fakeEngine emulates the secrets engine Docker Desktop serves: the default
-// account's profile and its session, as Desktop's sign-in stores them.
+// fakeEngine serves the default account's profile and session.
 type fakeEngine struct {
 	mu      sync.Mutex
 	token   string // the default account's access token; "" when signed out
