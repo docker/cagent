@@ -60,12 +60,17 @@ func GetToken(ctx context.Context) string {
 }
 
 // GetTokenWithSource returns the user's Docker access token and where it came
-// from. Docker Desktop's newer auth stack (auth v2) serves whatever its
-// in-memory token source holds and never refreshes on GET, so a stuck
-// background refresher makes it return the same expired JWT forever — or
-// nothing at all when its read-time refresh failed. When that happens we mint
-// a token ourselves from the access token `docker login` stored, and only then
-// fall back to nudging Desktop. The secrets engine is asked before all of these.
+// from. A usable token is served from memory for up to cacheTTL; otherwise
+// the sources are tried in order:
+//
+//  1. The secrets engine Docker Desktop serves, which holds the signed-in
+//     account's session.
+//  2. Docker Desktop's backend. Its newer auth stack (auth v2) serves whatever
+//     its in-memory token source holds and never refreshes on GET, so a stuck
+//     background refresher makes it return the same expired JWT forever — or
+//     nothing at all when its read-time refresh failed.
+//  3. A token minted from the access token `docker login` stored.
+//  4. A token Docker Desktop is nudged into refreshing.
 func GetTokenWithSource(ctx context.Context) (string, Source) {
 	if token, source, ok := cached(); ok {
 		return token, source
@@ -184,27 +189,6 @@ func remember(token string, source Source) bool {
 	}
 	cache.token, cache.source, cache.staleAt = token, source, time.Now().Add(cacheTTL)
 	return true
-}
-
-// secretsEngineToken returns a usable token from the secrets engine and caches
-// it. Misses are only logged at debug level: many machines have no engine.
-func secretsEngineToken(ctx context.Context) (string, bool) {
-	token, err := fetchSecretsEngineToken(ctx)
-	switch {
-	case err != nil:
-		slog.DebugContext(ctx, "Could not read the Docker Hub session from the secrets engine", "error", err)
-		return "", false
-	case token == "":
-		slog.DebugContext(ctx, "No Docker Hub session in the secrets engine")
-		return "", false
-	case !usable(token):
-		// Fall through so minting or a forced refresh can replace it.
-		slog.DebugContext(ctx, "The secrets engine served a token that expired, is about to, or was refused",
-			"fingerprint", tokenFingerprint(token),
-			"expires_in", expiresIn(token))
-		return "", false
-	}
-	return token, remember(token, SourceSecretsEngine)
 }
 
 // logUnusableToken records why Docker Desktop's token can't be used as-is,

@@ -3,6 +3,8 @@
 package desktop
 
 import (
+	"errors"
+
 	secretsengine "github.com/docker/secrets-engine/client"
 	"github.com/docker/secrets-engine/client/dockerhub"
 	"github.com/docker/secrets-engine/x/api"
@@ -16,4 +18,11 @@ func newSecretsEngineHubAuth() (dockerhub.ClientAuth, error) {
 		return nil, err
 	}
 	return engine.HubAuth(), nil
+}
+
+// secretsEngineUnavailable reports whether err means nothing is listening on
+// the engine socket: Docker Desktop is not installed, not running, or predates
+// the engine.
+func secretsEngineUnavailable(err error) bool {
+	return errors.Is(err, secretsengine.ErrSecretsEngineNotAvailable)
 }

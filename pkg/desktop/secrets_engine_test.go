@@ -104,9 +104,9 @@ func TestGetTokenFromSecretsEngine(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			fromDesktop := makeToken(t, time.Now().Add(time.Hour))
 			installFakeBackend(t, &fakeBackend{token: fromDesktop})
-			hubAuth = func() (dockerhub.ClientAuth, error) {
-				return nil, errors.New("the secrets engine is not available on this platform")
-			}
+			stubHubAuth(t, func() (dockerhub.ClientAuth, error) {
+				return nil, errors.New("could not create the secrets engine client")
+			})
 
 			token, source := GetTokenWithSource(t.Context())
 			assert.Equal(t, fromDesktop, token)
@@ -213,12 +213,25 @@ func TestFetchSecretsEngineTokenCanceledCaller(t *testing.T) {
 func installFakeEngine(t *testing.T, engine *fakeEngine) {
 	t.Helper()
 
-	oldHubAuth := hubAuth
-	hubAuth = func() (dockerhub.ClientAuth, error) { return dockerhub.New(engine), nil }
-	t.Cleanup(func() { hubAuth = oldHubAuth })
+	stubHubAuth(t, func() (dockerhub.ClientAuth, error) { return dockerhub.New(engine), nil })
 
-	endSecretsEngineCooldown()
-	t.Cleanup(endSecretsEngineCooldown)
+	resetSecretsEngineState()
+	t.Cleanup(resetSecretsEngineState)
+}
+
+// stubHubAuth replaces the secrets engine client for the rest of the test.
+func stubHubAuth(t *testing.T, fake func() (dockerhub.ClientAuth, error)) {
+	t.Helper()
+
+	old := hubAuth
+	hubAuth = fake
+	t.Cleanup(func() { hubAuth = old })
+}
+
+func resetSecretsEngineState() {
+	secretsEngineState.Lock()
+	defer secretsEngineState.Unlock()
+	secretsEngineState.nextAttempt, secretsEngineState.reported = time.Time{}, false
 }
 
 func endSecretsEngineCooldown() {
@@ -240,6 +253,12 @@ func (e *fakeEngine) setToken(token string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.token = token
+}
+
+func (e *fakeEngine) setErr(err error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.err = err
 }
 
 func (e *fakeEngine) setBlock(block bool) {
