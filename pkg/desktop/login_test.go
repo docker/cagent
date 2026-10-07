@@ -500,6 +500,10 @@ func installFakeBackend(t *testing.T, backend *fakeBackend) {
 	}
 	t.Cleanup(func() { mintToken = oldMint })
 
+	// Nobody signed in to the secrets engine unless a test says otherwise: a
+	// developer's own Docker Desktop must never be reached.
+	installFakeEngine(t, &fakeEngine{})
+
 	clearCache := func() {
 		cache.Lock()
 		defer cache.Unlock()

@@ -177,7 +177,11 @@ On machines where Docker Desktop is installed, Docker Agent queries Docker Deskt
 
 ## Docker Authentication
 
-Routing model traffic through the [Docker models gateway](../../configuration/models/index.md) needs a Docker token. Docker Desktop hands out one that is valid for 15 minutes and cannot be renewed by Docker Agent, so when Desktop has nothing usable to offer — it is signed out, not running, or its own refresh is stuck — Docker Agent exchanges the long-lived access token that `docker login` left in your credential store for a fresh Docker token, the same exchange `docker login` itself performs. Signing in with `docker login` is therefore enough; Docker Desktop is not required.
+Routing model traffic through the [Docker models gateway](../../configuration/models/index.md) needs a Docker token. A `DOCKER_TOKEN` you provide yourself — an environment variable, a Compose secret, an env file or a credential helper, as is common in CI — always takes precedence, and none of the sources below are consulted.
+
+Otherwise, Docker Agent first reads the session of the account signed in to Docker Desktop from the Docker secrets engine, which Desktop serves on a local socket. The engine is skipped when it is unavailable (Docker Desktop is not installed or not running, or predates the engine), holds no session, or serves a token that is expired or about to expire. A lookup waits at most five seconds, and an engine that fails is left alone for 30 seconds, so it never holds up model requests.
+
+Next, Docker Desktop's backend hands out a token that is valid for 15 minutes and cannot be renewed by Docker Agent, so when Desktop has nothing usable to offer — it is signed out, not running, or its own refresh is stuck — Docker Agent exchanges the long-lived access token that `docker login` left in your credential store for a fresh Docker token, the same exchange `docker login` itself performs. Signing in with `docker login` is therefore enough; Docker Desktop is not required.
 
 Only Docker access tokens are exchanged — the `dckr_…` secrets `docker login` stores — never an account password, and the exchange goes to Docker Hub over HTTPS. The resulting bearer token is cached in a private file under Docker Agent's cache directory so sibling processes reuse it instead of minting their own, and it stops being used within seconds of a `docker logout` or an account switch. Run `docker agent debug auth` to see which token is in use and where it came from.
 
