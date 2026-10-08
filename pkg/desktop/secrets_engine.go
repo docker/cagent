@@ -3,7 +3,6 @@ package desktop
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -24,13 +23,25 @@ const (
 // can fake it.
 var hubAuth = sync.OnceValues(newSecretsEngineHubAuth)
 
-var errSecretsEngineCoolingDown = errors.New("secrets engine lookup failed recently, not retrying yet")
+var (
+	errSecretsEngineCoolingDown = errors.New("secrets engine lookup failed recently, not retrying yet")
+	errSecretsEngineSlow        = errors.New("secrets engine did not answer in time")
+)
 
 var secretsEngineState struct {
 	sync.Mutex
 
-	nextAttempt time.Time // earliest time the engine may be asked again
-	reported    bool      // the current run of failures was logged as a warning
+	nextAttempt time.Time            // earliest time the engine may be asked again
+	reported    bool                 // the current run of failures was logged as a warning
+	inflight    *secretsEngineLookup // the lookup callers share, nil when none runs
+}
+
+// secretsEngineLookup is one session lookup, shared by every caller that
+// needs it while it runs.
+type secretsEngineLookup struct {
+	done  chan struct{} // closed once token and err are set
+	token string
+	err   error
 }
 
 // secretsEngineToken returns a usable token from the secrets engine and caches
@@ -39,7 +50,8 @@ func secretsEngineToken(ctx context.Context) (string, bool) {
 	token, err := fetchSecretsEngineToken(ctx)
 	switch {
 	case err != nil:
-		logSecretsEngineError(ctx, err)
+		// The lookup logged its own failure: this is only why this caller skips it.
+		slog.DebugContext(ctx, "Skipping the secrets engine", "error", err)
 		return "", false
 	case token == "":
 		slog.DebugContext(ctx, "No Docker Hub session in the secrets engine")
@@ -59,36 +71,96 @@ func secretsEngineToken(ctx context.Context) (string, bool) {
 
 // fetchSecretsEngineToken returns the default Docker Hub account's access
 // token from the secrets engine, or "" when nobody is signed in.
+//
+// Concurrent callers share one lookup, which runs on its own budget: a caller
+// that gives up doesn't cancel it for the others, and it still records its
+// outcome. A caller waits at most half its remaining time, so the fallbacks
+// keep the rest.
 func fetchSecretsEngineToken(ctx context.Context) (string, error) {
-	if secretsEngineCoolingDown() {
-		return "", errSecretsEngineCoolingDown
+	lookup, err := joinSecretsEngineLookup(ctx)
+	if err != nil {
+		return "", err
 	}
 
+	wait, cancel := context.WithTimeout(ctx, secretsEngineWait(ctx))
+	defer cancel()
+
+	select {
+	case <-lookup.done:
+		return lookup.token, lookup.err
+	case <-wait.Done():
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		return "", errSecretsEngineSlow
+	}
+}
+
+// secretsEngineWait is how long ctx's caller may wait for the engine.
+func secretsEngineWait(ctx context.Context) time.Duration {
+	wait := secretsEngineBudget
+	if deadline, ok := ctx.Deadline(); ok {
+		wait = min(wait, time.Until(deadline)/2)
+	}
+	return wait
+}
+
+// joinSecretsEngineLookup returns the running lookup, or starts one.
+func joinSecretsEngineLookup(ctx context.Context) (*secretsEngineLookup, error) {
+	secretsEngineState.Lock()
+	defer secretsEngineState.Unlock()
+
+	if lookup := secretsEngineState.inflight; lookup != nil {
+		return lookup, nil
+	}
+	if time.Now().Before(secretsEngineState.nextAttempt) {
+		return nil, errSecretsEngineCoolingDown
+	}
+
+	lookup := &secretsEngineLookup{done: make(chan struct{})}
+	secretsEngineState.inflight = lookup
+	go runSecretsEngineLookup(context.WithoutCancel(ctx), lookup)
+	return lookup, nil
+}
+
+// runSecretsEngineLookup asks the engine for the default session and records
+// the outcome: a failure starts the cooldown and is logged.
+func runSecretsEngineLookup(ctx context.Context, lookup *secretsEngineLookup) {
+	token, err := lookUpSecretsEngineSession(ctx)
+	if err != nil {
+		logSecretsEngineError(ctx, err)
+	}
+
+	secretsEngineState.Lock()
+	defer secretsEngineState.Unlock()
+	if err != nil {
+		secretsEngineState.nextAttempt = time.Now().Add(secretsEngineCooldown)
+	} else {
+		secretsEngineState.reported = false // the engine answered: a new failure is news
+	}
+	secretsEngineState.inflight = nil
+	lookup.token, lookup.err = token, err
+	close(lookup.done)
+}
+
+// lookUpSecretsEngineSession returns the default account's access token, or ""
+// when nobody is signed in.
+func lookUpSecretsEngineSession(ctx context.Context) (string, error) {
 	hub, err := hubAuth()
 	if err != nil {
 		return "", err
 	}
 
-	// A separate deadline, so the fallbacks keep the caller's context.
-	lookupCtx, cancel := context.WithTimeout(ctx, secretsEngineBudget)
+	ctx, cancel := context.WithTimeout(ctx, secretsEngineBudget)
 	defer cancel()
 
-	session, err := hub.GetDefaultSession(lookupCtx)
+	session, err := hub.GetDefaultSession(ctx)
 	switch {
 	case err == nil:
-		secretsEngineAnswered()
 		return session.AccessToken, nil
 	case errors.Is(err, dockerhub.ErrNoSession):
-		secretsEngineAnswered()
-		return "", nil // nobody signed in
-	case ctx.Err() != nil:
-		// The caller gave up; that's not the engine's fault.
-		if errors.Is(err, ctx.Err()) {
-			return "", err
-		}
-		return "", fmt.Errorf("%w: %w", ctx.Err(), err)
+		return "", nil
 	default:
-		coolSecretsEngineDown()
 		return "", err
 	}
 }
@@ -99,8 +171,7 @@ func fetchSecretsEngineToken(ctx context.Context) (string, error) {
 // the first failure in a run is a warning, so a long-lived process doesn't
 // repeat it after every cooldown.
 func logSecretsEngineError(ctx context.Context, err error) {
-	routine := errors.Is(err, errSecretsEngineCoolingDown) || ctx.Err() != nil || secretsEngineUnavailable(err)
-	if routine || secretsEngineFailureReported() {
+	if secretsEngineUnavailable(err) || secretsEngineFailureReported() {
 		slog.DebugContext(ctx, secretsEngineFailureMsg, "error", err)
 		return
 	}
@@ -108,26 +179,6 @@ func logSecretsEngineError(ctx context.Context, err error) {
 }
 
 const secretsEngineFailureMsg = "Could not read the Docker Hub session from the secrets engine"
-
-func secretsEngineCoolingDown() bool {
-	secretsEngineState.Lock()
-	defer secretsEngineState.Unlock()
-	return time.Now().Before(secretsEngineState.nextAttempt)
-}
-
-// coolSecretsEngineDown leaves the engine alone for secretsEngineCooldown.
-func coolSecretsEngineDown() {
-	secretsEngineState.Lock()
-	defer secretsEngineState.Unlock()
-	secretsEngineState.nextAttempt = time.Now().Add(secretsEngineCooldown)
-}
-
-// secretsEngineAnswered ends a run of failures, so the next one is reported.
-func secretsEngineAnswered() {
-	secretsEngineState.Lock()
-	defer secretsEngineState.Unlock()
-	secretsEngineState.reported = false
-}
 
 // secretsEngineFailureReported reports whether the current run of failures
 // was already logged as a warning, and records that it now is.

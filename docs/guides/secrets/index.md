@@ -181,7 +181,7 @@ Routing model traffic through the [Docker models gateway](../../configuration/mo
 
 Otherwise, Docker Agent tries these sources in order and uses the first token that is not expired or about to expire:
 
-1. **The Docker secrets engine**, which Docker Desktop serves on a local socket and which holds the session of the account signed in to Desktop. It is skipped when it is unavailable (Docker Desktop is not installed or not running, or predates the engine) or holds no session. A lookup waits at most five seconds, and an engine that fails is left alone for 30 seconds, so it never holds up model requests.
+1. **The Docker secrets engine**, which Docker Desktop serves on a local socket and which holds the session of the account signed in to Desktop. It is skipped when it is unavailable (Docker Desktop is not installed or not running, or predates the engine) or holds no session. A request waits for the engine for at most five seconds, and never more than half of its own time limit, so the other sources still get a turn. An engine that fails or does not answer is skipped for the next 30 seconds.
 2. **Docker Desktop's backend.**
 3. **The access token `docker login` stored.** Docker Agent exchanges the long-lived access token in your credential store for a fresh Docker token, the same exchange `docker login` itself performs. Signing in with `docker login` is therefore enough; Docker Desktop is not required.
 4. **A refresh of Docker Desktop's session**, as a last resort.

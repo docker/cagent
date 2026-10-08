@@ -187,25 +187,91 @@ func TestGetTokenFromSecretsEngine(t *testing.T) {
 	})
 }
 
-func TestFetchSecretsEngineTokenCanceledCaller(t *testing.T) {
+func TestSecretsEngineCallerDeadline(t *testing.T) {
+	t.Run("an unresponsive engine leaves the fallbacks half the caller's time", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			// Gateway model discovery gives auth and its request 5s in all.
+			fromDesktop := makeToken(t, time.Now().Add(time.Hour))
+			installFakeBackend(t, &fakeBackend{token: fromDesktop})
+			engine := &fakeEngine{block: true}
+			installFakeEngine(t, engine)
+
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			start := time.Now()
+			token, source := GetTokenWithSource(ctx)
+
+			assert.Equal(t, fromDesktop, token)
+			assert.Equal(t, SourceDesktop, source)
+			assert.Equal(t, 2500*time.Millisecond, time.Since(start))
+			require.NoError(t, ctx.Err(), "the caller has time left for its request")
+		})
+	})
+
+	t.Run("an engine that outlives its callers still cools down", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			fromDesktop := makeToken(t, time.Now().Add(time.Hour))
+			installFakeBackend(t, &fakeBackend{token: fromDesktop})
+			engine := &fakeEngine{block: true}
+			installFakeEngine(t, engine)
+
+			lookUp := func() time.Duration {
+				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+				defer cancel()
+				expireCache()
+				start := time.Now()
+				assert.Equal(t, fromDesktop, GetToken(ctx))
+				return time.Since(start)
+			}
+
+			lookUp()
+			lookups := engine.lookupCount()
+			time.Sleep(secretsEngineBudget) //nolint:forbidigo // Fake time: the abandoned lookup times out.
+			synctest.Wait()
+
+			assert.Zero(t, lookUp(), "the next caller doesn't wait for the engine")
+			assert.Equal(t, lookups, engine.lookupCount())
+		})
+	})
+
+	t.Run("a canceled caller doesn't cancel the lookup for the others", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			fromEngine := makeToken(t, time.Now().Add(time.Hour))
+			engine := &fakeEngine{token: fromEngine, delay: time.Second}
+			installFakeEngine(t, engine)
+
+			canceled, cancel := context.WithCancel(t.Context())
+			go func() {
+				time.Sleep(100 * time.Millisecond) //nolint:forbidigo // Fake time: cancel while the lookup runs.
+				cancel()
+			}()
+			_, err := fetchSecretsEngineToken(canceled)
+			require.ErrorIs(t, err, context.Canceled)
+
+			token, err := fetchSecretsEngineToken(t.Context())
+			require.NoError(t, err)
+			assert.Equal(t, fromEngine, token)
+			assert.Equal(t, 2, engine.lookupCount(), "one profile and one session read")
+		})
+	})
+}
+
+func TestSecretsEngineConcurrentLookups(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		engine := &fakeEngine{block: true}
+		fromEngine := makeToken(t, time.Now().Add(time.Hour))
+		installFakeBackend(t, &fakeBackend{})
+		engine := &fakeEngine{token: fromEngine, delay: time.Second}
 		installFakeEngine(t, engine)
 
-		ctx, cancel := context.WithCancel(t.Context())
-		cancel()
+		var wg sync.WaitGroup
+		for range 32 {
+			wg.Go(func() {
+				assert.Equal(t, fromEngine, GetToken(t.Context()))
+			})
+		}
+		wg.Wait()
 
-		_, err := fetchSecretsEngineToken(ctx)
-		require.ErrorIs(t, err, context.Canceled)
-
-		// A canceled caller doesn't trigger the cooldown.
-		fromEngine := makeToken(t, time.Now().Add(time.Hour))
-		engine.setBlock(false)
-		engine.setToken(fromEngine)
-
-		token, err := fetchSecretsEngineToken(t.Context())
-		require.NoError(t, err)
-		assert.Equal(t, fromEngine, token)
+		assert.Equal(t, 2, engine.lookupCount(), "concurrent callers share one lookup")
 	})
 }
 
@@ -213,10 +279,10 @@ func TestFetchSecretsEngineTokenCanceledCaller(t *testing.T) {
 func installFakeEngine(t *testing.T, engine *fakeEngine) {
 	t.Helper()
 
-	stubHubAuth(t, func() (dockerhub.ClientAuth, error) { return dockerhub.New(engine), nil })
-
 	resetSecretsEngineState()
 	t.Cleanup(resetSecretsEngineState)
+
+	stubHubAuth(t, func() (dockerhub.ClientAuth, error) { return dockerhub.New(engine), nil })
 }
 
 // stubHubAuth replaces the secrets engine client for the rest of the test.
@@ -226,12 +292,24 @@ func stubHubAuth(t *testing.T, fake func() (dockerhub.ClientAuth, error)) {
 	old := hubAuth
 	hubAuth = fake
 	t.Cleanup(func() { hubAuth = old })
+	t.Cleanup(awaitSecretsEngineLookup) // runs first: a lookup may outlive its callers
+}
+
+// awaitSecretsEngineLookup waits for the running lookup, if any, to finish.
+func awaitSecretsEngineLookup() {
+	secretsEngineState.Lock()
+	lookup := secretsEngineState.inflight
+	secretsEngineState.Unlock()
+	if lookup != nil {
+		<-lookup.done
+	}
 }
 
 func resetSecretsEngineState() {
 	secretsEngineState.Lock()
 	defer secretsEngineState.Unlock()
 	secretsEngineState.nextAttempt, secretsEngineState.reported = time.Time{}, false
+	secretsEngineState.inflight = nil
 }
 
 func endSecretsEngineCooldown() {
@@ -243,9 +321,10 @@ func endSecretsEngineCooldown() {
 // fakeEngine serves the default account's profile and session.
 type fakeEngine struct {
 	mu      sync.Mutex
-	token   string // the default account's access token; "" when signed out
-	err     error  // returned by every lookup when set
-	block   bool   // lookups wait for their context to end
+	token   string        // the default account's access token; "" when signed out
+	err     error         // returned by every lookup when set
+	block   bool          // lookups wait for their context to end
+	delay   time.Duration // lookups take this long to answer
 	lookups int
 }
 
@@ -261,12 +340,6 @@ func (e *fakeEngine) setErr(err error) {
 	e.err = err
 }
 
-func (e *fakeEngine) setBlock(block bool) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.block = block
-}
-
 func (e *fakeEngine) lookupCount() int {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -276,12 +349,19 @@ func (e *fakeEngine) lookupCount() int {
 func (e *fakeEngine) GetSecrets(ctx context.Context, pattern secrets.Pattern) ([]secrets.Envelope, error) {
 	e.mu.Lock()
 	e.lookups++
-	token, err, block := e.token, e.err, e.block
+	token, err, block, delay := e.token, e.err, e.block, e.delay
 	e.mu.Unlock()
 
 	if block {
 		<-ctx.Done()
 		return nil, ctx.Err()
+	}
+	if delay > 0 {
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 	if err != nil {
 		return nil, err
