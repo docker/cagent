@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	// secretsEngineBudget bounds a single session lookup: the SDK sets no
-	// request timeout of its own.
+	// secretsEngineBudget bounds a single session lookup: the SDK client has no
+	// request timeout by default.
 	secretsEngineBudget = 5 * time.Second
 
 	// secretsEngineCooldown is how long a failing engine is skipped.
@@ -189,13 +189,13 @@ func lookUpSecretsEngineSession(ctx context.Context) (string, error) {
 	}
 }
 
-// logSecretsEngineError says why the engine couldn't be read. Most machines
-// without Docker Desktop have no engine, so that's only logged at debug level.
-// Other failures, such as access being denied, mean something is wrong. Only
-// the first failure in a run is a warning, so a long-lived process doesn't
-// repeat it after every cooldown.
+// logSecretsEngineError says why the engine couldn't be read. A missing engine
+// is common, as on machines without Docker Desktop, so it's only logged at
+// debug level. Other failures, such as access being denied or a timeout, mean
+// something is wrong: the first in a run is a warning, so a long-lived process
+// doesn't repeat it after every cooldown.
 func logSecretsEngineError(ctx context.Context, err error) {
-	if secretsEngineUnavailable(err) || secretsEngineFailureReported() {
+	if errors.Is(err, errNoSecretsEngine) || secretsEngineFailureReported() {
 		slog.DebugContext(ctx, secretsEngineFailureMsg, "error", err)
 		return
 	}

@@ -71,7 +71,7 @@ func TestGetTokenFromSecretsEngine(t *testing.T) {
 		name string
 		err  error
 	}{
-		{name: "engine unavailable", err: errors.New("secrets engine is not available: dial unix engine.sock: connect: no such file or directory")},
+		{name: "engine not running", err: errors.New("secrets engine is not running at engine.sock: dial unix engine.sock: connect: no such file or directory")},
 		{name: "access denied", err: secrets.ErrAccessDenied},
 		{name: "lookup failed", err: errors.New("internal error")},
 	} {
