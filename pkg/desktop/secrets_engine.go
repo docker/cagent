@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/docker/secrets-engine/client/dockerhub"
+
+	"github.com/docker/docker-agent/pkg/hubauth"
 )
 
 const (
@@ -22,6 +24,28 @@ const (
 // hubAuth reads Docker Hub sessions from the secrets engine. A var so tests
 // can fake it.
 var hubAuth = sync.OnceValues(newSecretsEngineHubAuth)
+
+// hubStaging reports whether Docker Hub staging is in use. A var so tests can
+// fake it.
+var hubStaging = hubauth.Staging
+
+// secretsEngineHubOptions selects the engine realms the session is read from.
+// They are production's, unless DOCKER_AGENT_HUB_LOGIN_URL points the token
+// exchange at a Docker Hub staging host, such as hub-stage.docker.com: then
+// [dockerhub.Staging] reads the staging realms instead.
+//
+// Limitations:
+//   - Docker Desktop doesn't say which environment it is signed in to. A
+//     Desktop signed in to staging without that variable is read from the
+//     production realms, which hold no session or a production one; with it,
+//     production sessions are ignored.
+//   - The variable is read once, when the engine client is created.
+func secretsEngineHubOptions() []dockerhub.Option {
+	if hubStaging() {
+		return []dockerhub.Option{dockerhub.Staging()}
+	}
+	return nil
+}
 
 var (
 	errSecretsEngineCoolingDown = errors.New("secrets engine lookup failed recently, not retrying yet")

@@ -18,7 +18,7 @@ func newSecretsEngineHubAuth() (dockerhub.ClientAuth, error) {
 	if err != nil {
 		return nil, err
 	}
-	return engine.HubAuth(), nil
+	return engine.HubAuth(secretsEngineHubOptions()...), nil
 }
 
 // secretsEngineUnavailable reports whether err means nothing is at the engine
