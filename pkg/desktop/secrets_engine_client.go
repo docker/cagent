@@ -4,6 +4,7 @@ package desktop
 
 import (
 	"errors"
+	"io/fs"
 
 	secretsengine "github.com/docker/secrets-engine/client"
 	"github.com/docker/secrets-engine/client/dockerhub"
@@ -20,9 +21,14 @@ func newSecretsEngineHubAuth() (dockerhub.ClientAuth, error) {
 	return engine.HubAuth(), nil
 }
 
-// secretsEngineUnavailable reports whether err means nothing is listening on
-// the engine socket: Docker Desktop is not installed, not running, or predates
-// the engine.
+// secretsEngineUnavailable reports whether err means nothing is at the engine
+// socket: Docker Desktop is not installed, not running, or predates the
+// engine. The SDK reports every failed dial as unavailable, so tell those apart
+// from an engine that is there but can't be reached, such as permission denied.
+//
+// TODO: use secretsengine.ErrSecretsEngineUnreachable once
+// https://github.com/docker/secrets-engine/pull/677 is released.
 func secretsEngineUnavailable(err error) bool {
-	return errors.Is(err, secretsengine.ErrSecretsEngineNotAvailable)
+	return errors.Is(err, secretsengine.ErrSecretsEngineNotAvailable) &&
+		(errors.Is(err, fs.ErrNotExist) || errors.Is(err, errConnRefused))
 }
