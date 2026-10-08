@@ -227,20 +227,17 @@ func expiresIn(token string) string {
 	return time.Until(exp).Round(time.Second).String()
 }
 
-// GetUserInfo returns the signed-in account. Docker Desktop knows it best, but
-// it is not always around: the token itself carries the same information.
+// GetUserInfo returns the account of the token [GetToken] serves, so it names
+// the account requests are sent as. Docker Desktop's account is the fallback
+// for a token that carries none, such as a personal access token.
 func GetUserInfo(ctx context.Context) DockerHubInfo {
-	var info DockerHubInfo
-	_ = ClientBackend.Get(ctx, "/registry/info", &info)
-	if info.Username != "" {
-		return info
+	if identity, ok := hubauth.IdentityFromToken(GetToken(ctx)); ok {
+		return DockerHubInfo{Username: identity.Username, Email: identity.Email}
 	}
 
-	identity, ok := hubauth.IdentityFromToken(GetToken(ctx))
-	if !ok {
-		return info
-	}
-	return DockerHubInfo{Username: identity.Username, Email: identity.Email}
+	var info DockerHubInfo
+	_ = ClientBackend.Get(ctx, "/registry/info", &info)
+	return info
 }
 
 func fetchToken(ctx context.Context) (string, error) {
