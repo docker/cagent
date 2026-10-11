@@ -52,6 +52,14 @@ type openAIAliasProvider struct {
 
 var openAIAliasProviders = []openAIAliasProvider{
 	{
+		provider:             "api-route",
+		envVar:               "API_ROUTE_API_KEY",
+		testKey:              "test-api-route-key",
+		model:                "gpt-6.1-sol",
+		greeting:             "Hello from API Route",
+		mergesSystemMessages: true,
+	},
+	{
 		provider:             "atlascloud",
 		envVar:               "ATLASCLOUD_API_KEY",
 		testKey:              "test-atlascloud-key",
