@@ -298,21 +298,47 @@ func TestSecretsEngineConcurrentLookups(t *testing.T) {
 	})
 }
 
+func TestSecretsEngineLastError(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a failed lookup is recorded until the engine answers", func(t *testing.T) {
+		t.Parallel()
+		synctest.Test(t, func(t *testing.T) {
+			fake := &fakeEngine{err: secrets.ErrAccessDenied}
+			engine := newTestEngine(t, fake)
+			require.NoError(t, engine.lastError())
+
+			_, _ = engine.fetch(t.Context())
+			require.ErrorIs(t, engine.lastError(), secrets.ErrAccessDenied)
+
+			fake.setErr(nil)
+			endCooldown(engine)
+			_, _ = engine.fetch(t.Context())
+			require.NoError(t, engine.lastError())
+		})
+	})
+
+	t.Run("a slow lookup reports the error it ends with", func(t *testing.T) {
+		t.Parallel()
+		synctest.Test(t, func(t *testing.T) {
+			engine := newTestEngine(t, &fakeEngine{block: true})
+
+			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+			defer cancel()
+			_, err := engine.fetch(ctx)
+			require.ErrorIs(t, err, errSecretsEngineSlow)
+
+			require.ErrorIs(t, engine.lastError(), context.DeadlineExceeded)
+		})
+	})
+}
+
 func newTestEngine(t *testing.T, fake *fakeEngine) *secretsEngine {
 	t.Helper()
 
 	engine := &secretsEngine{client: dockerhub.New(fake), logger: slog.New(slog.DiscardHandler)}
-	t.Cleanup(func() { awaitLookup(engine) })
+	t.Cleanup(engine.wait)
 	return engine
-}
-
-func awaitLookup(engine *secretsEngine) {
-	engine.mu.Lock()
-	lookup := engine.inflight
-	engine.mu.Unlock()
-	if lookup != nil {
-		<-lookup.done
-	}
 }
 
 func installNoSecretsEngine(t *testing.T) {

@@ -58,6 +58,7 @@ type secretsEngine struct {
 	nextAttempt time.Time            // earliest time the engine may be asked again
 	reported    bool                 // the current run of failures was logged as a warning
 	inflight    *secretsEngineLookup // the lookup callers share, nil when none runs
+	lastErr     error                // why the last lookup failed, nil when it didn't
 }
 
 // secretsEngineLookup is one session lookup shared by concurrent callers.
@@ -86,6 +87,11 @@ func secretsEngineToken(ctx context.Context) (string, bool) {
 		return "", false
 	}
 	return token, true
+}
+
+// SecretsEngineError returns why the last secrets engine lookup failed, or nil, once any running lookup ends.
+func SecretsEngineError() error {
+	return defaultSecretsEngine().lastError()
 }
 
 // fetch waits at most half of ctx's remaining time for the shared lookup.
@@ -150,9 +156,28 @@ func (e *secretsEngine) run(ctx context.Context, lookup *secretsEngineLookup) {
 	} else {
 		e.reported = false
 	}
+	e.lastErr = err
 	e.inflight = nil
 	lookup.token, lookup.err = token, err
 	close(lookup.done)
+}
+
+// wait blocks until the running lookup, if any, ends.
+func (e *secretsEngine) wait() {
+	e.mu.Lock()
+	lookup := e.inflight
+	e.mu.Unlock()
+	if lookup != nil {
+		<-lookup.done
+	}
+}
+
+// lastError returns why the last lookup failed, or nil, once any running lookup ends.
+func (e *secretsEngine) lastError() error {
+	e.wait()
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.lastErr
 }
 
 // session returns the default account's access token, or "" when signed out.

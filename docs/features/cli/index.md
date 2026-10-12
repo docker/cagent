@@ -803,6 +803,8 @@ $ docker agent debug oauth login agent.yaml github
 
 The `Source` field says where the token came from: `docker desktop secrets engine` when it was read from the secrets engine Docker Desktop serves, `docker desktop` when Docker Desktop's backend served it, or `minted from the stored access token` when it was obtained by exchanging the access token `docker login` stored. See [Docker authentication](../../guides/secrets/index.md#docker-authentication).
 
+When the secrets engine couldn't be read, `Secrets engine` says why and `Hint` says how to fix it (`secrets_engine.error` and `secrets_engine.hint` in the JSON output). A secrets engine that isn't running is only reported when no token was found, since machines without Docker Desktop don't have one.
+
 The `config`, `toolsets`, `tool`, `skills`, and `title` subcommands also accept [runtime configuration flags](#runtime-configuration-flags) (`--working-dir`, `--models-gateway`, …); `title` additionally accepts `--model` to override the model used to resolve the config before generating the title.
 
 ### `docker-agent completion`
