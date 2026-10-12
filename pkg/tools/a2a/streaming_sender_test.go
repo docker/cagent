@@ -6,17 +6,17 @@ import (
 	"iter"
 	"testing"
 
-	goa2a "github.com/a2aproject/a2a-go/a2a"
+	goa2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/docker/docker-agent/pkg/tools"
 )
 
-type streamingSenderFunc func(context.Context, *goa2a.MessageSendParams) iter.Seq2[goa2a.Event, error]
+type streamingSenderFunc func(context.Context, *goa2a.SendMessageRequest) iter.Seq2[goa2a.Event, error]
 
-func (f streamingSenderFunc) SendStreamingMessage(ctx context.Context, params *goa2a.MessageSendParams) iter.Seq2[goa2a.Event, error] {
-	return f(ctx, params)
+func (f streamingSenderFunc) SendStreamingMessage(ctx context.Context, req *goa2a.SendMessageRequest) iter.Seq2[goa2a.Event, error] {
+	return f(ctx, req)
 }
 
 func TestStreamingSenderContract(t *testing.T) {
@@ -28,22 +28,22 @@ func TestStreamingSenderContract(t *testing.T) {
 		isError bool
 	}{
 		{name: "empty", want: "No response from agent", isError: true},
-		{name: "message", events: []goa2a.Event{goa2a.NewMessage(goa2a.MessageRoleAgent, &goa2a.TextPart{Text: "hello"})}, want: "hello"},
+		{name: "message", events: []goa2a.Event{goa2a.NewMessage(goa2a.MessageRoleAgent, goa2a.NewTextPart("hello"))}, want: "hello"},
 		{name: "mixed", events: []goa2a.Event{
-			&goa2a.TaskStatusUpdateEvent{Status: goa2a.TaskStatus{Message: goa2a.NewMessage(goa2a.MessageRoleAgent, &goa2a.TextPart{Text: "one"})}},
-			&goa2a.TaskArtifactUpdateEvent{Artifact: &goa2a.Artifact{Parts: goa2a.ContentParts{&goa2a.TextPart{Text: "two"}}}},
-			&goa2a.Task{Status: goa2a.TaskStatus{Message: goa2a.NewMessage(goa2a.MessageRoleAgent, &goa2a.TextPart{Text: "three"})}},
+			&goa2a.TaskStatusUpdateEvent{Status: goa2a.TaskStatus{Message: goa2a.NewMessage(goa2a.MessageRoleAgent, goa2a.NewTextPart("one"))}},
+			&goa2a.TaskArtifactUpdateEvent{Artifact: &goa2a.Artifact{Parts: goa2a.ContentParts{goa2a.NewTextPart("two")}}},
+			&goa2a.Task{Status: goa2a.TaskStatus{Message: goa2a.NewMessage(goa2a.MessageRoleAgent, goa2a.NewTextPart("three"))}},
 		}, want: "onetwothree"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			calls := 0
 			tool := NewToolset("test", "https://example.com", nil)
-			tool.client = streamingSenderFunc(func(ctx context.Context, params *goa2a.MessageSendParams) iter.Seq2[goa2a.Event, error] {
+			tool.client = streamingSenderFunc(func(ctx context.Context, req *goa2a.SendMessageRequest) iter.Seq2[goa2a.Event, error] {
 				calls++
 				assert.Equal(t, t.Context(), ctx)
-				assert.Equal(t, goa2a.MessageRoleUser, params.Message.Role)
-				assert.Equal(t, "hello", extractText(params.Message))
+				assert.Equal(t, goa2a.MessageRoleUser, req.Message.Role)
+				assert.Equal(t, "hello", extractText(req.Message))
 				return func(yield func(goa2a.Event, error) bool) {
 					for _, event := range tc.events {
 						if !yield(event, nil) {
@@ -66,9 +66,9 @@ func TestStreamingSenderStopsOnError(t *testing.T) {
 	sentinel := errors.New("stream failed")
 	stopped := false
 	tool := NewToolset("test", "https://example.com", nil)
-	tool.client = streamingSenderFunc(func(context.Context, *goa2a.MessageSendParams) iter.Seq2[goa2a.Event, error] {
+	tool.client = streamingSenderFunc(func(context.Context, *goa2a.SendMessageRequest) iter.Seq2[goa2a.Event, error] {
 		return func(yield func(goa2a.Event, error) bool) {
-			if !yield(goa2a.NewMessage(goa2a.MessageRoleAgent, &goa2a.TextPart{Text: "partial"}), nil) {
+			if !yield(goa2a.NewMessage(goa2a.MessageRoleAgent, goa2a.NewTextPart("partial")), nil) {
 				return
 			}
 			stopped = !yield(nil, sentinel)

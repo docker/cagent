@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/a2aproject/a2a-go/a2aclient/agentcard"
+	"github.com/a2aproject/a2a-go/v2/a2aclient/agentcard"
 
 	"github.com/docker/docker-agent/pkg/modelerrors"
 )

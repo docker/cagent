@@ -14,9 +14,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/a2aproject/a2a-go/a2a"
-	"github.com/a2aproject/a2a-go/a2aclient"
-	"github.com/a2aproject/a2a-go/a2aclient/agentcard"
+	"github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2aclient"
+	"github.com/a2aproject/a2a-go/v2/a2aclient/agentcard"
+	"github.com/a2aproject/a2a-go/v2/a2acompat/a2av0"
 
 	"github.com/docker/docker-agent/pkg/config"
 	"github.com/docker/docker-agent/pkg/config/latest"
@@ -27,7 +28,7 @@ import (
 )
 
 type streamingSender interface {
-	SendStreamingMessage(ctx context.Context, params *a2a.MessageSendParams) iter.Seq2[a2a.Event, error]
+	SendStreamingMessage(ctx context.Context, req *a2a.SendMessageRequest) iter.Seq2[a2a.Event, error]
 }
 
 type headerExpander interface {
@@ -207,7 +208,8 @@ func (t *Toolset) Start(ctx context.Context) error {
 	rec := &retryAfterRecorder{base: base}
 	client.Transport = rec
 
-	resolver := agentcard.NewResolver(client)
+	// The v0 parser also reads 1.0 cards, so both serve a2a and older A2A servers resolve.
+	resolver := &agentcard.Resolver{Client: client, CardParser: a2av0.NewAgentCardParser()}
 	card, err := resolver.Resolve(ctx, t.url)
 	if err != nil {
 		return enrichCardError(err, rec)
@@ -216,8 +218,8 @@ func (t *Toolset) Start(ctx context.Context) error {
 	httpClient := client
 
 	endpointOrigin := t.url
-	if card.URL != "" {
-		endpointOrigin = card.URL
+	if len(card.SupportedInterfaces) > 0 && card.SupportedInterfaces[0].URL != "" {
+		endpointOrigin = card.SupportedInterfaces[0].URL
 	}
 	headers := t.expander.ExpandMap(ctx, t.headers)
 	httpClient.Transport = upstream.NewHeaderTransportForOrigin(base, endpointOrigin, headers)
@@ -226,6 +228,7 @@ func (t *Toolset) Start(ctx context.Context) error {
 		ctx, card,
 		a2aclient.WithDefaultsDisabled(),
 		a2aclient.WithJSONRPCTransport(httpClient),
+		a2av0.WithJSONRPCTransport(a2av0.JSONRPCTransportConfig{Client: httpClient}),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create A2A client: %w", err)
@@ -266,12 +269,12 @@ func (t *Toolset) createHandler() tools.ToolHandler {
 			return nil, errors.New("A2A client not initialized")
 		}
 
-		params := &a2a.MessageSendParams{
-			Message: a2a.NewMessage(a2a.MessageRoleUser, &a2a.TextPart{Text: args.Message}),
+		req := &a2a.SendMessageRequest{
+			Message: a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart(args.Message)),
 		}
 
 		var response strings.Builder
-		for event, err := range client.SendStreamingMessage(ctx, params) {
+		for event, err := range client.SendStreamingMessage(ctx, req) {
 			if err != nil {
 				return nil, fmt.Errorf("A2A call failed: %w", err)
 			}
@@ -308,11 +311,8 @@ func extractText(event a2a.Event) string {
 
 	var sb strings.Builder
 	for _, part := range parts {
-		switch p := part.(type) {
-		case *a2a.TextPart:
-			sb.WriteString(p.Text)
-		case a2a.TextPart:
-			sb.WriteString(p.Text)
+		if part != nil {
+			sb.WriteString(part.Text())
 		}
 	}
 	return sb.String()
