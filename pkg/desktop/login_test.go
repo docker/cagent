@@ -369,15 +369,6 @@ func TestGetUserInfo(t *testing.T) {
 		assert.Equal(t, DockerHubInfo{Username: "claims-user", Email: "claims@example.com"}, GetUserInfo(t.Context()))
 	})
 
-	t.Run("names the account of a secrets engine token", func(t *testing.T) {
-		backend := &fakeBackend{token: makeIdentityToken(t, "claims-user", "claims@example.com")}
-		backend.info = &desktopAccount
-		installFakeBackend(t, backend)
-		installFakeEngine(t, &fakeEngine{token: makeIdentityToken(t, "engine-user", "engine@example.com")})
-
-		assert.Equal(t, DockerHubInfo{Username: "engine-user", Email: "engine@example.com"}, GetUserInfo(t.Context()))
-	})
-
 	t.Run("falls back to Docker Desktop for a token without an account", func(t *testing.T) {
 		backend := &fakeBackend{token: makeToken(t, time.Now().Add(time.Hour))}
 		backend.info = &desktopAccount
@@ -526,7 +517,7 @@ func installFakeBackend(t *testing.T, backend *fakeBackend) {
 	}
 	t.Cleanup(func() { mintToken = oldMint })
 
-	installFakeEngine(t, &fakeEngine{})
+	installNoSecretsEngine(t)
 
 	clearCache := func() {
 		cache.Lock()

@@ -1,3 +1,5 @@
+//go:build darwin || linux || windows
+
 package desktop
 
 import (
@@ -7,7 +9,11 @@ import (
 	"sync"
 	"time"
 
+	secretsengine "github.com/docker/secrets-engine/client"
 	"github.com/docker/secrets-engine/client/dockerhub"
+	"github.com/docker/secrets-engine/x/api"
+
+	"github.com/docker/docker-agent/pkg/hubauth"
 )
 
 const (
@@ -26,10 +32,20 @@ var (
 const secretsEngineFailureMsg = "Could not read the Docker Hub session from the secrets engine"
 
 // defaultSecretsEngine is the engine [GetTokenWithSource] reads, created on first use.
-var defaultSecretsEngine = sync.OnceValue(func() *secretsEngine {
-	client, err := newSecretsEngineHubAuth()
-	return &secretsEngine{client: client, clientErr: err, logger: slog.Default()}
-})
+var defaultSecretsEngine = sync.OnceValue(newSecretsEngine)
+
+// newSecretsEngine connects to Docker Desktop's secrets engine, reading staging sessions on staging.
+func newSecretsEngine() *secretsEngine {
+	client, err := secretsengine.New(secretsengine.WithSocketPath(api.DesktopSocketPath()))
+	if err != nil {
+		return &secretsEngine{clientErr: err, logger: slog.Default()}
+	}
+	var opts []dockerhub.Option
+	if hubauth.Staging() {
+		opts = append(opts, dockerhub.Staging())
+	}
+	return &secretsEngine{client: client.HubAuth(opts...), logger: slog.Default()}
+}
 
 // secretsEngine reads Docker Hub sessions from the secrets engine, sharing lookups and cooling down after failures.
 type secretsEngine struct {
@@ -51,8 +67,8 @@ type secretsEngineLookup struct {
 }
 
 // secretsEngineToken returns a usable token from the secrets engine and caches it.
-func secretsEngineToken(ctx context.Context, engine *secretsEngine) (string, bool) {
-	token, err := engine.fetch(ctx)
+func secretsEngineToken(ctx context.Context) (string, bool) {
+	token, err := defaultSecretsEngine().fetch(ctx)
 	switch {
 	case err != nil:
 		slog.DebugContext(ctx, "Skipping the secrets engine", "error", err)
@@ -161,12 +177,12 @@ func (e *secretsEngine) session(ctx context.Context) (string, error) {
 // logError warns once per run of failures, except for a missing engine.
 func (e *secretsEngine) logError(ctx context.Context, err error) {
 	level := slog.LevelWarn
-	if errors.Is(err, errNoSecretsEngine) || e.failureReported() {
+	if errors.Is(err, secretsengine.ErrSecretsEngineNotRunning) || e.failureReported() {
 		level = slog.LevelDebug
 	}
 	args := []any{"error", err}
-	if hint := secretsEngineHint(err); hint != "" {
-		args = append(args, "hint", hint)
+	if connErr, ok := errors.AsType[*secretsengine.ConnectError](err); ok && connErr.Hint() != "" {
+		args = append(args, "hint", connErr.Hint())
 	}
 	e.logger.Log(ctx, level, secretsEngineFailureMsg, args...)
 }

@@ -1,3 +1,5 @@
+//go:build darwin || linux || windows
+
 package desktop
 
 import (
@@ -93,6 +95,15 @@ func TestGetTokenFromSecretsEngine(t *testing.T) {
 		assert.Equal(t, minted, token)
 		assert.Equal(t, SourceMinted, source)
 		assert.Equal(t, 0, backend.refreshes())
+	})
+
+	t.Run("GetUserInfo names the account of an engine token", func(t *testing.T) {
+		backend := &fakeBackend{token: makeIdentityToken(t, "claims-user", "claims@example.com")}
+		backend.info = &DockerHubInfo{Username: "desktop-user", Email: "desktop@example.com"}
+		installFakeBackend(t, backend)
+		installFakeEngine(t, &fakeEngine{token: makeIdentityToken(t, "engine-user", "engine@example.com")})
+
+		assert.Equal(t, DockerHubInfo{Username: "engine-user", Email: "engine@example.com"}, GetUserInfo(t.Context()))
 	})
 
 	t.Run("a refused engine token is not served again", func(t *testing.T) {
@@ -302,6 +313,11 @@ func awaitLookup(engine *secretsEngine) {
 	if lookup != nil {
 		<-lookup.done
 	}
+}
+
+func installNoSecretsEngine(t *testing.T) {
+	t.Helper()
+	installFakeEngine(t, &fakeEngine{})
 }
 
 func installFakeEngine(t *testing.T, fake *fakeEngine) {
