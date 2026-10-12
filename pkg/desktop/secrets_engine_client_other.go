@@ -15,3 +15,8 @@ var errNoSecretsEngine = errors.New("the secrets engine is not available on this
 func newSecretsEngineHubAuth() (dockerhub.ClientAuth, error) {
 	return nil, errNoSecretsEngine
 }
+
+// secretsEngineHint has no advice to give: there is no engine to connect to.
+func secretsEngineHint(error) string {
+	return ""
+}

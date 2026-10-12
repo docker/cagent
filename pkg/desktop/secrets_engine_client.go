@@ -3,6 +3,8 @@
 package desktop
 
 import (
+	"errors"
+
 	secretsengine "github.com/docker/secrets-engine/client"
 	"github.com/docker/secrets-engine/client/dockerhub"
 	"github.com/docker/secrets-engine/x/api"
@@ -20,4 +22,13 @@ func newSecretsEngineHubAuth() (dockerhub.ClientAuth, error) {
 		return nil, err
 	}
 	return engine.HubAuth(secretsEngineHubOptions()...), nil
+}
+
+// secretsEngineHint returns the SDK's advice for recovering from a failed
+// connection to the engine, or "" when err is not one.
+func secretsEngineHint(err error) string {
+	if connErr, ok := errors.AsType[*secretsengine.ConnectError](err); ok {
+		return connErr.Hint()
+	}
+	return ""
 }

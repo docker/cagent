@@ -193,13 +193,18 @@ func lookUpSecretsEngineSession(ctx context.Context) (string, error) {
 // is common, as on machines without Docker Desktop, so it's only logged at
 // debug level. Other failures, such as access being denied or a timeout, mean
 // something is wrong: the first in a run is a warning, so a long-lived process
-// doesn't repeat it after every cooldown.
+// doesn't repeat it after every cooldown. A failed connection carries the
+// SDK's hint on how to recover.
 func logSecretsEngineError(ctx context.Context, err error) {
+	level := slog.LevelWarn
 	if errors.Is(err, errNoSecretsEngine) || secretsEngineFailureReported() {
-		slog.DebugContext(ctx, secretsEngineFailureMsg, "error", err)
-		return
+		level = slog.LevelDebug
 	}
-	slog.WarnContext(ctx, secretsEngineFailureMsg, "error", err)
+	args := []any{"error", err}
+	if hint := secretsEngineHint(err); hint != "" {
+		args = append(args, "hint", hint)
+	}
+	slog.Log(ctx, level, secretsEngineFailureMsg, args...)
 }
 
 const secretsEngineFailureMsg = "Could not read the Docker Hub session from the secrets engine"

@@ -4,6 +4,7 @@ package desktop
 
 import (
 	"bytes"
+	"errors"
 	"log/slog"
 	"net"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	secretsengine "github.com/docker/secrets-engine/client"
+	"github.com/docker/secrets-engine/x/api"
 	"github.com/docker/secrets-engine/x/secrets"
 	"github.com/stretchr/testify/assert"
 )
@@ -22,7 +24,7 @@ import (
 func sdkDialError(reason secretsengine.ConnectReason, err error) error {
 	return &secretsengine.ConnectError{
 		Reason:     reason,
-		SocketPath: "/run/secrets-engine.sock",
+		SocketPath: api.DesktopSocketPath(),
 		Err:        &net.OpError{Op: "dial", Net: "unix", Err: os.NewSyscallError("connect", err)},
 	}
 }
@@ -52,9 +54,26 @@ func TestSecretsEngineFailureLogging(t *testing.T) {
 					assert.Equal(t, 0, countFailureLogs(logs, "WARN"))
 					assert.Equal(t, 1, countFailureLogs(logs, "DEBUG"))
 				}
+
+				if connErr, ok := errors.AsType[*secretsengine.ConnectError](tt.err); ok && connErr.Hint() != "" {
+					assert.Contains(t, logs.String(), "hint=", "the SDK's hint is logged")
+				} else {
+					assert.NotContains(t, logs.String(), "hint=")
+				}
 			})
 		})
 	}
+
+	t.Run("a missing Docker Desktop logs the SDK's hint", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			logs := captureLogs(t)
+			installFakeBackend(t, &fakeBackend{token: makeToken(t, time.Now().Add(time.Hour))})
+			installFakeEngine(t, &fakeEngine{err: sdkDialError(secretsengine.ReasonNotRunning, syscall.ENOENT)})
+
+			GetToken(t.Context())
+			assert.Contains(t, logs.String(), `hint="Start Docker Desktop and retry`)
+		})
+	})
 
 	t.Run("other failures are warned about once per run", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
