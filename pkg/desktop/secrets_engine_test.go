@@ -56,7 +56,6 @@ func TestGetTokenFromSecretsEngine(t *testing.T) {
 			assert.Equal(t, fromDesktop, token)
 			assert.Equal(t, SourceDesktop, source)
 
-			// The user signs in: the next re-check picks it up.
 			fromEngine := makeToken(t, time.Now().Add(time.Hour))
 			engine.setToken(fromEngine)
 			expireCache()
@@ -128,7 +127,6 @@ func TestGetTokenFromSecretsEngine(t *testing.T) {
 
 	t.Run("an expired engine token falls through to minting", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
-			// A stuck Desktop refresher leaves both sources stale.
 			expired := makeToken(t, time.Now().Add(-time.Hour))
 			minted := makeToken(t, time.Now().Add(time.Hour))
 			backend := &fakeBackend{token: expired}
@@ -151,7 +149,6 @@ func TestGetTokenFromSecretsEngine(t *testing.T) {
 			installFakeEngine(t, &fakeEngine{token: fromEngine})
 			require.Equal(t, fromEngine, GetToken(t.Context()))
 
-			// The engine keeps serving the token Docker refused.
 			InvalidateToken(fromEngine)
 
 			token, source := GetTokenWithSource(t.Context())
@@ -171,7 +168,6 @@ func TestGetTokenFromSecretsEngine(t *testing.T) {
 			token, source := GetTokenWithSource(t.Context())
 			elapsed := time.Since(start)
 
-			// The engine's deadline must not cut the caller's lookup short.
 			assert.Equal(t, fromDesktop, token)
 			assert.Equal(t, SourceDesktop, source)
 			assert.GreaterOrEqual(t, elapsed, secretsEngineBudget)
@@ -190,7 +186,6 @@ func TestGetTokenFromSecretsEngine(t *testing.T) {
 func TestSecretsEngineCallerDeadline(t *testing.T) {
 	t.Run("an unresponsive engine leaves the fallbacks half the caller's time", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
-			// Gateway model discovery gives auth and its request 5s in all.
 			fromDesktop := makeToken(t, time.Now().Add(time.Hour))
 			installFakeBackend(t, &fakeBackend{token: fromDesktop})
 			engine := &fakeEngine{block: true}
@@ -297,7 +292,6 @@ func TestSecretsEngineConcurrentLookups(t *testing.T) {
 	})
 }
 
-// installFakeEngine serves engine through the real dockerhub accessor.
 func installFakeEngine(t *testing.T, engine *fakeEngine) {
 	t.Helper()
 
@@ -307,17 +301,15 @@ func installFakeEngine(t *testing.T, engine *fakeEngine) {
 	stubHubAuth(t, func() (dockerhub.ClientAuth, error) { return dockerhub.New(engine), nil })
 }
 
-// stubHubAuth replaces the secrets engine client for the rest of the test.
 func stubHubAuth(t *testing.T, fake func() (dockerhub.ClientAuth, error)) {
 	t.Helper()
 
 	old := hubAuth
 	hubAuth = fake
 	t.Cleanup(func() { hubAuth = old })
-	t.Cleanup(awaitSecretsEngineLookup) // runs first: a lookup may outlive its callers
+	t.Cleanup(awaitSecretsEngineLookup)
 }
 
-// awaitSecretsEngineLookup waits for the running lookup, if any, to finish.
 func awaitSecretsEngineLookup() {
 	secretsEngineState.Lock()
 	lookup := secretsEngineState.inflight
@@ -340,15 +332,14 @@ func endSecretsEngineCooldown() {
 	secretsEngineState.nextAttempt = time.Time{}
 }
 
-// fakeEngine serves the default account's profile and session.
 type fakeEngine struct {
 	mu      sync.Mutex
-	token   string        // the default account's access token; "" when signed out
-	err     error         // returned by every lookup when set
-	block   bool          // lookups wait for their context to end
-	delay   time.Duration // lookups take this long to answer
+	token   string
+	err     error
+	block   bool
+	delay   time.Duration
 	lookups int
-	asked   []string // the patterns looked up, in order
+	asked   []string
 }
 
 func (e *fakeEngine) askedFor() []string {

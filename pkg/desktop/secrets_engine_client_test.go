@@ -20,7 +20,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// sdkDialError is how the SDK reports a failed dial of the engine socket.
 func sdkDialError(reason secretsengine.ConnectReason, err error) error {
 	return &secretsengine.ConnectError{
 		Reason:     reason,
@@ -93,7 +92,6 @@ func TestSecretsEngineFailureLogging(t *testing.T) {
 			assert.Equal(t, 1, countFailureLogs(logs, "WARN"), "a failure that persists is warned about once")
 			assert.Equal(t, 1, countFailureLogs(logs, "DEBUG"))
 
-			// The engine answers again, then fails: that's a new run.
 			engine.setErr(nil)
 			lookUp()
 			engine.setErr(secrets.ErrAccessDenied)
@@ -103,7 +101,6 @@ func TestSecretsEngineFailureLogging(t *testing.T) {
 	})
 }
 
-// captureLogs records everything logged for the rest of the test.
 func captureLogs(t *testing.T) *bytes.Buffer {
 	t.Helper()
 
@@ -114,7 +111,6 @@ func captureLogs(t *testing.T) *bytes.Buffer {
 	return &logs
 }
 
-// countFailureLogs counts the engine failures logged at level.
 func countFailureLogs(logs *bytes.Buffer, level string) int {
 	n := 0
 	for line := range strings.Lines(logs.String()) {

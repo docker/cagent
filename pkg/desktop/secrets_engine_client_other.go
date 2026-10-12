@@ -16,7 +16,7 @@ func newSecretsEngineHubAuth() (dockerhub.ClientAuth, error) {
 	return nil, errNoSecretsEngine
 }
 
-// secretsEngineHint has no advice to give: there is no engine to connect to.
+// secretsEngineHint returns "": there is no engine to connect to.
 func secretsEngineHint(error) string {
 	return ""
 }

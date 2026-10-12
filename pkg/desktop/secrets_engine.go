@@ -13,33 +13,20 @@ import (
 )
 
 const (
-	// secretsEngineBudget bounds a single session lookup: the SDK client has no
-	// request timeout by default.
+	// secretsEngineBudget bounds a session lookup: the SDK has no default timeout.
 	secretsEngineBudget = 5 * time.Second
 
 	// secretsEngineCooldown is how long a failing engine is skipped.
 	secretsEngineCooldown = 30 * time.Second
 )
 
-// hubAuth reads Docker Hub sessions from the secrets engine. A var so tests
-// can fake it.
+// hubAuth reads Docker Hub sessions from the secrets engine; a var for tests.
 var hubAuth = sync.OnceValues(newSecretsEngineHubAuth)
 
-// hubStaging reports whether Docker Hub staging is in use. A var so tests can
-// fake it.
+// hubStaging reports whether Docker Hub staging is in use; a var for tests.
 var hubStaging = hubauth.Staging
 
-// secretsEngineHubOptions selects the engine realms the session is read from.
-// They are production's, unless DOCKER_AGENT_HUB_LOGIN_URL points the token
-// exchange at a Docker Hub staging host, such as hub-stage.docker.com: then
-// [dockerhub.Staging] reads the staging realms instead.
-//
-// Limitations:
-//   - Docker Desktop doesn't say which environment it is signed in to. A
-//     Desktop signed in to staging without that variable is read from the
-//     production realms, which hold no session or a production one; with it,
-//     production sessions are ignored.
-//   - The variable is read once, when the engine client is created.
+// secretsEngineHubOptions reads the staging realms when Docker Hub staging is in use.
 func secretsEngineHubOptions() []dockerhub.Option {
 	if hubStaging() {
 		return []dockerhub.Option{dockerhub.Staging()}
@@ -60,46 +47,35 @@ var secretsEngineState struct {
 	inflight    *secretsEngineLookup // the lookup callers share, nil when none runs
 }
 
-// secretsEngineLookup is one session lookup, shared by every caller that
-// needs it while it runs.
+// secretsEngineLookup is one session lookup shared by concurrent callers.
 type secretsEngineLookup struct {
 	done  chan struct{} // closed once token and err are set
 	token string
 	err   error
 }
 
-// secretsEngineToken returns a usable token from the secrets engine and caches
-// it.
+// secretsEngineToken returns a usable token from the secrets engine and caches it.
 func secretsEngineToken(ctx context.Context) (string, bool) {
 	token, err := fetchSecretsEngineToken(ctx)
 	switch {
 	case err != nil:
-		// The lookup logged its own failure: this is only why this caller skips it.
 		slog.DebugContext(ctx, "Skipping the secrets engine", "error", err)
 		return "", false
 	case token == "":
 		slog.DebugContext(ctx, "No Docker Hub session in the secrets engine")
 		return "", false
 	case !usable(token):
-		// Fall through so minting or a forced refresh can replace it.
 		slog.DebugContext(ctx, "The secrets engine served a token that expired, is about to, or was refused",
 			"fingerprint", tokenFingerprint(token),
 			"expires_in", expiresIn(token))
 		return "", false
 	case !remember(token, SourceSecretsEngine):
-		// Refused while it was being looked up.
 		return "", false
 	}
 	return token, true
 }
 
-// fetchSecretsEngineToken returns the default Docker Hub account's access
-// token from the secrets engine, or "" when nobody is signed in.
-//
-// Concurrent callers share one lookup, which runs on its own budget: a caller
-// that gives up doesn't cancel it for the others, and it still records its
-// outcome. A caller waits at most half its remaining time, so the fallbacks
-// keep the rest.
+// fetchSecretsEngineToken waits at most half of ctx's remaining time for the shared lookup.
 func fetchSecretsEngineToken(ctx context.Context) (string, error) {
 	lookup, err := joinSecretsEngineLookup(ctx)
 	if err != nil {
@@ -147,8 +123,7 @@ func joinSecretsEngineLookup(ctx context.Context) (*secretsEngineLookup, error) 
 	return lookup, nil
 }
 
-// runSecretsEngineLookup asks the engine for the default session and records
-// the outcome: a failure starts the cooldown and is logged.
+// runSecretsEngineLookup reads the session; a failure is logged and starts the cooldown.
 func runSecretsEngineLookup(ctx context.Context, lookup *secretsEngineLookup) {
 	token, err := lookUpSecretsEngineSession(ctx)
 	if err != nil {
@@ -160,15 +135,14 @@ func runSecretsEngineLookup(ctx context.Context, lookup *secretsEngineLookup) {
 	if err != nil {
 		secretsEngineState.nextAttempt = time.Now().Add(secretsEngineCooldown)
 	} else {
-		secretsEngineState.reported = false // the engine answered: a new failure is news
+		secretsEngineState.reported = false
 	}
 	secretsEngineState.inflight = nil
 	lookup.token, lookup.err = token, err
 	close(lookup.done)
 }
 
-// lookUpSecretsEngineSession returns the default account's access token, or ""
-// when nobody is signed in.
+// lookUpSecretsEngineSession returns the default account's access token, or "" when signed out.
 func lookUpSecretsEngineSession(ctx context.Context) (string, error) {
 	hub, err := hubAuth()
 	if err != nil {
@@ -189,12 +163,7 @@ func lookUpSecretsEngineSession(ctx context.Context) (string, error) {
 	}
 }
 
-// logSecretsEngineError says why the engine couldn't be read. A missing engine
-// is common, as on machines without Docker Desktop, so it's only logged at
-// debug level. Other failures, such as access being denied or a timeout, mean
-// something is wrong: the first in a run is a warning, so a long-lived process
-// doesn't repeat it after every cooldown. A failed connection carries the
-// SDK's hint on how to recover.
+// logSecretsEngineError warns once per run of failures, except for a missing engine.
 func logSecretsEngineError(ctx context.Context, err error) {
 	level := slog.LevelWarn
 	if errors.Is(err, errNoSecretsEngine) || secretsEngineFailureReported() {
@@ -209,8 +178,7 @@ func logSecretsEngineError(ctx context.Context, err error) {
 
 const secretsEngineFailureMsg = "Could not read the Docker Hub session from the secrets engine"
 
-// secretsEngineFailureReported reports whether the current run of failures
-// was already logged as a warning, and records that it now is.
+// secretsEngineFailureReported reports whether this run of failures was already warned about.
 func secretsEngineFailureReported() bool {
 	secretsEngineState.Lock()
 	defer secretsEngineState.Unlock()

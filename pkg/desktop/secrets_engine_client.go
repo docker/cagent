@@ -10,12 +10,10 @@ import (
 	"github.com/docker/secrets-engine/x/api"
 )
 
-// errNoSecretsEngine means nothing is at the engine socket: Docker Desktop is
-// not installed, not running, or predates the engine.
+// errNoSecretsEngine means nothing is listening on the engine socket.
 var errNoSecretsEngine = secretsengine.ErrSecretsEngineNotRunning
 
-// newSecretsEngineHubAuth connects to Docker Desktop's engine socket, not the
-// SDK's default standalone daemon socket.
+// newSecretsEngineHubAuth connects to Docker Desktop's secrets engine socket.
 func newSecretsEngineHubAuth() (dockerhub.ClientAuth, error) {
 	engine, err := secretsengine.New(secretsengine.WithSocketPath(api.DesktopSocketPath()))
 	if err != nil {
@@ -24,8 +22,7 @@ func newSecretsEngineHubAuth() (dockerhub.ClientAuth, error) {
 	return engine.HubAuth(secretsEngineHubOptions()...), nil
 }
 
-// secretsEngineHint returns the SDK's advice for recovering from a failed
-// connection to the engine, or "" when err is not one.
+// secretsEngineHint returns the SDK's recovery hint for a failed connection, or "".
 func secretsEngineHint(err error) string {
 	if connErr, ok := errors.AsType[*secretsengine.ConnectError](err); ok {
 		return connErr.Hint()

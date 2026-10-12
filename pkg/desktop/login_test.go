@@ -387,7 +387,6 @@ func TestGetUserInfo(t *testing.T) {
 	})
 
 	t.Run("falls back to Docker Desktop for a personal access token", func(t *testing.T) {
-		// Some Docker Desktop releases serve a PAT instead of an access token.
 		backend := &fakeBackend{token: "dckr_pat_0123456789abcdef", loggedIn: true}
 		backend.info = &desktopAccount
 		installFakeBackend(t, backend)
@@ -527,7 +526,6 @@ func installFakeBackend(t *testing.T, backend *fakeBackend) {
 	}
 	t.Cleanup(func() { mintToken = oldMint })
 
-	// Never reach a developer's real secrets engine.
 	installFakeEngine(t, &fakeEngine{})
 
 	clearCache := func() {

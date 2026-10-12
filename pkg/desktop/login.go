@@ -59,18 +59,7 @@ func GetToken(ctx context.Context) string {
 	return token
 }
 
-// GetTokenWithSource returns the user's Docker access token and where it came
-// from. A usable token is served from memory for up to cacheTTL; otherwise
-// the sources are tried in order:
-//
-//  1. The secrets engine Docker Desktop serves, which holds the signed-in
-//     account's session.
-//  2. Docker Desktop's backend. Its newer auth stack (auth v2) serves whatever
-//     its in-memory token source holds and never refreshes on GET, so a stuck
-//     background refresher makes it return the same expired JWT forever — or
-//     nothing at all when its read-time refresh failed.
-//  3. A token minted from the access token `docker login` stored.
-//  4. A token Docker Desktop is nudged into refreshing.
+// GetTokenWithSource returns the user's Docker access token and where it came from.
 func GetTokenWithSource(ctx context.Context) (string, Source) {
 	if token, source, ok := cached(); ok {
 		return token, source
@@ -227,9 +216,7 @@ func expiresIn(token string) string {
 	return time.Until(exp).Round(time.Second).String()
 }
 
-// GetUserInfo returns the account of the token [GetToken] serves, so it names
-// the account requests are sent as. Docker Desktop's account is the fallback
-// for a token that carries none, such as a personal access token.
+// GetUserInfo returns the account of the token [GetToken] serves, else Docker Desktop's.
 func GetUserInfo(ctx context.Context) DockerHubInfo {
 	if identity, ok := hubauth.IdentityFromToken(GetToken(ctx)); ok {
 		return DockerHubInfo{Username: identity.Username, Email: identity.Email}

@@ -88,14 +88,12 @@ func isDockerHost(host string) bool {
 	return host == "docker.com" || strings.HasSuffix(host, ".docker.com")
 }
 
-// Staging reports whether DOCKER_AGENT_HUB_LOGIN_URL points the token
-// exchange at a Docker Hub staging host, such as hub-stage.docker.com.
+// Staging reports whether the token exchange targets a Docker Hub staging host.
 func Staging() bool {
 	return isStagingEndpoint(loginEndpoint())
 }
 
-// isStagingEndpoint reports whether endpoint is on a Docker staging host: one
-// whose first label ends in "-stage".
+// isStagingEndpoint reports whether endpoint's host is a "*-stage" Docker host.
 func isStagingEndpoint(endpoint string) bool {
 	u, err := url.Parse(endpoint)
 	if err != nil || !isDockerHost(u.Hostname()) {
