@@ -3,6 +3,7 @@
 package desktop
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"log/slog"
@@ -38,20 +39,20 @@ var defaultSecretsEngine = sync.OnceValue(newSecretsEngine)
 func newSecretsEngine() *secretsEngine {
 	client, err := secretsengine.New(secretsengine.WithSocketPath(api.DesktopSocketPath()))
 	if err != nil {
-		return &secretsEngine{clientErr: err, logger: slog.Default()}
+		return &secretsEngine{clientErr: err}
 	}
 	var opts []dockerhub.Option
 	if hubauth.Staging() {
 		opts = append(opts, dockerhub.Staging())
 	}
-	return &secretsEngine{client: client.HubAuth(opts...), logger: slog.Default()}
+	return &secretsEngine{client: client.HubAuth(opts...)}
 }
 
 // secretsEngine reads Docker Hub sessions from the secrets engine, sharing lookups and cooling down after failures.
 type secretsEngine struct {
 	client    dockerhub.ClientAuth
 	clientErr error
-	logger    *slog.Logger
+	logger    *slog.Logger // nil logs to slog.Default()
 
 	mu          sync.Mutex
 	nextAttempt time.Time            // earliest time the engine may be asked again
@@ -184,7 +185,7 @@ func (e *secretsEngine) logError(ctx context.Context, err error) {
 	if connErr, ok := errors.AsType[*secretsengine.ConnectError](err); ok && connErr.Hint() != "" {
 		args = append(args, "hint", connErr.Hint())
 	}
-	e.logger.Log(ctx, level, secretsEngineFailureMsg, args...)
+	cmp.Or(e.logger, slog.Default()).Log(ctx, level, secretsEngineFailureMsg, args...)
 }
 
 // failureReported reports whether this run of failures was already warned about.
