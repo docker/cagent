@@ -12,7 +12,6 @@ import (
 	"syscall"
 	"testing"
 	"testing/synctest"
-	"time"
 
 	secretsengine "github.com/docker/secrets-engine/client"
 	"github.com/docker/secrets-engine/x/api"
@@ -29,6 +28,8 @@ func sdkDialError(reason secretsengine.ConnectReason, err error) error {
 }
 
 func TestSecretsEngineFailureLogging(t *testing.T) {
+	t.Parallel()
+
 	for _, tt := range []struct {
 		name string
 		err  error
@@ -41,12 +42,11 @@ func TestSecretsEngineFailureLogging(t *testing.T) {
 		{name: "access denied by the engine", err: secrets.ErrAccessDenied, warn: true},
 	} {
 		t.Run(tt.name+" is logged at the right level", func(t *testing.T) {
+			t.Parallel()
 			synctest.Test(t, func(t *testing.T) {
-				logs := captureLogs(t)
-				installFakeBackend(t, &fakeBackend{token: makeToken(t, time.Now().Add(time.Hour))})
-				installFakeEngine(t, &fakeEngine{err: tt.err})
+				engine, logs := newLoggingEngine(t, &fakeEngine{err: tt.err})
 
-				GetToken(t.Context())
+				_, _ = engine.fetch(t.Context())
 				if tt.warn {
 					assert.Equal(t, 1, countFailureLogs(logs, "WARN"))
 				} else {
@@ -64,27 +64,24 @@ func TestSecretsEngineFailureLogging(t *testing.T) {
 	}
 
 	t.Run("a missing Docker Desktop logs the SDK's hint", func(t *testing.T) {
+		t.Parallel()
 		synctest.Test(t, func(t *testing.T) {
-			logs := captureLogs(t)
-			installFakeBackend(t, &fakeBackend{token: makeToken(t, time.Now().Add(time.Hour))})
-			installFakeEngine(t, &fakeEngine{err: sdkDialError(secretsengine.ReasonNotRunning, syscall.ENOENT)})
+			engine, logs := newLoggingEngine(t, &fakeEngine{err: sdkDialError(secretsengine.ReasonNotRunning, syscall.ENOENT)})
 
-			GetToken(t.Context())
+			_, _ = engine.fetch(t.Context())
 			assert.Contains(t, logs.String(), `hint="Start Docker Desktop and retry`)
 		})
 	})
 
 	t.Run("other failures are warned about once per run", func(t *testing.T) {
+		t.Parallel()
 		synctest.Test(t, func(t *testing.T) {
-			logs := captureLogs(t)
-			installFakeBackend(t, &fakeBackend{token: makeToken(t, time.Now().Add(time.Hour))})
-			engine := &fakeEngine{err: secrets.ErrAccessDenied}
-			installFakeEngine(t, engine)
+			fake := &fakeEngine{err: secrets.ErrAccessDenied}
+			engine, logs := newLoggingEngine(t, fake)
 
 			lookUp := func() {
-				endSecretsEngineCooldown()
-				expireCache()
-				GetToken(t.Context())
+				endCooldown(engine)
+				_, _ = engine.fetch(t.Context())
 			}
 
 			lookUp()
@@ -92,23 +89,22 @@ func TestSecretsEngineFailureLogging(t *testing.T) {
 			assert.Equal(t, 1, countFailureLogs(logs, "WARN"), "a failure that persists is warned about once")
 			assert.Equal(t, 1, countFailureLogs(logs, "DEBUG"))
 
-			engine.setErr(nil)
+			fake.setErr(nil)
 			lookUp()
-			engine.setErr(secrets.ErrAccessDenied)
+			fake.setErr(secrets.ErrAccessDenied)
 			lookUp()
 			assert.Equal(t, 2, countFailureLogs(logs, "WARN"))
 		})
 	})
 }
 
-func captureLogs(t *testing.T) *bytes.Buffer {
+func newLoggingEngine(t *testing.T, fake *fakeEngine) (*secretsEngine, *bytes.Buffer) {
 	t.Helper()
 
 	var logs bytes.Buffer
-	previous := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
-	t.Cleanup(func() { slog.SetDefault(previous) })
-	return &logs
+	engine := newTestEngine(t, fake)
+	engine.logger = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	return engine, &logs
 }
 
 func countFailureLogs(logs *bytes.Buffer, level string) int {

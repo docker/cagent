@@ -14,12 +14,12 @@ import (
 var errNoSecretsEngine = secretsengine.ErrSecretsEngineNotRunning
 
 // newSecretsEngineHubAuth connects to Docker Desktop's secrets engine socket.
-func newSecretsEngineHubAuth() (dockerhub.ClientAuth, error) {
+func newSecretsEngineHubAuth(opts ...dockerhub.Option) (dockerhub.ClientAuth, error) {
 	engine, err := secretsengine.New(secretsengine.WithSocketPath(api.DesktopSocketPath()))
 	if err != nil {
 		return nil, err
 	}
-	return engine.HubAuth(secretsEngineHubOptions()...), nil
+	return engine.HubAuth(opts...), nil
 }
 
 // secretsEngineHint returns the SDK's recovery hint for a failed connection, or "".

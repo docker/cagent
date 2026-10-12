@@ -65,7 +65,7 @@ func GetTokenWithSource(ctx context.Context) (string, Source) {
 		return token, source
 	}
 
-	if token, ok := secretsEngineToken(ctx); ok {
+	if token, ok := secretsEngineToken(ctx, defaultSecretsEngine()); ok {
 		return token, SourceSecretsEngine
 	}
 

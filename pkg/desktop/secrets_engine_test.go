@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -17,54 +18,100 @@ import (
 
 func TestGetTokenFromSecretsEngine(t *testing.T) {
 	t.Run("the engine session is preferred to Docker Desktop's backend", func(t *testing.T) {
-		synctest.Test(t, func(t *testing.T) {
-			fromEngine := makeToken(t, time.Now().Add(time.Hour))
-			installFakeBackend(t, &fakeBackend{token: makeToken(t, time.Now().Add(time.Hour))})
-			installFakeEngine(t, &fakeEngine{token: fromEngine})
+		fromEngine := makeToken(t, time.Now().Add(time.Hour))
+		installFakeBackend(t, &fakeBackend{token: makeToken(t, time.Now().Add(time.Hour))})
+		installFakeEngine(t, &fakeEngine{token: fromEngine})
 
-			token, source := GetTokenWithSource(t.Context())
-			assert.Equal(t, fromEngine, token)
-			assert.Equal(t, SourceSecretsEngine, source)
-		})
+		token, source := GetTokenWithSource(t.Context())
+		assert.Equal(t, fromEngine, token)
+		assert.Equal(t, SourceSecretsEngine, source)
 	})
 
 	t.Run("an engine token is served from memory", func(t *testing.T) {
-		synctest.Test(t, func(t *testing.T) {
-			fromEngine := makeToken(t, time.Now().Add(time.Hour))
-			installFakeBackend(t, &fakeBackend{})
-			engine := &fakeEngine{token: fromEngine}
-			installFakeEngine(t, engine)
+		fromEngine := makeToken(t, time.Now().Add(time.Hour))
+		installFakeBackend(t, &fakeBackend{})
+		engine := &fakeEngine{token: fromEngine}
+		installFakeEngine(t, engine)
 
-			require.Equal(t, fromEngine, GetToken(t.Context()))
-			lookups := engine.lookupCount()
+		require.Equal(t, fromEngine, GetToken(t.Context()))
+		lookups := engine.lookupCount()
 
-			token, source := GetTokenWithSource(t.Context())
-			assert.Equal(t, fromEngine, token)
-			assert.Equal(t, SourceSecretsEngine, source)
-			assert.Equal(t, lookups, engine.lookupCount(), "gateway clients call this per request")
-		})
+		token, source := GetTokenWithSource(t.Context())
+		assert.Equal(t, fromEngine, token)
+		assert.Equal(t, SourceSecretsEngine, source)
+		assert.Equal(t, lookups, engine.lookupCount(), "gateway clients call this per request")
 	})
 
-	t.Run("nobody signed in falls back without cooling down", func(t *testing.T) {
-		synctest.Test(t, func(t *testing.T) {
-			fromDesktop := makeToken(t, time.Now().Add(time.Hour))
-			installFakeBackend(t, &fakeBackend{token: fromDesktop})
-			engine := &fakeEngine{}
-			installFakeEngine(t, engine)
+	t.Run("nobody signed in falls back, then picks up a sign-in", func(t *testing.T) {
+		fromDesktop := makeToken(t, time.Now().Add(time.Hour))
+		installFakeBackend(t, &fakeBackend{token: fromDesktop})
+		engine := &fakeEngine{}
+		installFakeEngine(t, engine)
 
-			token, source := GetTokenWithSource(t.Context())
-			assert.Equal(t, fromDesktop, token)
-			assert.Equal(t, SourceDesktop, source)
+		token, source := GetTokenWithSource(t.Context())
+		assert.Equal(t, fromDesktop, token)
+		assert.Equal(t, SourceDesktop, source)
 
-			fromEngine := makeToken(t, time.Now().Add(time.Hour))
-			engine.setToken(fromEngine)
-			expireCache()
+		fromEngine := makeToken(t, time.Now().Add(time.Hour))
+		engine.setToken(fromEngine)
+		expireCache()
 
-			token, source = GetTokenWithSource(t.Context())
-			assert.Equal(t, fromEngine, token)
-			assert.Equal(t, SourceSecretsEngine, source)
-		})
+		token, source = GetTokenWithSource(t.Context())
+		assert.Equal(t, fromEngine, token)
+		assert.Equal(t, SourceSecretsEngine, source)
 	})
+
+	t.Run("a failing engine falls back to Docker Desktop", func(t *testing.T) {
+		fromDesktop := makeToken(t, time.Now().Add(time.Hour))
+		installFakeBackend(t, &fakeBackend{token: fromDesktop})
+		installFakeEngine(t, &fakeEngine{err: secrets.ErrAccessDenied})
+
+		token, source := GetTokenWithSource(t.Context())
+		assert.Equal(t, fromDesktop, token)
+		assert.Equal(t, SourceDesktop, source)
+	})
+
+	t.Run("an expiring engine token falls back to Docker Desktop", func(t *testing.T) {
+		fromDesktop := makeToken(t, time.Now().Add(time.Hour))
+		installFakeBackend(t, &fakeBackend{token: fromDesktop})
+		installFakeEngine(t, &fakeEngine{token: makeToken(t, time.Now().Add(10*time.Second))})
+
+		token, source := GetTokenWithSource(t.Context())
+		assert.Equal(t, fromDesktop, token)
+		assert.Equal(t, SourceDesktop, source)
+	})
+
+	t.Run("an expired engine token falls through to minting", func(t *testing.T) {
+		expired := makeToken(t, time.Now().Add(-time.Hour))
+		minted := makeToken(t, time.Now().Add(time.Hour))
+		backend := &fakeBackend{token: expired}
+		installFakeBackend(t, backend)
+		installFakeEngine(t, &fakeEngine{token: expired})
+		mintToken = func(context.Context) (string, error) { return minted, nil }
+
+		token, source := GetTokenWithSource(t.Context())
+		assert.Equal(t, minted, token)
+		assert.Equal(t, SourceMinted, source)
+		assert.Equal(t, 0, backend.refreshes())
+	})
+
+	t.Run("a refused engine token is not served again", func(t *testing.T) {
+		fromEngine := makeToken(t, time.Now().Add(time.Hour))
+		fromDesktop := makeToken(t, time.Now().Add(time.Hour))
+		installFakeBackend(t, &fakeBackend{token: fromDesktop})
+		installFakeEngine(t, &fakeEngine{token: fromEngine})
+		require.Equal(t, fromEngine, GetToken(t.Context()))
+
+		InvalidateToken(fromEngine)
+
+		token, source := GetTokenWithSource(t.Context())
+		assert.Equal(t, fromDesktop, token)
+		assert.Equal(t, SourceDesktop, source)
+	})
+}
+
+func TestSecretsEngineCooldown(t *testing.T) {
+	t.Parallel()
 
 	for _, tt := range []struct {
 		name string
@@ -74,184 +121,148 @@ func TestGetTokenFromSecretsEngine(t *testing.T) {
 		{name: "access denied", err: secrets.ErrAccessDenied},
 		{name: "lookup failed", err: errors.New("internal error")},
 	} {
-		t.Run(tt.name+" falls back and cools down", func(t *testing.T) {
+		t.Run(tt.name+" cools down", func(t *testing.T) {
+			t.Parallel()
 			synctest.Test(t, func(t *testing.T) {
-				fromDesktop := makeToken(t, time.Now().Add(time.Hour))
-				installFakeBackend(t, &fakeBackend{token: fromDesktop})
-				engine := &fakeEngine{err: tt.err}
-				installFakeEngine(t, engine)
+				fake := &fakeEngine{err: tt.err}
+				engine := newTestEngine(t, fake)
 
-				token, source := GetTokenWithSource(t.Context())
-				assert.Equal(t, fromDesktop, token)
-				assert.Equal(t, SourceDesktop, source)
-				lookups := engine.lookupCount()
+				_, err := engine.fetch(t.Context())
+				require.ErrorIs(t, err, tt.err)
+				lookups := fake.lookupCount()
 				require.Positive(t, lookups)
 
-				expireCache()
-				assert.Equal(t, fromDesktop, GetToken(t.Context()))
-				assert.Equal(t, lookups, engine.lookupCount(), "a failing engine is left alone for a while")
+				_, err = engine.fetch(t.Context())
+				require.ErrorIs(t, err, errSecretsEngineCoolingDown)
+				assert.Equal(t, lookups, fake.lookupCount(), "a failing engine is left alone for a while")
 
-				endSecretsEngineCooldown()
-				expireCache()
-				assert.Equal(t, fromDesktop, GetToken(t.Context()))
-				assert.Greater(t, engine.lookupCount(), lookups, "the engine is asked again after the cooldown")
+				endCooldown(engine)
+				_, err = engine.fetch(t.Context())
+				require.ErrorIs(t, err, tt.err)
+				assert.Greater(t, fake.lookupCount(), lookups, "the engine is asked again after the cooldown")
 			})
 		})
 	}
 
-	t.Run("an engine client that can't be created falls back", func(t *testing.T) {
+	t.Run("nobody signed in does not cool down", func(t *testing.T) {
+		t.Parallel()
 		synctest.Test(t, func(t *testing.T) {
-			fromDesktop := makeToken(t, time.Now().Add(time.Hour))
-			installFakeBackend(t, &fakeBackend{token: fromDesktop})
-			stubHubAuth(t, func() (dockerhub.ClientAuth, error) {
-				return nil, errors.New("could not create the secrets engine client")
-			})
+			fake := &fakeEngine{}
+			engine := newTestEngine(t, fake)
 
-			token, source := GetTokenWithSource(t.Context())
-			assert.Equal(t, fromDesktop, token)
-			assert.Equal(t, SourceDesktop, source)
+			token, err := engine.fetch(t.Context())
+			require.NoError(t, err)
+			assert.Empty(t, token)
+			lookups := fake.lookupCount()
+
+			_, err = engine.fetch(t.Context())
+			require.NoError(t, err)
+			assert.Greater(t, fake.lookupCount(), lookups)
 		})
 	})
 
-	t.Run("an expiring engine token falls back to Docker Desktop", func(t *testing.T) {
+	t.Run("an engine client that can't be created fails the lookup", func(t *testing.T) {
+		t.Parallel()
 		synctest.Test(t, func(t *testing.T) {
-			fromDesktop := makeToken(t, time.Now().Add(time.Hour))
-			installFakeBackend(t, &fakeBackend{token: fromDesktop})
-			installFakeEngine(t, &fakeEngine{token: makeToken(t, time.Now().Add(10*time.Second))})
+			errClient := errors.New("could not create the secrets engine client")
+			engine := &secretsEngine{clientErr: errClient, logger: slog.New(slog.DiscardHandler)}
 
-			token, source := GetTokenWithSource(t.Context())
-			assert.Equal(t, fromDesktop, token)
-			assert.Equal(t, SourceDesktop, source)
-		})
-	})
-
-	t.Run("an expired engine token falls through to minting", func(t *testing.T) {
-		synctest.Test(t, func(t *testing.T) {
-			expired := makeToken(t, time.Now().Add(-time.Hour))
-			minted := makeToken(t, time.Now().Add(time.Hour))
-			backend := &fakeBackend{token: expired}
-			installFakeBackend(t, backend)
-			installFakeEngine(t, &fakeEngine{token: expired})
-			mintToken = func(context.Context) (string, error) { return minted, nil }
-
-			token, source := GetTokenWithSource(t.Context())
-			assert.Equal(t, minted, token)
-			assert.Equal(t, SourceMinted, source)
-			assert.Equal(t, 0, backend.refreshes())
-		})
-	})
-
-	t.Run("a refused engine token is not served again", func(t *testing.T) {
-		synctest.Test(t, func(t *testing.T) {
-			fromEngine := makeToken(t, time.Now().Add(time.Hour))
-			fromDesktop := makeToken(t, time.Now().Add(time.Hour))
-			installFakeBackend(t, &fakeBackend{token: fromDesktop})
-			installFakeEngine(t, &fakeEngine{token: fromEngine})
-			require.Equal(t, fromEngine, GetToken(t.Context()))
-
-			InvalidateToken(fromEngine)
-
-			token, source := GetTokenWithSource(t.Context())
-			assert.Equal(t, fromDesktop, token)
-			assert.Equal(t, SourceDesktop, source)
-		})
-	})
-
-	t.Run("an unresponsive engine delays the lookup by its budget only", func(t *testing.T) {
-		synctest.Test(t, func(t *testing.T) {
-			fromDesktop := makeToken(t, time.Now().Add(time.Hour))
-			installFakeBackend(t, &fakeBackend{token: fromDesktop})
-			engine := &fakeEngine{block: true}
-			installFakeEngine(t, engine)
-
-			start := time.Now()
-			token, source := GetTokenWithSource(t.Context())
-			elapsed := time.Since(start)
-
-			assert.Equal(t, fromDesktop, token)
-			assert.Equal(t, SourceDesktop, source)
-			assert.GreaterOrEqual(t, elapsed, secretsEngineBudget)
-			assert.Less(t, elapsed, secretsEngineBudget+time.Second)
-
-			lookups := engine.lookupCount()
-			expireCache()
-			start = time.Now()
-			assert.Equal(t, fromDesktop, GetToken(t.Context()))
-			assert.Less(t, time.Since(start), time.Second, "an unresponsive engine is not waited on again right away")
-			assert.Equal(t, lookups, engine.lookupCount())
+			_, err := engine.fetch(t.Context())
+			require.ErrorIs(t, err, errClient)
 		})
 	})
 }
 
 func TestSecretsEngineCallerDeadline(t *testing.T) {
-	t.Run("an unresponsive engine leaves the fallbacks half the caller's time", func(t *testing.T) {
+	t.Parallel()
+
+	t.Run("an unresponsive engine delays the lookup by its budget only", func(t *testing.T) {
+		t.Parallel()
 		synctest.Test(t, func(t *testing.T) {
-			fromDesktop := makeToken(t, time.Now().Add(time.Hour))
-			installFakeBackend(t, &fakeBackend{token: fromDesktop})
-			engine := &fakeEngine{block: true}
-			installFakeEngine(t, engine)
+			fake := &fakeEngine{block: true}
+			engine := newTestEngine(t, fake)
+
+			start := time.Now()
+			_, err := engine.fetch(t.Context())
+			require.Error(t, err)
+			assert.Equal(t, secretsEngineBudget, time.Since(start))
+			synctest.Wait()
+
+			lookups := fake.lookupCount()
+			start = time.Now()
+			_, err = engine.fetch(t.Context())
+			require.ErrorIs(t, err, errSecretsEngineCoolingDown)
+			assert.Zero(t, time.Since(start), "an unresponsive engine is not waited on again right away")
+			assert.Equal(t, lookups, fake.lookupCount())
+		})
+	})
+
+	t.Run("an unresponsive engine leaves the fallbacks half the caller's time", func(t *testing.T) {
+		t.Parallel()
+		synctest.Test(t, func(t *testing.T) {
+			engine := newTestEngine(t, &fakeEngine{block: true})
 
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
 			start := time.Now()
-			token, source := GetTokenWithSource(ctx)
+			_, err := engine.fetch(ctx)
 
-			assert.Equal(t, fromDesktop, token)
-			assert.Equal(t, SourceDesktop, source)
+			require.ErrorIs(t, err, errSecretsEngineSlow)
 			assert.Equal(t, 2500*time.Millisecond, time.Since(start))
 			require.NoError(t, ctx.Err(), "the caller has time left for its request")
 		})
 	})
 
 	t.Run("an engine that outlives its callers still cools down", func(t *testing.T) {
+		t.Parallel()
 		synctest.Test(t, func(t *testing.T) {
-			fromDesktop := makeToken(t, time.Now().Add(time.Hour))
-			installFakeBackend(t, &fakeBackend{token: fromDesktop})
-			engine := &fakeEngine{block: true}
-			installFakeEngine(t, engine)
+			fake := &fakeEngine{block: true}
+			engine := newTestEngine(t, fake)
 
 			lookUp := func() time.Duration {
 				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 				defer cancel()
-				expireCache()
 				start := time.Now()
-				assert.Equal(t, fromDesktop, GetToken(ctx))
+				_, _ = engine.fetch(ctx)
 				return time.Since(start)
 			}
 
 			lookUp()
-			lookups := engine.lookupCount()
+			lookups := fake.lookupCount()
 			time.Sleep(secretsEngineBudget) //nolint:forbidigo // Fake time: the abandoned lookup times out.
 			synctest.Wait()
 
 			assert.Zero(t, lookUp(), "the next caller doesn't wait for the engine")
-			assert.Equal(t, lookups, engine.lookupCount())
+			assert.Equal(t, lookups, fake.lookupCount())
 		})
 	})
 
 	t.Run("a canceled caller doesn't cancel the lookup for the others", func(t *testing.T) {
+		t.Parallel()
 		synctest.Test(t, func(t *testing.T) {
 			fromEngine := makeToken(t, time.Now().Add(time.Hour))
-			engine := &fakeEngine{token: fromEngine, delay: time.Second}
-			installFakeEngine(t, engine)
+			fake := &fakeEngine{token: fromEngine, delay: time.Second}
+			engine := newTestEngine(t, fake)
 
 			canceled, cancel := context.WithCancel(t.Context())
 			go func() {
 				time.Sleep(100 * time.Millisecond) //nolint:forbidigo // Fake time: cancel while the lookup runs.
 				cancel()
 			}()
-			_, err := fetchSecretsEngineToken(canceled)
+			_, err := engine.fetch(canceled)
 			require.ErrorIs(t, err, context.Canceled)
 
-			token, err := fetchSecretsEngineToken(t.Context())
+			token, err := engine.fetch(t.Context())
 			require.NoError(t, err)
 			assert.Equal(t, fromEngine, token)
-			assert.Equal(t, 2, engine.lookupCount(), "one profile and one session read")
+			assert.Equal(t, 2, fake.lookupCount(), "one profile and one session read")
 		})
 	})
 }
 
 func TestSecretsEngineHubOptions(t *testing.T) {
+	t.Parallel()
+
 	for _, tt := range []struct {
 		name    string
 		staging bool
@@ -261,75 +272,73 @@ func TestSecretsEngineHubOptions(t *testing.T) {
 		{name: "staging when the token exchange targets it", staging: true, want: "docker/auth/metadata/hub-staging/default"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			old := hubStaging
-			hubStaging = func() bool { return tt.staging }
-			t.Cleanup(func() { hubStaging = old })
+			t.Parallel()
 
-			engine := &fakeEngine{}
-			_, err := dockerhub.New(engine, secretsEngineHubOptions()...).GetDefaultSession(t.Context())
+			fake := &fakeEngine{}
+			_, err := dockerhub.New(fake, secretsEngineHubOptions(tt.staging)...).GetDefaultSession(t.Context())
 			require.ErrorIs(t, err, dockerhub.ErrNoSession)
-			assert.Equal(t, []string{tt.want}, engine.askedFor())
+			assert.Equal(t, []string{tt.want}, fake.askedFor())
 		})
 	}
 }
 
 func TestSecretsEngineConcurrentLookups(t *testing.T) {
+	t.Parallel()
+
 	synctest.Test(t, func(t *testing.T) {
 		fromEngine := makeToken(t, time.Now().Add(time.Hour))
-		installFakeBackend(t, &fakeBackend{})
-		engine := &fakeEngine{token: fromEngine, delay: time.Second}
-		installFakeEngine(t, engine)
+		fake := &fakeEngine{token: fromEngine, delay: time.Second}
+		engine := newTestEngine(t, fake)
 
+		tokens := make([]string, 32)
+		errs := make([]error, 32)
 		var wg sync.WaitGroup
-		for range 32 {
+		for i := range tokens {
 			wg.Go(func() {
-				assert.Equal(t, fromEngine, GetToken(t.Context()))
+				tokens[i], errs[i] = engine.fetch(t.Context())
 			})
 		}
 		wg.Wait()
 
-		assert.Equal(t, 2, engine.lookupCount(), "concurrent callers share one lookup")
+		require.NoError(t, errors.Join(errs...))
+		for _, token := range tokens {
+			assert.Equal(t, fromEngine, token)
+		}
+
+		assert.Equal(t, 2, fake.lookupCount(), "concurrent callers share one lookup")
 	})
 }
 
-func installFakeEngine(t *testing.T, engine *fakeEngine) {
+func newTestEngine(t *testing.T, fake *fakeEngine) *secretsEngine {
 	t.Helper()
 
-	resetSecretsEngineState()
-	t.Cleanup(resetSecretsEngineState)
-
-	stubHubAuth(t, func() (dockerhub.ClientAuth, error) { return dockerhub.New(engine), nil })
+	engine := &secretsEngine{client: dockerhub.New(fake), logger: slog.New(slog.DiscardHandler)}
+	t.Cleanup(func() { awaitLookup(engine) })
+	return engine
 }
 
-func stubHubAuth(t *testing.T, fake func() (dockerhub.ClientAuth, error)) {
-	t.Helper()
-
-	old := hubAuth
-	hubAuth = fake
-	t.Cleanup(func() { hubAuth = old })
-	t.Cleanup(awaitSecretsEngineLookup)
-}
-
-func awaitSecretsEngineLookup() {
-	secretsEngineState.Lock()
-	lookup := secretsEngineState.inflight
-	secretsEngineState.Unlock()
+func awaitLookup(engine *secretsEngine) {
+	engine.mu.Lock()
+	lookup := engine.inflight
+	engine.mu.Unlock()
 	if lookup != nil {
 		<-lookup.done
 	}
 }
 
-func resetSecretsEngineState() {
-	secretsEngineState.Lock()
-	defer secretsEngineState.Unlock()
-	secretsEngineState.nextAttempt, secretsEngineState.reported = time.Time{}, false
-	secretsEngineState.inflight = nil
+func installFakeEngine(t *testing.T, fake *fakeEngine) {
+	t.Helper()
+
+	engine := newTestEngine(t, fake)
+	old := defaultSecretsEngine
+	defaultSecretsEngine = func() *secretsEngine { return engine }
+	t.Cleanup(func() { defaultSecretsEngine = old })
 }
 
-func endSecretsEngineCooldown() {
-	secretsEngineState.Lock()
-	defer secretsEngineState.Unlock()
-	secretsEngineState.nextAttempt = time.Time{}
+func endCooldown(engine *secretsEngine) {
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	engine.nextAttempt = time.Time{}
 }
 
 type fakeEngine struct {

@@ -12,7 +12,7 @@ import (
 var errNoSecretsEngine = errors.New("the secrets engine is not available on this platform")
 
 // newSecretsEngineHubAuth always fails with errNoSecretsEngine.
-func newSecretsEngineHubAuth() (dockerhub.ClientAuth, error) {
+func newSecretsEngineHubAuth(...dockerhub.Option) (dockerhub.ClientAuth, error) {
 	return nil, errNoSecretsEngine
 }
 
