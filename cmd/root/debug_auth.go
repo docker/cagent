@@ -1,6 +1,7 @@
 package root
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,10 +31,12 @@ type authInfo struct {
 	SecretsEngine *secretsEngineInfo `json:"secrets_engine,omitempty"`
 }
 
-// secretsEngineInfo says why the secrets engine supplied no token, with the SDK's hint.
+// secretsEngineInfo says why the secrets engine supplied no token, with the SDK's reason, socket and hint.
 type secretsEngineInfo struct {
-	Error string `json:"error"`
-	Hint  string `json:"hint,omitempty"`
+	Error  string `json:"error"`
+	Reason string `json:"reason,omitempty"`
+	Socket string `json:"socket,omitempty"`
+	Hint   string `json:"hint,omitempty"`
 }
 
 // noTokenInfo is the JSON output when no token is found.
@@ -172,6 +175,10 @@ func newSecretsEngineInfo(err error, tokenFound bool) *secretsEngineInfo {
 	}
 	info := &secretsEngineInfo{Error: err.Error()}
 	if connErr, ok := errors.AsType[*secretsengine.ConnectError](err); ok {
+		if connErr.Reason != secretsengine.ReasonUnknown {
+			info.Reason = connErr.Reason.String()
+		}
+		info.Socket = connErr.SocketPath
 		info.Hint = connErr.Hint()
 	}
 	return info
@@ -181,7 +188,11 @@ func printSecretsEngineText(w io.Writer, info *secretsEngineInfo) {
 	if info == nil {
 		return
 	}
-	fmt.Fprintf(w, "Secrets engine: %s\n", info.Error)
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "Secrets engine: %s\n", cmp.Or(info.Reason, info.Error))
+	if info.Socket != "" {
+		fmt.Fprintf(w, "Socket:         %s\n", info.Socket)
+	}
 	if info.Hint != "" {
 		fmt.Fprintf(w, "Hint:           %s\n", info.Hint)
 	}
