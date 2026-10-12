@@ -260,28 +260,6 @@ func TestSecretsEngineCallerDeadline(t *testing.T) {
 	})
 }
 
-func TestSecretsEngineHubOptions(t *testing.T) {
-	t.Parallel()
-
-	for _, tt := range []struct {
-		name    string
-		staging bool
-		want    string
-	}{
-		{name: "production by default", want: "docker/auth/metadata/hub/default"},
-		{name: "staging when the token exchange targets it", staging: true, want: "docker/auth/metadata/hub-staging/default"},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			fake := &fakeEngine{}
-			_, err := dockerhub.New(fake, secretsEngineHubOptions(tt.staging)...).GetDefaultSession(t.Context())
-			require.ErrorIs(t, err, dockerhub.ErrNoSession)
-			assert.Equal(t, []string{tt.want}, fake.askedFor())
-		})
-	}
-}
-
 func TestSecretsEngineConcurrentLookups(t *testing.T) {
 	t.Parallel()
 
@@ -348,13 +326,6 @@ type fakeEngine struct {
 	block   bool
 	delay   time.Duration
 	lookups int
-	asked   []string
-}
-
-func (e *fakeEngine) askedFor() []string {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.asked
 }
 
 func (e *fakeEngine) setToken(token string) {
@@ -378,7 +349,6 @@ func (e *fakeEngine) lookupCount() int {
 func (e *fakeEngine) GetSecrets(ctx context.Context, pattern secrets.Pattern) ([]secrets.Envelope, error) {
 	e.mu.Lock()
 	e.lookups++
-	e.asked = append(e.asked, pattern.String())
 	token, err, block, delay := e.token, e.err, e.block, e.delay
 	e.mu.Unlock()
 

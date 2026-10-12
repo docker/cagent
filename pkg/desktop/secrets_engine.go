@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"github.com/docker/secrets-engine/client/dockerhub"
-
-	"github.com/docker/docker-agent/pkg/hubauth"
 )
 
 const (
@@ -29,7 +27,7 @@ const secretsEngineFailureMsg = "Could not read the Docker Hub session from the 
 
 // defaultSecretsEngine is the engine [GetTokenWithSource] reads, created on first use.
 var defaultSecretsEngine = sync.OnceValue(func() *secretsEngine {
-	client, err := newSecretsEngineHubAuth(secretsEngineHubOptions(hubauth.Staging())...)
+	client, err := newSecretsEngineHubAuth()
 	return &secretsEngine{client: client, clientErr: err, logger: slog.Default()}
 })
 
@@ -50,14 +48,6 @@ type secretsEngineLookup struct {
 	done  chan struct{} // closed once token and err are set
 	token string
 	err   error
-}
-
-// secretsEngineHubOptions reads the staging realms when Docker Hub staging is in use.
-func secretsEngineHubOptions(staging bool) []dockerhub.Option {
-	if staging {
-		return []dockerhub.Option{dockerhub.Staging()}
-	}
-	return nil
 }
 
 // secretsEngineToken returns a usable token from the secrets engine and caches it.
