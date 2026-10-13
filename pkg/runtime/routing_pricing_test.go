@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,6 +14,7 @@ import (
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/hooks"
+	"github.com/docker/docker-agent/pkg/model/provider"
 	"github.com/docker/docker-agent/pkg/model/provider/base"
 	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/model/provider/rulebased"
@@ -44,6 +46,7 @@ func TestRoutedPricing(t *testing.T) {
 		tier            string
 		noMatch         bool
 		fallback        bool
+		outerRouter     bool
 		want            float64
 		unpriced        bool
 	}{
@@ -65,6 +68,8 @@ func TestRoutedPricing(t *testing.T) {
 		{name: "no match declared endpoint", noMatch: true, routerID: "openai/gpt-6-astra", routerURL: "https://router.example/v1", tier: "ultrafast", want: 0.43},
 		{name: "no match resolved endpoint", noMatch: true, routerID: "openai/gpt-6-astra", resolvedLeafURL: "https://leaf.example/v1", tier: "ultrafast", want: 0.43},
 		{name: "failed route outer fallback and cooldown", fallback: true, tier: "ultrafast", want: 2.58},
+		{name: "outer fallback router no match and cooldown", outerRouter: true, noMatch: true, want: 0.072},
+		{name: "outer fallback router matched and cooldown", outerRouter: true, want: 0.43},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -104,10 +109,18 @@ func TestRoutedPricing(t *testing.T) {
 				return noMatch, nil
 			})
 			require.NoError(t, err)
-			opts := []agent.Opt{agent.WithModel(router), agent.WithHooks(&latest.HooksConfig{AfterLLMCall: []latest.HookDefinition{{Type: "builtin", Command: "capture-routing"}}})}
+			model := rulebased.Provider(router)
+			primary := &countingProvider{id: "test/failed", failCount: 100, err: errors.New("401 unauthorized")}
+			if tc.outerRouter {
+				model = primary
+			}
+			opts := []agent.Opt{agent.WithModel(model), agent.WithHooks(&latest.HooksConfig{AfterLLMCall: []latest.HookDefinition{{Type: "builtin", Command: "capture-routing"}}})}
 			if tc.fallback {
 				leaf.failCount, leaf.err = 100, errors.New("401 unauthorized")
 				opts = append(opts, agent.WithFallbackModel(fallback), agent.WithFallbackRetries(-1))
+			}
+			if tc.outerRouter {
+				opts = append(opts, agent.WithFallbackModel(router), agent.WithFallbackRetries(-1))
 			}
 			root := agent.New("root", "test", opts...)
 			rec := &recordingTelemetry{}
@@ -145,11 +158,14 @@ func TestRoutedPricing(t *testing.T) {
 					p.stream = stream
 				}
 				captured = nil
+				var sidebarModels []string
 				var message *chat.Message
 				var usage *MessageUsage
 				var budget *BudgetStatus
 				for ev := range rt.RunStream(t.Context(), sess) {
 					switch ev := ev.(type) {
+					case *AgentInfoEvent:
+						sidebarModels = append(sidebarModels, ev.Model)
 					case *ErrorEvent:
 						t.Errorf("unexpected runtime error: %s", ev.Error)
 					case *MessageAddedEvent:
@@ -170,6 +186,11 @@ func TestRoutedPricing(t *testing.T) {
 				}
 				require.NotNil(t, captured)
 				assert.Equal(t, wantID, captured.ModelID)
+				require.NotEmpty(t, sidebarModels)
+				assert.Equal(t, wantID, sidebarModels[len(sidebarModels)-1])
+				if wantID != model.ID().String() {
+					assert.Equal(t, []string{model.ID().String(), wantID}, sidebarModels)
+				}
 				if tc.unpriced {
 					assert.Nil(t, captured.Cost)
 				} else {
@@ -193,6 +214,9 @@ func TestRoutedPricing(t *testing.T) {
 				assert.Equal(t, int64(100_000), records[turn].InputTokens)
 				assert.Equal(t, int64(5_000), records[turn].OutputTokens)
 			}
+			if tc.outerRouter {
+				assert.Equal(t, 1, primary.callCount, "cooldown skips failed primary before successful fallback router")
+			}
 			switch {
 			case tc.fallback:
 				assert.Equal(t, leafID, router.LastSelectedModelID(), "failed route selection must not price the successful outer fallback")
@@ -212,4 +236,41 @@ func TestRoutedPricing(t *testing.T) {
 func TestServingModelFromPlainStream(t *testing.T) {
 	t.Parallel()
 	assert.Nil(t, servingModelFrom(newStreamBuilder().Build()))
+}
+
+type pricingServingStream struct {
+	chat.MessageStream
+
+	serving provider.ServingModel
+}
+
+func (s *pricingServingStream) ServingModel() provider.ServingModel { return s.serving }
+
+func TestRoutedIdleRetryServingModel(t *testing.T) {
+	t.Parallel()
+
+	first := provider.ServingModel{ID: modelsdev.NewID("test", "first")}
+	second := provider.ServingModel{ID: modelsdev.NewID("test", "second"), Config: base.Config{BaseURL: "https://second.example/v1"}}
+	recovered := newStreamBuilder().AddContent("recovered").AddStopWithUsage(1, 1).Build()
+	model := &idleThenResultProvider{id: "test/router", streams: []chat.MessageStream{
+		&pricingServingStream{MessageStream: &idleErrorStream{}, serving: first},
+		&pricingServingStream{MessageStream: recovered, serving: second},
+	}}
+	a := agent.New("delegate", "test", agent.WithModel(model), agent.WithFallbackRetries(-1))
+	executor := newFallbackExecutor()
+	executor.cooldowns = newCooldownManager(time.Now)
+	sink := &collectSink{}
+	result, used, err := executor.execute(t.Context(), a, model, nil, nil, session.New(), sink,
+		&idleStreamRetryAllowance{remaining: true, parentSessionID: "parent"}, func() error { return nil })
+	require.NoError(t, err)
+	assert.Equal(t, model, used)
+	require.NotNil(t, result.Serving)
+	assert.Equal(t, second, *result.Serving)
+	var announced []string
+	for _, event := range sink.events {
+		if event, ok := event.(*AgentInfoEvent); ok {
+			announced = append(announced, event.Model)
+		}
+	}
+	assert.Equal(t, []string{first.ID.String(), second.ID.String()}, announced)
 }

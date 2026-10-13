@@ -942,7 +942,7 @@ func (r *LocalRuntime) runTurn(
 			servingID, servingConfig = res.Serving.ID, res.Serving.Config
 		}
 		if servingID != modelID {
-			if res.Serving == nil {
+			if servingID == usedModel.ID() {
 				slog.InfoContext(ctx, "Used fallback model", "agent", a.Name(), "primary", modelID.String(), "used", servingID.String())
 				events.Emit(AgentInfo(a.Name(), servingID.String(), a.Description(), a.WelcomeMessage()))
 			}

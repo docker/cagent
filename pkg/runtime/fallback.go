@@ -369,9 +369,12 @@ func (e *fallbackExecutor) execute(
 
 			slog.DebugContext(ctx, "Processing stream", "agent", a.Name(), "model", modelEntry.provider.ID().String())
 
-			if serving := servingModelFrom(stream); serving != nil && serving.ID != modelEntry.provider.ID() {
-				events.Emit(AgentInfo(a.Name(), serving.ID.String(), a.Description(), a.WelcomeMessage()))
+			announceServing := func(stream chat.MessageStream) {
+				if serving := servingModelFrom(stream); serving != nil && serving.ID != modelEntry.provider.ID() {
+					events.Emit(AgentInfo(a.Name(), serving.ID.String(), a.Description(), a.WelcomeMessage()))
+				}
 			}
+			announceServing(stream)
 
 			idleTimeout := streamIdleTimeoutFor(modelEntry.provider)
 			res, err := handleStream(streamCtx, streamCancel, stream, a, attemptTools, sess, events, idleTimeout)
@@ -413,6 +416,7 @@ func (e *fallbackExecutor) execute(
 					fbSpan.IncrementAttempt()
 					stream, err = modelEntry.provider.CreateChatCompletionStream(streamCtx, attemptMessages, attemptTools)
 					if err == nil {
+						announceServing(stream)
 						res, err = handleStream(streamCtx, streamCancel, stream, a, attemptTools, sess, events, idleTimeout)
 						res.Serving = servingModelFrom(stream)
 					}

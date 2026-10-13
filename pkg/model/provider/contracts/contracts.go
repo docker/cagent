@@ -135,6 +135,7 @@ type ServingModel struct {
 }
 
 // ServingStream reports the serving endpoint when it differs from the dispatched provider.
+// The metadata is available at stream creation and remains stable after Close.
 type ServingStream interface {
 	chat.MessageStream
 	ServingModel() ServingModel
