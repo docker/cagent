@@ -247,3 +247,8 @@ replace github.com/cyphar/filepath-securejoin => github.com/cyphar/filepath-secu
 // 2026-07-28 APIs. Keep require v1.7.0 for ADK/MVS; drop the replace once a
 // tagged release containing #1193 ships.
 replace github.com/modelcontextprotocol/go-sdk => github.com/modelcontextprotocol/go-sdk v1.7.1-0.20260825122737-c68ad9a4e6e1
+
+// Temporary: the commandcode provider lives on the fork until
+// https://github.com/rumpl/harness/pull/13 merges. Drop this replace and bump
+// the require once a tagged upstream release carries it.
+replace github.com/rumpl/harness => github.com/PremModhaOfficial/harness v0.1.0
