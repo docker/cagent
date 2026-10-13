@@ -33,6 +33,10 @@ func (r *Registry) New(ctx context.Context, cfg *latest.ModelConfig, env environ
 func (r *Registry) NewWithModels(ctx context.Context, cfg *latest.ModelConfig, models map[string]latest.ModelConfig, env environment.Provider, opts ...options.Opt) (Provider, error) {
 	slog.DebugContext(ctx, "Creating model provider", "type", cfg.Provider, "model", cfg.Model)
 	if len(cfg.Routing) > 0 {
+		models, err := copyRoutedModels(cfg, models)
+		if err != nil {
+			return nil, err
+		}
 		// A router makes no HTTP calls itself; its fallback and routed targets
 		// do. When the router model opts out of the gateway, propagate the
 		// bypass to every child so the whole routing subtree dials directly.
@@ -54,6 +58,28 @@ func (r *Registry) NewWithModels(ctx context.Context, cfg *latest.ModelConfig, m
 	return r.createDirectProvider(ctx, cfg, env, opts...)
 }
 
+// Snapshot only referenced definitions; the rebuilder must not capture caller-owned state.
+func copyRoutedModels(cfg *latest.ModelConfig, models map[string]latest.ModelConfig) (map[string]latest.ModelConfig, error) {
+	names := []string{cfg.Provider + "/" + cfg.Model}
+	for _, rule := range cfg.Routing {
+		names = append(names, rule.Model)
+	}
+	copied := make(map[string]latest.ModelConfig)
+	for _, name := range names {
+		if _, exists := copied[name]; exists {
+			continue
+		}
+		if model, exists := models[name]; exists {
+			clone, err := copyModelConfig(model)
+			if err != nil {
+				return nil, fmt.Errorf("copying routed model %q: %w", name, err)
+			}
+			copied[name] = clone
+		}
+	}
+	return copied, nil
+}
+
 func (r *Registry) createRuleBasedRouter(ctx context.Context, cfg *latest.ModelConfig, models map[string]latest.ModelConfig, env environment.Provider, opts ...options.Opt) (Provider, error) {
 	return rulebased.NewClient(ctx, cfg, models, env, r.resolveRoutedModel, opts...)
 }
@@ -63,7 +89,11 @@ func (r *Registry) resolveRoutedModel(ctx context.Context, modelSpec string, mod
 		if len(modelCfg.Routing) > 0 {
 			return nil, fmt.Errorf("model %q has routing rules and cannot be used as a routing target", modelSpec)
 		}
-		return r.createDirectProvider(ctx, &modelCfg, env, factoryOpts...)
+		copied, err := copyModelConfig(modelCfg)
+		if err != nil {
+			return nil, fmt.Errorf("copying routed model %q: %w", modelSpec, err)
+		}
+		return r.createDirectProvider(ctx, &copied, env, factoryOpts...)
 	}
 	inlineCfg, parseErr := latest.ParseModelRef(modelSpec)
 	if parseErr != nil {
@@ -77,7 +107,26 @@ func (r *Registry) createDirectProvider(ctx context.Context, cfg *latest.ModelCo
 		return nil, errors.New("provider registry is required")
 	}
 	globalOptions := options.Apply(opts...)
-	enhancedCfg := applyProviderDefaults(cfg, globalOptions.Providers())
+	// Capture explicit off before defaults normalize it to nil. Model settings win.
+	budget := cfg.ThinkingBudget
+	if budget == nil {
+		budget = globalOptions.Providers()[cfg.Provider].ThinkingBudget
+	}
+	noThinking := globalOptions.NoThinking() || budget.IsDisabled()
+	constructionCfg := cfg
+	// Config-driven leaves need the same override as option-driven leaves.
+	if globalOptions.NoThinking() {
+		copied, err := copyModelConfig(*cfg)
+		if err != nil {
+			return nil, err
+		}
+		copied.ThinkingBudget = &latest.ThinkingBudget{Effort: "none"}
+		constructionCfg = &copied
+	}
+	if noThinking && !globalOptions.NoThinking() {
+		opts = append(opts, options.WithNoThinking())
+	}
+	enhancedCfg := applyProviderDefaults(constructionCfg, globalOptions.Providers())
 	if err := expandModelConfigEnv(ctx, enhancedCfg, env); err != nil {
 		return nil, err
 	}

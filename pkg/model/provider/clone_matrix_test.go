@@ -154,3 +154,46 @@ func TestClonePreservesStructuredOutputOnWire(t *testing.T) {
 	assert.Equal(t, "counter", format["name"])
 	assert.InDelta(t, float64(1), format["schema"].(map[string]any)["properties"].(map[string]any)["count"].(map[string]any)["minimum"], 0)
 }
+
+func TestCloneConfiguredOpenAIThinkingOffOnWire(t *testing.T) {
+	t.Parallel()
+	for _, model := range []string{"o3", "gpt-4o"} {
+		for _, shape := range []string{"literal", "custom", "routed"} {
+			for _, budget := range []*latest.ThinkingBudget{{Effort: "none"}, {}} {
+				t.Run(model+"/"+shape+"/"+budget.Effort, func(t *testing.T) {
+					t.Parallel()
+					server, body := captureNamedCustomProviderRequestBody(t, "openai_chatcompletions")
+					cfg := &latest.ModelConfig{Provider: "openai", Model: model, BaseURL: server.URL, ThinkingBudget: budget, ProviderOpts: map[string]any{"api_type": "openai_chatcompletions"}}
+					providers := map[string]latest.ProviderConfig{"openai": {ThinkingBudget: &latest.ThinkingBudget{Effort: "high"}}}
+					models := map[string]latest.ModelConfig{}
+					if shape != "literal" {
+						cfg.Provider = "custom"
+						cfg.BaseURL = ""
+						providers["custom"] = latest.ProviderConfig{BaseURL: server.URL, TokenKey: "OPENAI_API_KEY", APIType: "openai_chatcompletions", ThinkingBudget: &latest.ThinkingBudget{Effort: "high"}}
+					}
+					if shape == "routed" {
+						models["target"] = *cfg
+						cfg.Routing = []latest.RoutingRule{{Model: "target", Examples: []string{"hello"}}}
+					}
+					p, err := fullTestRegistry().NewWithModels(t.Context(), cfg, models, environment.NewMapEnvProvider(map[string]string{"OPENAI_API_KEY": "fake"}), options.WithProviders(providers))
+					require.NoError(t, err)
+					for range 3 {
+						stream, err := p.CreateChatCompletionStream(t.Context(), []chat.Message{{Role: chat.MessageRoleUser, Content: "hello"}}, nil)
+						require.NoError(t, err)
+						drainStream(t, stream)
+						stream.Close()
+						var payload map[string]any
+						require.NoError(t, json.Unmarshal(body(), &payload))
+						if model == "o3" {
+							assert.Equal(t, "low", payload["reasoning_effort"])
+						} else {
+							assert.NotContains(t, payload, "reasoning_effort")
+						}
+						p, err = Clone(t.Context(), p, options.WithCompacting(), options.WithStructuredOutput(nil), options.WithMaxTokens(8192))
+						require.NoError(t, err)
+					}
+				})
+			}
+		}
+	}
+}

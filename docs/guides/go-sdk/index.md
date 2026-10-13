@@ -880,7 +880,14 @@ JSON-serializable: unsupported values in `provider_opts`, schemas or custom
 providers fail closed with `provider.ErrUncopyableConfig`, rather than panic or
 share mutable state. Cumulative clones preserve explicit structured-output
 removal, gateway clearing and no-thinking overrides; existing provider token
-floors and routed-child token limits still apply.
+floors and routed-child token limits still apply. Named routing definitions are
+captured at construction and copied for each child, so later input-map mutations
+do not change clones.
+
+Configuration-declared thinking off (`none` or `0`, including provider defaults)
+is retained as an option before normalization. Reconstruction applies that option
+to each leaf's config too, so config-driven and option-driven providers agree.
+Routed children inherit strict-off overrides but keep their own token limits.
 
 `CloneWithOptions` retains its public signature but is deprecated. On failure it
 returns an error-only provider whose stream creation returns the clone error. It

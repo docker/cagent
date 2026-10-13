@@ -107,15 +107,10 @@ func mergeCloneOptions(cfg base.Config, opts []options.Opt) (latest.ModelConfig,
 	mergedOpts = options.FromModelOptions(merged)
 
 	source := cfg.CloneSource()
-	var modelConfig latest.ModelConfig
-	data, err := json.Marshal(source)
+	modelConfig, err := copyModelConfig(source)
 	if err != nil {
-		return latest.ModelConfig{}, nil, fmt.Errorf("%w: copying model configuration: %w", ErrUncopyableConfig, err)
+		return latest.ModelConfig{}, nil, err
 	}
-	if err := json.Unmarshal(data, &modelConfig); err != nil {
-		return latest.ModelConfig{}, nil, fmt.Errorf("%w: copying model configuration: %w", ErrUncopyableConfig, err)
-	}
-	modelConfig.Name, modelConfig.DisplayModel = source.Name, source.DisplayModel
 
 	if mt := merged.MaxTokens(); mt != 0 {
 		modelConfig.MaxTokens = &mt
@@ -127,4 +122,17 @@ func mergeCloneOptions(cfg base.Config, opts []options.Opt) (latest.ModelConfig,
 		modelConfig.ThinkingBudget = &latest.ThinkingBudget{Effort: "none"}
 	}
 	return modelConfig, mergedOpts, nil
+}
+
+func copyModelConfig(source latest.ModelConfig) (latest.ModelConfig, error) {
+	var copied latest.ModelConfig
+	data, err := json.Marshal(source)
+	if err != nil {
+		return copied, fmt.Errorf("%w: copying model configuration: %w", ErrUncopyableConfig, err)
+	}
+	if err := json.Unmarshal(data, &copied); err != nil {
+		return copied, fmt.Errorf("%w: copying model configuration: %w", ErrUncopyableConfig, err)
+	}
+	copied.Name, copied.DisplayModel = source.Name, source.DisplayModel
+	return copied, nil
 }
