@@ -98,6 +98,9 @@ models:
 
 ## Available Models
 
+These are Claude API IDs. See [Claude access paths](#claude-access-paths) for
+platform-specific IDs, evidence and compatibility limits.
+
 | Model ID            | Description                                         |
 | ------------------- | --------------------------------------------------- |
 | `claude-opus-5`     | Highest-capability Opus model; full effort ladder (low–max) |
@@ -106,9 +109,147 @@ models:
 | `claude-sonnet-4-6` | Previous Sonnet generation, still supported         |
 | `claude-haiku-4-5`  | Fast and inexpensive, good for tight loops          |
 
+## Claude access paths
+
+Vendor documentation audited **2026-10-13**; integration behavior checked at
+repository revision [`49e4ca6`](https://github.com/docker/docker-agent/tree/49e4ca657fd454e9d46ea258e8cf61c517df9aab).
+Choose the protocol, host and credentials together. A Claude model name does not
+make two endpoints interchangeable.
+
+| Path | Client and wire protocol | Host | Authentication | Model identity |
+| --- | --- | --- | --- | --- |
+| Claude API | Anthropic Messages / Beta Messages | `api.anthropic.com` | API key (`ANTHROPIC_API_KEY` or `token_key`), or workload identity federation | Claude API ID |
+| Custom Messages host | Anthropic client, Messages dialect | Your `base_url` | Host-specific credentials via `token_key` | Host's model ID |
+| Models Gateway | Anthropic client through gateway | `--models-gateway` / `DOCKER_AGENT_MODELS_GATEWAY` | Docker JWT for Docker-domain gateways; `auth:` is excluded | Configured provider/model forwarded to gateway |
+| Native Vertex Claude | `google` + `publisher: anthropic`; `:rawPredict` / `:streamRawPredict` | Google prediction endpoint for project/location | ADC OAuth; not an Anthropic API key | Model in URL; `anthropic_version` in body |
+| Bedrock runtime | `amazon-bedrock`; **`ConverseStream`** | Regional Bedrock runtime endpoint | AWS SigV4 credentials or Bedrock bearer token | Exact AWS model or inference-profile ID |
+| OpenAI-compatible aggregators | OpenAI client, Chat Completions for Claude | Alias/custom endpoint (e.g. OpenRouter, Vercel, Azure, OpenCode) | Host-specific key | Host's catalogue ID, not necessarily a Claude API ID |
+
+These are existing adapter paths, not a guarantee of complete Claude 5.x
+compatibility. Model-specific request rules, signed history, thinking and fallback
+compatibility remain the subject of the planned [core work (#4583)](https://github.com/docker/docker-agent/issues/4583)
+and [fallback work (#4584)](https://github.com/docker/docker-agent/issues/4584).
+This guide does not mark those changes as implemented.
+
+- The built-in `opencode` alias is OpenAI-compatible; the
+  [custom OpenCode Messages provider](../opencode-zen/index.md#anthropic-compatible-messages-api)
+  is a separate configuration. The `azure` alias is not native Azure AI Foundry Claude.
+- Native **Mantle, InvokeModel, Bedrock Messages, Azure AI Foundry Claude and Claude
+  Platform on AWS** are not wired by this integration. Compatible custom endpoints
+  may exist; they have not been tested here.
+- [Routing](../../configuration/routing/index.md), `first_available`, gateways and
+  instrumentation compose existing clients; they are not additional wire protocols.
+  See [model configuration](../../configuration/models/index.md) for composition constraints.
+- A custom `base_url` implies [gateway bypass](../../configuration/models/index.md#gateway-bypass).
+  Only use endpoints you trust with the selected credentials.
+
+The [Anthropic construction](https://github.com/docker/docker-agent/blob/49e4ca657fd454e9d46ea258e8cf61c517df9aab/pkg/model/provider/anthropic/client.go),
+[Vertex dispatch](https://github.com/docker/docker-agent/blob/49e4ca657fd454e9d46ea258e8cf61c517df9aab/pkg/model/provider/vertexai/modelgarden.go),
+[Bedrock client](https://github.com/docker/docker-agent/blob/49e4ca657fd454e9d46ea258e8cf61c517df9aab/pkg/model/provider/bedrock/client.go)
+and [alias definitions](https://github.com/docker/docker-agent/blob/49e4ca657fd454e9d46ea258e8cf61c517df9aab/pkg/model/provider/aliases.go)
+are the repository evidence for the table.
+
+### Claude 5.x model availability
+
+**Documented** means corroborated by official vendor documentation, not integrated,
+account-enabled or live-tested. **Limited announcement** means Anthropic announces
+limited Google access, but the audited Google directory has no dedicated model card.
+**Unsupported** means explicitly excluded by the vendor for that endpoint.
+
+| Model | Canonical Claude API ID | Claude API | Native Vertex | Bedrock runtime / Converse |
+| --- | --- | --- | --- | --- |
+| Haiku 5.5 | `claude-haiku-5-5` | Documented | Documented | Documented |
+| Opus 5 | `claude-opus-5` | Documented | Documented | Documented |
+| Opus 5.5 | `claude-opus-5-5` | Documented | Documented | Documented |
+| Sonnet 5 | `claude-sonnet-5` | Documented | Documented | Documented |
+| Sonnet 5.5 | `claude-sonnet-5-5` | Documented | Documented | Documented |
+| Fable 5 | `claude-fable-5` | Documented | Documented | Documented |
+| Fable 5.1 | `claude-fable-5-1` | Documented | Documented | Documented |
+| Mythos 5 | `claude-mythos-5` | Documented, gated | Limited announcement | **Unsupported** (Mantle only) |
+| Mythos 5.1 | `claude-mythos-5-1` | Documented, gated | Limited announcement | Documented, gated (not Mantle) |
+
+The audit found **24 corroborated native model/platform pairs** (9 Claude API +
+7 Vertex + 8 Bedrock runtime), **2 limited-access Mythos/Google announcements** and
+**1 explicitly unsupported Mythos 5/Converse pair**. This is not 26 implemented
+or live-tested successes. All documented rows still require model access for your
+account and chosen endpoint. An absent Google card proves neither unavailability
+nor entitlement.
+
+Sources: [Claude model overview](https://platform.claude.com/docs/en/models/overview),
+[Claude on Vertex](https://platform.claude.com/docs/en/build-with-claude/claude-on-vertex-ai),
+[Google's Claude directory](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude),
+[Mythos 5](https://platform.claude.com/docs/en/models/mythos-5/overview),
+[Mythos 5.1](https://platform.claude.com/docs/en/models/mythos-5-1/overview) and
+[AWS endpoint availability](https://docs.aws.amazon.com/bedrock/latest/userguide/models-endpoint-availability.html).
+
+According to [model IDs and versions](https://platform.claude.com/docs/en/about-claude/models/model-ids-and-versions),
+dateless 5.x IDs are **pinned snapshots, not rolling aliases**. Serving infrastructure
+can change without replacing the model ID. Vertex's documented IDs match the bare
+Claude IDs above; the bundled models.dev snapshot uses `@default` catalogue keys.
+Catalogue presence is not endpoint support or an instruction to append that suffix.
+
+### Bedrock model and profile IDs
+
+Use the exact ID from the specific AWS model card. The global profiles below were
+copied from those cards, not generated by adding a prefix to every Claude name.
+For regional profiles, regions and access requirements, follow the linked card.
+
+| Model card | AWS model ID | Documented global inference-profile ID |
+| --- | --- | --- |
+| [Haiku 5.5](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-haiku-5-5.html) | `anthropic.claude-haiku-5-5` | `global.anthropic.claude-haiku-5-5` |
+| [Opus 5](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-5.html) | `anthropic.claude-opus-5` | `global.anthropic.claude-opus-5` |
+| [Opus 5.5](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-5-5.html) | `anthropic.claude-opus-5-5` | `global.anthropic.claude-opus-5-5` |
+| [Sonnet 5](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-sonnet-5.html) | `anthropic.claude-sonnet-5` | `global.anthropic.claude-sonnet-5` |
+| [Sonnet 5.5](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-sonnet-5-5.html) | `anthropic.claude-sonnet-5-5` | `global.anthropic.claude-sonnet-5-5` |
+| [Fable 5](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-fable-5.html) | `anthropic.claude-fable-5` | `global.anthropic.claude-fable-5` |
+| [Fable 5.1](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-fable-5-1.html) | `anthropic.claude-fable-5-1` | `global.anthropic.claude-fable-5-1` |
+| [Mythos 5](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-mythos-5.html) | `anthropic.claude-mythos-5` (Mantle only) | None; no runtime access |
+| [Mythos 5.1](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-mythos-5-1.html) | `anthropic.claude-mythos-5-1` | `global.anthropic.claude-mythos-5-1` |
+
+Do not copy one model's regional prefix set onto another. The bundled models.dev
+snapshot's prefix coverage differs from these cards in both directions; it is a
+catalogue artifact, not an availability claim. It has no Mythos entries at the
+checked revision.
+
+### Feature and access limits
+
+- **Native structured output:** the Anthropic client sends JSON schema via Beta
+  Messages (`structured-outputs-2025-11-13`, `output_config.format`). Enforcement
+  depends on the endpoint and model, not just the presence of a schema in YAML.
+- **Google policy:** [structured outputs](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude/structured-outputs)
+  are disabled by default by `constraints/vertexai.allowedPartnerModelFeatures`;
+  your administrator must explicitly allow `structured_outputs`.
+  `constraints/vertexai.allowedModels` can also restrict access to Claude models.
+- **Bedrock:** this client has no native JSON-schema structured-output wiring.
+  The audited Haiku 5.5, Opus 5/5.5 and Sonnet 5/5.5 cards explicitly mark
+  structured outputs unsupported; the Fable/Mythos cards do not document them.
+  Missing documentation is not the same as an explicit exclusion.
+- **Compatible hosts:** OpenAI-compatible endpoints fronting Claude may ignore
+  `response_format.json_schema`. Docker Agent [repeats the schema in the prompt](https://github.com/docker/docker-agent/blob/49e4ca657fd454e9d46ea258e8cf61c517df9aab/pkg/model/provider/openai/claude_structured_output.go)
+  as a mitigation, not a constrained-decoding guarantee. [Tool mode](../../configuration/structured-output/index.md#tool)
+  provides client-side validation where the model supports the required tool call.
+- **Model rules override generic examples:** in particular, the
+  [Fable 5.1 / Mythos 5.1](https://platform.claude.com/docs/en/models/fable-5-1/migration-guide)
+  and [Opus 5.5](https://platform.claude.com/docs/en/models/opus-5-5/migration-guide)
+  guides prohibit assistant prefill and forced tool choice and require thinking.
+  Do not infer permission from a platform-wide structured-output example.
+- **Signed history and proxies:** those migration guides describe errors or
+  dropped blocks after signed prefixes are rewritten. A compatible custom host
+  or gateway does not, by default, guarantee preserved thinking/compaction
+  signatures, beta headers, constrained decoding, model availability or Claude
+  API prices. Confirm the intermediary's contract before depending on these features.
+
+Access prerequisites are separate from integration support. AWS Fable/Mythos
+cards require data-retention opt-ins (`aws_review` or `provider_data_share`).
+[Google Fable 5.1](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude/fable-5-1)
+requires the Advanced AI Safety Addendum, per-location model enablement and
+prompt-response sharing. Anthropic's Vertex documentation describes Cyber
+Verification Program gating for Mythos. **Docker Agent changes no consent,
+retention or cloud setting.**
+
 ## Thinking Budget
 
-Anthropic accepts either an integer token budget or a string effort value. When `thinking_budget` is unset, the model keeps its API default (thinking is on by default on Sonnet 5 and Opus 5, and always on for Fable/Mythos). Explicit budgets enable interleaved thinking. A disabled budget is sent as `thinking: disabled` where supported; always-thinking models use low effort instead. Sampling settings are omitted on models that reject them.
+Anthropic accepts either an integer token budget or a string effort value. When `thinking_budget` is unset, the model keeps its API default (thinking is on by default on Sonnet 5 and Opus 5, and always on for Fable/Mythos). Explicit budgets enable interleaved thinking. A disabled budget is sent as `thinking: disabled` where supported; always-thinking models recognized by the client (Fable, Mythos) send `adaptive/low` instead. These existing family rules do not establish complete 5.x compatibility across all paths. Sampling settings are omitted on models that reject them.
 
 **Token budget** (1024–32768 on models that accept manual extended thinking):
 
@@ -248,9 +389,13 @@ switch), while other providers receive the readable text.
   fails compaction with an error rather than silently falling back to the LLM
   strategy, and a `compaction_model` pointing at another model is rejected.
 
-Uses `compact-2026-09-04` on the Claude API; not available on Bedrock or
-Vertex AI. Summarization uses the conversation model and charges its normal
-rates. Compaction usage is read from `usage.iterations`. An incomplete, unsigned
+Uses `compact-2026-09-04` on the Claude API. Anthropic documents
+[Google Cloud beta support for on-demand compaction](https://platform.claude.com/docs/en/build-with-claude/compaction-on-demand),
+but Docker Agent's Vertex client rejects `native_compaction` at construction:
+**not integrated**, not unsupported by Google. AWS documents
+[both compaction mechanisms as requiring InvokeModel, not Converse](https://docs.aws.amazon.com/bedrock/latest/userguide/claude-messages-compaction.html);
+Docker Agent uses `ConverseStream`, so it has no Bedrock compaction path.
+Summarization uses the conversation model and charges its normal rates. Compaction usage is read from `usage.iterations`. An incomplete, unsigned
 or failed response never replaces the stored history. Compact before exceeding
 the model's context window.
 
@@ -382,8 +527,9 @@ Reasons include changed instructions, tools, messages or model, and an unavailab
 previous request. A null/pending diagnosis is not reported as a miss.
 
 IDs and request state belong to the conversation, not the provider client, so
-parallel sessions cannot borrow one another's cache history. Diagnostics are not
-available on Bedrock or Vertex AI.
+parallel sessions cannot borrow one another's cache history. Docker Agent's
+Vertex client rejects `cache_diagnostics` at construction; the Bedrock
+`ConverseStream` integration does not wire this Claude API option.
 
 See [`examples/anthropic-context.yaml`](https://github.com/docker/docker-agent/blob/main/examples/anthropic-context.yaml)
 for a combined configuration.
