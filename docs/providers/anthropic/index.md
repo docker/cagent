@@ -119,7 +119,7 @@ make two endpoints interchangeable.
 | Path | Client and wire protocol | Host | Authentication | Model identity |
 | --- | --- | --- | --- | --- |
 | Claude API | Anthropic Messages / Beta Messages | `api.anthropic.com` | API key (`ANTHROPIC_API_KEY` or `token_key`), or workload identity federation | Claude API ID |
-| Custom Messages host | Anthropic client, Messages dialect | Your `base_url` | Host-specific credentials via `token_key` | Host's model ID |
+| Custom Messages host | Anthropic client, Messages dialect | Your `base_url` | Direct auth: `token_key`, or `ANTHROPIC_API_KEY` when unset; configured workload identity federation also applies | Host's model ID |
 | Models Gateway | Anthropic client through gateway | `--models-gateway` / `DOCKER_AGENT_MODELS_GATEWAY` | Docker JWT for Docker-domain gateways; `auth:` is excluded | Configured provider/model forwarded to gateway |
 | Native Vertex Claude | `google` + `publisher: anthropic`; `:rawPredict` / `:streamRawPredict` | Google prediction endpoint for project/location | ADC OAuth; not an Anthropic API key | Model in URL; `anthropic_version` in body |
 | Bedrock runtime | `amazon-bedrock`; **`ConverseStream`** | Regional Bedrock runtime endpoint | AWS SigV4 credentials or Bedrock bearer token | Exact AWS model or inference-profile ID |
@@ -141,7 +141,9 @@ This guide does not mark those changes as implemented.
   instrumentation compose existing clients; they are not additional wire protocols.
   See [model configuration](../../configuration/models/index.md) for composition constraints.
 - A custom `base_url` implies [gateway bypass](../../configuration/models/index.md#gateway-bypass).
-  Only use endpoints you trust with the selected credentials.
+  It does not isolate credentials: the custom host receives the configured API key
+  (defaulting to `ANTHROPIC_API_KEY` when `token_key` is unset) or federation credentials.
+  Only use endpoints you trust with those credentials.
 
 The [Anthropic construction](https://github.com/docker/docker-agent/blob/49e4ca657fd454e9d46ea258e8cf61c517df9aab/pkg/model/provider/anthropic/client.go),
 [Vertex dispatch](https://github.com/docker/docker-agent/blob/49e4ca657fd454e9d46ea258e8cf61c517df9aab/pkg/model/provider/vertexai/modelgarden.go),
