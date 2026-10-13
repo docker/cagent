@@ -288,9 +288,22 @@ func (e *fallbackExecutor) execute(
 	var lastErr error
 	primaryFailedWithNonRetryable := false
 	hasFallbacks := len(fallbackModels) > 0
+	// The loop announces the primary at turn start; track changes across the whole chain.
+	announcedID := primaryModel.ID()
 
 	for chainIdx := startIndex; chainIdx < len(modelChain); chainIdx++ {
 		modelEntry := modelChain[chainIdx]
+
+		announceServing := func(stream chat.MessageStream) {
+			id := modelEntry.provider.ID()
+			if serving := servingModelFrom(stream); serving != nil {
+				id = serving.ID
+			}
+			if id != announcedID {
+				events.Emit(AgentInfo(a.Name(), id.String(), a.Description(), a.WelcomeMessage()))
+				announcedID = id
+			}
+		}
 
 		// Each model in the chain gets (1 + retries) attempts for retryable errors.
 		// Non-retryable errors (429 with fallbacks, 4xx) skip immediately to the next model.
@@ -369,11 +382,6 @@ func (e *fallbackExecutor) execute(
 
 			slog.DebugContext(ctx, "Processing stream", "agent", a.Name(), "model", modelEntry.provider.ID().String())
 
-			announceServing := func(stream chat.MessageStream) {
-				if serving := servingModelFrom(stream); serving != nil && serving.ID != modelEntry.provider.ID() {
-					events.Emit(AgentInfo(a.Name(), serving.ID.String(), a.Description(), a.WelcomeMessage()))
-				}
-			}
 			announceServing(stream)
 
 			idleTimeout := streamIdleTimeoutFor(modelEntry.provider)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -246,31 +247,102 @@ type pricingServingStream struct {
 
 func (s *pricingServingStream) ServingModel() provider.ServingModel { return s.serving }
 
+type pricingErrorStream struct{ err error }
+
+func (s *pricingErrorStream) Recv() (chat.MessageStreamResponse, error) {
+	return chat.MessageStreamResponse{}, s.err
+}
+func (*pricingErrorStream) Close() {}
+
 func TestRoutedIdleRetryServingModel(t *testing.T) {
 	t.Parallel()
 
-	first := provider.ServingModel{ID: modelsdev.NewID("test", "first")}
-	second := provider.ServingModel{ID: modelsdev.NewID("test", "second"), Config: base.Config{BaseURL: "https://second.example/v1"}}
-	recovered := newStreamBuilder().AddContent("recovered").AddStopWithUsage(1, 1).Build()
-	model := &idleThenResultProvider{id: "test/router", streams: []chat.MessageStream{
-		&pricingServingStream{MessageStream: &idleErrorStream{}, serving: first},
-		&pricingServingStream{MessageStream: recovered, serving: second},
+	for _, tc := range []struct {
+		name, secondModel string
+		plain, ordinary   bool
+	}{
+		{name: "different leaf", secondModel: "second"},
+		{name: "dispatch model", secondModel: "router"},
+		{name: "plain stream", secondModel: "router", plain: true},
+		{name: "ordinary retry dispatch model", secondModel: "router", ordinary: true},
+		{name: "ordinary retry plain stream", secondModel: "router", ordinary: true, plain: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			synctest.Test(t, func(t *testing.T) {
+				first := provider.ServingModel{ID: modelsdev.NewID("test", "first")}
+				second := provider.ServingModel{ID: modelsdev.NewID("test", tc.secondModel), Config: base.Config{BaseURL: "https://second.example/v1"}}
+				var recovered chat.MessageStream = newStreamBuilder().AddContent("recovered").AddStopWithUsage(1, 1).Build()
+				if !tc.plain {
+					recovered = &pricingServingStream{MessageStream: recovered, serving: second}
+				}
+				var failed chat.MessageStream = &idleErrorStream{}
+				retries := -1
+				allowance := &idleStreamRetryAllowance{remaining: true, parentSessionID: "parent"}
+				if tc.ordinary {
+					failed = &pricingErrorStream{err: errors.New("500 internal server error")}
+					retries = 1
+					allowance = nil
+				}
+				model := &idleThenResultProvider{id: "test/router", streams: []chat.MessageStream{
+					&pricingServingStream{MessageStream: failed, serving: first}, recovered,
+				}}
+				a := agent.New("delegate", "test", agent.WithModel(model), agent.WithFallbackRetries(retries))
+				executor := newFallbackExecutor()
+				executor.cooldowns = newCooldownManager(time.Now)
+				sink := &collectSink{}
+				result, used, err := executor.execute(t.Context(), a, model, nil, nil, session.New(), sink,
+					allowance, func() error { return nil })
+				require.NoError(t, err)
+				assert.Equal(t, model, used)
+				if tc.plain {
+					assert.Nil(t, result.Serving)
+				} else {
+					require.NotNil(t, result.Serving)
+					assert.Equal(t, second, *result.Serving)
+				}
+				var announced []string
+				for _, event := range sink.events {
+					if event, ok := event.(*AgentInfoEvent); ok {
+						announced = append(announced, event.Model)
+					}
+				}
+				assert.Equal(t, []string{first.ID.String(), second.ID.String()}, announced)
+			})
+		})
+	}
+}
+
+func TestRoutedSameIDFallbackServingModel(t *testing.T) {
+	t.Parallel()
+
+	first := provider.ServingModel{ID: modelsdev.NewID("test", "leaf")}
+	primary := &idleThenResultProvider{id: "test/router", streams: []chat.MessageStream{
+		&pricingServingStream{MessageStream: &pricingErrorStream{err: errors.New("401 unauthorized")}, serving: first},
 	}}
-	a := agent.New("delegate", "test", agent.WithModel(model), agent.WithFallbackRetries(-1))
-	executor := newFallbackExecutor()
-	executor.cooldowns = newCooldownManager(time.Now)
-	sink := &collectSink{}
-	result, used, err := executor.execute(t.Context(), a, model, nil, nil, session.New(), sink,
-		&idleStreamRetryAllowance{remaining: true, parentSessionID: "parent"}, func() error { return nil })
+	fallback := &routingPricingProvider{countingProvider: &countingProvider{
+		id: "test/router", stream: newStreamBuilder().AddContent("ok").AddStopWithUsage(50_000, 5_000).Build(),
+	}, config: base.Config{ModelConfig: latest.ModelConfig{Cost: &latest.CostConfig{Input: 2, Output: 3}}}}
+	a := agent.New("root", "test", agent.WithModel(primary), agent.WithFallbackModel(fallback), agent.WithFallbackRetries(-1))
+	rt, err := NewLocalRuntime(t.Context(), team.New(team.WithAgents(a)), WithModelStore(modelsdev.NewDatabaseStore(&modelsdev.Database{})), WithSessionCompaction(false))
 	require.NoError(t, err)
-	assert.Equal(t, model, used)
-	require.NotNil(t, result.Serving)
-	assert.Equal(t, second, *result.Serving)
+	sess := session.New(session.WithTitle("Same ID fallback"), session.WithUserMessage("hi"))
 	var announced []string
-	for _, event := range sink.events {
-		if event, ok := event.(*AgentInfoEvent); ok {
+	var assistant *chat.Message
+	for event := range rt.RunStream(t.Context(), sess) {
+		switch event := event.(type) {
+		case *ErrorEvent:
+			t.Errorf("runtime error: %s", event.Error)
+		case *AgentInfoEvent:
 			announced = append(announced, event.Model)
+		case *MessageAddedEvent:
+			if event.Message != nil && event.Message.Message.Role == chat.MessageRoleAssistant {
+				assistant = &event.Message.Message
+			}
 		}
 	}
-	assert.Equal(t, []string{first.ID.String(), second.ID.String()}, announced)
+	assert.Equal(t, []string{"test/router", "test/leaf", "test/router"}, announced)
+	require.NotNil(t, assistant)
+	assert.Equal(t, "test/router", assistant.Model)
+	assert.InDelta(t, 0.115, assistant.Cost, 1e-9)
 }
