@@ -75,22 +75,32 @@ func IsModelGardenConfig(cfg *latest.ModelConfig) bool {
 // Without this rewrite, attachments and other capability-gated features are
 // silently dropped because `<provider>/<model>` IDs like
 // `google/claude-sonnet-4-20250514` do not exist in the models.dev database.
-// See modelsDevProvider for the exact mapping.
+// See modelsDevProvider for the exact mapping. A stored token-source option
+// replaces ADC and survives reconstruction.
 func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Provider, opts ...options.Opt) (Client, error) {
+	o := options.Apply(opts...)
+	opts = options.FromModelOptions(o)
+	if o.TokenSource() != nil {
+		return NewClientWithTokenSource(ctx, cfg, env, o.TokenSource(), opts...)
+	}
 	project, location, err := resolveProjectLocation(ctx, cfg, env)
 	if err != nil {
 		return nil, err
 	}
 	rewritten := withModelsDevProvider(cfg)
+	var client Client
 	if strings.EqualFold(publisher(cfg), "anthropic") {
-		return vertex.NewClient(ctx, rewritten, env, project, location, opts...)
+		client, err = vertex.NewClient(ctx, rewritten, env, project, location, opts...)
+	} else {
+		client, err = newOpenAIClient(ctx, rewritten, env, project, location, opts...)
 	}
-	return newOpenAIClient(ctx, rewritten, env, project, location, opts...)
+	return withDispatchConfig(client, cfg, err)
 }
 
 // NewClientWithTokenSource is NewClient authenticated with source instead of
 // Application Default Credentials, which are never looked up. The token is
-// resolved with each request's context.
+// resolved with each request's context. The explicit source overrides any
+// token-source option and is retained for subsequent clones.
 func NewClientWithTokenSource(ctx context.Context, cfg *latest.ModelConfig, env environment.Provider, source options.TokenSource, opts ...options.Opt) (Client, error) {
 	if source == nil {
 		return nil, errors.New("token source is required")
@@ -99,11 +109,25 @@ func NewClientWithTokenSource(ctx context.Context, cfg *latest.ModelConfig, env 
 	if err != nil {
 		return nil, err
 	}
+	opts = append(opts, options.WithTokenSource(source))
 	rewritten := withModelsDevProvider(cfg)
+	var client Client
 	if strings.EqualFold(publisher(cfg), "anthropic") {
-		return vertex.NewClientWithTokenSource(ctx, rewritten, env, project, location, source, opts...)
+		client, err = vertex.NewClientWithTokenSource(ctx, rewritten, env, project, location, source, opts...)
+	} else {
+		client, err = newOpenAIClientWithTokenSource(ctx, rewritten, env, project, location, source, opts...)
 	}
-	return newOpenAIClientWithTokenSource(ctx, rewritten, env, project, location, source, opts...)
+	return withDispatchConfig(client, cfg, err)
+}
+
+func withDispatchConfig(client Client, cfg *latest.ModelConfig, err error) (Client, error) {
+	if err != nil {
+		return nil, err
+	}
+	if setter, ok := client.(interface{ SetDispatchConfig(cfg *latest.ModelConfig) }); ok {
+		setter.SetDispatchConfig(cfg)
+	}
+	return client, nil
 }
 
 // withModelsDevProvider returns a deep copy of cfg with its Provider field

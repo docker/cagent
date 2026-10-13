@@ -22,7 +22,9 @@ import (
 	"github.com/docker/docker-agent/pkg/chat"
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/hooks"
+	"github.com/docker/docker-agent/pkg/model/provider"
 	"github.com/docker/docker-agent/pkg/model/provider/base"
+	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/modelerrors"
 	"github.com/docker/docker-agent/pkg/modelinfo"
 	"github.com/docker/docker-agent/pkg/modelsdev"
@@ -231,7 +233,11 @@ func (m *mockProvider) CreateChatCompletionStream(context.Context, []chat.Messag
 	return m.stream, nil
 }
 
-func (m *mockProvider) BaseConfig() base.Config { return base.Config{} }
+func (m *mockProvider) BaseConfig() base.Config {
+	cfg := base.Config{}
+	cfg.RebuildProvider = func(context.Context, *latest.ModelConfig, ...options.Opt) (provider.Provider, error) { return m, nil }
+	return cfg
+}
 
 func (m *mockProvider) MaxTokens() int { return 0 }
 
@@ -906,7 +912,11 @@ func (p *queueProvider) CreateChatCompletionStream(context.Context, []chat.Messa
 	return s, nil
 }
 
-func (p *queueProvider) BaseConfig() base.Config { return base.Config{} }
+func (p *queueProvider) BaseConfig() base.Config {
+	cfg := base.Config{}
+	cfg.RebuildProvider = func(context.Context, *latest.ModelConfig, ...options.Opt) (provider.Provider, error) { return p, nil }
+	return cfg
+}
 
 func (p *queueProvider) MaxTokens() int { return 0 }
 

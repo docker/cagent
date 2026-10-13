@@ -542,3 +542,14 @@ func TestResolveProjectLocation(t *testing.T) {
 		})
 	}
 }
+
+func TestNewClientAppliesOptionsOnce(t *testing.T) {
+	t.Parallel()
+	calls := 0
+	_, err := NewClient(t.Context(), &latest.ModelConfig{Provider: "google", Model: "claude-sonnet-4-6", ProviderOpts: map[string]any{"publisher": "anthropic", "project": "test-project", "location": "us-east5"}}, environment.NewNoEnvProvider(), func(o *options.ModelOptions) {
+		calls++
+		options.WithTokenSource(func(ctx context.Context) (string, error) { return "token", ctx.Err() })(o)
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, calls)
+}

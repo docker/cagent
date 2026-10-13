@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/docker/docker-agent/pkg/config/latest"
+	"github.com/docker/docker-agent/pkg/modelsdev"
 )
 
 // sentinelTransport is a minimal http.RoundTripper used only for identity checks.
@@ -158,4 +159,24 @@ func TestFromModelOptions_NilWrapperNotIncluded(t *testing.T) {
 	}
 
 	assert.Nil(t, dst.TransportWrapper())
+}
+
+func TestModelOptionsClonePreservesServicesAndExplicitClears(t *testing.T) {
+	t.Parallel()
+	store := modelsdev.NewDatabaseStore(&modelsdev.Database{})
+	wrapper := func(rt http.RoundTripper) http.RoundTripper { return rt }
+	source := func(context.Context) (string, error) { return "token", nil }
+	m := Apply(WithModelsDevStore(store), WithHTTPTransportWrapper(wrapper), WithTokenSource(source), WithGateway("old"), WithGateway(""), WithStructuredOutput(nil))
+	clone, err := m.Clone()
+	require.NoError(t, err)
+	probe := Apply(FromModelOptions(clone)...)
+	assert.Same(t, store, probe.ModelsDevStore())
+	assert.NotNil(t, probe.TransportWrapper())
+	assert.NotNil(t, probe.TokenSource())
+	assert.Empty(t, probe.Gateway())
+	assert.True(t, probe.gatewaySet)
+	assert.True(t, probe.structuredOutputSet)
+	token, err := probe.TokenSource()(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, "token", token)
 }

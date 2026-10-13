@@ -77,7 +77,10 @@ func (r *LocalRuntime) samplingHandler(ctx context.Context, req *mcp.CreateMessa
 		return nil, errors.New("current agent has no model configured")
 	}
 
-	model := provider.CloneWithOptions(ctx, baseModel, samplingModelOptions(req)...)
+	model, err := provider.Clone(ctx, baseModel, samplingModelOptions(req)...)
+	if err != nil {
+		return nil, fmt.Errorf("cloning model for sampling: %w", err)
+	}
 
 	stream, err := model.CreateChatCompletionStream(ctx, messages, nil)
 	if err != nil {
@@ -328,7 +331,10 @@ func (r *LocalRuntime) samplingWithToolsHandler(ctx context.Context, req *mcp.Cr
 		return nil, errors.New("current agent has no model configured")
 	}
 
-	model := provider.CloneWithOptions(ctx, baseModel, samplingModelOptionsFor(req.MaxTokens)...)
+	model, err := provider.Clone(ctx, baseModel, samplingModelOptionsFor(req.MaxTokens)...)
+	if err != nil {
+		return nil, fmt.Errorf("cloning model for sampling: %w", err)
+	}
 
 	stream, err := model.CreateChatCompletionStream(ctx, messages, chatTools)
 	if err != nil {

@@ -69,7 +69,7 @@ func (r *LocalRuntime) sessionCompactionEnabled(a *agent.Agent) bool {
 // env / cwd / OS info is automatically present after a compaction without
 // any extra dispatch.
 func (r *LocalRuntime) doCompact(ctx context.Context, sess *session.Session, a *agent.Agent, additionalPrompt, reason string, events EventSink) {
-	contextLimit := r.compactionContextLimit(ctx, a)
+	contextLimit, limitErr := r.compactionContextLimitChecked(ctx, a)
 
 	// before_compaction: hooks can veto or supply a custom summary.
 	pre := r.executeBeforeCompactionHooks(ctx, sess, a, reason, contextLimit, events)
@@ -108,6 +108,11 @@ func (r *LocalRuntime) doCompact(ctx context.Context, sess *session.Session, a *
 		if native != nil {
 			result, err = r.compactNatively(ctx, sess, a, native, additionalPrompt, events)
 		} else {
+			if limitErr != nil {
+				events.Emit(ErrorForSession(sess.ID, limitErr.Error()))
+				outcome = CompactionOutcomeFailed
+				return
+			}
 			if contextLimit <= 0 {
 				slog.ErrorContext(ctx, "Failed to generate session summary",
 					"error", "model definition unavailable")
@@ -239,21 +244,32 @@ func summaryFromHook(sess *session.Session, a *agent.Agent, pre *hooks.Result, c
 // pass the cloned summary-call provider so its provider_opts (which
 // match the underlying model) are considered.
 func (r *LocalRuntime) compactionContextLimit(ctx context.Context, a *agent.Agent) int64 {
+	limit, err := r.compactionContextLimitChecked(ctx, a)
+	if err != nil {
+		slog.DebugContext(ctx, "Compaction context window unresolvable", "error", err)
+	}
+	return limit
+}
+
+func (r *LocalRuntime) compactionContextLimitChecked(ctx context.Context, a *agent.Agent) (int64, error) {
 	if a == nil {
-		return 0
+		return 0, nil
 	}
 	model := a.CompactionModel()
 	if model == nil {
 		model = a.Model(ctx)
 	}
 	if model == nil {
-		return 0
+		return 0, nil
 	}
-	summaryModel := provider.CloneWithOptions(ctx, model,
+	summaryModel, err := provider.Clone(ctx, model,
 		options.WithStructuredOutput(nil),
 		options.WithMaxTokens(compactor.MaxSummaryTokens),
 	)
-	return r.resolveContextLimit(ctx, summaryModel, summaryModel.ID())
+	if err != nil {
+		return 0, fmt.Errorf("resolving compaction context window: %w", err)
+	}
+	return r.resolveContextLimit(ctx, summaryModel, summaryModel.ID()), nil
 }
 
 // effectiveContextLimit returns the context budget the running session

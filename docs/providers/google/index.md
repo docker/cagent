@@ -301,6 +301,12 @@ Gemini SDK:
 - **Other publishers** (e.g. `meta`, `mistral`) use Vertex AI's
   OpenAI-compatible `/chat/completions` endpoint.
 
+Title, sampling and compaction clones keep the selected Model Garden transport.
+Claude requests remain on the Anthropic-native Vertex endpoints, with the model
+in the URL and `anthropic_version: vertex-2023-10-16` in the body. Project,
+location, regional/global host selection and Google OAuth authentication survive
+cloning; clones never switch to the direct Claude API or send its API key.
+
 ### Authentication
 
 Vertex AI uses Google Cloud Application Default Credentials (ADC). Make sure you
@@ -309,6 +315,12 @@ are authenticated:
 ```bash
 gcloud auth application-default login
 ```
+
+Go embedders can instead supply a request-context token source through
+`vertexai.NewClientWithTokenSource` or `options.WithTokenSource`. That source is
+preserved across clones and replaces ADC, including credential-file and metadata
+lookups. HTTP transport wrappers are preserved on both authentication paths;
+ADC still applies OAuth authorization around the wrapped transport.
 
 ### Configuration
 

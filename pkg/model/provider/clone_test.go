@@ -184,7 +184,8 @@ func TestCloneWithOptions_PreservesOutputCapabilities(t *testing.T) {
 		OutputCapabilities: &latest.OutputCapabilitiesConfig{Image: &image},
 	}}
 
-	cloned, _ := mergeCloneOptions(cfg, []options.Opt{options.WithGeneratingTitle()})
+	cloned, _, err := mergeCloneOptions(cfg, []options.Opt{options.WithGeneratingTitle()})
+	require.NoError(t, err)
 
 	require.NotNil(t, cloned.OutputCapabilities)
 	require.NotNil(t, cloned.OutputCapabilities.Image)

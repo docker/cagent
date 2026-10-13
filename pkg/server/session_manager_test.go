@@ -27,8 +27,11 @@ import (
 	"github.com/docker/docker-agent/pkg/chat"
 	"github.com/docker/docker-agent/pkg/concurrent"
 	"github.com/docker/docker-agent/pkg/config"
+	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/config/types"
+	modelprovider "github.com/docker/docker-agent/pkg/model/provider"
 	"github.com/docker/docker-agent/pkg/model/provider/base"
+	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 	"github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/session"
@@ -103,7 +106,13 @@ func (p *delayedTitleProvider) CreateChatCompletionStream(context.Context, []cha
 	return &delayedTitleStream{release: p.release}, nil
 }
 
-func (p *delayedTitleProvider) BaseConfig() base.Config { return base.Config{} }
+func (p *delayedTitleProvider) BaseConfig() base.Config {
+	cfg := base.Config{}
+	cfg.RebuildProvider = func(context.Context, *latest.ModelConfig, ...options.Opt) (modelprovider.Provider, error) {
+		return p, nil
+	}
+	return cfg
+}
 
 type delayedTitleStream struct {
 	release  chan struct{}

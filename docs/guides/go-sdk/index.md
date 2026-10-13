@@ -847,7 +847,64 @@ client, err := openai.NewClient(ctx, &latest.ModelConfig{
 }, env, options.WithTokenSource(tokenSource))
 ```
 
-The OpenAI client checks for a configured `TokenSource` before falling back to `token_key`, and uses it to set the `Authorization` header on both HTTP and WebSocket requests. Static API-key, ChatGPT, and gateway auth paths are unaffected. `FromModelOptions` round-trips the token source, so a cloned provider config keeps it. Vertex AI Model Garden's default constructor refreshes GCP access tokens through ADC. Its `NewClientWithTokenSource` constructor instead accepts a host-managed request-time token source; neither host credential files nor instance metadata are consulted on that path.
+The OpenAI client checks for a configured `TokenSource` before falling back to `token_key`, and uses it to set the `Authorization` header on both HTTP and WebSocket requests. Static API-key, ChatGPT, and gateway auth paths are unaffected. `FromModelOptions` round-trips the token source, so a cloned provider config keeps it. Vertex AI Model Garden's default constructor refreshes GCP access tokens through ADC unless `options.WithTokenSource` is supplied. Its `NewClientWithTokenSource` constructor instead accepts a host-managed request-time token source; neither host credential files nor instance metadata are consulted on that path.
+
+## Cloning Providers
+
+Use the checked `provider.Clone` API when adjusting a provider for an auxiliary
+request. Options are applied in order; later overrides win.
+
+```go
+summaryModel, err := provider.Clone(ctx, model,
+    options.WithStructuredOutput(nil),
+    options.WithMaxTokens(4096),
+    options.WithCompacting(),
+)
+if err != nil {
+    return fmt.Errorf("creating summary model: %w", err)
+}
+```
+
+Providers constructed through a `provider.Registry` retain their reconstruction
+function, environment and routing model references. Custom implementations must
+supply `contracts.Config.RebuildProvider` (or `SetProviderRebuilder`), including
+in test doubles. Missing reconstruction support returns `provider.ErrNoRebuilder`;
+reconstruction errors are wrapped in `*provider.CloneError` and support
+`errors.Is` / `errors.As`.
+
+Clones isolate mutable model configuration, custom-provider definitions and
+structured-output schemas. Transport wrappers, token-source callbacks and the
+models.dev store remain shared services. Public option setters retain reference
+semantics; isolation happens when cloning. Programmatic configurations must be
+JSON-serializable: unsupported values in `provider_opts`, schemas or custom
+providers fail closed with `provider.ErrUncopyableConfig`, rather than panic or
+share mutable state. Cumulative clones preserve explicit structured-output
+removal, gateway clearing and no-thinking overrides; existing provider token
+floors and routed-child token limits still apply.
+
+`CloneWithOptions` retains its public signature but is deprecated. On failure it
+returns an error-only provider whose stream creation returns the clone error. It
+never performs inference on the original provider or exposes its optional
+embedding, context-discovery or compaction capabilities.
+
+| Caller | Clone failure behavior |
+| --- | --- |
+| Session title | Tries the next configured candidate; exhaustion does not interrupt chat. |
+| MCP sampling, with or without tools | Returns the actionable clone error before inference. |
+| LLM compaction | Reports failure and leaves the session history intact. |
+| Compaction window resolution | The checked resolver returns zero plus the error; the LLM compaction path reports it. UI gauges remain best-effort. |
+
+Hook-supplied summaries and provider-native compaction remain usable without a
+clonable summary model. For Model Garden, catalogue identity and dispatch identity
+are separate: `ModelConfig` supplies capability lookups, while
+`DispatchConfig` / `CloneSource()` preserves the original Google configuration for
+reconstruction. Both ADC and request-context token sources retain native Vertex
+transport, project, location and model-in-URL semantics. Model Garden token-source
+precedence is an explicit `NewClientWithTokenSource` argument, then a stored
+`options.WithTokenSource`, then ADC. Register that source only for the intended
+Google provider, not as a process-wide option for unrelated routed models.
+
+This API change adds no YAML configuration surface or schema version.
 
 ## Using Different Providers
 

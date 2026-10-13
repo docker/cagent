@@ -66,8 +66,9 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, models map[string]l
 
 	client := &Client{
 		Config: base.Config{
-			ModelConfig: *cfg,
-			Env:         env,
+			ModelConfig:  *cfg,
+			ModelOptions: options.Apply(opts...),
+			Env:          env,
 		},
 		matcher:  newMatcher(),
 		fallback: fallback,
