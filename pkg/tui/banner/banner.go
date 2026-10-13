@@ -23,7 +23,7 @@ const FrameDuration = 100 * time.Millisecond
 const FrameSeparator = "\f"
 
 // maxFileSize bounds a banner file; the art is redrawn on every frame change.
-const maxFileSize = 4 << 20
+const maxFileSize = 16 << 20
 
 // Lines is the Docker Agent ASCII-art startup banner.
 var Lines = []string{
@@ -48,6 +48,9 @@ type Banner struct {
 	frames []string
 	width  int
 	height int
+	// crops marks art that is cut down to an area smaller than itself
+	// rather than left out.
+	crops bool
 }
 
 // Default returns the Docker Agent banner.
@@ -97,7 +100,7 @@ func Parse(text string) (Banner, error) {
 		return Banner{}, errors.New("no banner art found")
 	}
 
-	b := Banner{width: width, height: height, frames: make([]string, 0, len(frames))}
+	b := Banner{width: width, height: height, crops: true, frames: make([]string, 0, len(frames))}
 	for _, lines := range frames {
 		for i, line := range lines {
 			lines[i] = line + strings.Repeat(" ", width-ansi.StringWidth(line))
@@ -112,6 +115,33 @@ func Parse(text string) (Banner, error) {
 
 func (b Banner) Width() int  { return b.width }
 func (b Banner) Height() int { return b.height }
+
+// Fits reports whether the banner can be drawn in the given area. Art read
+// from a file always can: it is cut down around its center, so a backdrop
+// larger than any terminal fills the area whatever its size.
+func (b Banner) Fits(width, height int) bool {
+	if width <= 0 || height <= 0 {
+		return false
+	}
+	return b.crops || (width >= b.width && height >= b.height)
+}
+
+// Crop cuts a frame down around its center to at most the given area.
+func (b Banner) Crop(frame string, width, height int) string {
+	if width >= b.width && height >= b.height {
+		return frame
+	}
+	lines := strings.Split(frame, "\n")
+	if extra := len(lines) - height; extra > 0 {
+		lines = lines[extra/2 : extra/2+height]
+	}
+	if extra := b.width - width; extra > 0 {
+		for i, line := range lines {
+			lines[i] = ansi.Cut(line, extra/2, extra/2+width)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
 
 // Animated reports whether the banner has more than one frame.
 func (b Banner) Animated() bool { return len(b.frames) > 1 }

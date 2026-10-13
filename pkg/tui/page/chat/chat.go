@@ -868,7 +868,7 @@ func (p *chatPage) messagesView(sl sidebarLayout) string {
 		// Page literals carry no banner; they get the default one.
 		art = tuibanner.Default()
 	}
-	if sl.chatWidth < art.Width() || sl.chatHeight < art.Height() {
+	if !art.Fits(sl.chatWidth, sl.chatHeight) {
 		return ""
 	}
 
@@ -876,7 +876,8 @@ func (p *chatPage) messagesView(sl sidebarLayout) string {
 	if art.Animated() {
 		elapsed = p.ar.Now()
 	}
-	banner := styles.BaseStyle.Foreground(styles.Accent).Render(art.FrameAt(elapsed))
+	frame := art.Crop(art.FrameAt(elapsed), sl.chatWidth, sl.chatHeight)
+	banner := styles.BaseStyle.Foreground(styles.Accent).Render(frame)
 	return lipgloss.Place(
 		sl.chatWidth,
 		sl.chatHeight,
