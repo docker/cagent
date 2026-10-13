@@ -143,8 +143,13 @@ func TestEnforceMaxIterations_Interactive_FiresOnUserInput(t *testing.T) {
 	sess := session.New()
 	events := make(chan Event, 8)
 
-	go func() { r.resumeChan <- ResumeReject("stop") }()
-	_, decision := r.enforceMaxIterations(t.Context(), sess, a, 10, 10, NewChannelSink(events))
+	sink := EventSinkFunc(func(ev Event) {
+		events <- ev
+		if _, ok := ev.(*MaxIterationsReachedEvent); ok {
+			r.Resume(t.Context(), ResumeReject("stop"))
+		}
+	})
+	_, decision := r.enforceMaxIterations(t.Context(), sess, a, 10, 10, sink)
 
 	assert.Equal(t, iterationStop, decision)
 	got := rb.snapshot()
@@ -225,8 +230,13 @@ func TestEnforceMaxIterations_PinnedSessionAgent_AttributesHookToThatAgent(t *te
 	sess := session.New()
 	events := make(chan Event, 8)
 
-	go func() { r.resumeChan <- ResumeReject("stop") }()
-	_, decision := r.enforceMaxIterations(t.Context(), sess, worker, 10, 10, NewChannelSink(events))
+	sink := EventSinkFunc(func(ev Event) {
+		events <- ev
+		if _, ok := ev.(*MaxIterationsReachedEvent); ok {
+			r.Resume(t.Context(), ResumeReject("stop"))
+		}
+	})
+	_, decision := r.enforceMaxIterations(t.Context(), sess, worker, 10, 10, sink)
 
 	assert.Equal(t, iterationStop, decision)
 	got := rb.snapshot()
