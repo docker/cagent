@@ -75,6 +75,7 @@ type streamResult struct {
 	Stopped      bool
 	FinishReason chat.FinishReason
 	Usage        *chat.Usage
+	Serving      *provider.ServingModel
 }
 
 // handleStream reads a chat.MessageStream to completion, emitting streaming

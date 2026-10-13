@@ -121,7 +121,7 @@ func (c *Client) CreateChatCompletionStream(
 	messages []chat.Message,
 	availableTools []tools.Tool,
 ) (chat.MessageStream, error) {
-	provider := c.selectProvider(messages)
+	provider, selfServe := c.selectProvider(messages)
 	if provider == nil {
 		return nil, errors.New("no provider available for routing")
 	}
@@ -134,12 +134,32 @@ func (c *Client) CreateChatCompletionStream(
 		"message_count", len(messages),
 	)
 
-	return provider.CreateChatCompletionStream(ctx, messages, availableTools)
+	stream, err := provider.CreateChatCompletionStream(ctx, messages, availableTools)
+	if err != nil || stream == nil {
+		return stream, err
+	}
+	serving := contracts.ServingModel{ID: selectedID, Config: provider.BaseConfig()}
+	if selfServe {
+		serving.ID = c.ID()
+		// The default provider is built from provider/model alone; preserve
+		// the router's accounting overrides without losing the resolved endpoint.
+		if serving.Config.ModelConfig.Cost == nil {
+			serving.Config.ModelConfig.Cost = c.ModelConfig.Cost
+		}
+		if serving.Config.ModelConfig.BaseURL == "" {
+			serving.Config.ModelConfig.BaseURL = c.ModelConfig.BaseURL
+		}
+	}
+	if inner, ok := stream.(contracts.ServingStream); ok {
+		serving = inner.ServingModel()
+	}
+	return &routedStream{MessageStream: stream, serving: serving}, nil
 }
 
 // LastSelectedModelID returns the ID of the provider selected by the most
 // recent CreateChatCompletionStream call. This allows callers to display
-// the YAML-configured sub-model name for rule-based routing.
+// the YAML-configured sub-model name for rule-based routing. Accounting uses
+// the request-bound ServingModel on the returned stream instead.
 func (c *Client) LastSelectedModelID() modelsdev.ID {
 	if id := c.lastSelectedID.Load(); id != nil {
 		return *id
@@ -148,20 +168,20 @@ func (c *Client) LastSelectedModelID() modelsdev.ID {
 }
 
 // selectProvider finds the best matching provider for the messages.
-func (c *Client) selectProvider(messages []chat.Message) Provider {
+func (c *Client) selectProvider(messages []chat.Message) (Provider, bool) {
 	userMessage := getLastUserMessage(messages)
 	if userMessage == "" {
-		return c.defaultProvider()
+		return c.defaultProvider(), true
 	}
 
 	routeIdx, ok := c.matcher.bestRoute(userMessage)
 	if !ok || routeIdx >= len(c.routes) {
-		return c.defaultProvider()
+		return c.defaultProvider(), true
 	}
 
 	selected := c.routes[routeIdx]
 	slog.Debug("Route matched", "model", selected.ID().String())
-	return selected
+	return selected, false
 }
 
 func (c *Client) defaultProvider() Provider {
@@ -191,4 +211,14 @@ func (c *Client) BaseConfig() base.Config {
 // Close cleans up resources.
 func (c *Client) Close() error {
 	return nil
+}
+
+type routedStream struct {
+	chat.MessageStream
+
+	serving contracts.ServingModel
+}
+
+func (s *routedStream) ServingModel() contracts.ServingModel {
+	return s.serving
 }

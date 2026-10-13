@@ -369,18 +369,13 @@ func (e *fallbackExecutor) execute(
 
 			slog.DebugContext(ctx, "Processing stream", "agent", a.Name(), "model", modelEntry.provider.ID().String())
 
-			// If the provider is a rule-based router, notify the sidebar
-			// of the selected sub-model's YAML-configured name.
-			if rp, ok := modelEntry.provider.(interface {
-				LastSelectedModelID() modelsdev.ID
-			}); ok {
-				if selected := rp.LastSelectedModelID(); !selected.IsZero() {
-					events.Emit(AgentInfo(a.Name(), selected.String(), a.Description(), a.WelcomeMessage()))
-				}
+			if serving := servingModelFrom(stream); serving != nil && serving.ID != modelEntry.provider.ID() {
+				events.Emit(AgentInfo(a.Name(), serving.ID.String(), a.Description(), a.WelcomeMessage()))
 			}
 
 			idleTimeout := streamIdleTimeoutFor(modelEntry.provider)
 			res, err := handleStream(streamCtx, streamCancel, stream, a, attemptTools, sess, events, idleTimeout)
+			res.Serving = servingModelFrom(stream)
 			streamCancel(nil) // always release the child context
 			if err != nil {
 				lastErr = err
@@ -419,6 +414,7 @@ func (e *fallbackExecutor) execute(
 					stream, err = modelEntry.provider.CreateChatCompletionStream(streamCtx, attemptMessages, attemptTools)
 					if err == nil {
 						res, err = handleStream(streamCtx, streamCancel, stream, a, attemptTools, sess, events, idleTimeout)
+						res.Serving = servingModelFrom(stream)
 					}
 					streamCancel(nil)
 					if err == nil {
@@ -558,4 +554,11 @@ func (e *fallbackExecutor) handleModelError(
 		"attempt", attempt+1,
 		"error", err)
 	return retryDecisionContinue
+}
+
+func servingModelFrom(stream chat.MessageStream) *provider.ServingModel {
+	if stream, ok := stream.(provider.ServingStream); ok {
+		return new(stream.ServingModel())
+	}
+	return nil
 }

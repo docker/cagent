@@ -58,6 +58,13 @@ agents:
     instruction: You are a helpful assistant.
 ```
 
+## Cost and Attribution
+
+Routed turns are priced and attributed to the model that served them, using its
+catalogue rates or `cost:` table and the response's service tier when applicable.
+The router's `cost:` table does not override a matched target's pricing. When no
+rule matches, the router's base model and accounting overrides apply.
+
 ## Routing Rules
 
 Each routing rule has:

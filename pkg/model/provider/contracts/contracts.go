@@ -128,6 +128,18 @@ type Provider interface {
 	BaseConfig() Config
 }
 
+// ServingModel identifies the endpoint that produced a completion stream.
+type ServingModel struct {
+	ID     modelsdev.ID
+	Config Config
+}
+
+// ServingStream reports the serving endpoint when it differs from the dispatched provider.
+type ServingStream interface {
+	chat.MessageStream
+	ServingModel() ServingModel
+}
+
 // EmbeddingProvider is a provider that supports embeddings.
 type EmbeddingProvider interface {
 	Provider

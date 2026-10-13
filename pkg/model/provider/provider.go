@@ -20,6 +20,12 @@ import (
 // Provider is the common interface implemented by model providers.
 type Provider = contracts.Provider
 
+// ServingModel identifies the endpoint that produced a completion stream.
+type ServingModel = contracts.ServingModel
+
+// ServingStream reports the serving endpoint when it differs from the dispatched provider.
+type ServingStream = contracts.ServingStream
+
 // EmbeddingProvider is a provider that supports embeddings.
 type EmbeddingProvider = contracts.EmbeddingProvider
 
