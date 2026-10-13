@@ -112,9 +112,6 @@ linters:
         - github.com/cyphar/filepath-securejoin
         # TODO(docker/docker-agent#4068): drop with the go.mod replace.
         - github.com/modelcontextprotocol/go-sdk
-        # TODO(rumpl/harness#13): drop with the go.mod replace once the
-        # commandcode provider lands upstream.
-        - github.com/rumpl/harness
     gocritic:
       disabled-checks:
         - dupImport
