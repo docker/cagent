@@ -40,6 +40,7 @@ import (
 	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/model/provider/anthropic/vertex"
 	"github.com/docker/docker-agent/pkg/model/provider/contracts"
+	"github.com/docker/docker-agent/pkg/model/provider/internal/deepcopy"
 	"github.com/docker/docker-agent/pkg/model/provider/openai"
 	"github.com/docker/docker-agent/pkg/model/provider/options"
 )
@@ -87,7 +88,10 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 	if err != nil {
 		return nil, err
 	}
-	rewritten := withModelsDevProvider(cfg)
+	rewritten, err := withModelsDevProvider(cfg)
+	if err != nil {
+		return nil, err
+	}
 	var client Client
 	if strings.EqualFold(publisher(cfg), "anthropic") {
 		client, err = vertex.NewClient(ctx, rewritten, env, project, location, opts...)
@@ -110,7 +114,10 @@ func NewClientWithTokenSource(ctx context.Context, cfg *latest.ModelConfig, env 
 		return nil, err
 	}
 	opts = append(opts, options.WithTokenSource(source))
-	rewritten := withModelsDevProvider(cfg)
+	rewritten, err := withModelsDevProvider(cfg)
+	if err != nil {
+		return nil, err
+	}
 	var client Client
 	if strings.EqualFold(publisher(cfg), "anthropic") {
 		client, err = vertex.NewClientWithTokenSource(ctx, rewritten, env, project, location, source, opts...)
@@ -125,7 +132,11 @@ func withDispatchConfig(client Client, cfg *latest.ModelConfig, err error) (Clie
 		return nil, err
 	}
 	if setter, ok := client.(interface{ SetDispatchConfig(cfg *latest.ModelConfig) }); ok {
-		setter.SetDispatchConfig(cfg)
+		copied, err := deepcopy.Value(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("vertex ai: copying dispatch configuration: %w", err)
+		}
+		setter.SetDispatchConfig(copied)
 	}
 	return client, nil
 }
@@ -134,12 +145,15 @@ func withDispatchConfig(client Client, cfg *latest.ModelConfig, err error) (Clie
 // rewritten so that `Provider + "/" + Model` becomes a valid models.dev key.
 // The original cfg is never mutated so callers — and the wider runtime —
 // keep their "google" provider view.
-func withModelsDevProvider(cfg *latest.ModelConfig) *latest.ModelConfig {
-	out := cfg.Clone()
+func withModelsDevProvider(cfg *latest.ModelConfig) (*latest.ModelConfig, error) {
+	out, err := deepcopy.Value(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("vertex ai: copying model configuration: %w", err)
+	}
 	if p := modelsDevProvider(cfg); p != "" {
 		out.Provider = p
 	}
-	return out
+	return out, nil
 }
 
 // modelsDevProvider returns the models.dev provider key that hosts the model
@@ -254,7 +268,10 @@ func openAIBaseURL(project, location string) string {
 }
 
 func newOpenAIClientWithTokenSource(ctx context.Context, cfg *latest.ModelConfig, env environment.Provider, project, location string, tokenSource options.TokenSource, opts ...options.Opt) (*openai.Client, error) {
-	oaiCfg := cfg.Clone()
+	oaiCfg, err := deepcopy.Value(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("vertex ai: copying OpenAI configuration: %w", err)
+	}
 	oaiCfg.BaseURL = openAIBaseURL(project, location)
 	oaiCfg.TokenKey = ""
 

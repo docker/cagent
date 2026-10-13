@@ -2,12 +2,12 @@ package options
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 
 	"github.com/docker/docker-agent/pkg/config/latest"
+	"github.com/docker/docker-agent/pkg/model/provider/internal/deepcopy"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 )
 
@@ -299,25 +299,14 @@ func FromModelOptions(m ModelOptions) []Opt {
 // Clone copies mutable option state while preserving shared services and callbacks.
 func (c *ModelOptions) Clone() (ModelOptions, error) {
 	cloned := *c
-	if c.structuredOutput != nil {
-		data, err := json.Marshal(c.structuredOutput)
-		if err != nil {
-			return ModelOptions{}, fmt.Errorf("copying structured_output: %w", err)
-		}
-		cloned.structuredOutput = new(latest.StructuredOutput)
-		if err := json.Unmarshal(data, cloned.structuredOutput); err != nil {
-			return ModelOptions{}, err
-		}
+	var err error
+	cloned.structuredOutput, err = deepcopy.Value(c.structuredOutput)
+	if err != nil {
+		return ModelOptions{}, fmt.Errorf("copying structured_output: %w", err)
 	}
-	if c.providers != nil {
-		data, err := json.Marshal(c.providers)
-		if err != nil {
-			return ModelOptions{}, fmt.Errorf("copying providers: %w", err)
-		}
-		cloned.providers = nil
-		if err := json.Unmarshal(data, &cloned.providers); err != nil {
-			return ModelOptions{}, err
-		}
+	cloned.providers, err = deepcopy.Value(c.providers)
+	if err != nil {
+		return ModelOptions{}, fmt.Errorf("copying providers: %w", err)
 	}
 	return cloned, nil
 }

@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,6 +10,7 @@ import (
 	"github.com/docker/docker-agent/pkg/chat"
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/model/provider/base"
+	"github.com/docker/docker-agent/pkg/model/provider/internal/deepcopy"
 	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 	"github.com/docker/docker-agent/pkg/tools"
@@ -19,8 +19,8 @@ import (
 // ErrNoRebuilder means a provider has no construction function for cloning.
 var ErrNoRebuilder = errors.New("provider cannot be cloned without its rebuild function")
 
-// ErrUncopyableConfig means mutable configuration contains non-JSON values.
-var ErrUncopyableConfig = errors.New("provider clone requires JSON-serializable configuration")
+// ErrUncopyableConfig means mutable configuration cannot be safely copied.
+var ErrUncopyableConfig = errors.New("provider clone requires copyable configuration")
 
 // CloneError identifies the provider whose reconstruction failed.
 type CloneError struct {
@@ -125,14 +125,9 @@ func mergeCloneOptions(cfg base.Config, opts []options.Opt) (latest.ModelConfig,
 }
 
 func copyModelConfig(source latest.ModelConfig) (latest.ModelConfig, error) {
-	var copied latest.ModelConfig
-	data, err := json.Marshal(source)
+	copied, err := deepcopy.Value(source)
 	if err != nil {
-		return copied, fmt.Errorf("%w: copying model configuration: %w", ErrUncopyableConfig, err)
+		return latest.ModelConfig{}, fmt.Errorf("%w: copying model configuration: %w", ErrUncopyableConfig, err)
 	}
-	if err := json.Unmarshal(data, &copied); err != nil {
-		return copied, fmt.Errorf("%w: copying model configuration: %w", ErrUncopyableConfig, err)
-	}
-	copied.Name, copied.DisplayModel = source.Name, source.DisplayModel
 	return copied, nil
 }

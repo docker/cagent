@@ -268,7 +268,8 @@ func TestWithModelsDevProvider(t *testing.T) {
 			originalProvider := tt.cfg.Provider
 			originalPublisher, _ := tt.cfg.ProviderOpts["publisher"].(string)
 
-			got := withModelsDevProvider(tt.cfg)
+			got, err := withModelsDevProvider(tt.cfg)
+			require.NoError(t, err)
 			require.NotNil(t, got)
 			require.NotSame(t, tt.cfg, got, "withModelsDevProvider must return a copy")
 			assert.Equal(t, tt.wantProvider, got.Provider)
@@ -344,7 +345,8 @@ func TestWithModelsDevProvider_CapabilityLookupIDs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rewritten := withModelsDevProvider(tt.cfg)
+			rewritten, err := withModelsDevProvider(tt.cfg)
+			require.NoError(t, err)
 			gotID := rewritten.Provider + "/" + rewritten.DisplayOrModel()
 			assert.Equal(t, tt.wantID, gotID)
 		})

@@ -3,9 +3,9 @@
 package provider
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
-	"math"
 	"reflect"
 	"testing"
 
@@ -74,7 +74,9 @@ func TestCloneOptionMatrixOnWire(t *testing.T) {
 
 func TestCloneRejectsUncopyableConfigWithoutPanic(t *testing.T) {
 	t.Parallel()
-	for _, value := range []any{math.Inf(1), func() {}, make(chan int)} {
+	cycle := map[string]any{}
+	cycle["self"] = cycle
+	for _, value := range []any{func() {}, make(chan int), cycle} {
 		for _, field := range []string{"provider_opts", "structured_output", "providers"} {
 			cfg := base.Config{ModelConfig: latest.ModelConfig{Provider: "test", Model: "base"}, RebuildProvider: func(context.Context, *latest.ModelConfig, ...options.Opt) (Provider, error) {
 				t.Error("must reject before rebuilding")
@@ -195,5 +197,28 @@ func TestCloneConfiguredOpenAIThinkingOffOnWire(t *testing.T) {
 				})
 			}
 		}
+	}
+}
+
+func TestCloneNumericPrecisionOnWire(t *testing.T) {
+	t.Parallel()
+	server, body := captureNamedCustomProviderRequestBody(t, "openai_chatcompletions")
+	schema := map[string]any{"type": "object", "properties": map[string]any{"count": map[string]any{"type": "integer", "minimum": int64(9007199254740993)}}}
+	original, err := fullTestRegistry().New(t.Context(), &latest.ModelConfig{Provider: "openai", Model: "gpt-4o", BaseURL: server.URL, ProviderOpts: map[string]any{"api_type": "openai_chatcompletions", "extra_body": map[string]any{"exact_limit": int64(9007199254740993)}}}, environment.NewMapEnvProvider(map[string]string{"OPENAI_API_KEY": "secret"}), options.WithStructuredOutput(&latest.StructuredOutput{Name: "counter", Schema: schema}))
+	require.NoError(t, err)
+	for range 3 {
+		original, err = Clone(t.Context(), original)
+		require.NoError(t, err)
+		stream, err := original.CreateChatCompletionStream(t.Context(), []chat.Message{{Role: chat.MessageRoleUser, Content: "hello"}}, nil)
+		require.NoError(t, err)
+		drainStream(t, stream)
+		stream.Close()
+		var payload map[string]any
+		decoder := json.NewDecoder(bytes.NewReader(body()))
+		decoder.UseNumber()
+		require.NoError(t, decoder.Decode(&payload))
+		assert.Equal(t, json.Number("9007199254740993"), payload["exact_limit"])
+		bound := payload["response_format"].(map[string]any)["json_schema"].(map[string]any)["schema"].(map[string]any)["properties"].(map[string]any)["count"].(map[string]any)["minimum"]
+		assert.Equal(t, json.Number("9007199254740993"), bound)
 	}
 }

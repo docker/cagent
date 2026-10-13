@@ -3,6 +3,7 @@ package options
 import (
 	"context"
 	"net/http"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -171,12 +172,32 @@ func TestModelOptionsClonePreservesServicesAndExplicitClears(t *testing.T) {
 	require.NoError(t, err)
 	probe := Apply(FromModelOptions(clone)...)
 	assert.Same(t, store, probe.ModelsDevStore())
-	assert.NotNil(t, probe.TransportWrapper())
-	assert.NotNil(t, probe.TokenSource())
+	assert.Equal(t, reflect.ValueOf(wrapper).Pointer(), reflect.ValueOf(probe.TransportWrapper()).Pointer())
+	assert.Equal(t, reflect.ValueOf(source).Pointer(), reflect.ValueOf(probe.TokenSource()).Pointer())
 	assert.Empty(t, probe.Gateway())
 	assert.True(t, probe.gatewaySet)
 	assert.True(t, probe.structuredOutputSet)
 	token, err := probe.TokenSource()(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, "token", token)
+}
+
+func TestModelOptionsClonePreservesNumericTypesAndIsolation(t *testing.T) {
+	t.Parallel()
+	values := map[string]any{"minimum": int64(9007199254740993), "maximum": uint64(18446744073709551615), "small": int8(-7), "fraction": float32(0.1), "nested": []any{map[string]any{"limit": int64(9007199254740993)}}}
+	m := Apply(WithStructuredOutput(&latest.StructuredOutput{Schema: values}), WithProviders(map[string]latest.ProviderConfig{"custom": {ProviderOpts: values}}))
+	for range 3 {
+		clone, err := m.Clone()
+		require.NoError(t, err)
+		require.Equal(t, values, clone.StructuredOutput().Schema)
+		require.Equal(t, values, clone.Providers()["custom"].ProviderOpts)
+		for key, value := range values {
+			assert.IsType(t, value, clone.StructuredOutput().Schema[key])
+			assert.IsType(t, value, clone.Providers()["custom"].ProviderOpts[key])
+		}
+		m = Apply(FromModelOptions(clone)...)
+	}
+	m.StructuredOutput().Schema["nested"].([]any)[0].(map[string]any)["limit"] = int64(0)
+	assert.Equal(t, int64(9007199254740993), values["nested"].([]any)[0].(map[string]any)["limit"])
+	assert.Equal(t, int64(9007199254740993), m.Providers()["custom"].ProviderOpts["nested"].([]any)[0].(map[string]any)["limit"])
 }

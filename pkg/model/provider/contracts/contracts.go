@@ -38,8 +38,8 @@ type Config struct {
 	BaseURL string
 }
 
-// SetDispatchConfig preserves the original configuration for reconstruction.
-func (c *Config) SetDispatchConfig(cfg *latest.ModelConfig) { c.DispatchConfig = cfg.Clone() }
+// SetDispatchConfig takes ownership of a caller-isolated configuration for reconstruction.
+func (c *Config) SetDispatchConfig(cfg *latest.ModelConfig) { c.DispatchConfig = cfg }
 
 // CloneSource returns the construction configuration, not the catalogue identity.
 func (c *Config) CloneSource() latest.ModelConfig {

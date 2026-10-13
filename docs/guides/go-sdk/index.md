@@ -875,10 +875,12 @@ reconstruction errors are wrapped in `*provider.CloneError` and support
 Clones isolate mutable model configuration, custom-provider definitions and
 structured-output schemas. Transport wrappers, token-source callbacks and the
 models.dev store remain shared services. Public option setters retain reference
-semantics; isolation happens when cloning. Programmatic configurations must be
-JSON-serializable: unsupported values in `provider_opts`, schemas or custom
-providers fail closed with `provider.ErrUncopyableConfig`, rather than panic or
-share mutable state. Cumulative clones preserve explicit structured-output
+semantics; isolation happens when cloning. Scalar types and exact numeric values are preserved. Values in `provider_opts`,
+schemas and custom providers must be copyable scalars, maps, slices, arrays or
+plain structs. Functions, channels, unsafe pointers, cyclic values and structs
+with unexported reference-bearing fields fail closed with
+`provider.ErrUncopyableConfig`, rather than panic or share mutable state. Copies
+are bounded to 128 levels and 100,000 visited values. Cumulative clones preserve explicit structured-output
 removal, gateway clearing and no-thinking overrides; existing provider token
 floors and routed-child token limits still apply. Named routing definitions are
 captured at construction and copied for each child, so later input-map mutations
