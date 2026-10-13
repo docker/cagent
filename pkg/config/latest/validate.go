@@ -251,16 +251,16 @@ func (a *AgentConfig) validateHarness() error {
 
 	h := a.Harness
 	switch h.Type {
-	case "claude-code", "codex", "pi", "opencode":
+	case "claude-code", "codex", "pi", "opencode", "command-code":
 	case "":
 		return errors.New("harness.type is required")
 	default:
-		return fmt.Errorf("unsupported harness.type %q (must be one of: claude-code, codex, pi, opencode)", h.Type)
+		return fmt.Errorf("unsupported harness.type %q (must be one of: claude-code, codex, pi, opencode, command-code)", h.Type)
 	}
 
 	if h.Effort != "" {
-		if h.Type != "claude-code" {
-			return errors.New("harness.effort can only be used with harness.type 'claude-code'")
+		if h.Type != "claude-code" && h.Type != "command-code" {
+			return errors.New("harness.effort can only be used with harness.type 'claude-code' or 'command-code'")
 		}
 		switch h.Effort {
 		case "low", "medium", "high", "xhigh", "max":
