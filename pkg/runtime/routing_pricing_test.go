@@ -196,6 +196,7 @@ func TestRoutedPricing(t *testing.T) {
 				require.NotNil(t, captured)
 				assert.Equal(t, wantID, captured.ModelID)
 				require.NotEmpty(t, sidebarModels)
+				assert.Equal(t, wantID, sidebarModels[len(sidebarModels)-1], "AgentInfo-only consumers also receive the serving identity")
 				assert.Equal(t, wantID, sidebarModel, "both AgentInfo and ModelFallback update the sidebar")
 				if wantID != model.ID().String() && (!tc.fallback && !tc.outerRouter || turn > 0) {
 					assert.Equal(t, []string{model.ID().String(), wantID}, sidebarModels)
@@ -351,7 +352,7 @@ func TestRoutedSameIDFallbackServingModel(t *testing.T) {
 			}
 		}
 	}
-	assert.Equal(t, []string{"test/router", "test/leaf", "test/router"}, announced)
+	assert.Equal(t, []string{"test/router", "test/leaf", "test/router", "test/router"}, announced)
 	require.NotNil(t, assistant)
 	assert.Equal(t, "test/router", assistant.Model)
 	assert.InDelta(t, 0.115, assistant.Cost, 1e-9)

@@ -288,8 +288,9 @@ func (e *fallbackExecutor) execute(
 	var lastErr error
 	primaryFailedWithNonRetryable := false
 	hasFallbacks := len(fallbackModels) > 0
-	// Track the sidebar model set by AgentInfo and ModelFallback, starting with the primary.
+	// The loop announces the primary before dispatch.
 	announcedID := primaryModel.ID()
+	needsAnnouncement := false
 
 	for chainIdx := startIndex; chainIdx < len(modelChain); chainIdx++ {
 		modelEntry := modelChain[chainIdx]
@@ -299,9 +300,10 @@ func (e *fallbackExecutor) execute(
 			if serving := servingModelFrom(stream); serving != nil {
 				id = serving.ID
 			}
-			if id != announcedID {
+			if needsAnnouncement || id != announcedID {
 				events.Emit(AgentInfo(a.Name(), id.String(), a.Description(), a.WelcomeMessage()))
 				announcedID = id
+				needsAnnouncement = false
 			}
 		}
 
@@ -349,7 +351,8 @@ func (e *fallbackExecutor) execute(
 					attempt+1,
 					maxAttempts,
 				))
-				announcedID = modelEntry.provider.ID()
+				// Not every consumer updates its model on ModelFallback.
+				needsAnnouncement = true
 			}
 
 			slog.DebugContext(ctx, "Creating chat completion stream",
