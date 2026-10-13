@@ -71,10 +71,14 @@ func TestRoutedPricing(t *testing.T) {
 		{name: "failed route outer fallback and cooldown", fallback: true, tier: "ultrafast", want: 2.58},
 		{name: "outer fallback router no match and cooldown", outerRouter: true, noMatch: true, want: 0.072},
 		{name: "outer fallback router matched and cooldown", outerRouter: true, want: 0.43},
+		{name: "fallback router serves primary ID", outerRouter: true, leafID: "test/failed", want: 0.43},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			store := modelsdev.NewDatabaseStore(&modelsdev.Database{Providers: map[string]modelsdev.Provider{
+				"test": {Models: map[string]modelsdev.Model{
+					"failed": {Name: "Leaf", Cost: &modelsdev.Cost{Input: 4, Output: 8, CacheRead: 0.5, CacheWrite: 6}},
+				}},
 				"openai": {Models: map[string]modelsdev.Model{
 					"router":      {Name: "Router", Cost: &modelsdev.Cost{Input: 1, Output: 1, CacheRead: 0.1, CacheWrite: 0.5}},
 					"gpt-6-astra": {Name: "Astra", Cost: &modelsdev.Cost{Input: 4, Output: 8, CacheRead: 0.5, CacheWrite: 6}},
@@ -159,6 +163,7 @@ func TestRoutedPricing(t *testing.T) {
 					p.stream = stream
 				}
 				captured = nil
+				var sidebarModel string
 				var sidebarModels []string
 				var message *chat.Message
 				var usage *MessageUsage
@@ -167,6 +172,9 @@ func TestRoutedPricing(t *testing.T) {
 					switch ev := ev.(type) {
 					case *AgentInfoEvent:
 						sidebarModels = append(sidebarModels, ev.Model)
+						sidebarModel = ev.Model
+					case *ModelFallbackEvent:
+						sidebarModel = ev.FallbackModel
 					case *ErrorEvent:
 						t.Errorf("unexpected runtime error: %s", ev.Error)
 					case *MessageAddedEvent:
@@ -188,8 +196,8 @@ func TestRoutedPricing(t *testing.T) {
 				require.NotNil(t, captured)
 				assert.Equal(t, wantID, captured.ModelID)
 				require.NotEmpty(t, sidebarModels)
-				assert.Equal(t, wantID, sidebarModels[len(sidebarModels)-1])
-				if wantID != model.ID().String() {
+				assert.Equal(t, wantID, sidebarModel, "both AgentInfo and ModelFallback update the sidebar")
+				if wantID != model.ID().String() && (!tc.fallback && !tc.outerRouter || turn > 0) {
 					assert.Equal(t, []string{model.ID().String(), wantID}, sidebarModels)
 				}
 				if tc.unpriced {
@@ -335,6 +343,8 @@ func TestRoutedSameIDFallbackServingModel(t *testing.T) {
 			t.Errorf("runtime error: %s", event.Error)
 		case *AgentInfoEvent:
 			announced = append(announced, event.Model)
+		case *ModelFallbackEvent:
+			announced = append(announced, event.FallbackModel)
 		case *MessageAddedEvent:
 			if event.Message != nil && event.Message.Message.Role == chat.MessageRoleAssistant {
 				assistant = &event.Message.Message

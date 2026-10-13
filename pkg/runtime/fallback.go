@@ -288,7 +288,7 @@ func (e *fallbackExecutor) execute(
 	var lastErr error
 	primaryFailedWithNonRetryable := false
 	hasFallbacks := len(fallbackModels) > 0
-	// The loop announces the primary at turn start; track changes across the whole chain.
+	// Track the sidebar model set by AgentInfo and ModelFallback, starting with the primary.
 	announcedID := primaryModel.ID()
 
 	for chainIdx := startIndex; chainIdx < len(modelChain); chainIdx++ {
@@ -349,6 +349,7 @@ func (e *fallbackExecutor) execute(
 					attempt+1,
 					maxAttempts,
 				))
+				announcedID = modelEntry.provider.ID()
 			}
 
 			slog.DebugContext(ctx, "Creating chat completion stream",
