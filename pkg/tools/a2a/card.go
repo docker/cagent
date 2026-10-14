@@ -10,8 +10,21 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2acompat/a2av0"
 )
 
+// oauthFlowNames lists OAuth flows in A2A schema order.
+var oauthFlowNames = []a2a.OAuthFlowName{
+	a2a.AuthorizationCodeOAuthFlowName,
+	a2a.ClientCredentialsOAuthFlowName,
+	a2a.ImplicitOAuthFlowName,
+	a2a.PasswordOAuthFlowName,
+	a2a.DeviceCodeOAuthFlowName,
+}
+
 // parseAgentCard reads A2A 1.0 and 0.3 cards. The v0 parser handles both shapes.
 func parseAgentCard(body []byte) (*a2a.AgentCard, error) {
+	body, err := normalizeOAuthFlows(body)
+	if err != nil {
+		return nil, err
+	}
 	card, err := a2av0.NewAgentCardParser()(body)
 	if err != nil {
 		return nil, err
@@ -27,6 +40,56 @@ func parseAgentCard(body []byte) (*a2a.AgentCard, error) {
 		return nil, err
 	}
 	return card, nil
+}
+
+// normalizeOAuthFlows keeps one flow per 0.3 oauth2 scheme and drops schemes
+// with none: 0.3 allows any number, the SDK models exactly one, and the toolset
+// never reads them.
+func normalizeOAuthFlows(body []byte) ([]byte, error) {
+	var card map[string]json.RawMessage
+	if err := json.Unmarshal(body, &card); err != nil {
+		return nil, err
+	}
+	var schemes map[string]map[string]json.RawMessage
+	if json.Unmarshal(card["securitySchemes"], &schemes) != nil {
+		// Absent or malformed: the SDK parser decides.
+		return body, nil
+	}
+
+	changed := false
+	for name, scheme := range schemes {
+		var schemeType string
+		if err := json.Unmarshal(scheme["type"], &schemeType); err != nil || schemeType != "oauth2" {
+			continue
+		}
+		var flows map[a2a.OAuthFlowName]json.RawMessage
+		_ = json.Unmarshal(scheme["flows"], &flows)
+		i := slices.IndexFunc(oauthFlowNames, func(n a2a.OAuthFlowName) bool { _, ok := flows[n]; return ok })
+		if i >= 0 && len(flows) == 1 {
+			continue
+		}
+
+		changed = true
+		if i < 0 {
+			delete(schemes, name)
+			continue
+		}
+		kept, err := json.Marshal(map[a2a.OAuthFlowName]json.RawMessage{oauthFlowNames[i]: flows[oauthFlowNames[i]]})
+		if err != nil {
+			return nil, err
+		}
+		scheme["flows"] = kept
+	}
+	if !changed {
+		return body, nil
+	}
+
+	normalized, err := json.Marshal(schemes)
+	if err != nil {
+		return nil, err
+	}
+	card["securitySchemes"] = normalized
+	return json.Marshal(card)
 }
 
 // legacyInterfaces lists a 0.3 card's url and additionalInterfaces. The v0

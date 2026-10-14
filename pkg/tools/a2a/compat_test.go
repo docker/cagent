@@ -113,6 +113,31 @@ func TestToolSetKeepsLegacyBindingsSharingTheURL(t *testing.T) {
 	assertToolSetCalls(t, NewToolset("test", url, nil, WithAllowPrivateIPs(true)))
 }
 
+func TestToolSetAcceptsLegacyOAuthFlows(t *testing.T) {
+	t.Parallel()
+
+	for name, flows := range map[string]map[string]any{
+		"several": {
+			"authorizationCode": map[string]any{"authorizationUrl": "https://auth.example.com/authorize", "tokenUrl": "https://auth.example.com/token", "scopes": map[string]string{}},
+			"clientCredentials": map[string]any{"tokenUrl": "https://auth.example.com/token", "scopes": map[string]string{}},
+		},
+		"none": {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			url := serveAgent(t, func(serverURL string) string {
+				return legacyCardJSON(serverURL+"/invoke", map[string]any{
+					"securitySchemes": map[string]any{"oauth": map[string]any{"type": "oauth2", "flows": flows}},
+					"security":        []map[string][]string{{"oauth": {}}},
+				})
+			})
+
+			assertToolSetCalls(t, NewToolset("test", url, nil, WithAllowPrivateIPs(true)))
+		})
+	}
+}
+
 // legacyCardJSON returns an A2A 0.3 card for rpcURL with fields overridden.
 func legacyCardJSON(rpcURL string, fields map[string]any) string {
 	card := map[string]any{
