@@ -192,7 +192,7 @@ func TestResolveStandaloneClientCredentials(t *testing.T) {
 		}
 		authMeta := &AuthorizationServerMetadata{RegistrationEndpoint: srv.URL}
 
-		clientID, clientSecret, scopes, err := resolveStandaloneClientCredentials(
+		clientID, clientSecret, scopes, _, err := resolveStandaloneClientCredentials(
 			t.Context(), srv.Client(), oauthConfig, authMeta, "http://127.0.0.1/callback",
 			[]string{"challenge-scope"}, []string{"prm-scope"},
 		)
@@ -209,7 +209,7 @@ func TestResolveStandaloneClientCredentials(t *testing.T) {
 		oauthConfig := &latest.RemoteOAuthConfig{ClientID: "explicit-client"}
 		authMeta := &AuthorizationServerMetadata{RegistrationEndpoint: "http://unused.invalid"}
 
-		clientID, clientSecret, scopes, err := resolveStandaloneClientCredentials(
+		clientID, clientSecret, scopes, _, err := resolveStandaloneClientCredentials(
 			t.Context(), http.DefaultClient, oauthConfig, authMeta, "http://127.0.0.1/callback",
 			[]string{"challenge-scope"}, []string{"prm-scope"},
 		)
@@ -224,7 +224,7 @@ func TestResolveStandaloneClientCredentials(t *testing.T) {
 
 		authMeta := &AuthorizationServerMetadata{}
 
-		_, _, _, err := resolveStandaloneClientCredentials(
+		_, _, _, _, err := resolveStandaloneClientCredentials(
 			t.Context(), http.DefaultClient, nil, authMeta, "http://127.0.0.1/callback", nil, nil,
 		)
 		require.Error(t, err)
@@ -241,7 +241,7 @@ func TestResolveStandaloneClientCredentials(t *testing.T) {
 
 		authMeta := &AuthorizationServerMetadata{RegistrationEndpoint: srv.URL}
 
-		_, _, _, err := resolveStandaloneClientCredentials(
+		_, _, _, _, err := resolveStandaloneClientCredentials(
 			t.Context(), srv.Client(), nil, authMeta, "http://127.0.0.1/callback", nil, nil,
 		)
 		require.Error(t, err)
@@ -266,7 +266,7 @@ func TestResolveStandaloneClientCredentials(t *testing.T) {
 		authMeta := &AuthorizationServerMetadata{RegistrationEndpoint: srv.URL}
 		oauthConfig := &latest.RemoteOAuthConfig{Scopes: []string{"configured-scope"}}
 
-		clientID, clientSecret, scopes, err := resolveStandaloneClientCredentials(
+		clientID, clientSecret, scopes, _, err := resolveStandaloneClientCredentials(
 			t.Context(), srv.Client(), oauthConfig, authMeta, "http://127.0.0.1/callback",
 			[]string{"challenge-scope"}, []string{"prm-scope"},
 		)
@@ -287,7 +287,7 @@ func TestResolveStandaloneClientCredentials(t *testing.T) {
 		defer srv.Close()
 		authMeta := &AuthorizationServerMetadata{RegistrationEndpoint: srv.URL}
 
-		_, _, scopes, err := resolveStandaloneClientCredentials(
+		_, _, scopes, _, err := resolveStandaloneClientCredentials(
 			t.Context(), srv.Client(), nil, authMeta, "http://127.0.0.1/callback",
 			nil, []string{"prm-scope"},
 		)

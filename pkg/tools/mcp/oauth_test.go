@@ -2242,10 +2242,12 @@ func TestRegisterClient_GrantTypesIncludeRefreshToken(t *testing.T) {
 	meta := &AuthorizationServerMetadata{
 		RegistrationEndpoint: srv.URL,
 	}
-	clientID, clientSecret, err := RegisterClient(t.Context(), meta, "https://example.test/oauth/cb", nil)
+	clientID, clientSecret, authMethod, err := RegisterClient(t.Context(), meta, "https://example.test/oauth/cb", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "test-client", clientID)
 	assert.Equal(t, "test-secret", clientSecret)
+	assert.Equal(t, "client_secret_post", authMethod)
+	assert.Equal(t, "client_secret_post", registrationBody["token_endpoint_auth_method"])
 
 	grantTypes, _ := registrationBody["grant_types"].([]any)
 	require.Len(t, grantTypes, 2, "grant_types must list both grants the client uses")
@@ -2886,7 +2888,7 @@ func TestResolveClientCredentials_NoDCR_PromptsUser(t *testing.T) {
 		oauthConfig: &latest.RemoteOAuthConfig{Scopes: []string{"read", "write"}},
 	}
 
-	clientID, clientSecret, scopes, err := transport.resolveClientCredentials(
+	clientID, clientSecret, scopes, _, err := transport.resolveClientCredentials(
 		t.Context(), &AuthorizationServerMetadata{}, "https://example.test/cb",
 		[]string{"challenge-scope"}, []string{"prm-scope"},
 	)
@@ -2929,7 +2931,7 @@ func TestResolveClientCredentials_DCRFails_PromptsUser(t *testing.T) {
 		oauthHTTPClient: oauthHTTPClientForAllowPrivateIPs(true),
 	}
 
-	clientID, clientSecret, scopes, err := transport.resolveClientCredentials(
+	clientID, clientSecret, scopes, _, err := transport.resolveClientCredentials(
 		t.Context(),
 		&AuthorizationServerMetadata{RegistrationEndpoint: srv.URL},
 		"https://example.test/cb",
@@ -2984,7 +2986,7 @@ func TestResolveClientCredentials_ExplicitClientID_ConfiguredOnly(t *testing.T) 
 				oauthHTTPClient: oauthHTTPClientForAllowPrivateIPs(true),
 			}
 
-			clientID, clientSecret, scopes, err := transport.resolveClientCredentials(
+			clientID, clientSecret, scopes, _, err := transport.resolveClientCredentials(
 				t.Context(),
 				&AuthorizationServerMetadata{RegistrationEndpoint: srv.URL},
 				"https://example.test/cb",
@@ -3017,7 +3019,7 @@ func TestResolveClientCredentials_PromptDeclined(t *testing.T) {
 				requestElicitation: clientCredsElicit(&captured, tools.ElicitationResult{Action: action}),
 			}
 
-			clientID, clientSecret, _, err := transport.resolveClientCredentials(
+			clientID, clientSecret, _, _, err := transport.resolveClientCredentials(
 				t.Context(), &AuthorizationServerMetadata{}, "https://example.test/cb", nil, nil,
 			)
 			require.Error(t, err)
@@ -3053,7 +3055,7 @@ func TestResolveClientCredentials_PromptMissingClientID(t *testing.T) {
 				}),
 			}
 
-			clientID, clientSecret, _, err := transport.resolveClientCredentials(
+			clientID, clientSecret, _, _, err := transport.resolveClientCredentials(
 				t.Context(), &AuthorizationServerMetadata{}, "https://example.test/cb", nil, nil,
 			)
 			require.Error(t, err)
@@ -3073,7 +3075,7 @@ func TestResolveClientCredentials_NoElicitationBridgeDefersAuth(t *testing.T) {
 
 	transport := &oauthTransport{baseURL: "https://mcp.example.test/mcp"}
 
-	clientID, clientSecret, _, err := transport.resolveClientCredentials(
+	clientID, clientSecret, _, _, err := transport.resolveClientCredentials(
 		t.Context(), &AuthorizationServerMetadata{}, "https://example.test/cb", nil, nil,
 	)
 	require.Error(t, err)
@@ -3556,7 +3558,7 @@ func TestResolveClientCredentials_DCRSuccess_ScopeSelection(t *testing.T) {
 				oauthHTTPClient: oauthHTTPClientForAllowPrivateIPs(true),
 			}
 
-			clientID, _, scopes, err := transport.resolveClientCredentials(
+			clientID, _, scopes, _, err := transport.resolveClientCredentials(
 				t.Context(),
 				&AuthorizationServerMetadata{RegistrationEndpoint: srv.URL},
 				"https://example.test/cb",
