@@ -18,6 +18,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/a2aproject/a2a-go/v2/a2aclient/agentcard"
 	"github.com/a2aproject/a2a-go/v2/a2acompat/a2av0"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 
 	"github.com/docker/docker-agent/pkg/config"
 	"github.com/docker/docker-agent/pkg/config/latest"
@@ -210,7 +211,8 @@ func (t *Toolset) Start(ctx context.Context) error {
 
 	// The v0 parser also reads 1.0 cards, so both serve a2a and older A2A servers resolve.
 	resolver := &agentcard.Resolver{Client: client, CardParser: a2av0.NewAgentCardParser()}
-	card, err := resolver.Resolve(ctx, t.url)
+	// url is a base URL; without WithPath the resolver would fetch a non-root path as the card itself.
+	card, err := resolver.Resolve(ctx, t.url, agentcard.WithPath(a2asrv.WellKnownAgentCardPath))
 	if err != nil {
 		return enrichCardError(err, rec)
 	}
