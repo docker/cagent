@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -157,7 +158,9 @@ type InMemorySessionStore struct {
 	sessions       *concurrent.Map[string, *Session]
 	generatedFiles *concurrent.Map[string, GeneratedFile] // keyed by generatedFileKey
 	generatedBlobs *concurrent.Map[string, []byte]        // keyed by generatedFileKey
-	messageID      atomic.Int64                           // counter for message IDs, incremented via Add(1)
+	scratchpadMu   sync.Mutex
+	scratchpads    map[string]map[ScratchpadKey][]string
+	messageID      atomic.Int64 // counter for message IDs, incremented via Add(1)
 }
 
 func NewInMemorySessionStore() Store {
@@ -269,6 +272,8 @@ func (s *InMemorySessionStore) DeleteSession(ctx context.Context, id string) err
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	s.scratchpadMu.Lock()
+	defer s.scratchpadMu.Unlock()
 	pending := []string{id}
 	seen := make(map[string]struct{})
 	for len(pending) > 0 {
@@ -282,6 +287,17 @@ func (s *InMemorySessionStore) DeleteSession(ctx context.Context, id string) err
 		s.sessions.Delete(id)
 		s.deleteGeneratedFiles(id)
 		s.deleteGeneratedBlobs(id)
+	}
+	for rootID, entries := range s.scratchpads {
+		if _, deleted := seen[rootID]; deleted {
+			delete(s.scratchpads, rootID)
+			continue
+		}
+		for key := range entries {
+			if _, deleted := seen[key.SessionID]; deleted {
+				delete(entries, key)
+			}
+		}
 	}
 	return nil
 }
@@ -1119,6 +1135,9 @@ func (s *SQLiteSessionStore) DeleteSession(ctx context.Context, id string) error
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, subtree+"DELETE FROM generated_media_manifest WHERE session_id IN (SELECT id FROM subtree)", id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, subtree+"DELETE FROM think_scratchpad WHERE session_id IN (SELECT id FROM subtree)", id); err != nil {
 		return err
 	}
 	result, err := tx.ExecContext(ctx, "DELETE FROM sessions WHERE id = ?", id)

@@ -283,13 +283,15 @@ func (r *LocalRuntime) runStream(ctx context.Context, sess *session.Session, idl
 	// the whole lifetime of its stream.
 	entry := r.registerLiveSessionWithIdleRetry(sess, idleRetryPolicy)
 
+	// Persist the root before tools can append root-owned state.
+	out := r.observe(ctx, sess, events)
 	go func() {
 		if rootStream {
 			defer r.activeRootStreams.Add(-1)
 		}
 		r.runStreamLoop(ctx, sess, entry, events)
 	}()
-	return r.observe(ctx, sess, events)
+	return out
 }
 
 // runStreamLoop is the body of RunStream. Pulled out of the anonymous
@@ -297,6 +299,7 @@ func (r *LocalRuntime) runStream(ctx context.Context, sess *session.Session, idl
 // in editors.
 func (r *LocalRuntime) runStreamLoop(ctx context.Context, sess *session.Session, liveEntry *liveSessionEntry, events chan Event) {
 	sink := &channelSink{ch: events}
+	ctx = context.WithValue(ctx, scratchpadRootKey{}, liveEntry.treeRootID)
 
 	// Seed the cagent session ID at the run-loop boundary so any
 	// gateway-bound HTTP call originating from this loop can correlate

@@ -76,6 +76,12 @@ type ToolRunner interface {
 	RunTool(ctx context.Context, toolCall ToolCall, tool Tool) (*ToolCallResult, error)
 }
 
+// ScratchpadAppender is an optional host-owned, conversation-scoped think store.
+// owner identifies the calling toolset instance, not a caller-supplied namespace.
+type ScratchpadAppender interface {
+	AppendThought(ctx context.Context, owner any, thought string) ([]string, error)
+}
+
 // ErrRecallNotSupported is returned by [Runtime.Recall] implementations that
 // cannot steer an agent loop.
 var ErrRecallNotSupported = errors.New("recall is not supported by this host")

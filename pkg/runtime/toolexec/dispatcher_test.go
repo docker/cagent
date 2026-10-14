@@ -2132,3 +2132,41 @@ func TestDispatcherBoundsResultsAfterHooks(t *testing.T) {
 		}
 	}
 }
+
+func TestDispatcher_ThinkAppender(t *testing.T) {
+	t.Parallel()
+	for _, available := range []bool{true, false} {
+		t.Run(fmt.Sprintf("available=%t", available), func(t *testing.T) {
+			t.Parallel()
+			sess := session.New()
+			sess.ToolsApproved = true
+			a := newAgent()
+			owner := new(byte)
+			d := &toolexec.Dispatcher{AgentFor: func(*session.Session) *agent.Agent { return a }}
+			if available {
+				d.AppendThought = func(_ context.Context, actual any, thought string) ([]string, error) {
+					assert.Same(t, owner, actual)
+					return []string{"retained", thought}, nil
+				}
+			}
+			tool := tools.Tool{Name: "think", Handler: func(ctx context.Context, _ tools.ToolCall, rt tools.Runtime) (*tools.ToolCallResult, error) {
+				appender, ok := rt.(tools.ScratchpadAppender)
+				require.True(t, ok)
+				out, err := appender.AppendThought(ctx, owner, "current")
+				if err != nil {
+					return tools.ResultError(err.Error()), nil
+				}
+				return tools.ResultSuccess(strings.Join(out, "\n")), nil
+			}}
+			em := &captureEmitter{}
+			d.Process(t.Context(), sess, []tools.ToolCall{{ID: "call", Function: tools.FunctionCall{Name: "think"}}}, []tools.Tool{tool}, em)
+			require.Len(t, em.responses, 1)
+			assert.Equal(t, !available, em.responses[0].IsError)
+			if available {
+				assert.Equal(t, "retained\ncurrent", em.responses[0].Output)
+			} else {
+				assert.Contains(t, em.responses[0].Output, "unavailable")
+			}
+		})
+	}
+}

@@ -79,6 +79,7 @@ func (s *Session) Clone() *Session {
 
 	clone := &Session{
 		ID:                      s.ID,
+		Origin:                  s.Origin,
 		InputID:                 s.InputID,
 		Title:                   s.Title,
 		Evals:                   cloneEvalCriteria(s.Evals),
