@@ -51,14 +51,11 @@ func (s *InMemorySessionStore) AppendThought(ctx context.Context, rootID string,
 	if !isRoot {
 		return nil, ErrScratchpadOwner
 	}
-	for owner, entries := range s.scratchpads {
-		if owner != rootID {
-			for existing := range entries {
-				if existing.SessionID == key.SessionID {
-					return nil, ErrScratchpadOwner
-				}
-			}
-		}
+	if owner, exists := s.scratchpadOwners[key.SessionID]; exists && owner != rootID {
+		return nil, ErrScratchpadOwner
+	}
+	if s.scratchpadOwners == nil {
+		s.scratchpadOwners = make(map[string]string)
 	}
 	if s.scratchpads == nil {
 		s.scratchpads = make(map[string]map[ScratchpadKey][]string)
@@ -68,6 +65,7 @@ func (s *InMemorySessionStore) AppendThought(ctx context.Context, rootID string,
 	}
 	thoughts := append(s.scratchpads[rootID][key], thought)
 	s.scratchpads[rootID][key] = thoughts
+	s.scratchpadOwners[key.SessionID] = rootID
 	return slices.Clone(thoughts), nil
 }
 

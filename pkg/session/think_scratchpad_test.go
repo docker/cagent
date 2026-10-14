@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -235,4 +236,161 @@ func TestThinkScratchpadDeleteRollback(t *testing.T) {
 	out, err := store.(ThinkScratchpadStore).AppendThought(t.Context(), root.ID, key, "after failed delete")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"retained", "after failed delete"}, out)
+}
+
+func TestThinkScratchpadSQLiteDeletionWithoutForeignKeys(t *testing.T) {
+	t.Parallel()
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "sessions.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	store, err := NewSQLiteSessionStoreFromDB(t.Context(), db)
+	require.NoError(t, err)
+	var foreignKeys int
+	require.NoError(t, db.QueryRowContext(t.Context(), "PRAGMA foreign_keys").Scan(&foreignKeys))
+	require.Zero(t, foreignKeys)
+
+	roots := []*Session{New(), New()}
+	keys := make([][]ScratchpadKey, len(roots))
+	for i, root := range roots {
+		require.NoError(t, store.UpdateSession(t.Context(), root))
+		keys[i] = []ScratchpadKey{
+			{SessionID: root.ID, AgentName: "root", ToolsetKey: "cfg:0"},
+			{SessionID: root.ID + "-unpersisted", AgentName: "worker", ToolsetKey: "cfg:0"},
+		}
+		for _, key := range keys[i] {
+			_, err := store.AppendThought(t.Context(), root.ID, key, "initial")
+			require.NoError(t, err)
+		}
+	}
+	require.NoError(t, store.DeleteSession(t.Context(), roots[0].ID))
+	var count int
+	require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM think_scratchpad WHERE root_id = ?", roots[0].ID).Scan(&count))
+	require.Zero(t, count)
+	require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM think_scratchpad").Scan(&count))
+	require.Equal(t, 2, count)
+	for _, key := range keys[1] {
+		out, err := store.AppendThought(t.Context(), roots[1].ID, key, "unrelated survives")
+		require.NoError(t, err)
+		require.Equal(t, []string{"initial", "unrelated survives"}, out)
+	}
+	require.NoError(t, store.DeleteSession(t.Context(), roots[1].ID))
+	require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM think_scratchpad").Scan(&count))
+	require.Zero(t, count)
+	require.NoError(t, store.UpdateSession(t.Context(), roots[0]))
+	for _, key := range keys[0] {
+		out, err := store.AppendThought(t.Context(), roots[0].ID, key, "recreated")
+		require.NoError(t, err)
+		require.Equal(t, []string{"recreated"}, out)
+	}
+}
+
+func TestThinkScratchpadOwnershipAcrossKeys(t *testing.T) {
+	t.Parallel()
+	scratchpadStores(t, func(t *testing.T, store Store) {
+		t.Helper()
+		roots := []*Session{New(), New()}
+		for _, root := range roots {
+			require.NoError(t, store.UpdateSession(t.Context(), root))
+		}
+		appender := store.(ThinkScratchpadStore)
+		for _, agent := range []string{"root", "worker"} {
+			for _, toolset := range []string{"cfg:0", "cfg:1"} {
+				key := ScratchpadKey{SessionID: "unpersisted", AgentName: agent, ToolsetKey: toolset}
+				out, err := appender.AppendThought(t.Context(), roots[0].ID, key, "first")
+				require.NoError(t, err)
+				require.Equal(t, []string{"first"}, out)
+				_, err = appender.AppendThought(t.Context(), roots[1].ID, key, "wrong owner")
+				require.ErrorIs(t, err, ErrScratchpadOwner)
+			}
+		}
+	})
+}
+
+func TestThinkScratchpadOwnershipDeletion(t *testing.T) {
+	t.Parallel()
+	scratchpadStores(t, func(t *testing.T, store Store) {
+		t.Helper()
+		root, otherRoot, child := New(), New(), New()
+		for _, sess := range []*Session{root, otherRoot} {
+			require.NoError(t, store.UpdateSession(t.Context(), sess))
+		}
+		require.NoError(t, store.AddSubSession(t.Context(), root.ID, child))
+		appender := store.(ThinkScratchpadStore)
+		keys := []ScratchpadKey{
+			{SessionID: child.ID, AgentName: "worker", ToolsetKey: "cfg:0"},
+			{SessionID: "unpersisted", AgentName: "worker", ToolsetKey: "cfg:0"},
+		}
+		unrelated := ScratchpadKey{SessionID: otherRoot.ID, AgentName: "root", ToolsetKey: "cfg:0"}
+		for _, key := range append([]ScratchpadKey{unrelated}, keys...) {
+			owner := root.ID
+			if key == unrelated {
+				owner = otherRoot.ID
+			}
+			_, err := appender.AppendThought(t.Context(), owner, key, "initial")
+			require.NoError(t, err)
+		}
+		if memory, ok := store.(*InMemorySessionStore); ok {
+			require.Equal(t, map[string]string{child.ID: root.ID, "unpersisted": root.ID, otherRoot.ID: otherRoot.ID}, memory.scratchpadOwners)
+		}
+		require.NoError(t, store.DeleteSession(t.Context(), child.ID))
+		if memory, ok := store.(*InMemorySessionStore); ok {
+			require.Equal(t, map[string]string{"unpersisted": root.ID, otherRoot.ID: otherRoot.ID}, memory.scratchpadOwners)
+		}
+		out, err := appender.AppendThought(t.Context(), otherRoot.ID, keys[0], "new owner after child deletion")
+		require.NoError(t, err)
+		require.Equal(t, []string{"new owner after child deletion"}, out)
+		_, err = appender.AppendThought(t.Context(), otherRoot.ID, keys[1], "still root owned")
+		require.ErrorIs(t, err, ErrScratchpadOwner)
+		require.NoError(t, store.DeleteSession(t.Context(), root.ID))
+		if memory, ok := store.(*InMemorySessionStore); ok {
+			require.Equal(t, map[string]string{otherRoot.ID: otherRoot.ID}, memory.scratchpadOwners)
+		}
+		out, err = appender.AppendThought(t.Context(), otherRoot.ID, keys[1], "new owner after root deletion")
+		require.NoError(t, err)
+		require.Equal(t, []string{"new owner after root deletion"}, out)
+		out, err = appender.AppendThought(t.Context(), otherRoot.ID, unrelated, "unrelated survives")
+		require.NoError(t, err)
+		require.Equal(t, []string{"initial", "unrelated survives"}, out)
+	})
+}
+
+func TestThinkScratchpadRejectedAppendDoesNotClaimOwnership(t *testing.T) {
+	t.Parallel()
+	scratchpadStores(t, func(t *testing.T, store Store) {
+		t.Helper()
+		root, child := New(), New()
+		require.NoError(t, store.UpdateSession(t.Context(), root))
+		require.NoError(t, store.AddSubSession(t.Context(), root.ID, child))
+		cancelled, cancel := context.WithCancel(t.Context())
+		cancel()
+		appender := store.(ThinkScratchpadStore)
+		for _, tc := range []struct {
+			name      string
+			cancelled bool
+			owner     string
+			err       error
+		}{
+			{"missing", false, "missing-root", ErrScratchpadOwner},
+			{"non-root", false, child.ID, ErrScratchpadOwner},
+			{"cancelled", true, root.ID, context.Canceled},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				key := ScratchpadKey{SessionID: tc.name, AgentName: "worker", ToolsetKey: "cfg:0"}
+				ctx := t.Context()
+				if tc.cancelled {
+					ctx = cancelled
+				}
+				_, err := appender.AppendThought(ctx, tc.owner, key, "rejected")
+				require.ErrorIs(t, err, tc.err)
+				if memory, ok := store.(*InMemorySessionStore); ok {
+					require.NotContains(t, memory.scratchpadOwners, key.SessionID)
+				}
+				otherRoot := New()
+				require.NoError(t, store.UpdateSession(t.Context(), otherRoot))
+				out, err := appender.AppendThought(t.Context(), otherRoot.ID, key, "accepted")
+				require.NoError(t, err)
+				require.Equal(t, []string{"accepted"}, out)
+			})
+		}
+	})
 }
