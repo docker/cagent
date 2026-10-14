@@ -435,7 +435,7 @@ func (e *fallbackExecutor) execute(
 					streamCancel(nil)
 					if err == nil {
 						e.recordSuccess(a, modelEntry, primaryFailedWithNonRetryable)
-						fbSpan.SetFinalModel(modelEntry.provider.ID().Model)
+						fbSpan.SetFinalModel(finalModelFor(res.Serving, modelEntry.provider))
 						fbSpan.SetOutcome(genai.FallbackOutcomeSuccess)
 						return res, modelEntry.provider, nil
 					}
@@ -453,7 +453,7 @@ func (e *fallbackExecutor) execute(
 			}
 
 			e.recordSuccess(a, modelEntry, primaryFailedWithNonRetryable)
-			fbSpan.SetFinalModel(modelEntry.provider.ID().Model)
+			fbSpan.SetFinalModel(finalModelFor(res.Serving, modelEntry.provider))
 			fbSpan.SetOutcome(genai.FallbackOutcomeSuccess)
 			return res, modelEntry.provider, nil
 		}
@@ -570,6 +570,13 @@ func (e *fallbackExecutor) handleModelError(
 		"attempt", attempt+1,
 		"error", err)
 	return retryDecisionContinue
+}
+
+func finalModelFor(serving *provider.ServingModel, dispatched provider.Provider) string {
+	if serving != nil && serving.ID.Model != "" {
+		return serving.ID.Model
+	}
+	return dispatched.ID().Model
 }
 
 func servingModelFrom(stream chat.MessageStream) *provider.ServingModel {
