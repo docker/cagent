@@ -2,12 +2,15 @@ package a2a
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	goa2asrv "github.com/a2aproject/a2a-go/a2asrv"
 	a2av1 "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2acompat/a2av0"
 	a2asrvv1 "github.com/a2aproject/a2a-go/v2/a2asrv"
@@ -39,7 +42,7 @@ func TestToolSetRejectsNullInterfaces(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			url := serveCardJSON(t, func(string) string {
+			url := serveAgent(t, func(string) string {
 				return fmt.Sprintf(`{"name":"bad-card","supportedInterfaces":%s}`, interfaces)
 			})
 
@@ -97,14 +100,47 @@ func requireCanaryAuth(next http.Handler) http.Handler {
 	})
 }
 
-// serveCardJSON serves the card returned by cardJSON(serverURL) at the well-known path.
-func serveCardJSON(t *testing.T, cardJSON func(serverURL string) string) string {
+func TestToolSetKeepsLegacyBindingsSharingTheURL(t *testing.T) {
+	t.Parallel()
+
+	url := serveAgent(t, func(serverURL string) string {
+		return legacyCardJSON(serverURL+"/invoke", map[string]any{
+			"preferredTransport":   "HTTP+JSON",
+			"additionalInterfaces": []map[string]string{{"url": serverURL + "/invoke", "transport": "JSONRPC"}},
+		})
+	})
+
+	assertToolSetCalls(t, NewToolset("test", url, nil, WithAllowPrivateIPs(true)))
+}
+
+// legacyCardJSON returns an A2A 0.3 card for rpcURL with fields overridden.
+func legacyCardJSON(rpcURL string, fields map[string]any) string {
+	card := map[string]any{
+		"name":               "test",
+		"description":        "test",
+		"version":            "1.0.0",
+		"protocolVersion":    "0.3.0",
+		"url":                rpcURL,
+		"preferredTransport": "JSONRPC",
+		"capabilities":       map[string]any{"streaming": true},
+		"defaultInputModes":  []string{"text/plain"},
+		"defaultOutputModes": []string{"text/plain"},
+		"skills":             []map[string]any{{"id": "test", "name": "test", "description": "test", "tags": []string{"test"}}},
+	}
+	maps.Copy(card, fields)
+	b, _ := json.Marshal(card)
+	return string(b)
+}
+
+// serveAgent serves cardJSON(serverURL) at the well-known path and an A2A 0.3 JSON-RPC agent at /invoke.
+func serveAgent(t *testing.T, cardJSON func(serverURL string) string) string {
 	t.Helper()
 
 	mux := http.NewServeMux()
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
 
+	mux.Handle("/invoke", goa2asrv.NewJSONRPCHandler(goa2asrv.NewHandler(testA2AHandler{})))
 	mux.HandleFunc(a2asrvv1.WellKnownAgentCardPath, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, cardJSON(server.URL))
