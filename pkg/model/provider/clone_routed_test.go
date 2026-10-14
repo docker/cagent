@@ -38,10 +38,14 @@ func TestCloneRoutedConfigurationsAreIsolated(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, second)
 	require.Len(t, children, 3)
-	for _, child := range children {
+	for i, child := range children {
 		assert.Equal(t, "initial", child.ModelConfig.ProviderOpts["nested"].(map[string]any)["value"])
 		assert.Equal(t, 8192, child.ModelConfig.ThinkingBudget.Tokens)
-		assert.Equal(t, int64(16384), *child.ModelConfig.MaxTokens)
+		if i == 0 {
+			assert.Equal(t, int64(16384), *child.ModelConfig.MaxTokens)
+		} else {
+			assert.Equal(t, int64(128), *child.ModelConfig.MaxTokens)
+		}
 		assert.Equal(t, "named", child.ModelConfig.Name)
 		assert.Equal(t, "display", child.ModelConfig.DisplayModel)
 	}

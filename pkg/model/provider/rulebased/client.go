@@ -55,7 +55,12 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, models map[string]l
 		return nil, errors.New("no routing rules configured")
 	}
 
+	effective := options.Apply(opts...)
 	routeOpts := filterOutMaxTokens(opts)
+	// Ordinary router limits stay local; only the effective auxiliary cap propagates.
+	if effective.MaxTokensInheritable() && effective.MaxTokens() != 0 {
+		routeOpts = append(routeOpts, options.WithAuxiliaryMaxTokens(effective.MaxTokens()))
+	}
 
 	// Create fallback provider from the model's provider/model fields.
 	fallbackSpec := cfg.Provider + "/" + cfg.Model

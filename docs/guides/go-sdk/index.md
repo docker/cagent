@@ -881,15 +881,18 @@ plain structs. Functions, channels, unsafe pointers, cyclic values and structs
 with unexported reference-bearing fields fail closed with
 `provider.ErrUncopyableConfig`, rather than panic or share mutable state. Copies
 are bounded to 128 levels and 100,000 visited values. Cumulative clones preserve explicit structured-output
-removal, gateway clearing and no-thinking overrides; existing provider token
-floors and routed-child token limits still apply. Named routing definitions are
+removal, gateway clearing and no-thinking overrides. A non-zero `WithMaxTokens`
+cap supplied to `Clone` overrides direct, matched-route and fallback limits,
+subject to existing provider token floors. Cumulative clones retain that cap
+when it is omitted or zero; a later non-zero cap replaces it. Named routing definitions are
 captured at construction and copied for each child, so later input-map mutations
 do not change clones.
 
 Configuration-declared thinking off (`none` or `0`, including provider defaults)
 is retained as an option before normalization. Reconstruction applies that option
 to each leaf's config too, so config-driven and option-driven providers agree.
-Routed children inherit strict-off overrides but keep their own token limits.
+Routed children inherit strict-off overrides and explicit clone caps. Ordinary
+construction-time router limits still leave each child's token defaults unchanged.
 
 `CloneWithOptions` retains its public signature but is deprecated. On failure it
 returns an error-only provider whose stream creation returns the clone error. It

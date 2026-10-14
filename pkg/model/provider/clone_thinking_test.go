@@ -40,12 +40,12 @@ func TestCloneRoutedClaudeStrictOffOnWire(t *testing.T) {
 			models := map[string]latest.ModelConfig{"target": {Provider: provider, Model: model, MaxTokens: new(int64(16384)), ThinkingBudget: &latest.ThinkingBudget{Tokens: 2048}, ProviderOpts: map[string]any{"region": "us-east-1"}}}
 			cfg := &latest.ModelConfig{Provider: provider, Model: model, Routing: []latest.RoutingRule{{Model: "target", Examples: []string{"hello"}}}}
 			env := environment.NewMapEnvProvider(map[string]string{"ANTHROPIC_API_KEY": "fake", "AWS_BEARER_TOKEN_BEDROCK": "fake"})
-			original, err := fullTestRegistry().NewWithModels(t.Context(), cfg, models, env, wrapper)
+			original, err := fullTestRegistry().NewWithModels(t.Context(), cfg, models, env, wrapper, options.WithMaxTokens(4096))
 			require.NoError(t, err)
-			request := func(p Provider, thinking bool) {
+			request := func(p Provider, message string, thinking bool, tokenCap int64) {
 				t.Helper()
 				before := calls
-				stream, err := p.CreateChatCompletionStream(t.Context(), []chat.Message{{Role: chat.MessageRoleUser, Content: "hello"}}, nil)
+				stream, err := p.CreateChatCompletionStream(t.Context(), []chat.Message{{Role: chat.MessageRoleUser, Content: message}}, nil)
 				if err == nil {
 					_, err = stream.Recv()
 					stream.Close()
@@ -57,9 +57,9 @@ func TestCloneRoutedClaudeStrictOffOnWire(t *testing.T) {
 					if additional, exists := body["additionalModelRequestFields"]; exists {
 						fields = additional.(map[string]any)
 					}
-					assert.InDelta(t, float64(16384), body["inferenceConfig"].(map[string]any)["maxTokens"], 0)
+					assert.InDelta(t, float64(tokenCap), body["inferenceConfig"].(map[string]any)["maxTokens"], 0)
 				} else {
-					assert.InDelta(t, float64(8192), body["max_tokens"], 0)
+					assert.InDelta(t, float64(tokenCap), body["max_tokens"], 0)
 				}
 				if thinking {
 					require.Contains(t, fields, "thinking")
@@ -69,15 +69,37 @@ func TestCloneRoutedClaudeStrictOffOnWire(t *testing.T) {
 					assert.NotContains(t, fields, "reasoning_config")
 				}
 			}
-			request(original, true)
+			defaultCap := int64(8192)
+			if provider == "amazon-bedrock" {
+				defaultCap = 16384
+			}
+			request(original, "hello", true, defaultCap)
 			for _, purpose := range []options.Opt{options.WithGeneratingTitle(), options.WithStructuredOutput(nil), options.WithCompacting()} {
 				clone, err := Clone(t.Context(), original, options.WithNoThinking(), options.WithMaxTokens(128), purpose)
 				require.NoError(t, err)
-				clone, err = Clone(t.Context(), clone)
-				require.NoError(t, err)
-				request(clone, false)
+				for _, tokenCap := range []int64{128, 0, 64, 1024} {
+					clone, err = Clone(t.Context(), clone, options.WithMaxTokens(tokenCap))
+					require.NoError(t, err)
+					requested := tokenCap
+					if tokenCap == 0 {
+						requested = 128
+					}
+					assert.Equal(t, requested, *clone.BaseConfig().ModelConfig.MaxTokens)
+					baseCfg := clone.BaseConfig()
+					assert.Equal(t, requested, baseCfg.ModelOptions.MaxTokens())
+					wireCap := requested
+					if provider == "anthropic" && wireCap < 256 {
+						wireCap = 256
+					}
+					request(clone, "hello", false, wireCap)
+					request(clone, "unrelated", false, wireCap)
+					clone, err = Clone(t.Context(), clone)
+					require.NoError(t, err)
+					request(clone, "hello", false, wireCap)
+					request(clone, "unrelated", false, wireCap)
+				}
 			}
-			request(original, true)
+			request(original, "hello", true, defaultCap)
 		})
 	}
 }
@@ -147,4 +169,39 @@ func TestCloneConfiguredThinkingOffOnWire(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCloneDirectClaudeRetainsExplicitCapOnZero(t *testing.T) {
+	t.Parallel()
+	var body map[string]any
+	wrapper := options.WithHTTPTransportWrapper(func(http.RoundTripper) http.RoundTripper {
+		return thinkingRoundTripper(func(req *http.Request) (*http.Response, error) {
+			require.NoError(t, json.NewDecoder(req.Body).Decode(&body))
+			return &http.Response{StatusCode: http.StatusBadRequest, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"error":{"type":"invalid_request_error","message":"offline capture"}}`)), Request: req}, nil
+		})
+	})
+	original, err := fullTestRegistry().New(t.Context(), &latest.ModelConfig{Provider: "anthropic", Model: "claude-haiku-4-5"}, environment.NewMapEnvProvider(map[string]string{"ANTHROPIC_API_KEY": "fake"}), wrapper)
+	require.NoError(t, err)
+	request := func(p Provider, tokenCap int64) {
+		t.Helper()
+		stream, err := p.CreateChatCompletionStream(t.Context(), []chat.Message{{Role: chat.MessageRoleUser, Content: "hello"}}, nil)
+		if err == nil {
+			_, err = stream.Recv()
+			stream.Close()
+		}
+		require.Error(t, err)
+		assert.InDelta(t, float64(tokenCap), body["max_tokens"], 0)
+	}
+	request(original, 8192)
+	p, err := Clone(t.Context(), original, options.WithMaxTokens(128), options.WithNoThinking())
+	require.NoError(t, err)
+	for _, opts := range [][]options.Opt{nil, {options.WithMaxTokens(0)}, nil} {
+		p, err = Clone(t.Context(), p, opts...)
+		require.NoError(t, err)
+		cfg := p.BaseConfig()
+		assert.Equal(t, int64(128), cfg.ModelOptions.MaxTokens())
+		assert.Equal(t, int64(128), *cfg.ModelConfig.MaxTokens)
+		request(p, 256)
+	}
+	request(original, 8192)
 }

@@ -201,3 +201,36 @@ func TestModelOptionsClonePreservesNumericTypesAndIsolation(t *testing.T) {
 	assert.Equal(t, int64(9007199254740993), values["nested"].([]any)[0].(map[string]any)["limit"])
 	assert.Equal(t, int64(9007199254740993), m.Providers()["custom"].ProviderOpts["nested"].([]any)[0].(map[string]any)["limit"])
 }
+
+func TestMaxTokensPropagationAndRoundTrip(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name        string
+		opts        []Opt
+		want        int64
+		inheritable bool
+	}{
+		{"ordinary", []Opt{WithMaxTokens(64)}, 64, false},
+		{"auxiliary", []Opt{WithAuxiliaryMaxTokens(128)}, 128, true},
+		{"ordinary last", []Opt{WithAuxiliaryMaxTokens(128), WithMaxTokens(64)}, 64, false},
+		{"auxiliary last", []Opt{WithMaxTokens(64), WithAuxiliaryMaxTokens(128)}, 128, true},
+		{"ordinary zero unchanged", []Opt{WithMaxTokens(64), WithMaxTokens(0)}, 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			original := Apply(tc.opts...)
+			cloned, err := original.Clone()
+			require.NoError(t, err)
+			replayed := FromModelOptions(cloned)
+			if tc.want != 0 {
+				require.Len(t, replayed, 1)
+			} else {
+				require.Empty(t, replayed)
+			}
+			roundTrip := Apply(replayed...)
+			for _, m := range []ModelOptions{original, cloned, roundTrip} {
+				assert.Equal(t, tc.want, m.MaxTokens())
+				assert.Equal(t, tc.inheritable, m.MaxTokensInheritable())
+			}
+		})
+	}
+}

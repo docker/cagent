@@ -115,12 +115,17 @@ func (r *Registry) createDirectProvider(ctx context.Context, cfg *latest.ModelCo
 	noThinking := globalOptions.NoThinking() || budget.IsDisabled()
 	constructionCfg := cfg
 	// Config-driven leaves need the same override as option-driven leaves.
-	if globalOptions.NoThinking() {
+	if globalOptions.NoThinking() || globalOptions.MaxTokensInheritable() {
 		copied, err := copyModelConfig(*cfg)
 		if err != nil {
 			return nil, err
 		}
-		copied.ThinkingBudget = &latest.ThinkingBudget{Effort: "none"}
+		if globalOptions.NoThinking() {
+			copied.ThinkingBudget = &latest.ThinkingBudget{Effort: "none"}
+		}
+		if mt := globalOptions.MaxTokens(); globalOptions.MaxTokensInheritable() && mt != 0 {
+			copied.MaxTokens = &mt
+		}
 		constructionCfg = &copied
 	}
 	if noThinking && !globalOptions.NoThinking() {

@@ -15,20 +15,21 @@ import (
 type TokenSource func(context.Context) (string, error)
 
 type ModelOptions struct {
-	gateway             string
-	gatewaySet          bool
-	structuredOutputSet bool
-	encryptedConfig     string
-	structuredOutput    *latest.StructuredOutput
-	generatingTitle     bool
-	compacting          bool
-	noThinking          bool
-	maxTokens           int64
-	providers           map[string]latest.ProviderConfig
-	modelsDevStore      *modelsdev.Store
-	transportWrapper    func(http.RoundTripper) http.RoundTripper
-	tokenSource         TokenSource
-	openAIVendor        bool
+	gateway              string
+	gatewaySet           bool
+	structuredOutputSet  bool
+	encryptedConfig      string
+	structuredOutput     *latest.StructuredOutput
+	generatingTitle      bool
+	compacting           bool
+	noThinking           bool
+	maxTokens            int64
+	maxTokensInheritable bool
+	providers            map[string]latest.ProviderConfig
+	modelsDevStore       *modelsdev.Store
+	transportWrapper     func(http.RoundTripper) http.RoundTripper
+	tokenSource          TokenSource
+	openAIVendor         bool
 }
 
 func (c *ModelOptions) Gateway() string {
@@ -55,6 +56,11 @@ func (c *ModelOptions) Compacting() bool {
 
 func (c *ModelOptions) MaxTokens() int64 {
 	return c.maxTokens
+}
+
+// MaxTokensInheritable reports whether an auxiliary cap applies to routed children.
+func (c *ModelOptions) MaxTokensInheritable() bool {
+	return c.maxTokensInheritable
 }
 
 func (c *ModelOptions) NoThinking() bool {
@@ -178,6 +184,15 @@ func WithCompacting() Opt {
 func WithMaxTokens(maxTokens int64) Opt {
 	return func(cfg *ModelOptions) {
 		cfg.maxTokens = maxTokens
+		cfg.maxTokensInheritable = false
+	}
+}
+
+// WithAuxiliaryMaxTokens imposes a cap on both direct and routed providers.
+func WithAuxiliaryMaxTokens(maxTokens int64) Opt {
+	return func(cfg *ModelOptions) {
+		cfg.maxTokens = maxTokens
+		cfg.maxTokensInheritable = true
 	}
 }
 
@@ -276,7 +291,11 @@ func FromModelOptions(m ModelOptions) []Opt {
 		out = append(out, WithNoThinking())
 	}
 	if m.maxTokens != 0 {
-		out = append(out, WithMaxTokens(m.maxTokens))
+		if m.maxTokensInheritable {
+			out = append(out, WithAuxiliaryMaxTokens(m.maxTokens))
+		} else {
+			out = append(out, WithMaxTokens(m.maxTokens))
+		}
 	}
 	if len(m.providers) > 0 {
 		out = append(out, WithProviders(m.providers))
