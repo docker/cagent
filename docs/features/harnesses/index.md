@@ -32,7 +32,7 @@ The external CLI must be installed and available on `PATH` before starting Docke
 | `codex` | `codex` | [github.com/openai/codex](https://github.com/openai/codex) |
 | `opencode` | `opencode` | [opencode.ai](https://opencode.ai) |
 | `pi` | `pi` | Refer to the `pi` CLI documentation for installation instructions. |
-| `command-code` | `cmd` | Refer to the Command Code CLI documentation for installation instructions. |
+| `command-code` | `cmd` | [commandcode.ai](https://commandcode.ai) |
 
 Docker Agent will report an error at session start if the required binary is not found. The `claude-code` harness additionally needs the CLI to be logged in — see [Authentication](#authentication-claude-subscription-no-api-key) below.
 
