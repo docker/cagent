@@ -113,6 +113,23 @@ func TestToolSetKeepsLegacyBindingsSharingTheURL(t *testing.T) {
 	assertToolSetCalls(t, NewToolset("test", url, nil, WithAllowPrivateIPs(true)))
 }
 
+// A 0.3 additional interface missing its url or transport is skipped, as it
+// was before the 1.0 migration; only the interfaces the client dials are validated.
+func TestToolSetSkipsIncompleteLegacyInterfaces(t *testing.T) {
+	t.Parallel()
+
+	url := serveAgent(t, func(serverURL string) string {
+		return legacyCardJSON(serverURL+"/invoke", map[string]any{
+			"additionalInterfaces": []map[string]string{
+				{"url": "", "transport": "JSONRPC"},
+				{"url": serverURL + "/other", "transport": ""},
+			},
+		})
+	})
+
+	assertToolSetCalls(t, NewToolset("test", url, nil, WithAllowPrivateIPs(true)))
+}
+
 func TestToolSetAcceptsLegacyOAuthFlows(t *testing.T) {
 	t.Parallel()
 

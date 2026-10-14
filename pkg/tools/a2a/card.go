@@ -125,7 +125,10 @@ func legacyInterfaces(body []byte) ([]*a2a.AgentInterface, error) {
 		add(legacy.URL, legacy.PreferredTransport)
 	}
 	for _, iface := range legacy.AdditionalInterfaces {
-		add(iface.URL, iface.Transport)
+		// As before the 1.0 migration: an entry missing its url or transport is skipped.
+		if iface.URL != "" && iface.Transport != "" {
+			add(iface.URL, iface.Transport)
+		}
 	}
 	return interfaces, nil
 }
