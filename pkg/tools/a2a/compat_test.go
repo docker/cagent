@@ -1,6 +1,7 @@
 package a2a
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	a2av1 "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2acompat/a2av0"
 	a2asrvv1 "github.com/a2aproject/a2a-go/v2/a2asrv"
 
 	"github.com/docker/docker-agent/pkg/tools"
@@ -47,6 +49,52 @@ func TestToolSetRejectsNullInterfaces(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestToolSetSendsHeadersToSelectedEndpoint(t *testing.T) {
+	t.Parallel()
+
+	for name, first := range map[string]func(serverURL string) *a2av1.AgentInterface{
+		"older version first": func(serverURL string) *a2av1.AgentInterface {
+			return &a2av1.AgentInterface{URL: serverURL + "/invoke", ProtocolBinding: a2av1.TransportProtocolJSONRPC, ProtocolVersion: a2av0.Version}
+		},
+		"unsupported binding first": func(serverURL string) *a2av1.AgentInterface {
+			return a2av1.NewAgentInterface(serverURL+"/invoke", a2av1.TransportProtocolHTTPJSON)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			selected := httptest.NewServer(requireCanaryAuth(a2asrvv1.NewJSONRPCHandler(a2asrvv1.NewHandler(testV1Executor{}))))
+			t.Cleanup(selected.Close)
+
+			mux := http.NewServeMux()
+			other := httptest.NewServer(mux)
+			t.Cleanup(other.Close)
+
+			card := testV1Card(first(other.URL), a2av1.NewAgentInterface(selected.URL, a2av1.TransportProtocolJSONRPC))
+			mux.Handle(a2asrvv1.WellKnownAgentCardPath, a2asrvv1.NewStaticAgentCardHandler(card))
+
+			headers := map[string]string{"Authorization": "Bearer canary"}
+			assertToolSetCalls(t, NewToolset("test", other.URL, headers, WithExpander(identityExpander{}), WithAllowPrivateIPs(true)))
+		})
+	}
+}
+
+type identityExpander struct{}
+
+func (identityExpander) ExpandMap(_ context.Context, values map[string]string) map[string]string {
+	return values
+}
+
+func requireCanaryAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer canary" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // serveCardJSON serves the card returned by cardJSON(serverURL) at the well-known path.

@@ -216,20 +216,25 @@ func (t *Toolset) Start(ctx context.Context) error {
 		return enrichCardError(err, rec)
 	}
 
-	httpClient := client
-
-	endpointOrigin := t.url
-	if len(card.SupportedInterfaces) > 0 && card.SupportedInterfaces[0].URL != "" {
-		endpointOrigin = card.SupportedInterfaces[0].URL
-	}
 	headers := t.expander.ExpandMap(ctx, t.headers)
-	httpClient.Transport = upstream.NewHeaderTransportForOrigin(base, endpointOrigin, headers)
+	// Scope headers to the interface the factory selects, which need not be the first one listed.
+	clientFor := func(iface *a2a.AgentInterface) *http.Client {
+		c := *client
+		c.Transport = upstream.NewHeaderTransportForOrigin(base, iface.URL, headers)
+		return &c
+	}
 
 	a2aClient, err := a2aclient.NewFromCard(
 		ctx, card,
 		a2aclient.WithDefaultsDisabled(),
-		a2aclient.WithJSONRPCTransport(httpClient),
-		a2av0.WithJSONRPCTransport(a2av0.JSONRPCTransportConfig{Client: httpClient}),
+		a2aclient.WithTransport(a2a.TransportProtocolJSONRPC, a2aclient.TransportFactoryFn(
+			func(_ context.Context, _ *a2a.AgentCard, iface *a2a.AgentInterface) (a2aclient.Transport, error) {
+				return a2aclient.NewJSONRPCTransport(iface.URL, clientFor(iface)), nil
+			})),
+		a2aclient.WithCompatTransport(a2av0.Version, a2a.TransportProtocolJSONRPC, a2aclient.TransportFactoryFn(
+			func(_ context.Context, _ *a2a.AgentCard, iface *a2a.AgentInterface) (a2aclient.Transport, error) {
+				return a2av0.NewJSONRPCTransport(a2av0.JSONRPCTransportConfig{URL: iface.URL, Client: clientFor(iface)}), nil
+			})),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create A2A client: %w", err)
