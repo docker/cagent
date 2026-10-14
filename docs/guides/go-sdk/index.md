@@ -884,7 +884,9 @@ are bounded to 128 levels and 100,000 visited values. Cumulative clones preserve
 removal, gateway clearing and no-thinking overrides. A non-zero `WithMaxTokens`
 cap supplied to `Clone` overrides direct, matched-route and fallback limits,
 subject to existing provider token floors. Cumulative clones retain that cap
-when it is omitted or zero; a later non-zero cap replaces it. Named routing definitions are
+when it is omitted or zero; the last non-zero cap wins, including within one
+clone call. Ordinary construction-time `WithMaxTokens(0)` reset semantics are
+unchanged. Named routing definitions are
 captured at construction and copied for each child, so later input-map mutations
 do not change clones.
 

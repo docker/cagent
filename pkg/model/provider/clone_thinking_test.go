@@ -99,6 +99,25 @@ func TestCloneRoutedClaudeStrictOffOnWire(t *testing.T) {
 					request(clone, "unrelated", false, wireCap)
 				}
 			}
+			for _, opts := range [][]options.Opt{
+				{options.WithMaxTokens(1024), nil, options.WithMaxTokens(0)},
+				{options.WithAuxiliaryMaxTokens(1024), options.WithMaxTokens(0)},
+				{options.WithMaxTokens(1024), options.WithAuxiliaryMaxTokens(0)},
+			} {
+				clone, err := Clone(t.Context(), original, options.WithNoThinking(), options.WithMaxTokens(128))
+				require.NoError(t, err)
+				clone, err = Clone(t.Context(), clone, opts...)
+				require.NoError(t, err)
+				for range 2 {
+					cfg := clone.BaseConfig()
+					assert.Equal(t, int64(1024), *cfg.ModelConfig.MaxTokens)
+					assert.Equal(t, int64(1024), cfg.ModelOptions.MaxTokens())
+					request(clone, "hello", false, 1024)
+					request(clone, "unrelated", false, 1024)
+					clone, err = Clone(t.Context(), clone)
+					require.NoError(t, err)
+				}
+			}
 			request(original, "hello", true, defaultCap)
 		})
 	}
@@ -202,6 +221,22 @@ func TestCloneDirectClaudeRetainsExplicitCapOnZero(t *testing.T) {
 		assert.Equal(t, int64(128), cfg.ModelOptions.MaxTokens())
 		assert.Equal(t, int64(128), *cfg.ModelConfig.MaxTokens)
 		request(p, 256)
+	}
+	for _, opts := range [][]options.Opt{
+		{options.WithMaxTokens(1024), options.WithMaxTokens(0)},
+		{options.WithAuxiliaryMaxTokens(1024), options.WithMaxTokens(0)},
+		{options.WithMaxTokens(1024), options.WithAuxiliaryMaxTokens(0)},
+	} {
+		clone, err := Clone(t.Context(), p, opts...)
+		require.NoError(t, err)
+		for range 2 {
+			cfg := clone.BaseConfig()
+			assert.Equal(t, int64(1024), cfg.ModelOptions.MaxTokens())
+			assert.Equal(t, int64(1024), *cfg.ModelConfig.MaxTokens)
+			request(clone, 1024)
+			clone, err = Clone(t.Context(), clone)
+			require.NoError(t, err)
+		}
 	}
 	request(original, 8192)
 }

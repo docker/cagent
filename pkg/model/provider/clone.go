@@ -33,7 +33,7 @@ func (e *CloneError) Unwrap() error { return e.Err }
 
 // Clone reconstructs a provider with ordered option overrides, or returns an error.
 // Non-zero token caps also constrain routed children, subject to provider floors.
-// An omitted or zero cap retains a previous explicit clone cap.
+// The last non-zero cap wins; zero retains the latest explicit cap.
 func Clone(ctx context.Context, p Provider, opts ...options.Opt) (Provider, error) {
 	clone, _, err := cloneProvider(ctx, p, opts)
 	return clone, err
@@ -99,9 +99,19 @@ func mergeCloneOptions(cfg base.Config, opts []options.Opt) (latest.ModelConfig,
 	}
 	baseOpts := options.FromModelOptions(baseOptions)
 	mergedOpts := slices.Concat(baseOpts, opts)
-	requested := options.Apply(opts...)
-	if mt := requested.MaxTokens(); mt != 0 {
-		mergedOpts = append(mergedOpts, options.WithAuxiliaryMaxTokens(mt))
+	var requested options.ModelOptions
+	var explicitCap int64
+	for _, opt := range opts {
+		if opt == nil {
+			continue
+		}
+		opt(&requested)
+		if mt := requested.MaxTokens(); mt != 0 {
+			explicitCap = mt
+		}
+	}
+	if explicitCap != 0 {
+		mergedOpts = append(mergedOpts, options.WithAuxiliaryMaxTokens(explicitCap))
 	} else if baseOptions.MaxTokensInheritable() && baseOptions.MaxTokens() != 0 {
 		mergedOpts = append(mergedOpts, options.WithAuxiliaryMaxTokens(baseOptions.MaxTokens()))
 	}

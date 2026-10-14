@@ -280,6 +280,9 @@ func TestCloneRoutedTokenCapsPreserveConstructionDefaults(t *testing.T) {
 	plain, err := Clone(t.Context(), original)
 	require.NoError(t, err)
 	request(plain, 0)
+	plain, err = Clone(t.Context(), original, options.WithNoThinking(), options.WithGeneratingTitle())
+	require.NoError(t, err)
+	request(plain, 0)
 	for _, opts := range [][]options.Opt{
 		{options.WithMaxTokens(128)},
 		{options.WithAuxiliaryMaxTokens(1024), options.WithMaxTokens(128)},
