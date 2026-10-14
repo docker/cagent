@@ -209,8 +209,7 @@ func (t *Toolset) Start(ctx context.Context) error {
 	rec := &retryAfterRecorder{base: base}
 	client.Transport = rec
 
-	// The v0 parser also reads 1.0 cards, so both serve a2a and older A2A servers resolve.
-	resolver := &agentcard.Resolver{Client: client, CardParser: a2av0.NewAgentCardParser()}
+	resolver := &agentcard.Resolver{Client: client, CardParser: parseAgentCard}
 	// url is a base URL; without WithPath the resolver would fetch a non-root path as the card itself.
 	card, err := resolver.Resolve(ctx, t.url, agentcard.WithPath(a2asrv.WellKnownAgentCardPath))
 	if err != nil {
