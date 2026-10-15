@@ -45,6 +45,23 @@ func TestCommandConfiguredPrefixes(t *testing.T) {
 	}
 }
 
+func TestCommandPrefixLeadingWhitespace(t *testing.T) {
+	t.Parallel()
+	for _, tool := range []string{"shell", "run_background_job"} {
+		for _, whitespace := range []string{" ", "\t", " \t"} {
+			t.Run(tool+"/"+whitespace, func(t *testing.T) {
+				t.Parallel()
+				checker := NewCheckerFromRules([]string{tool + ":cmd=" + whitespace + "ls*"}, nil, nil)
+				for _, cmd := range []string{"ls", "ls -la", "ls\t/tmp"} {
+					assert.Equal(t, Allow, checker.CheckWithArgs(tool, map[string]any{"cmd": whitespace + cmd}), cmd)
+				}
+				assert.Equal(t, Ask, checker.CheckWithArgs(tool, map[string]any{"cmd": whitespace + "lsanything"}))
+				assert.Equal(t, Ask, checker.CheckWithArgs(tool, map[string]any{"cmd": "ls"}))
+			})
+		}
+	}
+}
+
 func TestCommandGenericGrantScope(t *testing.T) {
 	t.Parallel()
 	for _, tool := range []string{"shell", "run_background_job"} {
