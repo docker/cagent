@@ -100,13 +100,16 @@ func runCommand(ctx context.Context, command, workDir string) (string, error) {
 	cmd := exec.CommandContext(commandCtx, shell, append(argsPrefix, command)...)
 	cmd.Dir = workDir
 
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return "", err
 	}
+	defer stdout.Close()
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return "", err
+	}
+	defer stderr.Close()
 
 	if err := cmd.Start(); err != nil {
 		if ctx.Err() != nil {
@@ -115,30 +118,52 @@ func runCommand(ctx context.Context, command, workDir string) (string, error) {
 		return "", err
 	}
 
-	out, err := io.ReadAll(io.LimitReader(stdout, maxOutputSize))
-	if err != nil {
-		if ctx.Err() != nil {
-			return "", ctx.Err()
+	// Descendants may retain the pipes after CommandContext kills the shell.
+	stop := context.AfterFunc(commandCtx, func() {
+		_ = stdout.Close()
+		_ = stderr.Close()
+	})
+	defer stop()
+
+	var stderrOutput bytes.Buffer
+	stderrDone := make(chan error, 1)
+	go func() {
+		_, err := io.Copy(&stderrOutput, stderr)
+		if err != nil {
+			_ = stdout.Close()
 		}
-		return "", err
+		stderrDone <- err
+	}()
+	var output commandOutputBuffer
+	_, stdoutErr := io.Copy(&output, stdout)
+	if stdoutErr != nil {
+		_ = cmd.Process.Kill()
 	}
-
-	// Drain any remaining stdout so the process doesn't block on a full pipe
-	// and hang until the context timeout kills it.
-	_, _ = io.Copy(io.Discard, stdout)
-
-	if err := cmd.Wait(); err != nil {
+	stderrErr := <-stderrDone
+	waitErr := cmd.Wait()
+	if err := errors.Join(stdoutErr, stderrErr, waitErr); err != nil {
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
 		if commandCtx.Err() == context.DeadlineExceeded {
 			return "", fmt.Errorf("command timed out after %s", commandTimeout)
 		}
-		if stderrMsg := strings.TrimSpace(stderr.String()); stderrMsg != "" {
+		if stderrMsg := strings.TrimSpace(stderrOutput.String()); stderrMsg != "" {
 			return "", fmt.Errorf("%w: %s", err, stderrMsg)
 		}
 		return "", err
 	}
 
-	return string(out), nil
+	return output.buffer.String(), nil
+}
+
+// Keep draining after the limit so the child cannot block on a full stdout pipe.
+type commandOutputBuffer struct {
+	buffer bytes.Buffer
+}
+
+func (b *commandOutputBuffer) Write(p []byte) (int, error) {
+	n := min(len(p), maxOutputSize-b.buffer.Len())
+	b.buffer.Write(p[:n])
+	return len(p), nil
 }

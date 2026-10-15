@@ -283,6 +283,17 @@ Another consumer can empty the queue after the failed send. Nonblocking drains,
 indexed receivers, and effectful send expressions are excluded. The check does
 not prove ownership of a queue; exclusive-access protocols need review.
 
+`Lint/BoundedCommandPipeLifetime` flags synchronous shell stdout/stderr pipe
+reads between `Start` and `Wait` without recognized cancellation cleanup.
+`CommandContext` killing the shell does not close pipes inherited by descendants;
+`WaitDelay` alone cannot bound a caller-owned read before `Wait`. The check
+recognizes literal `-c` shells and `shellpath.DetectShell`, local aliases, and
+explicit cancellation-driven pipe close or `SIGKILL` of a configured process
+group. Replaced cancellation callbacks and stopped `AfterFunc` registrations no
+longer provide protection. Conditional calls do not establish unconditional
+cleanup or completion. It does not prove helper, cross-block, or asynchronous
+read lifetimes.
+
 ## Opening Issues
 
 File issues on the [GitHub issue tracker](https://github.com/docker/docker-agent/issues). Please:

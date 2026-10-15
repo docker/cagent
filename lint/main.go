@@ -80,6 +80,7 @@ var programCops = []prog.Cop{
 	SessionStateAccessors,
 	CancellationSafeResultSend,
 	NonblockingChannelReplacement,
+	BoundedCommandPipeLifetime,
 	rubocops.NewLintStreamCloseSafety(),
 	ExclusiveStreamLease,
 	DrainRunStreamBeforeRelease,
