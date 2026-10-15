@@ -63,6 +63,9 @@ func (r *LocalRuntime) enforceMaxIterations(
 		"max", runtimeMaxIterations,
 	)
 
+	if !sess.NonInteractive && ctx.Err() == nil {
+		r.armResume()
+	}
 	events.Emit(MaxIterationsReached(runtimeMaxIterations))
 
 	maxIterMsg := fmt.Sprintf("Maximum iterations reached (%d)", runtimeMaxIterations)
