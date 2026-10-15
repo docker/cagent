@@ -160,7 +160,10 @@ func ExchangeCodeForTokenWithClient(ctx context.Context, client *http.Client, to
 	if resourceURL != "" {
 		data.Set("resource", resourceURL)
 	}
-	basicID, basicSecret := arrangeClientAuth(data, clientID, clientSecret, authMethod)
+	basicID, basicSecret, err := arrangeClientAuth(data, clientID, clientSecret, authMethod)
+	if err != nil {
+		return nil, err
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenEndpoint, strings.NewReader(data.Encode()))
 	if err != nil {
@@ -169,7 +172,7 @@ func ExchangeCodeForTokenWithClient(ctx context.Context, client *http.Client, to
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	if authMethod == "client_secret_basic" {
-		req.SetBasicAuth(basicID, basicSecret)
+		setClientBasicAuth(req, basicID, basicSecret)
 	}
 
 	resp, err := client.Do(req)
@@ -326,7 +329,10 @@ func RegisterClientWithClient(ctx context.Context, client *http.Client, authMeta
 		return "", "", "", errors.New("authorization server does not support dynamic client registration")
 	}
 
-	authMethod = selectTokenEndpointAuthMethod(authMetadata.TokenEndpointAuthMethodsSupported)
+	authMethod, err = selectTokenEndpointAuthMethod(authMetadata.TokenEndpointAuthMethodsSupported)
+	if err != nil {
+		return "", "", "", err
+	}
 	reqBody := map[string]any{
 		"redirect_uris":  []string{redirectURI},
 		"client_name":    "docker-agent",
@@ -377,15 +383,18 @@ func RegisterClientWithClient(ctx context.Context, client *http.Client, authMeta
 	if respBody.TokenEndpointAuthMethod != "" {
 		authMethod = respBody.TokenEndpointAuthMethod
 	}
+	if !supportedClientAuthMethod(authMethod) {
+		return "", "", "", fmt.Errorf("unsupported token endpoint auth method %q", authMethod)
+	}
 	return respBody.ClientID, respBody.ClientSecret, authMethod, nil
 }
 
 // selectTokenEndpointAuthMethod picks a method both sides can use.
-// An omitted method defaults to client_secret_basic (RFC 7591), which does
-// not match a token request that posts the secret.
-func selectTokenEndpointAuthMethod(supported []string) string {
+// An omitted list means only client_secret_basic (RFC 8414). A list that
+// does not include post, basic, or none is an error: do not pretend it is post.
+func selectTokenEndpointAuthMethod(supported []string) (string, error) {
 	if len(supported) == 0 {
-		return "client_secret_post"
+		return "client_secret_basic", nil
 	}
 	has := make(map[string]bool, len(supported))
 	for _, s := range supported {
@@ -393,29 +402,49 @@ func selectTokenEndpointAuthMethod(supported []string) string {
 	}
 	for _, want := range []string{"client_secret_post", "client_secret_basic", "none"} {
 		if has[want] {
-			return want
+			return want, nil
 		}
 	}
-	return ""
+	return "", fmt.Errorf("authorization server advertises no usable token endpoint auth method (%s)", strings.Join(supported, ", "))
+}
+
+// supportedClientAuthMethod reports methods this client can actually send.
+// Empty is the legacy client_secret_post stored on tokens from before the field existed.
+func supportedClientAuthMethod(method string) bool {
+	switch method {
+	case "", "client_secret_post", "client_secret_basic", "none":
+		return true
+	default:
+		return false
+	}
 }
 
 // arrangeClientAuth puts the client secret where method says it goes.
 // An empty method is client_secret_post. For basic it returns the id and
 // secret for an Authorization header and strips them from the form.
-func arrangeClientAuth(data url.Values, clientID, clientSecret, method string) (basicID, basicSecret string) {
+func arrangeClientAuth(data url.Values, clientID, clientSecret, method string) (basicID, basicSecret string, err error) {
 	switch method {
 	case "client_secret_basic":
 		data.Del("client_id")
 		data.Del("client_secret")
-		return clientID, clientSecret
+		return clientID, clientSecret, nil
 	case "none":
 		data.Del("client_secret")
-	default:
+	case "", "client_secret_post":
 		if clientSecret != "" {
 			data.Set("client_secret", clientSecret)
 		}
+	default:
+		return "", "", fmt.Errorf("unsupported token endpoint auth method %q", method)
 	}
-	return "", ""
+	return "", "", nil
+}
+
+// setClientBasicAuth sets an RFC 6749 client-secret-basic header.
+// Each credential is application/x-www-form-urlencoded on its own;
+// SetBasicAuth only base64-encodes the raw user:pass.
+func setClientBasicAuth(req *http.Request, id, secret string) {
+	req.SetBasicAuth(url.QueryEscape(id), url.QueryEscape(secret))
 }
 
 // GeneratePKCEVerifier generates a PKCE code verifier using oauth2 library
@@ -435,7 +464,10 @@ func RefreshAccessTokenWithClient(ctx context.Context, client *http.Client, toke
 	data.Set("grant_type", "refresh_token")
 	data.Set("refresh_token", refreshToken)
 	data.Set("client_id", clientID)
-	basicID, basicSecret := arrangeClientAuth(data, clientID, clientSecret, authMethod)
+	basicID, basicSecret, err := arrangeClientAuth(data, clientID, clientSecret, authMethod)
+	if err != nil {
+		return nil, err
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenEndpoint, strings.NewReader(data.Encode()))
 	if err != nil {
@@ -443,7 +475,7 @@ func RefreshAccessTokenWithClient(ctx context.Context, client *http.Client, toke
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	if authMethod == "client_secret_basic" {
-		req.SetBasicAuth(basicID, basicSecret)
+		setClientBasicAuth(req, basicID, basicSecret)
 	}
 
 	resp, err := client.Do(req)

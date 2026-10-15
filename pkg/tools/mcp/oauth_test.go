@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -202,6 +203,75 @@ func TestGetValidToken_UsesStoredCredentialsForRefresh(t *testing.T) {
 	}
 	assert.Equal(t, []string{"read", "write"}, updated.RequestedScopes,
 		"RequestedScopes must survive a silent refresh unchanged")
+	assert.Empty(t, updated.TokenEndpointAuthMethod,
+		"a legacy token with no auth method must keep posting the secret")
+}
+
+func TestGetValidToken_RefreshKeepsNegotiatedBasic(t *testing.T) {
+	t.Parallel()
+
+	var auth string
+	var form url.Values
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	mux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"issuer":                 srv.URL,
+			"token_endpoint":         srv.URL + "/token",
+			"authorization_endpoint": srv.URL + "/authorize",
+		})
+	})
+	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		auth = r.Header.Get("Authorization")
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read body: %v", err)
+		}
+		form, _ = url.ParseQuery(string(body))
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token":  "fresh-at",
+			"token_type":    "Bearer",
+			"expires_in":    3600,
+			"refresh_token": "fresh-rt",
+		})
+	})
+
+	raw, err := json.Marshal(&OAuthToken{
+		AccessToken:             "old-at",
+		TokenType:               "Bearer",
+		RefreshToken:            "old-rt",
+		ExpiresAt:               time.Now().Add(-time.Hour),
+		ClientID:                "ci d+1",
+		ClientSecret:            "s@ec:ret",
+		TokenEndpointAuthMethod: "client_secret_basic",
+	})
+	require.NoError(t, err)
+	var expired OAuthToken
+	require.NoError(t, json.Unmarshal(raw, &expired))
+
+	store := NewInMemoryTokenStore()
+	require.NoError(t, store.StoreToken(srv.URL, &expired))
+
+	transport := &oauthTransport{
+		base:       newTestTransport(t),
+		tokenStore: store,
+		baseURL:    srv.URL,
+	}
+	got := transport.getValidToken(t.Context())
+	require.NotNil(t, got)
+	assert.Equal(t, "fresh-at", got.AccessToken)
+	want := "Basic " + base64.StdEncoding.EncodeToString([]byte(url.QueryEscape("ci d+1")+":"+url.QueryEscape("s@ec:ret")))
+	assert.Equal(t, want, auth)
+	assert.Empty(t, form.Get("client_id"))
+	assert.Empty(t, form.Get("client_secret"))
+
+	updated, err := store.GetToken(srv.URL)
+	require.NoError(t, err)
+	assert.Equal(t, "client_secret_basic", updated.TokenEndpointAuthMethod)
 }
 
 // TestGetValidToken_UsesStoredAuthServerForRefresh verifies that silent
@@ -1490,6 +1560,7 @@ type unmanagedOAuthTestServer struct {
 
 	tokenCalls atomic.Int32
 	lastForm   url.Values
+	lastAuth   string
 	prmHeaders http.Header
 }
 
@@ -1526,6 +1597,7 @@ func newUnmanagedOAuthTestServer(t *testing.T) *unmanagedOAuthTestServer {
 		srv.tokenCalls.Add(1)
 		_ = r.ParseForm()
 		srv.lastForm = r.Form
+		srv.lastAuth = r.Header.Get("Authorization")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"access_token":"exchanged-at","token_type":"Bearer","expires_in":3600,"refresh_token":"refresh-tok"}`))
 	})
@@ -1637,7 +1709,9 @@ func TestUnmanagedOAuthFlow_DriveFlow_ExchangesCodeForToken(t *testing.T) {
 	assert.Equal(t, "abc", srv.lastForm.Get("code"))
 	assert.Equal(t, redirectURI, srv.lastForm.Get("redirect_uri"),
 		"redirect_uri sent at /token must match the one used at /authorize per RFC 6749 §4.1.3")
-	assert.Equal(t, "registered-client-id", srv.lastForm.Get("client_id"))
+	assert.Empty(t, srv.lastForm.Get("client_id"))
+	assert.Empty(t, srv.lastForm.Get("client_secret"))
+	assert.Equal(t, "Basic "+base64.StdEncoding.EncodeToString([]byte("registered-client-id:registered-secret")), srv.lastAuth)
 	assert.NotEmpty(t, srv.lastForm.Get("code_verifier"), "PKCE verifier must be sent at exchange")
 
 	// Verify the token landed in the store with the credentials stamped on
@@ -1649,6 +1723,7 @@ func TestUnmanagedOAuthFlow_DriveFlow_ExchangesCodeForToken(t *testing.T) {
 	assert.Equal(t, "refresh-tok", tok.RefreshToken)
 	assert.Equal(t, "registered-client-id", tok.ClientID)
 	assert.Equal(t, "registered-secret", tok.ClientSecret)
+	assert.Equal(t, "client_secret_basic", tok.TokenEndpointAuthMethod)
 	assert.Equal(t, srv.URL, tok.AuthServer)
 }
 
@@ -2246,8 +2321,8 @@ func TestRegisterClient_GrantTypesIncludeRefreshToken(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "test-client", clientID)
 	assert.Equal(t, "test-secret", clientSecret)
-	assert.Equal(t, "client_secret_post", authMethod)
-	assert.Equal(t, "client_secret_post", registrationBody["token_endpoint_auth_method"])
+	assert.Equal(t, "client_secret_basic", authMethod)
+	assert.Equal(t, "client_secret_basic", registrationBody["token_endpoint_auth_method"])
 
 	grantTypes, _ := registrationBody["grant_types"].([]any)
 	require.Len(t, grantTypes, 2, "grant_types must list both grants the client uses")

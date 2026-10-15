@@ -231,9 +231,9 @@ func validateAndFillDefaults(metadata *AuthorizationServerMetadata, authServerUR
 		metadata.GrantTypesSupported = []string{"authorization_code", "implicit"}
 	}
 	if len(metadata.TokenEndpointAuthMethodsSupported) == 0 {
-		// Not client_secret_basic: the token call posts the secret unless
-		// registration comes back with a different method.
-		metadata.TokenEndpointAuthMethodsSupported = []string{"client_secret_post"}
+		// RFC 8414: omitting token_endpoint_auth_methods_supported means
+		// only client_secret_basic is supported.
+		metadata.TokenEndpointAuthMethodsSupported = []string{"client_secret_basic"}
 	}
 	if len(metadata.RevocationEndpointAuthMethodsSupported) == 0 {
 		metadata.RevocationEndpointAuthMethodsSupported = []string{"client_secret_basic"}
@@ -256,7 +256,7 @@ func createDefaultMetadata(authServerURL string) *AuthorizationServerMetadata {
 		ResponseTypesSupported:                 []string{"code"},
 		ResponseModesSupported:                 []string{"query", "fragment"},
 		GrantTypesSupported:                    []string{"authorization_code"},
-		TokenEndpointAuthMethodsSupported:      []string{"client_secret_post"},
+		TokenEndpointAuthMethodsSupported:      []string{"client_secret_basic"},
 		RevocationEndpointAuthMethodsSupported: []string{"client_secret_basic"},
 		CodeChallengeMethodsSupported:          []string{"S256"},
 	}
