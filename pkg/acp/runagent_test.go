@@ -827,7 +827,7 @@ func TestRunAgent_ToolCallLifecycle(t *testing.T) {
 		start := updates[1].ToolCall
 		require.NotNil(t, start)
 		assert.NotEmpty(t, start.ToolCallId)
-		assert.Equal(t, "Run Shell", start.Title)
+		assert.Equal(t, "Run Shell: ls", start.Title)
 		assert.Equal(t, acpsdk.ToolKindExecute, start.Kind)
 		assert.Equal(t, acpsdk.ToolCallStatusInProgress, start.Status)
 		assert.Equal(t, map[string]any{"command": "ls", "path": "."}, start.RawInput)
@@ -924,7 +924,7 @@ func TestRunAgent_ToolCallConfirmationRequestFields(t *testing.T) {
 		assert.Equal(t, acpsdk.SessionId(testSessionID), req.SessionId)
 		assert.NotEmpty(t, req.ToolCall.ToolCallId)
 		require.NotNil(t, req.ToolCall.Title)
-		assert.Equal(t, "Run Shell", *req.ToolCall.Title)
+		assert.Equal(t, "Run Shell: rm -rf /tmp/scratch", *req.ToolCall.Title)
 		require.NotNil(t, req.ToolCall.Kind)
 		assert.Equal(t, acpsdk.ToolKindExecute, *req.ToolCall.Kind)
 		require.NotNil(t, req.ToolCall.Status)

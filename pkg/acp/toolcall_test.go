@@ -3,6 +3,7 @@ package acp
 import (
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	acpsdk "github.com/coder/acp-go-sdk"
@@ -268,7 +269,7 @@ func TestBuildToolCallStart(t *testing.T) {
 		tc := update.ToolCall
 
 		assert.Equal(t, acpsdk.ToolCallId("call-1"), tc.ToolCallId)
-		assert.Equal(t, "Read File", tc.Title)
+		assert.Equal(t, "Read File: a.txt", tc.Title)
 		assert.Equal(t, acpsdk.ToolKindRead, tc.Kind)
 		assert.Equal(t, acpsdk.ToolCallStatusInProgress, tc.Status)
 		assert.Equal(t, map[string]any{"path": "a.txt"}, tc.RawInput)
@@ -287,7 +288,7 @@ func TestBuildToolCallStart(t *testing.T) {
 		require.NotNil(t, update.ToolCall)
 		tc := update.ToolCall
 
-		assert.Equal(t, "shell", tc.Title)
+		assert.Equal(t, "shell: ls", tc.Title)
 		assert.Equal(t, acpsdk.ToolKindExecute, tc.Kind)
 		assert.Empty(t, tc.Locations)
 	})
@@ -304,7 +305,7 @@ func TestBuildToolCallUpdate(t *testing.T) {
 	update := buildToolCallUpdate(toolCall, tools.Tool{Name: "shell"}, acpsdk.ToolCallStatusPending, "")
 	assert.Equal(t, acpsdk.ToolCallId("call-1"), update.ToolCallId)
 	require.NotNil(t, update.Title)
-	assert.Equal(t, "shell", *update.Title)
+	assert.Equal(t, "shell: ls", *update.Title)
 	require.NotNil(t, update.Kind)
 	assert.Equal(t, acpsdk.ToolKindExecute, *update.Kind)
 	require.NotNil(t, update.Status)
@@ -315,6 +316,39 @@ func TestBuildToolCallUpdate(t *testing.T) {
 	update = buildToolCallUpdate(toolCall, readOnly, acpsdk.ToolCallStatusCompleted, "")
 	require.NotNil(t, update.Kind)
 	assert.Equal(t, acpsdk.ToolKindExecute, *update.Kind)
+}
+
+func TestToolCallTitleDetail(t *testing.T) {
+	t.Parallel()
+
+	shell := tools.Tool{Name: "shell", Annotations: tools.ToolAnnotations{Title: "Shell"}}
+	call := tools.ToolCall{ID: "c", Function: tools.FunctionCall{Name: "shell", Arguments: `{"cmd":"docker ps -a","path":"/tmp","content":"secret"}`}}
+	update := buildToolCallUpdate(call, shell, acpsdk.ToolCallStatusPending, "")
+	require.NotNil(t, update.Title)
+	assert.Equal(t, "Shell: docker ps -a", *update.Title)
+
+	call.Function.Arguments = `{"cmd":"   "}`
+	update = buildToolCallUpdate(call, shell, acpsdk.ToolCallStatusPending, "")
+	assert.Equal(t, "Shell", *update.Title)
+
+	call.Function.Arguments = `{"cmd":"echo\nhello   there"}`
+	update = buildToolCallUpdate(call, shell, acpsdk.ToolCallStatusPending, "")
+	assert.Equal(t, "Shell: echo hello there", *update.Title)
+
+	long := strings.Repeat("a", 90)
+	call.Function.Arguments = `{"cmd":"` + long + `"}`
+	update = buildToolCallUpdate(call, shell, acpsdk.ToolCallStatusPending, "")
+	assert.Equal(t, "Shell: "+strings.Repeat("a", 79)+"…", *update.Title)
+
+	write := tools.Tool{Name: "write_file", Annotations: tools.ToolAnnotations{Title: "Write"}}
+	writeCall := tools.ToolCall{ID: "w", Function: tools.FunctionCall{Name: "write_file", Arguments: `{"path":"a.txt","content":"secret"}`}}
+	started := buildToolCallStart(writeCall, write, t.TempDir())
+	assert.Equal(t, "Write: a.txt", started.ToolCall.Title)
+
+	other := tools.Tool{Name: "custom", Annotations: tools.ToolAnnotations{Title: "Custom"}}
+	otherCall := tools.ToolCall{ID: "o", Function: tools.FunctionCall{Name: "custom", Arguments: `{"content":"secret"}`}}
+	update = buildToolCallUpdate(otherCall, other, acpsdk.ToolCallStatusPending, "")
+	assert.Equal(t, "Custom", *update.Title)
 }
 
 func TestIsTodoTool(t *testing.T) {
