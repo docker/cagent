@@ -232,6 +232,9 @@ type Dispatcher struct {
 	// [tools.ErrRecallNotSupported].
 	Recall func(ctx context.Context, sess *session.Session, a *agent.Agent, message string) error
 
+	// AppendThought binds internal scratchpad mutation to this batch's caller.
+	AppendThought func(ctx context.Context, owner any, thought string) ([]string, error)
+
 	confirmationMu         *sync.Mutex
 	fallbackConfirmationMu sync.Mutex
 }
@@ -1069,6 +1072,13 @@ func (r callRuntime) RunTool(ctx context.Context, tc tools.ToolCall, tool tools.
 	response.Output = c.applyToolResponseTransform(ctx, response.Output, response.IsError)
 	c.em.EmitToolCallResponse(tc.ID, tool, &response, response.Output, c.a.Name())
 	return result, err
+}
+
+func (r callRuntime) AppendThought(ctx context.Context, owner any, thought string) ([]string, error) {
+	if r.c.d.AppendThought == nil {
+		return nil, errors.New("think scratchpad unavailable in this runtime")
+	}
+	return r.c.d.AppendThought(ctx, owner, thought)
 }
 
 func (r callRuntime) Recall(ctx context.Context, message string) error {

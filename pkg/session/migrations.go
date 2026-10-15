@@ -482,6 +482,24 @@ func getAllMigrations() []Migration {
 			Description: "Add root_kind to generated_media_manifest so user-confirmed out-of-workspace generated files stay manifest-gated alongside workspace-relative ones",
 			UpSQL:       `ALTER TABLE generated_media_manifest ADD COLUMN root_kind TEXT NOT NULL DEFAULT 'workspace'`,
 		},
+		{
+			ID:          31,
+			Name:        "031_add_think_scratchpad",
+			Description: "Retain conversation-scoped think scratchpads under their root session",
+			UpSQL: `
+				CREATE TABLE think_scratchpad (
+					root_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+					session_id TEXT NOT NULL,
+					agent_name TEXT NOT NULL,
+					toolset_key TEXT NOT NULL,
+					seq INTEGER NOT NULL,
+					thought TEXT NOT NULL,
+					PRIMARY KEY (session_id, agent_name, toolset_key, seq)
+				);
+				CREATE INDEX idx_think_scratchpad_root ON think_scratchpad(root_id);
+			`,
+			DownSQL: `DROP TABLE think_scratchpad`,
+		},
 	}
 }
 

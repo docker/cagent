@@ -20,6 +20,7 @@ func TestClone_CopiesScalarFields(t *testing.T) {
 	t.Parallel()
 	orig := &Session{
 		ID:                      "sess-1",
+		Origin:                  "run",
 		Title:                   "title",
 		ToolsApproved:           true,
 		NonInteractive:          true,
@@ -51,6 +52,7 @@ func TestClone_CopiesScalarFields(t *testing.T) {
 
 	// Unlike BranchSession, Clone keeps the original identity and history.
 	assert.Equal(t, "sess-1", clone.ID)
+	assert.Equal(t, "run", clone.Origin)
 	assert.Equal(t, "title", clone.Title)
 	assert.True(t, clone.ToolsApproved)
 	assert.True(t, clone.NonInteractive)

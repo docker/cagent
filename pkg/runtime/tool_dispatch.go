@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"uuid"
 
 	"github.com/docker/docker-agent/pkg/agent"
@@ -15,6 +17,7 @@ import (
 	"github.com/docker/docker-agent/pkg/tools/builtin/handoff"
 	"github.com/docker/docker-agent/pkg/tools/builtin/modelpicker"
 	"github.com/docker/docker-agent/pkg/tools/builtin/skills"
+	"github.com/docker/docker-agent/pkg/tools/builtin/think"
 	"github.com/docker/docker-agent/pkg/tools/builtin/transfertask"
 )
 
@@ -66,6 +69,7 @@ func (r *LocalRuntime) processToolCalls(ctx context.Context, sess *session.Sessi
 	}
 
 	d := &toolexec.Dispatcher{
+		AppendThought:       r.thoughtAppender(ctx, sess, caller),
 		Tracer:              r.tracer,
 		Hooks:               &hookDispatcher{r: r, events: events},
 		Resume:              r.resumeChan,
@@ -201,4 +205,95 @@ func addAgentMessage(sess *session.Session, a *agent.Agent, msg *chat.Message, e
 		events.Emit(AgentChoice(a.Name(), sess.ID, chat.VisibleAssistantContent(msg.Content), msg.MessageID))
 	}
 	events.Emit(MessageAdded(sess.ID, agentMsg, a.Name()))
+}
+
+// scratchpadRootKey carries this stream's immutable lineage, never telemetry baggage.
+type scratchpadRootKey struct{}
+
+func thinkOwners(caller *agent.Agent, extras []tools.ToolSet) map[*think.ToolSet]string {
+	owners := make(map[*think.ToolSet]string)
+	for category, sets := range [][]tools.ToolSet{caller.ToolSets(), extras} {
+		prefix := "cfg"
+		if category == 1 {
+			prefix = "extra"
+		}
+		ordinal := 0
+		for _, ts := range sets {
+			tools.Walk(ts, func(ts tools.ToolSet) bool {
+				if owner, ok := ts.(*think.ToolSet); ok {
+					if _, seen := owners[owner]; !seen {
+						owners[owner] = fmt.Sprintf("%s:%d", prefix, ordinal)
+						ordinal++
+					}
+				}
+				return true
+			})
+		}
+	}
+	return owners
+}
+
+func (r *LocalRuntime) thoughtAppender(streamCtx context.Context, sess *session.Session, caller *agent.Agent) func(context.Context, any, string) ([]string, error) {
+	owners := thinkOwners(caller, sess.ExtraToolSets)
+	store, supported := r.sessionStore.(session.ThinkScratchpadStore)
+	var root string
+	var rootErr error
+	if len(owners) != 0 && supported {
+		root, rootErr = r.thoughtRoot(streamCtx, sess)
+	}
+	return func(ctx context.Context, owner any, thought string) ([]string, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		ts, ok := owner.(*think.ToolSet)
+		if !ok {
+			return nil, errors.New("unknown think scratchpad owner")
+		}
+		key, ok := owners[ts]
+		if !ok {
+			return nil, errors.New("unknown think scratchpad owner")
+		}
+		if !supported {
+			return nil, errors.New("session store does not support think scratchpads")
+		}
+		if rootErr != nil {
+			return nil, rootErr
+		}
+		return store.AppendThought(ctx, root, session.ScratchpadKey{SessionID: sess.ID, AgentName: caller.Name(), ToolsetKey: key}, thought)
+	}
+}
+
+func (r *LocalRuntime) thoughtRoot(ctx context.Context, sess *session.Session) (string, error) {
+	root, _ := ctx.Value(scratchpadRootKey{}).(string)
+	// Resumed children and their descendants may inherit an intermediate ancestor.
+	// Resolve stored ancestry once per batch, never from a mutable live registry.
+	if sess.ParentID == "" {
+		root = sess.ID
+	} else {
+		if root == "" {
+			root = sess.ParentID
+		}
+		seen := make(map[string]bool)
+		for {
+			if seen[root] {
+				return "", session.ErrScratchpadOwner
+			}
+			seen[root] = true
+			parent, err := r.sessionStore.GetSession(ctx, root)
+			if err != nil {
+				return "", fmt.Errorf("resolve think root: %w", err)
+			}
+			if parent.ParentID == "" {
+				break
+			}
+			root = parent.ParentID
+		}
+	}
+	// Delegated children need not have the protocol origin of their root.
+	if root == sess.ID {
+		if _, err := r.sessionStore.GetSessionByOrigin(ctx, root, sess.Origin); err != nil {
+			return "", fmt.Errorf("think root unavailable: %w", err)
+		}
+	}
+	return root, nil
 }
