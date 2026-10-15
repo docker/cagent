@@ -27,6 +27,8 @@ type StatusError struct {
 	StatusCode int
 	// RetryAfter is the parsed Retry-After header duration. Zero if absent.
 	RetryAfter time.Duration
+	// Retryable preserves a transient provider signal omitted from safe error text.
+	Retryable bool
 	// Err is the original error from the provider SDK.
 	Err error
 }
@@ -598,7 +600,7 @@ func ClassifyModelError(err error) (retryable, rateLimited bool, retryAfter time
 		if statusErr.StatusCode == http.StatusTooManyRequests {
 			return false, true, statusErr.RetryAfter
 		}
-		return isRetryableStatusCode(statusErr.StatusCode) || matchesTransientPattern(err), false, 0
+		return statusErr.Retryable || isRetryableStatusCode(statusErr.StatusCode) || matchesTransientPattern(err), false, 0
 	}
 
 	// Fallback: providers that don't yet wrap (e.g. Bedrock), or non-provider

@@ -1,6 +1,7 @@
 package oaistream
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -171,6 +172,40 @@ func TestWrapOpenAIErrorKeepsProviderDetailsPrivate(t *testing.T) {
 			assert.Equal(t, "HTTP 400: "+apiErr.Error(), wrapped.Error())
 			assert.Equal(t, wrapped.Error(), modelerrors.FormatError(wrapped))
 			assert.Contains(t, apiErr.RawJSON(), "random-opaque-production-password", "explicit diagnostics remain available")
+		})
+	}
+}
+
+func TestWrapOpenAIErrorPreservesPrivateTransientClassification(t *testing.T) {
+	t.Parallel()
+	const message = "Please ensure that the number of function response parts is equal to the number of function call parts. private-diagnostic"
+	for _, tc := range []struct {
+		name               string
+		status             int
+		code               string
+		cause              error
+		retryable, limited bool
+	}{
+		{"transient", 400, "", nil, true, false},
+		{"rate limit wins", 429, "", nil, false, true},
+		{"overflow wins", 400, "context_length_exceeded", nil, false, false},
+		{"cancellation wins", 400, "", context.Canceled, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			apiErr := makeTestOpenAIError(t, tc.status, "30")
+			apiErr.Message = message
+			apiErr.Code = tc.code
+			wrapped := WrapOpenAIError(errors.Join(apiErr, tc.cause))
+			require.ErrorIs(t, wrapped, apiErr)
+			assert.NotContains(t, wrapped.Error(), message)
+			assert.NotContains(t, wrapped.Error(), "private-diagnostic")
+			retryable, limited, delay := modelerrors.ClassifyModelError(wrapped)
+			assert.Equal(t, tc.retryable, retryable)
+			assert.Equal(t, tc.limited, limited)
+			if limited {
+				assert.Equal(t, 30*time.Second, delay)
+			}
 		})
 	}
 }

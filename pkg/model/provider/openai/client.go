@@ -1360,7 +1360,7 @@ func (c *Client) Rerank(ctx context.Context, query string, documents []types.Doc
 	resp, err := client.Chat.Completions.New(ctx, params)
 	if err != nil {
 		slog.ErrorContext(ctx, "OpenAI rerank request failed", "error", err)
-		return nil, fmt.Errorf("openai rerank request failed: %w", err)
+		return nil, fmt.Errorf("openai rerank request failed: %w", oaistream.WrapOpenAIError(err))
 	}
 
 	if len(resp.Choices) == 0 {

@@ -14,6 +14,7 @@ import (
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/modelerrors"
+	"github.com/docker/docker-agent/pkg/rag/types"
 )
 
 // TestCopilotEndpointSelection verifies that the GitHub Copilot provider
@@ -217,5 +218,42 @@ func TestDirectClientClassifiesErrorsWithoutExposingProviderDetails(t *testing.T
 				assert.Equal(t, tc.overflow, modelerrors.IsContextOverflowError(streamErr))
 			})
 		}
+	}
+}
+
+func TestClientPreservesPrivateTransientClassification(t *testing.T) {
+	t.Parallel()
+	for _, operation := range []string{"openai_chatcompletions", "openai_responses", "rerank", "embedding"} {
+		t.Run(operation, func(t *testing.T) {
+			t.Parallel()
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"error":{"message":"number of function response parts: private-diagnostic"}}`))
+			}))
+			defer server.Close()
+			client, err := NewClient(t.Context(), &latest.ModelConfig{
+				Provider: "custom", Model: "gemini", BaseURL: server.URL,
+				ProviderOpts: map[string]any{"api_type": operation},
+			}, environment.NewMapEnvProvider(nil))
+			require.NoError(t, err)
+			switch operation {
+			case "rerank":
+				_, err = client.Rerank(t.Context(), "query", []types.Document{{Content: "document"}}, "")
+			case "embedding":
+				_, err = client.CreateBatchEmbedding(t.Context(), []string{"document"})
+			default:
+				stream, streamErr := client.CreateChatCompletionStream(t.Context(), []chat.Message{{Role: chat.MessageRoleUser, Content: "hi"}}, nil)
+				require.NoError(t, streamErr)
+				defer stream.Close()
+				_, err = stream.Recv()
+			}
+			require.Error(t, err)
+			assert.NotContains(t, err.Error(), "private-diagnostic")
+			assert.NotContains(t, err.Error(), "number of function response parts")
+			retryable, limited, _ := modelerrors.ClassifyModelError(err)
+			assert.True(t, retryable)
+			assert.False(t, limited)
+		})
 	}
 }

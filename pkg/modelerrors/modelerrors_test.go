@@ -802,6 +802,11 @@ func TestClassifyModelError(t *testing.T) {
 		{name: "429 StatusError no retry-after", err: &StatusError{StatusCode: 429, RetryAfter: 0, Err: errors.New("rate limited")}, wantRetryable: false, wantRateLimited: true, wantRetryAfter: 0},
 		// 429 via StatusError with Retry-After from response header
 		{name: "429 StatusError with retry-after", err: &StatusError{StatusCode: 429, RetryAfter: 20 * time.Second, Err: errors.New("rate limited")}, wantRetryable: false, wantRateLimited: true, wantRetryAfter: 20 * time.Second},
+		{name: "private transient metadata", err: &StatusError{StatusCode: 400, Retryable: true, Err: errors.New("Bad Request")}, wantRetryable: true},
+		{name: "rate limit overrides retry metadata", err: &StatusError{StatusCode: 429, Retryable: true, RetryAfter: 20 * time.Second, Err: errors.New("Too Many Requests")}, wantRateLimited: true, wantRetryAfter: 20 * time.Second},
+		{name: "overflow overrides retry metadata", err: &ContextOverflowError{Kind: OverflowKindTokens, Underlying: &StatusError{StatusCode: 400, Retryable: true, Err: errors.New("Bad Request")}}},
+		{name: "cancellation overrides retry metadata", err: &StatusError{StatusCode: 400, Retryable: true, Err: context.Canceled}},
+		{name: "deadline overrides retry metadata", err: &StatusError{StatusCode: 400, Retryable: true, Err: context.DeadlineExceeded}},
 		// Retryable status codes via StatusError
 		{name: "500 StatusError", err: &StatusError{StatusCode: 500, Err: errors.New("internal server error")}, wantRetryable: true, wantRateLimited: false},
 		{name: "529 StatusError", err: &StatusError{StatusCode: 529, Err: errors.New("overloaded")}, wantRetryable: true, wantRateLimited: false},
