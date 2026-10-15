@@ -1,0 +1,24 @@
+╭──────────────────────────────────────────────────────────────────────────╮
+│                                 Settings                                 │
+│              Appearance   ·   Behavior   ·   Notifications               │
+│                                                                          │
+│  ── While agent is working ────────────────────────────────────────      │
+│  › ● Steer  send to the working agent mid-turn                           │
+│    ○ Queue  hold until the current turn ends                             │
+│                                                                          │
+│  ── Tool approval ─────────────────────────────────────────────────      │
+│    [ ] Auto-approve tools by default                                     │
+│                                                                          │
+│  ── Session defaults ──────────────────────────────────────────────      │
+│    [ ] Restore tabs on launch                                            │
+│    [ ] Automatic snapshots                                               │
+│    [ ] Cache-stable dynamic prompts                                      │
+│    [ ] Lean UI by default                                                │
+│    Tab title max length                                  ‹ 20 chars ›    │
+│                                                                          │
+│  ── Interrupts ────────────────────────────────────────────────────      │
+│    Interrupt confirmation                 ‹ Always (confirm dialog) ›    │
+│                                                                          │
+│  Changes are saved only when applied.                                    │
+│     ↑↓ move  ←→/space change  tab category  enter apply  esc cancel      │
+╰──────────────────────────────────────────────────────────────────────────╯

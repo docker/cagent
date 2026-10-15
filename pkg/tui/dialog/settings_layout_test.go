@@ -10,8 +10,11 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gotest.tools/v3/golden"
 
+	"github.com/docker/docker-agent/pkg/paths"
 	"github.com/docker/docker-agent/pkg/tui/messages"
+	"github.com/docker/docker-agent/pkg/tui/styles"
 )
 
 func TestSettingsDialogFitsTerminal(t *testing.T) {
@@ -68,7 +71,7 @@ func TestSettingsDialogScrollsAndResizes(t *testing.T) {
 	d.Update(tea.WindowSizeMsg{Width: 100, Height: 60})
 	view = d.View()
 	assert.Contains(t, ansi.Strip(view), "Show startup banner")
-	assert.Contains(t, ansi.Strip(view), "chat")
+	assert.NotContains(t, ansi.Strip(view), "Layout preview")
 }
 
 func TestSettingsDialogCompactPreviewPreservesLiveUpdates(t *testing.T) {
@@ -226,5 +229,94 @@ func TestSettingsDialogUsesAvailableSpace(t *testing.T) {
 			assert.Equal(t, size.dialogHeight, lipgloss.Height(view))
 			assert.Contains(t, view, "Press again to enable.")
 		})
+	}
+}
+
+func TestSettingsDialogRoomyLayout(t *testing.T) {
+	t.Parallel()
+
+	for _, size := range []struct{ width, height int }{{100, 40}, {140, 50}} {
+		t.Run(fmt.Sprintf("%dx%d", size.width, size.height), func(t *testing.T) {
+			t.Parallel()
+			d := newTestSettingsDialog(t, messages.LayoutSettings{})
+			d.Update(tea.WindowSizeMsg{Width: size.width, Height: size.height})
+			view := ansi.Strip(d.View())
+			assert.False(t, d.body.NeedsScrollbar())
+			assert.Contains(t, view, "Sidebar position")
+			assert.Contains(t, view, "Show startup banner")
+			assert.NotContains(t, ansi.Strip(d.body.View()), "Layout preview")
+			assert.NotContains(t, ansi.Strip(d.body.View()), "chat")
+			if size.width == 140 {
+				assert.Contains(t, view, "‹ default ›     Layout preview")
+				assert.Greater(t, strings.Index(view, "Layout preview"), strings.Index(view, "Theme"))
+				assert.Contains(t, view, "\n│     Section spacing")
+			} else {
+				assert.NotContains(t, view, "Layout preview")
+			}
+		})
+	}
+}
+
+func TestSettingsDialogResizePreservesFocusedControl(t *testing.T) {
+	t.Parallel()
+
+	d := newTestSettingsDialog(t, messages.LayoutSettings{})
+	d.selected[tabAppearance] = rowShowBanner
+	original := d.current
+	for _, size := range []struct{ width, height int }{{140, 50}, {80, 24}, {100, 40}, {140, 50}} {
+		d.Update(tea.WindowSizeMsg{Width: size.width, Height: size.height})
+		view := ansi.Strip(d.View())
+		assert.Contains(t, view, "› [x] Show startup banner")
+		assert.Equal(t, original, d.current)
+		assert.Equal(t, rowShowBanner, d.selected[tabAppearance])
+	}
+}
+
+func TestSettingsDialogSnapshots(t *testing.T) {
+	paths.SetConfigDir(t.TempDir())
+	t.Cleanup(func() { paths.SetConfigDir("") })
+	original := styles.CurrentTheme()
+	t.Cleanup(func() { styles.ApplyTheme(original) })
+
+	for _, themeRef := range []string{"default", "default-light"} {
+		t.Run(themeRef, func(t *testing.T) {
+			theme, err := styles.LoadTheme(themeRef)
+			require.NoError(t, err)
+			styles.ApplyTheme(theme)
+			for _, size := range []struct{ width, height int }{{80, 24}, {100, 40}, {140, 50}} {
+				d := newTestSettingsDialog(t, messages.LayoutSettings{})
+				d.Update(tea.WindowSizeMsg{Width: size.width, Height: size.height})
+				for tab, name := range settingsTabLabels {
+					d.tab = tab
+					golden.Assert(t, ansi.Strip(d.View())+"\n", fmt.Sprintf("settings-%dx%d-%s.golden", size.width, size.height, name))
+				}
+			}
+		})
+	}
+}
+
+func TestSettingsDialogWideShortTerminal(t *testing.T) {
+	t.Parallel()
+
+	for _, showPlans := range []bool{false, true} {
+		d := newTestSettingsDialog(t, messages.LayoutSettings{ShowPlans: showPlans})
+		for height := 14; height <= 28; height++ {
+			d.Update(tea.WindowSizeMsg{Width: 140, Height: height})
+			view := d.View()
+			assert.LessOrEqual(t, lipgloss.Height(view), height, "height %d, plans %t", height, showPlans)
+			assert.Contains(t, settingsPlainText(view), "esc cancel")
+		}
+	}
+}
+
+func TestSettingsDialogSpacingDoesNotForceScrolling(t *testing.T) {
+	t.Parallel()
+
+	d := newTestSettingsDialog(t, messages.LayoutSettings{})
+	for height := 34; height <= 60; height++ {
+		d.Update(tea.WindowSizeMsg{Width: 100, Height: height})
+		view := d.View()
+		assert.False(t, d.body.NeedsScrollbar(), "height %d", height)
+		assert.Contains(t, ansi.Strip(view), "Show startup banner", "height %d", height)
 	}
 }

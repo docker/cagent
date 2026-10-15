@@ -1,0 +1,48 @@
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                           Settings                                                           │
+│                                        Appearance   ·   Behavior   ·   Notifications                                         │
+│                                                                                                                              │
+│   › Theme                                                    ‹ default ›     Layout preview                                  │
+│                                                                                                                              │
+│                                                                              ╭───────────────────────────┬──────────────╮    │
+│   ── Sidebar layout ──────────────────────────────────────────────────       │                           │ session/path │    │
+│     Sidebar position                                           ‹ Right ›     │                           │ usage        │    │
+│                                                                              │           chat            │ agents       │    │
+│     Section spacing                                           ‹ Normal ›     │                           │ tools        │    │
+│                                                                              │                           │ todos        │    │
+│     Sidebar info mode                                        ‹ Compact ›     ├───────────────────────────┴──────────────┤    │
+│                                                                              │ input                                    │    │
+│                                                                              ╰──────────────────────────────────────────╯    │
+│   ── Sidebar sections ────────────────────────────────────────────────                                                       │
+│     [x] Session path                                                         Layout changes preview immediately.             │
+│                                                                                                                              │
+│     [x] Token usage                                                                                                          │
+│                                                                                                                              │
+│     [x] Agents                                                                                                               │
+│                                                                                                                              │
+│       [ ] Active agents only                                                                                                 │
+│                                                                                                                              │
+│     [x] Tools                                                                                                                │
+│                                                                                                                              │
+│     [ ] Plans                                                                                                                │
+│                                                                                                                              │
+│     [x] Todos                                                                                                                │
+│                                                                                                                              │
+│                                                                                                                              │
+│   ── Chat display ────────────────────────────────────────────────────                                                       │
+│     [x] Split diff view                                                                                                      │
+│                                                                                                                              │
+│     [ ] Expand thinking by default                                                                                           │
+│                                                                                                                              │
+│     [ ] Hide tool results by default                                                                                         │
+│                                                                                                                              │
+│     [x] Render images                                                                                                        │
+│                                                                                                                              │
+│     [x] Show startup banner                                                                                                  │
+│                                                                                                                              │
+│                                                                                                                              │
+│                                                                                                                              │
+│                                                                                                                              │
+│  Theme changes save immediately in the separate picker.                                                                      │
+│                                ↑↓ move  ←→/space change  tab category  enter open  esc cancel                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯

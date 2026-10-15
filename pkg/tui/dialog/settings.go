@@ -18,11 +18,13 @@ import (
 )
 
 const (
-	settingsWidthPercent = 95
-	settingsMinWidth     = 60
-	settingsMaxWidth     = 128
-	previewMaxWidth      = 44
-	previewMinWidth      = 24
+	settingsWidthPercent  = 95
+	settingsMinWidth      = 60
+	settingsMaxWidth      = 128
+	settingsControlsWidth = 72
+	settingsPreviewGap    = 3
+	previewMaxWidth       = 44
+	previewMinWidth       = 24
 )
 
 const (
@@ -390,7 +392,8 @@ func (d *settingsDialog) View() string {
 	header := NewContent(inner).AddTitle("Settings").AddContent(d.renderTabBar(inner)).AddSpace().Build()
 	footer := d.renderFooter(inner, max(2, height-frame.GetVerticalFrameSize()-lipgloss.Height(header)-3))
 	bodyHeight := max(1, height-frame.GetVerticalFrameSize()-lipgloss.Height(header)-lipgloss.Height(footer))
-	d.body.SetSize(inner, bodyHeight)
+	controlsWidth := min(inner, settingsControlsWidth)
+	d.body.SetSize(controlsWidth, bodyHeight)
 	body := d.renderBody(d.body.ContentWidth())
 	d.body.SetContent(body.lines, len(body.lines))
 	d.body.SetScrollOffset(d.body.ScrollOffset())
@@ -401,6 +404,13 @@ func (d *settingsDialog) View() string {
 	}
 
 	bodyView := lipgloss.NewStyle().Height(bodyHeight).Render(d.body.View())
+	if d.showVisuals && d.tab == tabAppearance && inner >= settingsControlsWidth+settingsPreviewGap+previewMaxWidth {
+		preview := d.renderPreview()
+		if lipgloss.Height(preview) <= bodyHeight {
+			bodyView = lipgloss.JoinHorizontal(lipgloss.Top, bodyView, strings.Repeat(" ", settingsPreviewGap), preview)
+		}
+	}
+	bodyView = lipgloss.PlaceHorizontal(inner, lipgloss.Center, bodyView)
 	content := lipgloss.JoinVertical(lipgloss.Left, header, bodyView, footer)
 	return frame.Render(content)
 }
@@ -410,24 +420,33 @@ func (d *settingsDialog) renderTabBar(width int) string {
 	for i, label := range settingsTabLabels {
 		style := styles.MutedStyle
 		if i == d.tab {
-			style = styles.HighlightWhiteStyle.Underline(true)
+			style = styles.PaletteSelectedActionStyle
 		}
-		tabs = append(tabs, style.Render(label))
+		tabs = append(tabs, style.Render(" "+label+" "))
 	}
 	bar := strings.Join(tabs, "  ·  ")
 	if lipgloss.Width(bar) > width {
 		bar = styles.HighlightWhiteStyle.Render("‹ " + settingsTabLabels[d.tab] + " ›")
 	}
-	return lipgloss.PlaceHorizontal(width, lipgloss.Center, toolcommon.TruncateText(bar, width))
+	return lipgloss.PlaceHorizontal(width, lipgloss.Center, ansi.Truncate(bar, width, "…"))
 }
 
 type settingsContent struct {
-	lines                      []string
-	selectedStart, selectedEnd int
+	width, groupSpacing, rowSpacing int
+	groupStart                      bool
+	lines                           []string
+	selectedStart, selectedEnd      int
 }
 
 func (c *settingsContent) addRow(row, selected int, value string) {
+	if len(c.lines) > 0 && !c.groupStart {
+		c.lines = append(c.lines, make([]string, c.rowSpacing)...)
+	}
+	c.groupStart = false
 	start := len(c.lines)
+	if row == selected {
+		value = styles.PaletteSelectedActionStyle.Width(c.width).Render(ansi.Strip(value))
+	}
 	c.lines = append(c.lines, strings.Split(value, "\n")...)
 	if row == selected {
 		c.selectedStart, c.selectedEnd = start, len(c.lines)-1
@@ -436,42 +455,43 @@ func (c *settingsContent) addRow(row, selected int, value string) {
 
 func (c *settingsContent) addGroup(label string, width int) {
 	if len(c.lines) > 0 {
-		c.lines = append(c.lines, "")
+		c.lines = append(c.lines, make([]string, c.groupSpacing)...)
 	}
 	c.lines = append(c.lines, ansi.Truncate(RenderGroupSeparator(label, width), width, "…"))
+	c.groupStart = true
 }
 
 func (d *settingsDialog) renderBody(width int) settingsContent {
-	var content settingsContent
-	switch d.tab {
-	case tabBehavior:
-		d.renderBehaviorTab(&content, width)
-	case tabNotifications:
-		d.renderNotificationsTab(&content, width)
-	default:
-		d.renderAppearanceTab(&content, width)
+	for _, spacing := range []struct{ group, row, chat int }{{2, 1, 1}, {2, 0, 1}, {1, 0, 0}} {
+		content := settingsContent{width: width, groupSpacing: spacing.group, rowSpacing: spacing.row}
+		switch d.tab {
+		case tabBehavior:
+			d.renderBehaviorTab(&content, width)
+		case tabNotifications:
+			d.renderNotificationsTab(&content, width)
+		default:
+			d.renderAppearanceTab(&content, width, spacing.chat)
+		}
+		if len(content.lines) <= d.body.VisibleHeight() || spacing.group == 1 {
+			return content
+		}
 	}
-	return content
+	return settingsContent{}
 }
 
-func (d *settingsDialog) renderAppearanceTab(content *settingsContent, width int) {
+func (d *settingsDialog) renderAppearanceTab(content *settingsContent, width, chatRowSpacing int) {
 	add := func(row int, value string) { content.addRow(row, d.selected[d.tab], value) }
 	toggle := func(row int, label string, enabled bool) { add(row, d.renderToggleRow(row, label, enabled, width)) }
 	theme := styles.GetPersistedThemeRef()
 	if theme == "" {
 		theme = styles.DefaultThemeRef
 	}
-	content.addGroup("Theme", width)
 	add(rowTheme, d.renderSelectorRow(rowTheme, "Theme", theme, width))
 	if d.showVisuals {
 		content.addGroup("Sidebar layout", width)
 		add(rowPosition, d.renderSelectorRow(rowPosition, "Sidebar position", positionLabels[d.current.Layout.SidebarPosition], width))
 		add(rowSpacing, d.renderSelectorRow(rowSpacing, "Section spacing", spacingLabels[d.current.Layout.SectionSpacing], width))
 		add(rowInfoMode, d.renderSelectorRow(rowInfoMode, "Sidebar info mode", infoModeLabels[d.current.Layout.SidebarInfoMode], width))
-		if d.Height() >= 44 && width >= previewMaxWidth {
-			preview := lipgloss.PlaceHorizontal(width, lipgloss.Center, renderLayoutPreview(d.current.Layout, width))
-			content.lines = append(content.lines, strings.Split(preview, "\n")...)
-		}
 		content.addGroup("Sidebar sections", width)
 		toggle(rowSessionPath, "Session path", !d.current.Layout.HideSessionPath)
 		toggle(rowUsage, "Token usage", !d.current.Layout.HideUsage)
@@ -482,11 +502,20 @@ func (d *settingsDialog) renderAppearanceTab(content *settingsContent, width int
 		toggle(rowTodos, "Todos", !d.current.Layout.HideTodos)
 	}
 	content.addGroup("Chat display", width)
+	content.rowSpacing = chatRowSpacing
 	toggle(rowSplitDiff, "Split diff view", d.current.SplitDiffView)
 	toggle(rowExpandThinking, "Expand thinking by default", d.current.ExpandThinking)
 	toggle(rowHideToolResults, "Hide tool results by default", d.current.HideToolResults)
 	toggle(rowRenderImages, "Render images", d.current.RenderImages)
 	toggle(rowShowBanner, "Show startup banner", d.current.ShowBanner)
+}
+
+func (d *settingsDialog) renderPreview() string {
+	content := NewContent(previewMaxWidth).
+		AddContent(styles.HighlightWhiteStyle.Render("Layout preview")).AddSpace().
+		AddContent(renderLayoutPreview(d.current.Layout, previewMaxWidth)).AddSpace().
+		AddContent(styles.MutedStyle.Render("Layout changes preview immediately."))
+	return content.Build()
 }
 
 func (d *settingsDialog) renderBehaviorTab(content *settingsContent, width int) {
@@ -506,9 +535,9 @@ func (d *settingsDialog) renderBehaviorTab(content *settingsContent, width int) 
 		}
 		options = append(options, option)
 	}
-	start := len(content.lines)
 	add(rowSendMode, strings.Join(options, "\n"))
 	if d.selected[d.tab] == rowSendMode {
+		start := content.selectedStart
 		content.selectedStart, content.selectedEnd = start+optionStart, start+optionEnd
 	}
 	content.addGroup("Tool approval", width)
@@ -594,7 +623,7 @@ func renderSettingsHelp(width int, bindings ...string) string {
 
 func (d *settingsDialog) renderSendModeOption(opt sendModeOption, width int) string {
 	glyph, prefix := "○", "  "
-	labelStyle, glyphStyle := styles.PaletteUnselectedActionStyle, styles.SecondaryStyle
+	labelStyle, glyphStyle := styles.BaseStyle, styles.SecondaryStyle
 	if d.current.SendMode == opt.mode {
 		glyph = "●"
 		glyphStyle = glyphStyle.Foreground(styles.Success)
@@ -610,7 +639,7 @@ func (d *settingsDialog) renderSendModeOption(opt sendModeOption, width int) str
 }
 
 func (d *settingsDialog) renderSelectorRow(row int, label, valueLabel string, width int) string {
-	labelStyle, valueStyle, prefix := styles.PaletteUnselectedActionStyle, styles.SecondaryStyle, "  "
+	labelStyle, valueStyle, prefix := styles.BaseStyle, styles.SecondaryStyle, "  "
 	if d.selected[d.tab] == row {
 		labelStyle, valueStyle, prefix = styles.PaletteSelectedActionStyle, styles.HighlightWhiteStyle, styles.HighlightWhiteStyle.Render("› ")
 	}
@@ -635,7 +664,7 @@ func (d *settingsDialog) renderToggleRow(row int, label string, enabled bool, wi
 	if enabled {
 		check = "[x]"
 	}
-	labelStyle, checkStyle, prefix := styles.PaletteUnselectedActionStyle, styles.SecondaryStyle, "  "
+	labelStyle, checkStyle, prefix := styles.BaseStyle, styles.SecondaryStyle, "  "
 	if d.selected[d.tab] == row {
 		labelStyle, checkStyle, prefix = styles.PaletteSelectedActionStyle, styles.HighlightWhiteStyle, styles.HighlightWhiteStyle.Render("› ")
 	}
