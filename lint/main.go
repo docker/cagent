@@ -78,6 +78,7 @@ var programCops = []prog.Cop{
 	SlicesConcat,
 	ChannelDirection,
 	SessionStateAccessors,
+	CancellationSafeResultSend,
 	rubocops.NewLintStreamCloseSafety(),
 	ExclusiveStreamLease,
 	DrainRunStreamBeforeRelease,

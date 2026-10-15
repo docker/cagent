@@ -266,6 +266,17 @@ type. Preserve those behaviors and any observable capacity contract when migrati
 Test output/artifact lifetimes and in-memory HTTP compatibility require review;
 there are no blanket rules for `t.Output`, `ArtifactDir`, or `NewTestServer`.
 
+## Correctness cops
+
+`Lint/CancellationSafeResultSend` detects unbuffered, local result sends whose
+sole receiver can return on context cancellation. It checks inline goroutines
+and simple aliases, excluding escaped channels and extra receivers. Buffered
+channels and cancellation-aware send selects are not reported. Every returning
+cancellation arm must be covered by the producer. Straight-line context copies
+and `WithValue` preserve identity; escaped contexts and unresolved context
+constructors are excluded. Buffering alone is only sufficient for a one-shot
+result, not an arbitrary stream.
+
 ## Opening Issues
 
 File issues on the [GitHub issue tracker](https://github.com/docker/docker-agent/issues). Please:
