@@ -199,15 +199,15 @@ func TestSettingsDialogRenderingDoesNotChangePreferences(t *testing.T) {
 	}
 }
 
-func TestSettingsDialogUsesAvailableSpace(t *testing.T) {
+func TestSettingsDialogFitsContent(t *testing.T) {
 	t.Parallel()
 
 	for _, size := range []struct {
 		width, height, dialogWidth, dialogHeight int
 	}{
 		{80, 24, 76, 24},
-		{100, 40, 95, 38},
-		{140, 50, 128, 48},
+		{100, 40, 95, 32},
+		{140, 50, 128, 32},
 	} {
 		t.Run(fmt.Sprintf("%dx%d", size.width, size.height), func(t *testing.T) {
 			t.Parallel()
@@ -217,8 +217,8 @@ func TestSettingsDialogUsesAvailableSpace(t *testing.T) {
 				d.tab = tab
 				view := d.View()
 				assert.Equal(t, size.dialogWidth, lipgloss.Width(view))
-				assert.Equal(t, size.dialogHeight, lipgloss.Height(view))
-				assert.GreaterOrEqual(t, d.body.VisibleHeight(), 16)
+				assert.LessOrEqual(t, lipgloss.Height(view), size.dialogHeight)
+				assert.NotContains(t, view, "Changes are saved only when applied.")
 				assert.Contains(t, ansi.Strip(view), "Appearance")
 				assert.Contains(t, ansi.Strip(view), "Notifications")
 				if tab == tabBehavior {
@@ -229,7 +229,7 @@ func TestSettingsDialogUsesAvailableSpace(t *testing.T) {
 			d.selected[tabBehavior] = rowYOLO
 			d.Update(tea.KeyPressMsg{Code: tea.KeySpace})
 			view := d.View()
-			assert.Equal(t, size.dialogHeight, lipgloss.Height(view))
+			assert.LessOrEqual(t, lipgloss.Height(view), size.dialogHeight)
 			assert.Contains(t, view, "Press again to enable.")
 		})
 	}
@@ -377,4 +377,139 @@ func TestSettingsDialogBlankLinesOnlyBetweenSections(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSettingsDialogTitleSpacing(t *testing.T) {
+	t.Parallel()
+
+	d := newTestSettingsDialog(t, messages.LayoutSettings{})
+	lines := strings.Split(ansi.Strip(d.View()), "\n")
+	assert.Contains(t, lines[1], "Settings")
+	assert.Empty(t, strings.TrimSpace(strings.Trim(lines[2], "│")))
+	assert.Contains(t, lines[3], "Appearance")
+}
+
+func TestSettingsDialogShortensSmallTabs(t *testing.T) {
+	t.Parallel()
+
+	d := newTestSettingsDialog(t, messages.LayoutSettings{})
+	appearanceHeight := lipgloss.Height(d.View())
+	d.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	assert.Less(t, lipgloss.Height(d.View()), appearanceHeight)
+	d.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	assert.LessOrEqual(t, lipgloss.Height(d.View()), 16)
+	assert.NotContains(t, ansi.Strip(d.View()), "Changes are saved only when applied")
+}
+
+func settingsTabClick(t *testing.T, d *settingsDialog, label string) tea.MouseClickMsg {
+	t.Helper()
+	lines := strings.Split(ansi.Strip(d.View()), "\n")
+	row, col := d.Position()
+	x := strings.Index(lines[d.TitleZoneHeight()], label)
+	require.NotEqual(t, -1, x)
+	x = lipgloss.Width(lines[d.TitleZoneHeight()][:x])
+	return tea.MouseClickMsg{X: col + x, Y: row + d.TitleZoneHeight(), Button: tea.MouseLeft}
+}
+
+func TestSettingsDialogClickableTabs(t *testing.T) {
+	t.Parallel()
+
+	for _, size := range []struct{ width, height int }{{36, 18}, {80, 24}, {140, 50}} {
+		t.Run(fmt.Sprintf("%dx%d", size.width, size.height), func(t *testing.T) {
+			t.Parallel()
+			d := newTestSettingsDialog(t, messages.LayoutSettings{})
+			d.Update(tea.WindowSizeMsg{Width: size.width, Height: size.height})
+			labels := settingsTabLabels
+			if size.width == 36 {
+				labels = [tabCount]string{"App", "Beh", "Notif"}
+			}
+			d.selected[tabAppearance] = rowUsage
+			for _, tab := range []int{tabBehavior, tabNotifications, tabAppearance} {
+				before := d.current
+				_, cmd := d.Update(settingsTabClick(t, d, labels[tab]))
+				assert.Nil(t, cmd)
+				assert.Equal(t, tab, d.tab)
+				assert.Equal(t, before, d.current)
+			}
+			assert.Equal(t, rowUsage, d.selected[tabAppearance])
+		})
+	}
+}
+
+func TestSettingsDialogTabClickCancelsPendingConfirmation(t *testing.T) {
+	t.Parallel()
+
+	d := newTestSettingsDialog(t, messages.LayoutSettings{})
+	d.tab = tabBehavior
+	d.selected[tabBehavior] = rowYOLO
+	d.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	require.True(t, d.confirmYOLO)
+	d.Update(settingsTabClick(t, d, "Notifications"))
+	assert.False(t, d.confirmYOLO)
+	assert.False(t, d.current.YOLO)
+}
+
+func TestSettingsDialogIgnoresClicksOutsideTabs(t *testing.T) {
+	t.Parallel()
+
+	d := newTestSettingsDialog(t, messages.LayoutSettings{})
+	click := settingsTabClick(t, d, "Behavior")
+	for _, msg := range []tea.MouseClickMsg{
+		{X: click.X, Y: click.Y, Button: tea.MouseRight},
+		{X: click.X, Y: click.Y - 1, Button: tea.MouseLeft},
+		{X: click.X, Y: click.Y + 1, Button: tea.MouseLeft},
+		{X: 0, Y: click.Y, Button: tea.MouseLeft},
+	} {
+		_, cmd := d.Update(msg)
+		assert.Nil(t, cmd)
+		assert.Equal(t, tabAppearance, d.tab)
+	}
+}
+
+func TestSettingsDialogVeryShortConfirmationFits(t *testing.T) {
+	t.Parallel()
+
+	d := newTestSettingsDialog(t, messages.LayoutSettings{})
+	d.Update(tea.WindowSizeMsg{Width: 24, Height: 13})
+	d.tab = tabBehavior
+	d.selected[tabBehavior] = rowYOLO
+	d.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	view := d.View()
+	assert.LessOrEqual(t, lipgloss.Height(view), 13)
+	assert.Contains(t, settingsPlainText(view), "No confirmation. Press again to enable.")
+	assert.Contains(t, settingsPlainText(view), "esc cancel")
+	assert.False(t, d.current.YOLO)
+}
+
+func TestSettingsDialogTabLabelsUseDisplayWidth(t *testing.T) {
+	t.Parallel()
+
+	d := newTestSettingsDialog(t, messages.LayoutSettings{})
+	d.Update(tea.WindowSizeMsg{Width: 57, Height: 18})
+	view := ansi.Strip(d.View())
+	assert.Contains(t, view, "Appearance")
+	assert.Contains(t, view, "Notifications")
+	d.Update(settingsTabClick(t, d, "Notifications"))
+	assert.Equal(t, tabNotifications, d.tab)
+}
+
+func TestSettingsDialogTabClickAfterResize(t *testing.T) {
+	t.Parallel()
+
+	d := newTestSettingsDialog(t, messages.LayoutSettings{})
+	d.View()
+	d.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
+	d.Update(settingsTabClick(t, d, "Behavior"))
+	assert.Equal(t, tabBehavior, d.tab)
+
+	click := settingsTabClick(t, d, "Behavior")
+	d.Update(click)
+	assert.Equal(t, tabBehavior, d.tab, "clicking the active tab keeps it selected")
+
+	row, col := d.Position()
+	lines := strings.Split(ansi.Strip(d.View()), "\n")
+	gap := strings.Index(lines[d.TitleZoneHeight()], "·")
+	require.NotEqual(t, -1, gap)
+	d.Update(tea.MouseClickMsg{X: col + lipgloss.Width(lines[d.TitleZoneHeight()][:gap]), Y: row + d.TitleZoneHeight(), Button: tea.MouseLeft})
+	assert.Equal(t, tabBehavior, d.tab, "separators are not clickable tabs")
 }

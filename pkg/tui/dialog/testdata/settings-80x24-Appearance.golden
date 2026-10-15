@@ -1,5 +1,6 @@
 ╭──────────────────────────────────────────────────────────────────────────╮
 │                                 Settings                                 │
+│                                                                          │
 │              Appearance   ·   Behavior   ·   Notifications               │
 │                                                                          │
 │  › Theme                                                  ‹ default › │  │
@@ -17,7 +18,6 @@
 │    [x] Tools                                                          │  │
 │    [ ] Plans                                                          │  │
 │    [x] Todos                                                          │  │
-│                                                                       │  │
 │                                                                          │
 │                                                                          │
 │      ↑↓ move  ←→/space change  tab category  enter open  esc cancel      │

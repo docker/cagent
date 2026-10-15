@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/docker/docker-agent/pkg/plans"
+	"github.com/docker/docker-agent/pkg/tui/messages"
 )
 
 // TestManagerBackgroundDialog verifies that opening a dialog with a non-nil
@@ -175,4 +176,32 @@ func TestTakeBackgroundDialogsRetainsUnmatchedAttention(t *testing.T) {
 	require.Len(t, removed, 1)
 	assert.Same(t, first, removed[0].OriginatingEvent)
 	assert.Same(t, second, mgr.TopBackgroundEvent())
+}
+
+func TestManagerSettingsTabsRemainClickableAfterDragging(t *testing.T) {
+	t.Parallel()
+
+	mgr := New().(*manager)
+	mgr.Update(tea.WindowSizeMsg{Width: 140, Height: 60})
+	d := NewSettingsDialog(messages.Preferences{}, true).(*settingsDialog)
+	mgr.Update(OpenDialogMsg{Model: d})
+
+	mgr.Update(settingsTabClick(t, d, "Behavior"))
+	assert.Equal(t, tabBehavior, d.tab)
+	assert.False(t, mgr.drag.active, "clicking a tab must not drag the dialog")
+
+	row, col := d.Position()
+	mgr.Update(tea.MouseClickMsg{X: col + 4, Y: row + 1, Button: tea.MouseLeft})
+	require.True(t, mgr.drag.active, "the title must still be draggable")
+	mgr.Update(tea.MouseMotionMsg{X: col + 7, Y: row + 3})
+	mgr.Update(tea.MouseReleaseMsg{Button: tea.MouseLeft})
+
+	click := settingsTabClick(t, d, "Notifications")
+	click.X += 3
+	click.Y += 2
+	mgr.Update(click)
+	assert.Equal(t, tabNotifications, d.tab)
+	assert.False(t, mgr.drag.active)
+	assert.Equal(t, 3, mgr.stack[0].offsetX)
+	assert.Equal(t, 2, mgr.stack[0].offsetY)
 }

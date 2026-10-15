@@ -1,5 +1,6 @@
 ╭─────────────────────────────────────────────────────────────────────────────────────────────╮
 │                                          Settings                                           │
+│                                                                                             │
 │                        Appearance   ·   Behavior   ·   Notifications                        │
 │                                                                                             │
 │          ── While agent is working ──────────────────────────────────────────               │
@@ -23,16 +24,5 @@
 │            Interrupt confirmation                   ‹ Always (confirm dialog) ›             │
 │                                                                                             │
 │                                                                                             │
-│                                                                                             │
-│                                                                                             │
-│                                                                                             │
-│                                                                                             │
-│                                                                                             │
-│                                                                                             │
-│                                                                                             │
-│                                                                                             │
-│                                                                                             │
-│                                                                                             │
-│  Changes are saved only when applied.                                                       │
 │               ↑↓ move  ←→/space change  tab category  enter apply  esc cancel               │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────╯

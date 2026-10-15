@@ -1,25 +1,23 @@
 ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │                                                           Settings                                                           │
+│                                                                                                                              │
 │                                        Appearance   ·   Behavior   ·   Notifications                                         │
 │                                                                                                                              │
 │   › Theme                                                    ‹ default ›     Layout preview                                  │
 │                                                                                                                              │
-│                                                                              ╭───────────────────────────┬──────────────╮    │
-│   ── Sidebar layout ──────────────────────────────────────────────────       │                           │ session/path │    │
-│     Sidebar position                                           ‹ Right ›     │                           │ usage        │    │
-│     Section spacing                                           ‹ Normal ›     │           chat            │ agents       │    │
-│     Sidebar info mode                                        ‹ Compact ›     │                           │ tools        │    │
-│                                                                              │                           │ todos        │    │
-│                                                                              ├───────────────────────────┴──────────────┤    │
-│   ── Sidebar sections ────────────────────────────────────────────────       │ input                                    │    │
-│     [x] Session path                                                         ╰──────────────────────────────────────────╯    │
-│     [x] Token usage                                                                                                          │
-│     [x] Agents                                                               Layout changes preview immediately.             │
+│   ── Sidebar layout ──────────────────────────────────────────────────       ╭───────────────────────────┬──────────────╮    │
+│     Sidebar position                                           ‹ Right ›     │                           │ session/path │    │
+│     Section spacing                                           ‹ Normal ›     │                           │ usage        │    │
+│     Sidebar info mode                                        ‹ Compact ›     │           chat            │ agents       │    │
+│                                                                              │                           │ tools        │    │
+│   ── Sidebar sections ────────────────────────────────────────────────       │                           │ todos        │    │
+│     [x] Session path                                                         ├───────────────────────────┴──────────────┤    │
+│     [x] Token usage                                                          │ input                                    │    │
+│     [x] Agents                                                               ╰──────────────────────────────────────────╯    │
 │       [ ] Active agents only                                                                                                 │
-│     [x] Tools                                                                                                                │
+│     [x] Tools                                                                Layout changes preview immediately.             │
 │     [ ] Plans                                                                                                                │
 │     [x] Todos                                                                                                                │
-│                                                                                                                              │
 │                                                                                                                              │
 │   ── Chat display ────────────────────────────────────────────────────                                                       │
 │     [x] Split diff view                                                                                                      │
@@ -27,21 +25,6 @@
 │     [ ] Hide tool results by default                                                                                         │
 │     [x] Render images                                                                                                        │
 │     [x] Show startup banner                                                                                                  │
-│                                                                                                                              │
-│                                                                                                                              │
-│                                                                                                                              │
-│                                                                                                                              │
-│                                                                                                                              │
-│                                                                                                                              │
-│                                                                                                                              │
-│                                                                                                                              │
-│                                                                                                                              │
-│                                                                                                                              │
-│                                                                                                                              │
-│                                                                                                                              │
-│                                                                                                                              │
-│                                                                                                                              │
-│                                                                                                                              │
 │                                                                                                                              │
 │                                                                                                                              │
 │                                ↑↓ move  ←→/space change  tab category  enter open  esc cancel                                │

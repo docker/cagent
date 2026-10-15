@@ -21,6 +21,7 @@ const (
 	settingsWidthPercent  = 95
 	settingsMinWidth      = 60
 	settingsMaxWidth      = 128
+	settingsMaxHeight     = 32
 	settingsControlsWidth = 72
 	settingsPreviewGap    = 3
 	previewMaxWidth       = 44
@@ -133,6 +134,7 @@ type settingsDialog struct {
 	selected    [tabCount]int
 	confirmYOLO bool
 	body        *scrollview.Model
+	tabSpans    [tabCount][2]int
 }
 
 func NewSettingsDialog(preferences messages.Preferences, showVisuals bool) Dialog {
@@ -162,6 +164,19 @@ func (d *settingsDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		cmd := d.SetSize(msg.Width, msg.Height)
 		return d, cmd
+	case tea.MouseClickMsg:
+		if msg.Button == tea.MouseLeft {
+			row, col := d.Position()
+			if msg.Y == row+d.TitleZoneHeight() {
+				for tab, span := range d.tabSpans {
+					if msg.X >= col+3+span[0] && msg.X < col+3+span[1] {
+						d.tab = tab
+						d.confirmYOLO = false
+						break
+					}
+				}
+			}
+		}
 	case tea.KeyPressMsg:
 		if cmd := HandleQuit(msg); cmd != nil {
 			return d, cmd
@@ -381,20 +396,25 @@ func (d *settingsDialog) cancel() tea.Cmd {
 
 func (d *settingsDialog) Position() (row, col int) { return d.CenterDialog(d.View()) }
 
+// TitleZoneHeight keeps the category tabs outside the draggable header.
+func (d *settingsDialog) TitleZoneHeight() int { return 3 }
+
 func (d *settingsDialog) View() string {
 	width := min(d.ComputeDialogWidth(settingsWidthPercent, settingsMinWidth, settingsMaxWidth), max(8, d.Width()))
 	frame := styles.DialogStyle.Padding(0, 2).Width(width)
 	inner := max(1, width-frame.GetHorizontalFrameSize())
-	height := min(d.Height(), 48)
+	height := min(d.Height(), settingsMaxHeight)
 	if d.Height() >= 28 {
-		height = min(d.Height()-2, 48)
+		height = min(d.Height()-2, settingsMaxHeight)
 	}
-	header := NewContent(inner).AddTitle("Settings").AddContent(d.renderTabBar(inner)).AddSpace().Build()
+	header := NewContent(inner).AddTitle("Settings").AddSpace().AddContent(d.renderTabBar(inner)).AddSpace().Build()
 	footer := d.renderFooter(inner, max(2, height-frame.GetVerticalFrameSize()-lipgloss.Height(header)-3))
 	bodyHeight := max(1, height-frame.GetVerticalFrameSize()-lipgloss.Height(header)-lipgloss.Height(footer))
 	controlsWidth := min(inner, settingsControlsWidth)
 	d.body.SetSize(controlsWidth, bodyHeight)
 	body := d.renderBody(d.body.ContentWidth())
+	bodyHeight = min(bodyHeight, len(body.lines))
+	d.body.SetSize(controlsWidth, bodyHeight)
 	d.body.SetContent(body.lines, len(body.lines))
 	d.body.SetScrollOffset(d.body.ScrollOffset())
 	if d.selected[d.tab] == 0 && body.selectedEnd < d.body.VisibleHeight() {
@@ -416,19 +436,27 @@ func (d *settingsDialog) View() string {
 }
 
 func (d *settingsDialog) renderTabBar(width int) string {
+	labels, separator := settingsTabLabels, "  ·  "
+	if lipgloss.Width(strings.Join(labels[:], separator))+2*tabCount > width {
+		labels, separator = [tabCount]string{"App", "Beh", "Notif"}, " · "
+	} else {
+		for i := range labels {
+			labels[i] = " " + labels[i] + " "
+		}
+	}
+	barWidth := lipgloss.Width(strings.Join(labels[:], separator))
+	x := max(0, (width-barWidth)/2)
 	tabs := make([]string, 0, tabCount)
-	for i, label := range settingsTabLabels {
+	for i, label := range labels {
 		style := styles.MutedStyle
 		if i == d.tab {
 			style = styles.PaletteSelectedActionStyle
 		}
-		tabs = append(tabs, style.Render(" "+label+" "))
+		d.tabSpans[i] = [2]int{x, min(width, x+lipgloss.Width(label))}
+		x += lipgloss.Width(label) + lipgloss.Width(separator)
+		tabs = append(tabs, style.Render(label))
 	}
-	bar := strings.Join(tabs, "  ·  ")
-	if lipgloss.Width(bar) > width {
-		bar = styles.HighlightWhiteStyle.Render("‹ " + settingsTabLabels[d.tab] + " ›")
-	}
-	return lipgloss.PlaceHorizontal(width, lipgloss.Center, ansi.Truncate(bar, width, "…"))
+	return lipgloss.PlaceHorizontal(width, lipgloss.Center, ansi.Truncate(strings.Join(tabs, separator), width, "…"))
 }
 
 type settingsContent struct {
@@ -556,7 +584,7 @@ func (d *settingsDialog) renderNotificationsTab(content *settingsContent, width 
 
 func (d *settingsDialog) renderFooter(width, maxHeight int) string {
 	enter := "apply"
-	detail := "Changes are saved only when applied."
+	detail := ""
 	if d.tab == tabAppearance {
 		switch d.selected[d.tab] {
 		case rowTheme:
@@ -589,13 +617,20 @@ func (d *settingsDialog) renderFooter(width, maxHeight int) string {
 		bindings = bindings[4:]
 	}
 	actions := renderSettingsHelp(width, bindings...)
-	parts := []string{"", detail, actions}
+	parts := []string{"", actions}
+	if detail != "" {
+		parts = []string{"", detail, actions}
+	}
 	if lipgloss.Height(strings.Join(parts, "\n")) > maxHeight && !d.confirmYOLO {
 		parts = []string{"", actions}
 	}
 	if lipgloss.Height(strings.Join(parts, "\n")) > maxHeight {
 		actions = renderSettingsHelp(width, "enter", enter, "esc", "cancel")
 		parts = []string{detail, actions}
+	}
+	if d.confirmYOLO && lipgloss.Height(strings.Join(parts, "\n")) > maxHeight {
+		detail = style.Render(ansi.Wrap("No confirmation. Press again to enable.", width, ""))
+		parts = []string{detail, renderSettingsHelp(width, "esc", "cancel")}
 	}
 	return strings.Join(parts, "\n")
 }

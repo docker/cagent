@@ -208,8 +208,12 @@ func (d *manager) handleDragStart(x, y int) bool {
 	if x < col || x >= col+w {
 		return false
 	}
+	zoneHeight := titleZoneHeight
+	if sized, ok := e.dialog.(interface{ TitleZoneHeight() int }); ok {
+		zoneHeight = sized.TitleZoneHeight()
+	}
 	// Check vertical bounds: click must be within the title zone
-	if y < row || y >= row+titleZoneHeight {
+	if y < row || y >= row+zoneHeight {
 		return false
 	}
 
