@@ -567,7 +567,7 @@ func (d *settingsDialog) renderFooter(width, maxHeight int) string {
 	if d.tab == tabAppearance {
 		switch d.selected[d.tab] {
 		case rowTheme:
-			enter, detail = "open", "Theme changes save immediately in the separate picker."
+			enter, detail = "open", ""
 		case rowPosition, rowSpacing, rowInfoMode, rowSessionPath, rowUsage, rowAgents, rowActiveAgents, rowTools, rowPlans, rowTodos:
 			detail = "Layout previews live. Esc restores the previous layout."
 		}

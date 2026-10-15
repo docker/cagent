@@ -113,7 +113,10 @@ func TestSettingsDialogContextualHelp(t *testing.T) {
 	t.Parallel()
 
 	d := newTestSettingsDialog(t, messages.LayoutSettings{})
-	assert.Contains(t, ansi.Strip(d.View()), "enter open")
+	view := ansi.Strip(d.View())
+	assert.Contains(t, view, "enter open")
+	assert.NotContains(t, view, "Theme changes save immediately")
+	assert.NotContains(t, view, "Changes are saved only when applied.")
 	d.selected[tabAppearance] = rowPosition
 	assert.Contains(t, ansi.Strip(d.View()), "enter apply")
 
