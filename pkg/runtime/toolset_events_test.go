@@ -48,7 +48,7 @@ func newRAGAgent(name string, toolsets ...tools.ToolSet) *agent.Agent {
 	)
 }
 
-func requireRAGProgress(t *testing.T, events chan Event) *RAGIndexingProgressEvent {
+func requireRAGProgress(t *testing.T, events <-chan Event) *RAGIndexingProgressEvent {
 	t.Helper()
 	select {
 	case ev := <-events:

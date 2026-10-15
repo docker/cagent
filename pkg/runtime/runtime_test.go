@@ -1047,7 +1047,7 @@ func TestSessionWithoutUserMessage(t *testing.T) {
 
 // --- Tool setup failure handling tests ---
 
-func collectEvents(ch chan Event) []Event {
+func collectEvents(ch <-chan Event) []Event {
 	n := len(ch)
 	evs := make([]Event, 0, n)
 	for range n {

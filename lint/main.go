@@ -76,6 +76,7 @@ var programCops = []prog.Cop{
 	rubocops.NewLintCutSuffix(cop.WithScope(outsideFrozenConfig)),
 	rubocops.NewLintFieldsSeqLookup(),
 	SlicesConcat,
+	ChannelDirection,
 	SessionStateAccessors,
 	rubocops.NewLintStreamCloseSafety(),
 	ExclusiveStreamLease,

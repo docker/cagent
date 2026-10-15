@@ -114,10 +114,10 @@ func TestManager_Query_UsageAggregation(t *testing.T) {
 // until release is closed.
 type blockingStrategy struct {
 	started chan struct{}
-	release chan struct{}
+	release <-chan struct{}
 }
 
-func newBlockingStrategy(release chan struct{}) *blockingStrategy {
+func newBlockingStrategy(release <-chan struct{}) *blockingStrategy {
 	return &blockingStrategy{started: make(chan struct{}), release: release}
 }
 

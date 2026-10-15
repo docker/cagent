@@ -599,7 +599,7 @@ func TestHandleStream_ContextCancellation(t *testing.T) {
 
 // agentChoiceText drains every buffered event and concatenates the
 // AgentChoice content, i.e. exactly what a live consumer (TUI/API) rendered.
-func agentChoiceText(ch chan Event) string {
+func agentChoiceText(ch <-chan Event) string {
 	var b strings.Builder
 	for {
 		select {

@@ -52,7 +52,7 @@ func recordingTool(name string, executed *bool) []tools.Tool {
 // further events are produced); used after processToolCalls returns.
 // Distinct from drainEvents in loop_steps_test.go, which is
 // non-blocking and intended for still-open channels.
-func collectClosedEvents(ch chan Event) []Event {
+func collectClosedEvents(ch <-chan Event) []Event {
 	var out []Event
 	for ev := range ch {
 		out = append(out, ev)

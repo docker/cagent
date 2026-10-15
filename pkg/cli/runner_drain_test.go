@@ -17,7 +17,7 @@ import (
 // cancelled, then floods more events than any buffer holds before closing.
 // done is closed only once every event has been consumed, so Run can only
 // observe it closed if it cancelled the producer and drained the stream.
-func stallingRunStream(triggers []runtime.Event, done chan struct{}) func(context.Context, *session.Session) <-chan runtime.Event {
+func stallingRunStream(triggers []runtime.Event, done chan<- struct{}) func(context.Context, *session.Session) <-chan runtime.Event {
 	return func(ctx context.Context, _ *session.Session) <-chan runtime.Event {
 		ch := make(chan runtime.Event)
 		go func() {

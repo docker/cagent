@@ -26,14 +26,14 @@ type EventSink interface {
 // is dropped, since a closed channel signals that the consumer has
 // gone away.
 type channelSink struct {
-	ch chan Event
+	ch chan<- Event
 }
 
 // NewChannelSink returns an [EventSink] that writes to ch. This is the
 // standard bridge between the runtime's EventSink-based internals and
 // external callers that create raw event channels (e.g. app.go,
 // tests).
-func NewChannelSink(ch chan Event) EventSink {
+func NewChannelSink(ch chan<- Event) EventSink {
 	return &channelSink{ch: ch}
 }
 
@@ -49,7 +49,7 @@ func (s *channelSink) Emit(e Event) {
 // regular runtime code should use the blocking [channelSink] so
 // back-pressure is preserved.
 type nonBlockingChannelSink struct {
-	ch chan Event
+	ch chan<- Event
 }
 
 // nonBlocking returns a non-blocking sink for sink. If sink wraps a
@@ -80,7 +80,7 @@ func (s nonBlockingChannelSink) Emit(e Event) {
 // should use the unbounded blocking [channelSink] instead, so ordinary
 // back-pressure is preserved.
 type boundedChannelSink struct {
-	ch   chan Event
+	ch   chan<- Event
 	wait time.Duration
 }
 

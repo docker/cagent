@@ -591,7 +591,7 @@ func (a *App) LookupCommand(ctx context.Context, userInput string) (types.Comman
 }
 
 // EmitStartupInfo emits initial agent, team, and toolset information to the provided channel
-func (a *App) EmitStartupInfo(ctx context.Context, events chan runtime.Event) {
+func (a *App) EmitStartupInfo(ctx context.Context, events chan<- runtime.Event) {
 	a.runtime.EmitStartupInfo(ctx, a.session, runtime.NewChannelSink(events))
 }
 

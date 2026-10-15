@@ -107,7 +107,7 @@ func (p *runtimePool) takeIdle(agent string) runtimeRunner {
 	}
 }
 
-func (p *runtimePool) channelFor(agent string) chan runtimeRunner {
+func (p *runtimePool) channelFor(agent string) chan<- runtimeRunner {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	ch, ok := p.idle[agent]
