@@ -85,19 +85,44 @@ models:
 
 ## Inference Profiles
 
-Use inference profile prefixes for optimal routing:
+Inference profiles route requests across the regions supported by that profile:
 
 | Prefix    | Routes To                                |
 | --------- | ---------------------------------------- |
-| `global.` | All commercial AWS regions (recommended) |
+| `global.` | Supported commercial AWS regions         |
 | `us.`     | US regions only                          |
-| `eu.`     | EU regions only (GDPR compliance)        |
+| `eu.`     | Supported European regions               |
 | `apac.`   | Asia Pacific regions only                |
 
 > [!TIP]
 > **Inference profiles**
 >
-> Use `global.` prefix on model IDs for automatic cross-region routing. Use `eu.` prefix for GDPR compliance.
+> Choose an exact profile from the set on that model's AWS card; prefix availability differs per model. A routing prefix alone does not establish GDPR compliance.
+
+## Claude on Bedrock: transport and limits
+
+Docker Agent calls **`ConverseStream`** on Bedrock runtime. Native Mantle,
+InvokeModel, Bedrock Messages and Claude Platform on AWS are not wired by this
+integration. A custom endpoint does not switch the runtime client's API.
+
+[Mythos 5](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-mythos-5.html)
+is Mantle-only and explicitly unsupported on runtime/Converse.
+[Mythos 5.1](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-mythos-5-1.html)
+is documented on runtime, with gated access, not Mantle. Vendor support does not
+mean this client's complete 5.x compatibility work has shipped.
+
+[AWS compaction](https://docs.aws.amazon.com/bedrock/latest/userguide/claude-messages-compaction.html)
+requires InvokeModel for both `compact-2026-01-12` and `compact-2026-09-04`;
+neither works through Converse. Haiku 5.5, Opus 5/5.5 and Sonnet 5/5.5 cards
+document the latter; Fable 5/5.1 and Mythos 5.1 cards do not document compaction.
+The current client also does not wire Claude API cache diagnostics, server-side
+fallbacks or native JSON-schema structured output. General Bedrock feature
+statements do not override a specific model card.
+
+See [Claude access paths](../anthropic/index.md#claude-access-paths) for the dated
+nine-model evidence matrix, exact card-sourced IDs, structured-output limits and
+account prerequisites. `apac.` in the general profile table is not a documented
+Claude 5.x profile in this audit; do not generate IDs by copying prefixes.
 
 ## Thinking Budget (Claude on Bedrock)
 

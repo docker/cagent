@@ -15,6 +15,10 @@ _Use OpenCode Zen models with Docker Agent._
 Docker Agent includes built-in support for OpenCode Zen as an alias provider for OpenAI-compatible models. Anthropic and Google models are supported via custom provider definitions.
 
 Use the provider ID `opencode`. The legacy ID `opencode-zen` is also accepted.
+For Claude, this alias selects OpenAI-compatible Chat Completions, not Messages.
+The custom Messages configuration below is a separate path; neither path inherits
+Claude API signatures, beta support, prompt-cache behavior or prices by default.
+See [Claude access paths](../anthropic/index.md#claude-access-paths).
 
 ## Setup
 
