@@ -352,6 +352,7 @@ type model struct {
 	agentCompactionModel string
 	agentPrimaryLimit    int64
 	availableAgents      []runtime.AgentDetails
+	backgroundAgents     map[string]string // child session ID -> agent name
 	agentTransfers       []agentTransfer   // logical transfer_task hops (stack; top = innermost)
 	agentReturn          *agentReturnState // transient child→parent Return presentation, nil when none
 	availableTools       int
@@ -1028,6 +1029,9 @@ func (m *model) LoadFromSession(sess *session.Session) {
 	// entries of any previously shown session so repeated loads and session
 	// switches cannot leave stale or doubled totals behind.
 	clear(m.sessionUsage)
+	if m.rootSessionID != sess.ID {
+		clear(m.backgroundAgents)
+	}
 
 	// Reseed the per-agent cost state from the restored tree so each agent's
 	// historical spend shows on its card immediately (see SeedRestoredCosts).
@@ -1251,6 +1255,20 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 			}
 			return m, cmd
 		}
+		return m, nil
+	case *runtime.BackgroundAgentStatusEvent:
+		if msg.SessionID == "" {
+			return m, nil
+		}
+		if msg.Running {
+			if m.backgroundAgents == nil {
+				m.backgroundAgents = make(map[string]string)
+			}
+			m.backgroundAgents[msg.SessionID] = msg.AgentName
+		} else {
+			delete(m.backgroundAgents, msg.SessionID)
+		}
+		m.invalidateCache()
 		return m, nil
 	case *runtime.TokenUsageEvent:
 		m.SetTokenUsage(msg)
@@ -1605,6 +1623,7 @@ func (m *model) collapsedInfoLine(contentWidth int) string {
 	}
 
 	if !m.sectionVisibility.HideAgents {
+		appendPart(m.backgroundAgentsSummary())
 		appendPart(m.agentSummaryCollapsed())
 		appendPart(m.transferSummaryCollapsed(contentWidth))
 	}
@@ -1616,6 +1635,13 @@ func (m *model) collapsedInfoLine(contentWidth int) string {
 	}
 
 	return strings.Join(parts, styles.MutedStyle.Render(" · "))
+}
+
+func (m *model) backgroundAgentsSummary() string {
+	if len(m.backgroundAgents) == 0 {
+		return ""
+	}
+	return styles.ActiveStyle.Render(fmt.Sprintf("Background: %d running", len(m.backgroundAgents)))
 }
 
 // agentSummaryCollapsed renders the team roster for the band: the current
@@ -2227,6 +2253,12 @@ func (m *model) agentInfo(contentWidth int) string {
 			add(line, "")
 		}
 	}
+	if summary := m.backgroundAgentsSummary(); summary != "" {
+		add("", "")
+		for line := range strings.SplitSeq(lipgloss.NewStyle().Width(contentWidth).Render(summary), "\n") {
+			add(line, "")
+		}
+	}
 	m.agentLineOwners = owners
 
 	return m.renderTab(agentTitle, strings.Join(bodyLines, "\n"), contentWidth)
@@ -2268,6 +2300,11 @@ func (m *model) rosterAgents() []rosterAgent {
 func (m *model) agentActiveInSession(name string) bool {
 	if name == m.sessionState.CurrentAgentName() || name == m.workingAgent {
 		return true
+	}
+	for _, agentName := range m.backgroundAgents {
+		if agentName == name {
+			return true
+		}
 	}
 	for _, hop := range m.agentTransfers {
 		if hop.from == name || hop.to == name {

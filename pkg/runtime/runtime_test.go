@@ -4823,8 +4823,12 @@ func TestRunAgentImmediateFailureEmitsNoZeroUsageEvent(t *testing.T) {
 	})
 	require.NotEmpty(t, result.ErrMsg, "RunAgent should surface the sub-session error")
 
-	assert.Empty(t, forwarded,
-		"a child that failed before any billed work must not emit a zero-usage snapshot")
+	require.Len(t, forwarded, 2, "a failed child emits only its lifecycle events")
+	started := forwarded[0].(*BackgroundAgentStatusEvent)
+	stopped := forwarded[1].(*BackgroundAgentStatusEvent)
+	assert.True(t, started.Running)
+	assert.False(t, stopped.Running)
+	assert.Equal(t, started.SessionID, stopped.SessionID)
 }
 
 // mockModelStoreWithCostAndLimit prices tokens so usage snapshots carry a
@@ -4855,9 +4859,8 @@ func lastAttachedSubSession(sess *session.Session) *session.Session {
 // background sub-session's TokenUsageEvents through OnBackgroundEvent — the
 // out-of-band path that lets the TUI keep per-agent context accounting for
 // background agents — tagged with the sub-session id and the worker's name,
-// and forwards nothing else. The last event is the authoritative final
-// snapshot runCollecting emits before attaching the child, and must match
-// the child's final recorded state.
+// alongside its lifecycle events. The final usage snapshot emitted before
+// attaching the child must match the child's final recorded state.
 func TestRunAgentForwardsTokenUsageOutOfBand(t *testing.T) {
 	t.Parallel()
 
@@ -4885,8 +4888,15 @@ func TestRunAgentForwardsTokenUsageOutOfBand(t *testing.T) {
 	})
 	require.Empty(t, result.ErrMsg, "RunAgent should succeed")
 
-	require.NotEmpty(t, forwarded, "the background task's token usage must be forwarded out-of-band")
-	for _, event := range forwarded {
+	require.GreaterOrEqual(t, len(forwarded), 3)
+	started := forwarded[0].(*BackgroundAgentStatusEvent)
+	stopped := forwarded[len(forwarded)-1].(*BackgroundAgentStatusEvent)
+	assert.True(t, started.Running)
+	assert.False(t, stopped.Running)
+	assert.Equal(t, started.SessionID, stopped.SessionID)
+	assert.Equal(t, "worker", started.AgentName)
+	assert.Equal(t, "worker", stopped.AgentName)
+	for _, event := range forwarded[1 : len(forwarded)-1] {
 		usage, ok := event.(*TokenUsageEvent)
 		require.Truef(t, ok, "only TokenUsageEvents may be forwarded, got %T", event)
 		assert.Equal(t, "worker", usage.AgentName, "usage is attributed to the background agent")
@@ -4900,7 +4910,7 @@ func TestRunAgentForwardsTokenUsageOutOfBand(t *testing.T) {
 	// 50×$20 per 1M tokens), and the resolved context limit.
 	sub := lastAttachedSubSession(sess)
 	require.NotNil(t, sub)
-	last := forwarded[len(forwarded)-1].(*TokenUsageEvent)
+	last := forwarded[len(forwarded)-2].(*TokenUsageEvent)
 	require.NotNil(t, last.Usage)
 	assert.Equal(t, sub.ID, last.SessionID)
 	assert.Equal(t, int64(150), last.Usage.ContextLength, "final snapshot carries the worker's cumulative usage")

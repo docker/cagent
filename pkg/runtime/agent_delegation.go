@@ -459,6 +459,10 @@ func (r *LocalRuntime) runCollecting(ctx context.Context, parent *session.Sessio
 	}
 
 	s := newSubSession(parent, cfg, child)
+	r.emitBackgroundEvent(ctx, BackgroundAgentStatus(s.ID, cfg.AgentName, true))
+	defer func() {
+		r.emitBackgroundEvent(context.WithoutCancel(ctx), BackgroundAgentStatus(s.ID, cfg.AgentName, false))
+	}()
 
 	// subagent_stop fires after the background sub-session has fully
 	// drained — success or failure. The caller agent (whoever dispatched
