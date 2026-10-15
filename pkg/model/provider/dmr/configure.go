@@ -249,12 +249,18 @@ func parseBoolOpt(opts map[string]any, key string) (bool, error) {
 	}
 }
 
-// parseInt64Value parses an int64 from YAML/JSON-decoded values (int, float64, string).
+// parseInt64Value parses an int64 from YAML/JSON-decoded values.
+// goccy/go-yaml decodes a positive integer as uint64 (see #4522).
 func parseInt64Value(v any) (int64, bool) {
 	switch t := v.(type) {
 	case int64:
 		return t, true
 	case int:
+		return int64(t), true
+	case uint64:
+		if t > math.MaxInt64 {
+			return 0, false
+		}
 		return int64(t), true
 	case float64:
 		return int64(t), true
