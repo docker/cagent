@@ -349,3 +349,32 @@ func TestSettingsDialogChatDisplayRowsAreContiguous(t *testing.T) {
 		})
 	}
 }
+
+func TestSettingsDialogBlankLinesOnlyBetweenSections(t *testing.T) {
+	t.Parallel()
+
+	for _, size := range []struct{ width, height int }{{80, 24}, {100, 40}, {140, 50}} {
+		t.Run(fmt.Sprintf("%dx%d", size.width, size.height), func(t *testing.T) {
+			t.Parallel()
+			d := newTestSettingsDialog(t, messages.LayoutSettings{})
+			d.Update(tea.WindowSizeMsg{Width: size.width, Height: size.height})
+			for tab := range tabCount {
+				d.tab = tab
+				d.View()
+				content := d.renderBody(d.body.ContentWidth())
+				for i, line := range content.lines {
+					if strings.TrimSpace(line) != "" {
+						continue
+					}
+					next := i + 1
+					for next < len(content.lines) && strings.TrimSpace(content.lines[next]) == "" {
+						next++
+					}
+					require.Less(t, next, len(content.lines))
+					assert.True(t, strings.HasPrefix(ansi.Strip(content.lines[next]), "── "),
+						"blank line within section in tab %d, row %d", tab, i)
+				}
+			}
+		})
+	}
+}

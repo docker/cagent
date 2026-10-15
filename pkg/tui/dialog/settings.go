@@ -432,17 +432,12 @@ func (d *settingsDialog) renderTabBar(width int) string {
 }
 
 type settingsContent struct {
-	width, groupSpacing, rowSpacing int
-	groupStart                      bool
-	lines                           []string
-	selectedStart, selectedEnd      int
+	width, groupSpacing        int
+	lines                      []string
+	selectedStart, selectedEnd int
 }
 
 func (c *settingsContent) addRow(row, selected int, value string) {
-	if len(c.lines) > 0 && !c.groupStart {
-		c.lines = append(c.lines, make([]string, c.rowSpacing)...)
-	}
-	c.groupStart = false
 	start := len(c.lines)
 	if row == selected {
 		value = styles.PaletteSelectedActionStyle.Width(c.width).Render(ansi.Strip(value))
@@ -458,12 +453,11 @@ func (c *settingsContent) addGroup(label string, width int) {
 		c.lines = append(c.lines, make([]string, c.groupSpacing)...)
 	}
 	c.lines = append(c.lines, ansi.Truncate(RenderGroupSeparator(label, width), width, "…"))
-	c.groupStart = true
 }
 
 func (d *settingsDialog) renderBody(width int) settingsContent {
-	for _, spacing := range []struct{ group, row int }{{2, 1}, {2, 0}, {1, 0}} {
-		content := settingsContent{width: width, groupSpacing: spacing.group, rowSpacing: spacing.row}
+	for _, spacing := range []int{2, 1} {
+		content := settingsContent{width: width, groupSpacing: spacing}
 		switch d.tab {
 		case tabBehavior:
 			d.renderBehaviorTab(&content, width)
@@ -472,7 +466,7 @@ func (d *settingsDialog) renderBody(width int) settingsContent {
 		default:
 			d.renderAppearanceTab(&content, width)
 		}
-		if len(content.lines) <= d.body.VisibleHeight() || spacing.group == 1 {
+		if len(content.lines) <= d.body.VisibleHeight() || spacing == 1 {
 			return content
 		}
 	}
@@ -502,7 +496,6 @@ func (d *settingsDialog) renderAppearanceTab(content *settingsContent, width int
 		toggle(rowTodos, "Todos", !d.current.Layout.HideTodos)
 	}
 	content.addGroup("Chat display", width)
-	content.rowSpacing = 0
 	toggle(rowSplitDiff, "Split diff view", d.current.SplitDiffView)
 	toggle(rowExpandThinking, "Expand thinking by default", d.current.ExpandThinking)
 	toggle(rowHideToolResults, "Hide tool results by default", d.current.HideToolResults)

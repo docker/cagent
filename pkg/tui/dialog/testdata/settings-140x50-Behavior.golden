@@ -13,18 +13,18 @@
 │                                                                                                                              │
 │                           ── Session defaults ────────────────────────────────────────────────                               │
 │                             [ ] Restore tabs on launch                                                                       │
-│                                                                                                                              │
 │                             [ ] Automatic snapshots                                                                          │
-│                                                                                                                              │
 │                             [ ] Cache-stable dynamic prompts                                                                 │
-│                                                                                                                              │
 │                             [ ] Lean UI by default                                                                           │
-│                                                                                                                              │
 │                             Tab title max length                                    ‹ 20 chars ›                             │
 │                                                                                                                              │
 │                                                                                                                              │
 │                           ── Interrupts ──────────────────────────────────────────────────────                               │
 │                             Interrupt confirmation                   ‹ Always (confirm dialog) ›                             │
+│                                                                                                                              │
+│                                                                                                                              │
+│                                                                                                                              │
+│                                                                                                                              │
 │                                                                                                                              │
 │                                                                                                                              │
 │                                                                                                                              │

@@ -7,25 +7,17 @@
 │                                                                              ╭───────────────────────────┬──────────────╮    │
 │   ── Sidebar layout ──────────────────────────────────────────────────       │                           │ session/path │    │
 │     Sidebar position                                           ‹ Right ›     │                           │ usage        │    │
-│                                                                              │           chat            │ agents       │    │
-│     Section spacing                                           ‹ Normal ›     │                           │ tools        │    │
+│     Section spacing                                           ‹ Normal ›     │           chat            │ agents       │    │
+│     Sidebar info mode                                        ‹ Compact ›     │                           │ tools        │    │
 │                                                                              │                           │ todos        │    │
-│     Sidebar info mode                                        ‹ Compact ›     ├───────────────────────────┴──────────────┤    │
-│                                                                              │ input                                    │    │
-│                                                                              ╰──────────────────────────────────────────╯    │
-│   ── Sidebar sections ────────────────────────────────────────────────                                                       │
-│     [x] Session path                                                         Layout changes preview immediately.             │
-│                                                                                                                              │
+│                                                                              ├───────────────────────────┴──────────────┤    │
+│   ── Sidebar sections ────────────────────────────────────────────────       │ input                                    │    │
+│     [x] Session path                                                         ╰──────────────────────────────────────────╯    │
 │     [x] Token usage                                                                                                          │
-│                                                                                                                              │
-│     [x] Agents                                                                                                               │
-│                                                                                                                              │
+│     [x] Agents                                                               Layout changes preview immediately.             │
 │       [ ] Active agents only                                                                                                 │
-│                                                                                                                              │
 │     [x] Tools                                                                                                                │
-│                                                                                                                              │
 │     [ ] Plans                                                                                                                │
-│                                                                                                                              │
 │     [x] Todos                                                                                                                │
 │                                                                                                                              │
 │                                                                                                                              │
@@ -35,6 +27,14 @@
 │     [ ] Hide tool results by default                                                                                         │
 │     [x] Render images                                                                                                        │
 │     [x] Show startup banner                                                                                                  │
+│                                                                                                                              │
+│                                                                                                                              │
+│                                                                                                                              │
+│                                                                                                                              │
+│                                                                                                                              │
+│                                                                                                                              │
+│                                                                                                                              │
+│                                                                                                                              │
 │                                                                                                                              │
 │                                                                                                                              │
 │                                                                                                                              │
