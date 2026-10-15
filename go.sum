@@ -160,8 +160,8 @@ github.com/dgageot/ultraviolet v0.0.0-20260313154905-9451997d56b6 h1:88fWkkjwzuI
 github.com/dgageot/ultraviolet v0.0.0-20260313154905-9451997d56b6/go.mod h1:SQpCTRNBtzJkwku5ye4S3HEuthAlGy2n9VXZnWkEW98=
 github.com/distribution/reference v0.6.0 h1:0IXCQ5g4/QMHHkarYzh5l+u8T3t73zM5QvfrDyIgxBk=
 github.com/distribution/reference v0.6.0/go.mod h1:BbU0aIcezP1/5jX/8MP0YiH4SdvB5Y4f/wlDRiLyi3E=
-github.com/dlclark/regexp2/v2 v2.5.2 h1:HAsucWRhsqcDzl6Ua9aR8JwYOTzrZyPrF0/FNxJVAI0=
-github.com/dlclark/regexp2/v2 v2.5.2/go.mod h1:avUrQvPaLz2DrFNHJF0taWAFFX2C1GMSSoeiqFjcBmU=
+github.com/dlclark/regexp2/v2 v2.8.1 h1:I1jbaCbXeOxdVN8z3fb55Mvtgb94/6+Dh0zjmXjKV/0=
+github.com/dlclark/regexp2/v2 v2.8.1/go.mod h1:avUrQvPaLz2DrFNHJF0taWAFFX2C1GMSSoeiqFjcBmU=
 github.com/dnaeon/go-vcr v1.2.0 h1:zHCHvJYTMh1N7xnV7zf1m1GPBF9Ad0Jk/whtQ1663qI=
 github.com/dnaeon/go-vcr v1.2.0/go.mod h1:R4UdLID7HZT3taECzJs4YgbbH6PIGXB6W/sc5OLb6RQ=
 github.com/docker/aijson v0.1.0 h1:61XgIzb5QJWd72sFchdTMwdwH4rA4G62X1KjneekNkY=
@@ -180,8 +180,8 @@ github.com/docker/go-units v0.5.0 h1:69rxXcBk27SvSaaxTtLh/8llcHD8vYHT7WSdRZ/jvr4
 github.com/docker/go-units v0.5.0/go.mod h1:fgPhTUdO+D/Jk86RDLlptpiXQzgHJF7gydDDbaIK4Dk=
 github.com/docker/portcullis v1.1.0 h1:c45WCRlsQfRxX3hLBqsaKI5/AbA+mdiNNgyeSl4bQZg=
 github.com/docker/portcullis v1.1.0/go.mod h1:Mi8911/f4iLlXzAPVR/FFU9Hflze+7PDoxVzyQqHzGs=
-github.com/dop251/goja v0.0.0-20260917113740-793a2a65c13b h1:UMDLDHFR1Chu3qnsPNCrVxq0lZgG6JqHpLL5+iqfSkw=
-github.com/dop251/goja v0.0.0-20260917113740-793a2a65c13b/go.mod h1:u8yZRUavu+N4EnFFy6J5fVtjE7lEcZ2YyV2GcBXY9c8=
+github.com/dop251/goja v0.0.0-20261014135309-2cb8274eed06 h1:r8PdcvqyLRXlJ3JBirFPOdKKNoDpXvXTIoU/Oos9BTY=
+github.com/dop251/goja v0.0.0-20261014135309-2cb8274eed06/go.mod h1:Cp9NYOLrEKg/ypIRkUWYXWLuKAyyFGkDmGeJ95Sw0zI=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
 github.com/dvsekhvalnov/jose2go v1.7.0 h1:bnQc8+GMnidJZA8zc6lLEAb4xNrIqHwO+9TzqvtQZPo=
