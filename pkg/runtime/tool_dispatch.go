@@ -69,13 +69,14 @@ func (r *LocalRuntime) processToolCalls(ctx context.Context, sess *session.Sessi
 	}
 
 	d := &toolexec.Dispatcher{
-		AppendThought: r.thoughtAppender(ctx, sess, caller),
-		Tracer:        r.tracer,
-		Hooks:         &hookDispatcher{r: r, events: events},
-		Resume:        r.resumeChan,
-		AgentFor:      func(*session.Session) *agent.Agent { return caller },
-		Permissions:   r.permissionCheckers,
-		Handlers:      handlers,
+		AppendThought:       r.thoughtAppender(ctx, sess, caller),
+		Tracer:              r.tracer,
+		Hooks:               &hookDispatcher{r: r, events: events},
+		Resume:              r.resumeChan,
+		PrepareConfirmation: r.armResume,
+		AgentFor:            func(*session.Session) *agent.Agent { return caller },
+		Permissions:         r.permissionCheckers,
+		Handlers:            handlers,
 		Recall: func(ctx context.Context, _ *session.Session, _ *agent.Agent, message string) error {
 			return r.recall(ctx, QueuedMessage{Content: message})
 		},

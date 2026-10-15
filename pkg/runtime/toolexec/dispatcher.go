@@ -210,6 +210,10 @@ type Dispatcher struct {
 	// dispatcher blocks on it whenever a tool requires confirmation.
 	Resume <-chan ResumeRequest
 
+	// PrepareConfirmation runs under the confirmation mutex before emitting a
+	// prompt, so the host can discard earlier decisions. May be nil.
+	PrepareConfirmation func()
+
 	// AgentFor returns the active agent for a session. Required.
 	AgentFor func(*session.Session) *agent.Agent
 
@@ -855,6 +859,9 @@ func (c *call) askUser(ctx context.Context, runTool func() CallOutcome) CallOutc
 
 	slog.DebugContext(ctx, "Tools not approved, waiting for resume", "tool", c.tc.Function.Name, "session_id", c.sess.ID)
 	c.prompted = true
+	if c.d.PrepareConfirmation != nil {
+		c.d.PrepareConfirmation()
+	}
 	c.em.EmitToolCallConfirmation(c.tc, c.tool, c.a.Name(), c.confirmationMetadata(hookMeta))
 
 	if c.d.Hooks != nil {
@@ -1093,13 +1100,14 @@ func (r callRuntime) CheckSkillContent(ctx context.Context, content tools.SkillC
 
 func (r callRuntime) gate() *Gate {
 	return &Gate{
-		Sess:        r.c.sess,
-		Agent:       r.c.a,
-		Emitter:     r.c.em,
-		Resume:      r.c.d.Resume,
-		Hooks:       r.c.d.Hooks,
-		Permissions: r.c.d.Permissions,
-		Mu:          r.c.confirmationMutex(),
+		Sess:                r.c.sess,
+		Agent:               r.c.a,
+		Emitter:             r.c.em,
+		Resume:              r.c.d.Resume,
+		PrepareConfirmation: r.c.d.PrepareConfirmation,
+		Hooks:               r.c.d.Hooks,
+		Permissions:         r.c.d.Permissions,
+		Mu:                  r.c.confirmationMutex(),
 	}
 }
 

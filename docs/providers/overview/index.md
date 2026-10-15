@@ -14,7 +14,7 @@ _Docker Agent supports multiple AI model providers. Choose the right one for you
 ## Supported Providers
 
 - [**OpenAI**](../openai/index.md) — GPT-5, GPT-5-mini, GPT-4o. The most widely used AI models.
-- [**Anthropic**](../anthropic/index.md) — Claude Sonnet 4.5, Claude Opus 4.7. Excellent for coding and analysis.
+- [**Anthropic**](../anthropic/index.md) — Claude models for coding and analysis. See [Claude access paths](../anthropic/index.md#claude-access-paths) for protocol, host and model-specific limits.
 - [**Google Gemini**](../google/index.md) — Gemini 2.5 Flash, Gemini 3 Pro. Fast and cost-effective.
 - [**AWS Bedrock**](../bedrock/index.md) — access Claude, Nova, Llama, and more through AWS infrastructure.
 - [**Docker Model Runner**](../dmr/index.md) — run models locally with Docker. No API keys, no costs.

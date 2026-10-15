@@ -1,6 +1,6 @@
 ---
 title: "Coding Harnesses"
-description: "Delegate coding tasks to external AI coding CLIs (Claude Code, Codex, opencode) as sub-agents."
+description: "Delegate coding tasks to external AI coding CLIs (Claude Code, Codex, opencode, pi, Command Code) as sub-agents."
 keywords: docker agent, ai agents, features, coding harnesses
 weight: 50
 canonical: https://docs.docker.com/ai/docker-agent/features/harnesses/
@@ -10,7 +10,7 @@ _Delegate coding tasks to external AI coding CLIs (Claude Code, Codex, opencode)
 
 ## Overview
 
-A **harness** agent delegates its work to an external coding CLI — `claude` (Claude Code), `codex` (OpenAI Codex), `opencode`, or `pi` — instead of calling a model API directly. The external CLI drives the coding loop while Docker Agent provides orchestration, hooks, permissions, and distribution.
+A **harness** agent delegates its work to an external coding CLI — `claude` (Claude Code), `codex` (OpenAI Codex), `opencode`, `pi`, or `cmd` (Command Code) — instead of calling a model API directly. The external CLI drives the coding loop while Docker Agent provides orchestration, hooks, permissions, and distribution.
 
 This pattern gives you the best of both worlds:
 
@@ -32,6 +32,7 @@ The external CLI must be installed and available on `PATH` before starting Docke
 | `codex` | `codex` | [github.com/openai/codex](https://github.com/openai/codex) |
 | `opencode` | `opencode` | [opencode.ai](https://opencode.ai) |
 | `pi` | `pi` | Refer to the `pi` CLI documentation for installation instructions. |
+| `command-code` | `cmd` | [commandcode.ai](https://commandcode.ai) |
 
 Docker Agent will report an error at session start if the required binary is not found. The `claude-code` harness additionally needs the CLI to be logged in — see [Authentication](#authentication-claude-subscription-no-api-key) below.
 
@@ -53,9 +54,9 @@ Harness agents do **not** need a `model:` field — the external CLI manages its
 
 | Field | Applies to | Type | Description |
 | --- | --- | --- | --- |
-| `type` | all | string | **Required.** One of `claude-code`, `codex`, `opencode`, `pi` |
+| `type` | all | string | **Required.** One of `claude-code`, `codex`, `opencode`, `pi`, `command-code` |
 | `model` | all | string | Optional model override forwarded to the CLI. When omitted, the CLI uses its own default model. |
-| `effort` | `claude-code` | string | Reasoning effort: `low` \| `medium` \| `high` \| `xhigh` \| `max` — forwarded as `--effort`. When omitted, Claude Code uses its own default. |
+| `effort` | `claude-code`, `command-code` | string | Reasoning effort: `low` \| `medium` \| `high` \| `xhigh` \| `max` — forwarded as `--effort`. When omitted, the CLI uses its own default. |
 | `agent` | `opencode` | string | opencode agent profile name |
 | `thinking` | `opencode` | boolean | Enable extended thinking — forwarded as `--thinking` |
 
@@ -162,6 +163,21 @@ agents:
       agent: my-profile  # optional agent profile
       thinking: true     # enable extended thinking
 ```
+
+### Command Code
+
+```yaml
+agents:
+  coder:
+    description: Command Code coding agent
+    harness:
+      type: command-code
+      model: my-model # optional model override, forwarded as --model
+      effort: high    # low | medium | high | xhigh | max
+```
+
+The `command-code` harness runs the `cmd` binary non-interactively. `model`
+and `effort` are optional; when omitted, the CLI uses its own defaults.
 
 ## What Does NOT Work
 

@@ -2133,6 +2133,49 @@ func TestDispatcherBoundsResultsAfterHooks(t *testing.T) {
 	}
 }
 
+func TestDispatcher_PrepareConfirmationPerPrompt(t *testing.T) {
+	t.Parallel()
+
+	for _, approved := range []bool{false, true} {
+		t.Run(fmt.Sprintf("approved=%t", approved), func(t *testing.T) {
+			t.Parallel()
+			a := newAgent()
+			sess := session.New(session.WithToolsApproved(approved))
+			resume := make(chan toolexec.ResumeRequest, 2)
+			for range 2 {
+				resume <- toolexec.ResumeRequest{Type: toolexec.ResumeTypeApprove}
+			}
+			prepared := 0
+			d := &toolexec.Dispatcher{
+				AgentFor:            func(*session.Session) *agent.Agent { return a },
+				Resume:              resume,
+				PrepareConfirmation: func() { prepared++ },
+			}
+			tool := tools.Tool{
+				Name: "shell",
+				Handler: func(context.Context, tools.ToolCall, tools.Runtime) (*tools.ToolCallResult, error) {
+					return tools.ResultSuccess("done"), nil
+				},
+			}
+			em := &captureEmitter{}
+			d.Process(t.Context(), sess, []tools.ToolCall{
+				{ID: "first", Function: tools.FunctionCall{Name: "shell", Arguments: "{}"}},
+				{ID: "second", Function: tools.FunctionCall{Name: "shell", Arguments: "{}"}},
+			}, []tools.Tool{tool}, em)
+			want := 2
+			if approved {
+				want = 0
+			}
+			assert.Equal(t, want, prepared)
+			assert.Len(t, em.confirmations, want)
+			require.Len(t, em.responses, 2)
+			for _, res := range em.responses {
+				assert.False(t, res.IsError)
+			}
+		})
+	}
+}
+
 func TestDispatcher_ThinkAppender(t *testing.T) {
 	t.Parallel()
 	for _, available := range []bool{true, false} {
