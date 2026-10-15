@@ -23,7 +23,10 @@ import (
 )
 
 // remoteHTTPTimeout caps each HTTP request made to a remote skills source.
-const remoteHTTPTimeout = 30 * time.Second
+const (
+	remoteHTTPTimeout = 30 * time.Second
+	maxCachedFileSize = 1 << 20
+)
 
 // skillsHTTPClient is used for outbound calls to remote skill registries.
 // The base URL is operator-supplied and the contents are fed to the model
@@ -138,9 +141,12 @@ func (c *diskCache) FetchAndStore(ctx context.Context, baseURL, skillName, fileP
 		return "", fmt.Errorf("fetching %s: HTTP %d", fileURL, resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1MB per file
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxCachedFileSize+1))
 	if err != nil {
 		return "", fmt.Errorf("reading %s: %w", fileURL, err)
+	}
+	if len(body) > maxCachedFileSize {
+		return "", fmt.Errorf("reading %s: file exceeds %d-byte limit", fileURL, maxCachedFileSize)
 	}
 
 	directive := parseCacheControl(resp.Header.Get("Cache-Control"))

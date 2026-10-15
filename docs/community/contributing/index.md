@@ -294,6 +294,21 @@ longer provide protection. Conditional calls do not establish unconditional
 cleanup or completion. It does not prove helper, cross-block, or asynchronous
 read lifetimes.
 
+`Lint/SilentLimitedRead` follows local `io.ReadAll(io.LimitReader(...))`
+results into complete-file writes. It checks that overflow
+cannot reach those sinks; a typical guard reads `limit+1` and rejects lengths
+greater than `limit`. Preview-only uses, transformed or escaped buffers, and
+conditionally evaluated sinks are excluded. Mutable or escaped limits are
+outside the stable-bound analysis. File-size snapshots and HTTP Content-Length
+metadata alone do not establish a bound on a later read. The analysis is local,
+not a proof of stream completeness. JSON decoding alone is not a complete-file sink: a
+truncated valid JSON object either fails decoding or loses only trailing
+whitespace, so it is outside this cop's scope.
+
+All four correctness cops inspect resolved production code, exclude generated
+files and frozen configs, and support ordinary rubocop suppressions. They report
+existing issues without automatically changing application behavior.
+
 ## Opening Issues
 
 File issues on the [GitHub issue tracker](https://github.com/docker/docker-agent/issues). Please:
