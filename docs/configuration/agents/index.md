@@ -75,10 +75,10 @@ agents:
       case_sensitive: boolean
       trim_spaces: boolean
       path: string
-    harness: # Optional: delegate to an external coding CLI (Claude Code, Codex, opencode, pi)
-      type: string # Required: claude-code | codex | opencode | pi
+    harness: # Optional: delegate to an external coding CLI (Claude Code, Codex, opencode, pi, Command Code)
+      type: string # Required: claude-code | codex | opencode | pi | command-code
       model: string # Optional: model override forwarded to the CLI (omit for the CLI's own default)
-      effort: string # claude-code only: low | medium | high | xhigh | max (omit for the Claude Code default)
+      effort: string # claude-code and command-code only: low | medium | high | xhigh | max (omit for the CLI default)
       agent: string # opencode only: agent profile name
       thinking: boolean # opencode only: enable extended thinking
 ```
