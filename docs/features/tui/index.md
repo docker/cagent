@@ -570,14 +570,14 @@ Press <kbd>Ctrl</kbd>+<kbd>R</kbd> to enter incremental history search mode. Sta
 
 ## Settings
 
-Run `/settings` to open the settings dialog. Use <kbd>Tab</kbd> to switch between **Appearance**, **Behavior**, and **Notifications**.
+Run `/settings` to open the settings dialog. Use <kbd>Tab</kbd> (or <kbd>Shift</kbd>+<kbd>Tab</kbd>) to switch between **Appearance**, **Behavior**, and **Notifications**. Settings are grouped by purpose. Use <kbd>↑</kbd>/<kbd>↓</kbd> to navigate and <kbd>←</kbd>/<kbd>→</kbd> or <kbd>Space</kbd> to change a value. The list scrolls to keep the selected setting visible; the help below it describes the current action.
 
 > [!TIP]
 > **Full settings reference**
 >
 > This section covers the `/settings` dialog. For the complete list of `settings:` fields (including ones with no dialog UI, like `permissions`, `hooks`, and `keybindings`) and how they interact with CLI flags and aliases, see [User Settings](../../configuration/user-settings/index.md).
 
-The **Appearance** tab selects the theme and customizes the layout. Layout changes show a live schematic preview and apply immediately to the UI behind the dialog:
+The **Appearance** tab selects the theme and customizes the layout. Layout changes apply immediately to the UI behind the dialog. A schematic preview is also shown when the terminal has enough room:
 
 - **Sidebar position**: `Right` (default), `Left`, `Top`, or `Bottom`. Left/right keep the full vertical sidebar next to the chat; top/bottom render it as a compact horizontal band above or below the chat (session title, working directory, token usage, plus a one-line summary of the current agent and its model; in multi-agent configurations all team agents are listed by name after the current agent).
 - **Sidebar info mode**: `Compact` (default) or `Detailed`. Controls how the Agents panel renders agent rows — see [Agents Panel](#agents-panel) for details. Persisted as `settings.layout.sidebar_info_mode: detailed`; compact is the default and omitted from the config.

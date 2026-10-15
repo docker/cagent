@@ -7,7 +7,9 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
+	"github.com/docker/docker-agent/pkg/tui/components/scrollview"
 	"github.com/docker/docker-agent/pkg/tui/components/toolcommon"
 	"github.com/docker/docker-agent/pkg/tui/core"
 	"github.com/docker/docker-agent/pkg/tui/core/layout"
@@ -128,6 +130,7 @@ type settingsDialog struct {
 	tab         int
 	selected    [tabCount]int
 	confirmYOLO bool
+	body        *scrollview.Model
 }
 
 func NewSettingsDialog(preferences messages.Preferences, showVisuals bool) Dialog {
@@ -144,7 +147,10 @@ func NewSettingsDialog(preferences messages.Preferences, showVisuals bool) Dialo
 	if preferences.InterruptConfirmation == "" {
 		preferences.InterruptConfirmation = messages.InterruptModeAlways
 	}
-	return &settingsDialog{original: preferences, current: preferences, showVisuals: showVisuals}
+	return &settingsDialog{
+		original: preferences, current: preferences, showVisuals: showVisuals,
+		body: scrollview.New(scrollview.WithKeyMap(nil), scrollview.WithReserveScrollbarSpace(true)),
+	}
 }
 
 func (d *settingsDialog) Init() tea.Cmd { return nil }
@@ -374,19 +380,24 @@ func (d *settingsDialog) cancel() tea.Cmd {
 func (d *settingsDialog) Position() (row, col int) { return d.CenterDialog(d.View()) }
 
 func (d *settingsDialog) View() string {
-	width := d.ComputeDialogWidth(settingsWidthPercent, settingsMinWidth, settingsMaxWidth)
-	inner := d.ContentWidth(width, 2)
-	content := NewContent(inner).AddTitle("Settings").AddSeparator().AddSpace().AddContent(d.renderTabBar(inner))
-	switch d.tab {
-	case tabBehavior:
-		d.renderBehaviorTab(content, inner)
-	case tabNotifications:
-		d.renderNotificationsTab(content, inner)
-	default:
-		d.renderAppearanceTab(content, inner)
+	width := min(d.ComputeDialogWidth(settingsWidthPercent, settingsMinWidth, settingsMaxWidth), max(8, d.Width()))
+	inner := max(1, width-styles.DialogStyle.GetHorizontalFrameSize())
+	header := NewContent(inner).AddTitle("Settings").AddSeparator().AddContent(d.renderTabBar(inner)).AddSpace().Build()
+	footer := d.renderFooter(inner, max(2, d.Height()-styles.DialogStyle.GetVerticalFrameSize()-lipgloss.Height(header)-3))
+	bodyHeight := max(1, d.Height()-styles.DialogStyle.GetVerticalFrameSize()-lipgloss.Height(header)-lipgloss.Height(footer))
+	d.body.SetSize(inner, bodyHeight)
+	body := d.renderBody(d.body.ContentWidth())
+	d.body.SetContent(body.lines, len(body.lines))
+	d.body.SetSize(inner, min(bodyHeight, len(body.lines)))
+	d.body.SetScrollOffset(d.body.ScrollOffset())
+	if d.selected[d.tab] == 0 && body.selectedEnd < d.body.VisibleHeight() {
+		d.body.EnsureRangeVisible(0, body.selectedEnd)
+	} else {
+		d.body.EnsureRangeVisible(body.selectedStart, body.selectedEnd)
 	}
-	content.AddSpace().AddHelpKeys("↑/↓", "navigate", "←/→", "change", "tab", "switch tab", "enter", "apply", "esc", "cancel")
-	return styles.DialogStyle.Width(width).Render(content.Build())
+
+	content := lipgloss.JoinVertical(lipgloss.Left, header, d.body.View(), footer)
+	return styles.DialogStyle.Width(width).Render(content)
 }
 
 func (d *settingsDialog) renderTabBar(width int) string {
@@ -398,94 +409,223 @@ func (d *settingsDialog) renderTabBar(width int) string {
 		}
 		tabs = append(tabs, style.Render(label))
 	}
-	return lipgloss.PlaceHorizontal(width, lipgloss.Center, strings.Join(tabs, "    "))
+	bar := strings.Join(tabs, "  ·  ")
+	if lipgloss.Width(bar) > width {
+		bar = styles.HighlightWhiteStyle.Render("‹ " + settingsTabLabels[d.tab] + " ›")
+	}
+	return lipgloss.PlaceHorizontal(width, lipgloss.Center, toolcommon.TruncateText(bar, width))
 }
 
-func (d *settingsDialog) renderAppearanceTab(content *Content, inner int) {
+type settingsContent struct {
+	lines                      []string
+	selectedStart, selectedEnd int
+}
+
+func (c *settingsContent) addRow(row, selected int, value string) {
+	start := len(c.lines)
+	c.lines = append(c.lines, strings.Split(value, "\n")...)
+	if row == selected {
+		c.selectedStart, c.selectedEnd = start, len(c.lines)-1
+	}
+}
+
+func (c *settingsContent) addGroup(label string, width int) {
+	if len(c.lines) > 0 {
+		c.lines = append(c.lines, "")
+	}
+	c.lines = append(c.lines, ansi.Truncate(RenderGroupSeparator(label, width), width, "…"))
+}
+
+func (d *settingsDialog) renderBody(width int) settingsContent {
+	var content settingsContent
+	switch d.tab {
+	case tabBehavior:
+		d.renderBehaviorTab(&content, width)
+	case tabNotifications:
+		d.renderNotificationsTab(&content, width)
+	default:
+		d.renderAppearanceTab(&content, width)
+	}
+	return content
+}
+
+func (d *settingsDialog) renderAppearanceTab(content *settingsContent, width int) {
+	add := func(row int, value string) { content.addRow(row, d.selected[d.tab], value) }
+	toggle := func(row int, label string, enabled bool) { add(row, d.renderToggleRow(row, label, enabled, width)) }
 	theme := styles.GetPersistedThemeRef()
 	if theme == "" {
 		theme = styles.DefaultThemeRef
 	}
-	content.AddSpace().AddContent(d.renderSelectorRow(rowTheme, "Theme", theme, inner))
+	content.addGroup("Theme", width)
+	add(rowTheme, d.renderSelectorRow(rowTheme, "Theme", theme, width))
 	if d.showVisuals {
-		preview := lipgloss.NewStyle().Width(inner).Align(lipgloss.Center).Render(renderLayoutPreview(d.current.Layout, inner))
-		content.AddSpace().AddContent(preview).AddSpace().
-			AddContent(d.renderSelectorRow(rowPosition, "Sidebar position", positionLabels[d.current.Layout.SidebarPosition], inner)).
-			AddContent(d.renderSelectorRow(rowSpacing, "Section spacing", spacingLabels[d.current.Layout.SectionSpacing], inner)).
-			AddContent(d.renderSelectorRow(rowInfoMode, "Sidebar info mode", infoModeLabels[d.current.Layout.SidebarInfoMode], inner)).
-			AddContent(styles.MutedStyle.Render("Sidebar sections")).
-			AddContent(d.renderToggleRow(rowSessionPath, "Session path", !d.current.Layout.HideSessionPath)).
-			AddContent(d.renderToggleRow(rowUsage, "Token usage", !d.current.Layout.HideUsage)).
-			AddContent(d.renderToggleRow(rowAgents, "Agents", !d.current.Layout.HideAgents)).
-			AddContent(d.renderNestedToggleRow(rowActiveAgents, "Active agents only", d.current.Layout.ActiveAgentsOnly, d.current.Layout.HideAgents)).
-			AddContent(d.renderToggleRow(rowTools, "Tools", !d.current.Layout.HideTools)).
-			AddContent(d.renderToggleRow(rowPlans, "Plans", d.current.Layout.ShowPlans)).
-			AddContent(d.renderToggleRow(rowTodos, "Todos", !d.current.Layout.HideTodos))
+		content.addGroup("Sidebar layout", width)
+		add(rowPosition, d.renderSelectorRow(rowPosition, "Sidebar position", positionLabels[d.current.Layout.SidebarPosition], width))
+		add(rowSpacing, d.renderSelectorRow(rowSpacing, "Section spacing", spacingLabels[d.current.Layout.SectionSpacing], width))
+		add(rowInfoMode, d.renderSelectorRow(rowInfoMode, "Sidebar info mode", infoModeLabels[d.current.Layout.SidebarInfoMode], width))
+		if d.Height() >= 44 && width >= previewMaxWidth {
+			preview := lipgloss.PlaceHorizontal(width, lipgloss.Center, renderLayoutPreview(d.current.Layout, width))
+			content.lines = append(content.lines, strings.Split(preview, "\n")...)
+		}
+		content.addGroup("Sidebar sections", width)
+		toggle(rowSessionPath, "Session path", !d.current.Layout.HideSessionPath)
+		toggle(rowUsage, "Token usage", !d.current.Layout.HideUsage)
+		toggle(rowAgents, "Agents", !d.current.Layout.HideAgents)
+		add(rowActiveAgents, d.renderNestedToggleRow(rowActiveAgents, "Active agents only", d.current.Layout.ActiveAgentsOnly, d.current.Layout.HideAgents, width))
+		toggle(rowTools, "Tools", !d.current.Layout.HideTools)
+		toggle(rowPlans, "Plans", d.current.Layout.ShowPlans)
+		toggle(rowTodos, "Todos", !d.current.Layout.HideTodos)
 	}
-	content.AddSpace().
-		AddContent(d.renderToggleRow(rowSplitDiff, "Split diff view", d.current.SplitDiffView)).
-		AddContent(d.renderToggleRow(rowExpandThinking, "Expand thinking by default", d.current.ExpandThinking)).
-		AddContent(d.renderToggleRow(rowHideToolResults, "Hide tool results by default", d.current.HideToolResults)).
-		AddContent(d.renderToggleRow(rowRenderImages, "Render images", d.current.RenderImages)).
-		AddContent(d.renderToggleRow(rowShowBanner, "Show startup banner", d.current.ShowBanner))
+	content.addGroup("Chat display", width)
+	toggle(rowSplitDiff, "Split diff view", d.current.SplitDiffView)
+	toggle(rowExpandThinking, "Expand thinking by default", d.current.ExpandThinking)
+	toggle(rowHideToolResults, "Hide tool results by default", d.current.HideToolResults)
+	toggle(rowRenderImages, "Render images", d.current.RenderImages)
+	toggle(rowShowBanner, "Show startup banner", d.current.ShowBanner)
 }
 
-func (d *settingsDialog) renderBehaviorTab(content *Content, inner int) {
-	content.AddSpace().AddContent(styles.MutedStyle.Render("While agent is working")).AddSpace()
+func (d *settingsDialog) renderBehaviorTab(content *settingsContent, width int) {
+	add := func(row int, value string) { content.addRow(row, d.selected[d.tab], value) }
+	toggle := func(row int, label string, enabled bool) { add(row, d.renderToggleRow(row, label, enabled, width)) }
+	content.addGroup("While agent is working", width)
+	options := make([]string, 0, len(sendModeOptions))
+	optionStart, optionEnd := 0, 0
 	for _, opt := range sendModeOptions {
-		content.AddContent(d.renderSendModeOption(opt))
+		option := d.renderSendModeOption(opt, width)
+		if d.current.SendMode == opt.mode {
+			optionStart = lipgloss.Height(strings.Join(options, "\n"))
+			if len(options) == 0 {
+				optionStart = 0
+			}
+			optionEnd = optionStart + lipgloss.Height(option) - 1
+		}
+		options = append(options, option)
 	}
-	content.AddSpace().
-		AddContent(d.renderToggleRow(rowYOLO, "Auto-approve tools by default", d.current.YOLO)).
-		AddContent(d.renderToggleRow(rowRestoreTabs, "Restore tabs on launch", d.current.RestoreTabs)).
-		AddContent(d.renderToggleRow(rowSnapshot, "Automatic snapshots", d.current.Snapshot)).
-		AddContent(d.renderToggleRow(rowCacheStablePrompts, "Cache-stable dynamic prompts", d.current.CacheStablePrompts)).
-		AddContent(d.renderToggleRow(rowLean, "Lean UI by default", d.current.Lean)).
-		AddContent(d.renderStepperRow(rowTabTitleLength, "Tab title max length", d.current.TabTitleMaxLength, "chars", inner, false))
-	content.AddContent(d.renderSelectorRow(rowInterruptConfirmation, "Interrupt confirmation", interruptConfirmationLabels[d.current.InterruptConfirmation], inner))
+	start := len(content.lines)
+	add(rowSendMode, strings.Join(options, "\n"))
+	if d.selected[d.tab] == rowSendMode {
+		content.selectedStart, content.selectedEnd = start+optionStart, start+optionEnd
+	}
+	content.addGroup("Tool approval", width)
+	toggle(rowYOLO, "Auto-approve tools by default", d.current.YOLO)
+	content.addGroup("Session defaults", width)
+	toggle(rowRestoreTabs, "Restore tabs on launch", d.current.RestoreTabs)
+	toggle(rowSnapshot, "Automatic snapshots", d.current.Snapshot)
+	toggle(rowCacheStablePrompts, "Cache-stable dynamic prompts", d.current.CacheStablePrompts)
+	toggle(rowLean, "Lean UI by default", d.current.Lean)
+	add(rowTabTitleLength, d.renderStepperRow(rowTabTitleLength, "Tab title max length", d.current.TabTitleMaxLength, "chars", width, false))
+	content.addGroup("Interrupts", width)
+	add(rowInterruptConfirmation, d.renderSelectorRow(rowInterruptConfirmation, "Interrupt confirmation", interruptConfirmationLabels[d.current.InterruptConfirmation], width))
+}
+
+func (d *settingsDialog) renderNotificationsTab(content *settingsContent, width int) {
+	add := func(row int, value string) { content.addRow(row, d.selected[d.tab], value) }
+	content.addGroup("Completion sound", width)
+	add(rowSound, d.renderToggleRow(rowSound, "Sound on task completion", d.current.Sound, width))
+	add(rowSoundThreshold, d.renderStepperRow(rowSoundThreshold, "Sound threshold", d.current.SoundThreshold, "seconds", width, !d.current.Sound))
+	content.addGroup("Cache warnings", width)
+	add(rowWarnOnCacheMiss, d.renderToggleRow(rowWarnOnCacheMiss, "Warn when a turn misses the cache", d.current.WarnOnCacheMiss, width))
+}
+
+func (d *settingsDialog) renderFooter(width, maxHeight int) string {
+	enter := "apply"
+	detail := "Changes are saved only when applied."
+	if d.tab == tabAppearance {
+		switch d.selected[d.tab] {
+		case rowTheme:
+			enter, detail = "open", "Theme opens a separate picker and saves immediately."
+		case rowPosition, rowSpacing, rowInfoMode, rowSessionPath, rowUsage, rowAgents, rowActiveAgents, rowTools, rowPlans, rowTodos:
+			detail = "Layout previews live. Esc restores the previous layout."
+		}
+	}
+	if d.tab == tabBehavior {
+		switch d.selected[d.tab] {
+		case rowYOLO:
+			detail = "Auto-approve lets tools run without confirmation."
+			if !d.current.YOLO {
+				enter = "confirm"
+			}
+		case rowRestoreTabs, rowLean:
+			detail = "Takes effect on the next launch."
+		}
+	}
 	if d.confirmYOLO {
-		content.AddSpace().AddContent(styles.MutedStyle.Render("Auto-approve can run tools without confirmation. Press again to enable."))
+		detail = "Tools can run without confirmation.\nPress again to enable."
 	}
-	content.AddContent(styles.MutedStyle.Render("Restore tabs and lean UI apply on next launch."))
+	style := styles.MutedStyle
+	if d.confirmYOLO {
+		style = styles.WarningStyle
+	}
+	detail = style.Render(ansi.Wrap(detail, width, ""))
+	navigation := renderSettingsHelp(width, "↑↓", "move", "←→/space", "change")
+	actions := renderSettingsHelp(width, "tab", "category", "enter", enter, "esc", "cancel")
+	parts := []string{"", detail, navigation, actions}
+	if lipgloss.Height(strings.Join(parts, "\n")) > maxHeight {
+		parts = []string{"", detail, actions}
+	}
+	if lipgloss.Height(strings.Join(parts, "\n")) > maxHeight && !d.confirmYOLO {
+		parts = []string{"", actions}
+	}
+	if lipgloss.Height(strings.Join(parts, "\n")) > maxHeight {
+		actions = renderSettingsHelp(width, "enter", enter, "esc", "cancel")
+		parts = []string{detail, actions}
+	}
+	return strings.Join(parts, "\n")
 }
 
-func (d *settingsDialog) renderNotificationsTab(content *Content, inner int) {
-	content.AddSpace().
-		AddContent(d.renderToggleRow(rowSound, "Sound on task completion", d.current.Sound)).
-		AddContent(d.renderStepperRow(rowSoundThreshold, "Sound threshold", d.current.SoundThreshold, "seconds", inner, !d.current.Sound)).
-		AddContent(d.renderToggleRow(rowWarnOnCacheMiss, "Warn when a turn misses the cache", d.current.WarnOnCacheMiss))
+func renderSettingsHelp(width int, bindings ...string) string {
+	var lines, row []string
+	for i := 0; i < len(bindings); i += 2 {
+		next := append(row, bindings[i:i+2]...)
+		if len(row) > 0 && HelpKeysWidth(next...) > width {
+			lines = append(lines, RenderHelpKeys(width, row...))
+			row = bindings[i : i+2]
+		} else {
+			row = next
+		}
+	}
+	return strings.Join(append(lines, RenderHelpKeys(width, row...)), "\n")
 }
 
-func (d *settingsDialog) renderSendModeOption(opt sendModeOption) string {
+func (d *settingsDialog) renderSendModeOption(opt sendModeOption, width int) string {
 	glyph, prefix := "○", "  "
 	labelStyle, glyphStyle := styles.PaletteUnselectedActionStyle, styles.SecondaryStyle
 	if d.current.SendMode == opt.mode {
-		glyph, prefix = "●", styles.HighlightWhiteStyle.Render("› ")
-		labelStyle = styles.PaletteSelectedActionStyle
-		glyphStyle = styles.SecondaryStyle.Foreground(styles.Success)
+		glyph = "●"
+		glyphStyle = glyphStyle.Foreground(styles.Success)
+		if d.selected[d.tab] == rowSendMode {
+			prefix, labelStyle = styles.HighlightWhiteStyle.Render("› "), styles.PaletteSelectedActionStyle
+		}
 	}
-	return prefix + glyphStyle.Render(glyph) + " " + labelStyle.Render(opt.label) + "   " + styles.MutedStyle.Render(opt.desc)
+	label := prefix + glyphStyle.Render(glyph) + " " + labelStyle.Render(opt.label)
+	if width >= 52 {
+		return label + styles.MutedStyle.Render("  "+opt.desc)
+	}
+	return label + "\n    " + styles.MutedStyle.Render(strings.ReplaceAll(ansi.Wrap(opt.desc, max(1, width-4), ""), "\n", "\n    "))
 }
 
 func (d *settingsDialog) renderSelectorRow(row int, label, valueLabel string, width int) string {
-	value := "‹ " + valueLabel + " ›"
 	labelStyle, valueStyle, prefix := styles.PaletteUnselectedActionStyle, styles.SecondaryStyle, "  "
 	if d.selected[d.tab] == row {
 		labelStyle, valueStyle, prefix = styles.PaletteSelectedActionStyle, styles.HighlightWhiteStyle, styles.HighlightWhiteStyle.Render("› ")
 	}
 	left := prefix + labelStyle.Render(label)
-	return left + strings.Repeat(" ", max(1, width-lipgloss.Width(left)-lipgloss.Width(value))) + valueStyle.Render(value)
+	value := valueStyle.Render("‹ " + valueLabel + " ›")
+	if lipgloss.Width(left)+lipgloss.Width(value)+1 <= width {
+		return left + strings.Repeat(" ", width-lipgloss.Width(left)-lipgloss.Width(value)) + value
+	}
+	return ansi.Wrap(left, width, "") + "\n  " + strings.ReplaceAll(ansi.Wrap(value, max(1, width-2), ""), "\n", "\n  ")
 }
 
 func (d *settingsDialog) renderStepperRow(row int, label string, value int, unit string, width int, disabled bool) string {
+	result := d.renderSelectorRow(row, label, fmt.Sprintf("%d %s", value, unit), width)
 	if disabled {
-		left, right := "  "+styles.MutedStyle.Render(label), styles.MutedStyle.Render(fmt.Sprintf("‹ %d %s ›", value, unit))
-		return left + strings.Repeat(" ", max(1, width-lipgloss.Width(left)-lipgloss.Width(right))) + right
+		return styles.MutedStyle.Render(ansi.Strip(result))
 	}
-	return d.renderSelectorRow(row, label, fmt.Sprintf("%d %s", value, unit), width)
+	return result
 }
 
-func (d *settingsDialog) renderToggleRow(row int, label string, enabled bool) string {
+func (d *settingsDialog) renderToggleRow(row int, label string, enabled bool, width int) string {
 	check := "[ ]"
 	if enabled {
 		check = "[x]"
@@ -497,21 +637,16 @@ func (d *settingsDialog) renderToggleRow(row int, label string, enabled bool) st
 	if enabled {
 		checkStyle = checkStyle.Foreground(styles.Success)
 	}
-	return prefix + checkStyle.Render(check) + " " + labelStyle.Render(label)
+	label = strings.ReplaceAll(ansi.Wrap(labelStyle.Render(label), max(1, width-6), ""), "\n", "\n      ")
+	return prefix + checkStyle.Render(check) + " " + label
 }
 
-// renderNestedToggleRow renders a toggle row indented under its parent row.
-// A disabled row (its parent section is off) renders fully muted and is
-// skipped by navigation (see selectable).
-func (d *settingsDialog) renderNestedToggleRow(row int, label string, enabled, disabled bool) string {
+func (d *settingsDialog) renderNestedToggleRow(row int, label string, enabled, disabled bool, width int) string {
+	result := "  " + strings.ReplaceAll(d.renderToggleRow(row, label, enabled, width-2), "\n", "\n  ")
 	if disabled {
-		check := "[ ]"
-		if enabled {
-			check = "[x]"
-		}
-		return "    " + styles.MutedStyle.Render(check+" "+label)
+		return styles.MutedStyle.Render(ansi.Strip(result))
 	}
-	return "  " + d.renderToggleRow(row, label, enabled)
+	return result
 }
 
 // visibleSectionLabels returns the sidebar section labels that are visible
