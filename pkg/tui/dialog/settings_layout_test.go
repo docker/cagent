@@ -192,3 +192,39 @@ func TestSettingsDialogRenderingDoesNotChangePreferences(t *testing.T) {
 		}
 	}
 }
+
+func TestSettingsDialogUsesAvailableSpace(t *testing.T) {
+	t.Parallel()
+
+	for _, size := range []struct {
+		width, height, dialogWidth, dialogHeight int
+	}{
+		{80, 24, 76, 24},
+		{100, 40, 95, 38},
+		{140, 50, 128, 48},
+	} {
+		t.Run(fmt.Sprintf("%dx%d", size.width, size.height), func(t *testing.T) {
+			t.Parallel()
+			d := newTestSettingsDialog(t, messages.LayoutSettings{})
+			d.Update(tea.WindowSizeMsg{Width: size.width, Height: size.height})
+			for tab := range tabCount {
+				d.tab = tab
+				view := d.View()
+				assert.Equal(t, size.dialogWidth, lipgloss.Width(view))
+				assert.Equal(t, size.dialogHeight, lipgloss.Height(view))
+				assert.GreaterOrEqual(t, d.body.VisibleHeight(), 16)
+				assert.Contains(t, ansi.Strip(view), "Appearance")
+				assert.Contains(t, ansi.Strip(view), "Notifications")
+				if tab == tabBehavior {
+					assert.Contains(t, ansi.Strip(view), "● Steer  send to the working agent mid-turn")
+				}
+			}
+			d.tab = tabBehavior
+			d.selected[tabBehavior] = rowYOLO
+			d.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+			view := d.View()
+			assert.Equal(t, size.dialogHeight, lipgloss.Height(view))
+			assert.Contains(t, view, "Press again to enable.")
+		})
+	}
+}

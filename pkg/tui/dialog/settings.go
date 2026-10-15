@@ -18,9 +18,9 @@ import (
 )
 
 const (
-	settingsWidthPercent = 60
-	settingsMinWidth     = 52
-	settingsMaxWidth     = 72
+	settingsWidthPercent = 95
+	settingsMinWidth     = 60
+	settingsMaxWidth     = 128
 	previewMaxWidth      = 44
 	previewMinWidth      = 24
 )
@@ -381,14 +381,18 @@ func (d *settingsDialog) Position() (row, col int) { return d.CenterDialog(d.Vie
 
 func (d *settingsDialog) View() string {
 	width := min(d.ComputeDialogWidth(settingsWidthPercent, settingsMinWidth, settingsMaxWidth), max(8, d.Width()))
-	inner := max(1, width-styles.DialogStyle.GetHorizontalFrameSize())
-	header := NewContent(inner).AddTitle("Settings").AddSeparator().AddContent(d.renderTabBar(inner)).AddSpace().Build()
-	footer := d.renderFooter(inner, max(2, d.Height()-styles.DialogStyle.GetVerticalFrameSize()-lipgloss.Height(header)-3))
-	bodyHeight := max(1, d.Height()-styles.DialogStyle.GetVerticalFrameSize()-lipgloss.Height(header)-lipgloss.Height(footer))
+	frame := styles.DialogStyle.Padding(0, 2).Width(width)
+	inner := max(1, width-frame.GetHorizontalFrameSize())
+	height := min(d.Height(), 48)
+	if d.Height() >= 28 {
+		height = min(d.Height()-2, 48)
+	}
+	header := NewContent(inner).AddTitle("Settings").AddContent(d.renderTabBar(inner)).AddSpace().Build()
+	footer := d.renderFooter(inner, max(2, height-frame.GetVerticalFrameSize()-lipgloss.Height(header)-3))
+	bodyHeight := max(1, height-frame.GetVerticalFrameSize()-lipgloss.Height(header)-lipgloss.Height(footer))
 	d.body.SetSize(inner, bodyHeight)
 	body := d.renderBody(d.body.ContentWidth())
 	d.body.SetContent(body.lines, len(body.lines))
-	d.body.SetSize(inner, min(bodyHeight, len(body.lines)))
 	d.body.SetScrollOffset(d.body.ScrollOffset())
 	if d.selected[d.tab] == 0 && body.selectedEnd < d.body.VisibleHeight() {
 		d.body.EnsureRangeVisible(0, body.selectedEnd)
@@ -396,8 +400,9 @@ func (d *settingsDialog) View() string {
 		d.body.EnsureRangeVisible(body.selectedStart, body.selectedEnd)
 	}
 
-	content := lipgloss.JoinVertical(lipgloss.Left, header, d.body.View(), footer)
-	return styles.DialogStyle.Width(width).Render(content)
+	bodyView := lipgloss.NewStyle().Height(bodyHeight).Render(d.body.View())
+	content := lipgloss.JoinVertical(lipgloss.Left, header, bodyView, footer)
+	return frame.Render(content)
 }
 
 func (d *settingsDialog) renderTabBar(width int) string {
@@ -533,7 +538,7 @@ func (d *settingsDialog) renderFooter(width, maxHeight int) string {
 	if d.tab == tabAppearance {
 		switch d.selected[d.tab] {
 		case rowTheme:
-			enter, detail = "open", "Theme opens a separate picker and saves immediately."
+			enter, detail = "open", "Theme changes save immediately in the separate picker."
 		case rowPosition, rowSpacing, rowInfoMode, rowSessionPath, rowUsage, rowAgents, rowActiveAgents, rowTools, rowPlans, rowTodos:
 			detail = "Layout previews live. Esc restores the previous layout."
 		}
@@ -550,19 +555,19 @@ func (d *settingsDialog) renderFooter(width, maxHeight int) string {
 		}
 	}
 	if d.confirmYOLO {
-		detail = "Tools can run without confirmation.\nPress again to enable."
+		detail = "Tools run without confirmation. Press again to enable."
 	}
 	style := styles.MutedStyle
 	if d.confirmYOLO {
 		style = styles.WarningStyle
 	}
 	detail = style.Render(ansi.Wrap(detail, width, ""))
-	navigation := renderSettingsHelp(width, "↑↓", "move", "←→/space", "change")
-	actions := renderSettingsHelp(width, "tab", "category", "enter", enter, "esc", "cancel")
-	parts := []string{"", detail, navigation, actions}
-	if lipgloss.Height(strings.Join(parts, "\n")) > maxHeight {
-		parts = []string{"", detail, actions}
+	bindings := []string{"↑↓", "move", "←→/space", "change", "tab", "category", "enter", enter, "esc", "cancel"}
+	if HelpKeysWidth(bindings...) > width {
+		bindings = bindings[4:]
 	}
+	actions := renderSettingsHelp(width, bindings...)
+	parts := []string{"", detail, actions}
 	if lipgloss.Height(strings.Join(parts, "\n")) > maxHeight && !d.confirmYOLO {
 		parts = []string{"", actions}
 	}
