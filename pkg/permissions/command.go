@@ -82,6 +82,14 @@ func commandAllowMatches(toolName, pattern string, args map[string]any) bool {
 		return true
 	}
 	cmd, ok := safety.CommandArg(args)
-	return ok && isSimpleShellCommand(cmd) &&
-		commandGrantMatches(toolName, toolName+":cmd="+cmdPattern, cmd)
+	if !ok || !isSimpleShellCommand(cmd) {
+		return false
+	}
+	// Only command-name prefixes need a token boundary; argument/path prefixes
+	// intentionally match within an argument. The generic matcher checked the prefix.
+	if strings.ContainsAny(literal, " \t") {
+		return true
+	}
+	rest, ok := strings.CutPrefix(strings.ToLower(cmd), strings.ToLower(literal))
+	return ok && (rest == "" || rest[0] == ' ' || rest[0] == '\t')
 }

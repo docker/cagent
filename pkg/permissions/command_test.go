@@ -25,3 +25,32 @@ func TestCommandPrefixAllow(t *testing.T) {
 		})
 	}
 }
+
+func TestCommandConfiguredPrefixes(t *testing.T) {
+	t.Parallel()
+	for _, tool := range []string{"shell", "run_background_job"} {
+		for _, tc := range []struct{ pattern, cmd string }{
+			{"ls *", "ls -la"},
+			{"git commit *", "git commit -m safe"},
+			{"ls /tmp/*", "ls /tmp/example"},
+			{"ls 'file:name'*", "ls 'file:name' -l"},
+			{"curl https://example.com*", "curl https://example.com"},
+		} {
+			t.Run(tool+"/"+tc.pattern, func(t *testing.T) {
+				checker := NewCheckerFromRules([]string{tool + ":cmd=" + tc.pattern}, nil, nil)
+				assert.Equal(t, Allow, checker.CheckWithArgs(tool, map[string]any{"cmd": tc.cmd}))
+				assert.Equal(t, Ask, checker.CheckWithArgs(tool, map[string]any{"cmd": tc.cmd + "; touch marker"}))
+			})
+		}
+	}
+}
+
+func TestCommandGenericGrantScope(t *testing.T) {
+	t.Parallel()
+	for _, tool := range []string{"shell", "run_background_job"} {
+		for _, pattern := range []string{"", ":cmd=*", ":cmd=ls**", ":cmd=[l]s*", ":command=ls*", ":cmd=ls; touch marker"} {
+			checker := NewCheckerFromRules([]string{tool + pattern}, nil, nil)
+			assert.Equal(t, Allow, checker.CheckWithArgs(tool, map[string]any{"cmd": "ls; touch marker", "command": "ls; touch marker"}), tool+pattern)
+		}
+	}
+}
