@@ -134,7 +134,7 @@ func (b *elicitationBridge) send(ctx context.Context, ev Event) (err error) {
 // process with a send-on-closed-channel panic; #3584 bounded the wait (send
 // used to have no ctx at all and could block indefinitely) and moved the
 // caller onto a detached goroutine so this can never stall the request path.
-func (b *elicitationBridge) restoreAndClose(current, previous chan Event) {
+func (b *elicitationBridge) restoreAndClose(current chan<- Event, previous chan Event) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.ch = previous

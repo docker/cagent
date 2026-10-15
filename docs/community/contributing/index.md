@@ -114,6 +114,19 @@ opt-in cops are currently selected. `Lint/ContextFirstParameter` and
 intentionally owned lifecycle or telemetry contexts would require suppressions or
 unrelated refactoring.
 
+`Lint/ChannelDirection` suggests directional raw-channel parameters and results.
+It follows requirements through locals, fields, direct calls, returns, and closure
+captures, including internal/external tests. Closing requires send capability;
+receiving and closing requires both. Connected declarations may need coordinated
+changes, so there is no autofix. Generated and frozen declarations retain their
+original contracts. Unknown calls, interface escapes, reflective type arguments,
+function values, and unsupported structural conversions conservatively retain
+capabilities. Tuple flows preserve both channel operations and aggregate escapes.
+The check assumes the loaded program is the consumer: review exported API changes
+for downstream users and validate other build targets. It covers the active build,
+not every build-tag or platform variant; it does not prove channel ownership or
+send/close race safety.
+
 `Lint/HTTPRequestWithContext` enforces contextual HTTP request construction outside
 frozen config versions. It inspects production files only; matching is syntactic,
 so aliases and shadowing require care. `Lint/NoFatalOutsideMain` reserves

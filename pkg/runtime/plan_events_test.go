@@ -538,7 +538,7 @@ func awaitEvent[T Event](t *testing.T, ch <-chan Event, what string) T {
 	}
 }
 
-func requirePlanChanged(t *testing.T, events chan Event) *PlanChangedEvent {
+func requirePlanChanged(t *testing.T, events <-chan Event) *PlanChangedEvent {
 	t.Helper()
 	select {
 	case ev := <-events:
@@ -551,7 +551,7 @@ func requirePlanChanged(t *testing.T, events chan Event) *PlanChangedEvent {
 	}
 }
 
-func requireNoEvent(t *testing.T, events chan Event) {
+func requireNoEvent(t *testing.T, events <-chan Event) {
 	t.Helper()
 	select {
 	case ev := <-events:

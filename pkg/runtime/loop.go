@@ -215,7 +215,7 @@ func (r *LocalRuntime) emitHookDrivenShutdown(
 // is bounded rather than unbounded). Consumers must still rely on the channel
 // close, not on receiving StreamStopped, as the one guaranteed terminal
 // signal.
-func (r *LocalRuntime) finalizeEventChannel(ctx context.Context, sess *session.Session, reason string, finishReason chat.FinishReason, prevElicitationCh, events chan Event) {
+func (r *LocalRuntime) finalizeEventChannel(ctx context.Context, sess *session.Session, reason string, finishReason chat.FinishReason, prevElicitationCh chan Event, events chan<- Event) {
 	a := r.resolveSessionAgent(sess)
 
 	if ctx.Err() != nil && reason == "" {

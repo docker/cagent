@@ -118,7 +118,7 @@ func (s *Supervisor) SpawnSession(ctx context.Context, workingDir string) (strin
 
 // subscribeWithRouting subscribes to app events and wraps them with session ID.
 // Registration precedes startup; terminal delivery waits for the program.
-func (s *Supervisor) subscribeWithRouting(ctx context.Context, a *app.App, sessionID string, ready chan struct{}) {
+func (s *Supervisor) subscribeWithRouting(ctx context.Context, a *app.App, sessionID string, ready chan<- struct{}) {
 	prepare := func(msg tea.Msg, generation uint64) tea.Msg {
 		s.mu.RLock()
 		defer s.mu.RUnlock()
