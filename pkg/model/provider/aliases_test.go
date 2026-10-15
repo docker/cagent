@@ -39,6 +39,7 @@ func TestCatalogAliases(t *testing.T) {
 
 	expected := map[string]Alias{
 		"openrouter":   {APIType: "openai", BaseURL: "https://openrouter.ai/api/v1", TokenEnvVar: "OPENROUTER_API_KEY"},
+		"api-route":    {APIType: "openai", BaseURL: "https://global.api-route.com/v1", TokenEnvVar: "API_ROUTE_API_KEY"},
 		"atlascloud":   {APIType: "openai", BaseURL: "https://api.atlascloud.ai/v1", TokenEnvVar: "ATLASCLOUD_API_KEY"},
 		"baseten":      {APIType: "openai", BaseURL: "https://inference.baseten.co/v1", TokenEnvVar: "BASETEN_API_KEY"},
 		"daoxe":        {APIType: "openai", BaseURL: "https://api.daoxe.com/v1", TokenEnvVar: "DAOXE_API_KEY"},
@@ -127,6 +128,7 @@ func TestProviderIDsMatchEmbeddedCatalog(t *testing.T) {
 	t.Parallel()
 	db := modelsdev.EmbeddedSnapshot()
 	absent := map[string]string{
+		"api-route":  "model IDs come from API Route's /v1/models endpoint, not models.dev",
 		"atlascloud": "model IDs come from Atlas Cloud's /v1/models endpoint, not models.dev",
 		"chatgpt":    "subscription backend, distinct from OpenAI",
 		"dmr":        "local Docker Model Runner",

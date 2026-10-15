@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -48,9 +49,21 @@ type openAIAliasProvider struct {
 	// Cloudflare's account/gateway-scoped endpoints) need these to resolve a real
 	// URL; the hermetic end-to-end test overrides the base URL so it ignores them.
 	extraLiveEnvVars []string
+
+	// Paid gateway checks require a separate opt-in even when credentials exist.
+	liveOptInEnvVar string
 }
 
 var openAIAliasProviders = []openAIAliasProvider{
+	{
+		provider:             "api-route",
+		envVar:               "API_ROUTE_API_KEY",
+		testKey:              "test-api-route-key",
+		model:                "gpt-6.1-sol",
+		greeting:             "Hello from API Route",
+		mergesSystemMessages: true,
+		liveOptInEnvVar:      "DOCKER_AGENT_RUN_API_ROUTE_LIVE_TEST",
+	},
 	{
 		provider:             "atlascloud",
 		envVar:               "ATLASCLOUD_API_KEY",
@@ -293,51 +306,99 @@ func TestOpenAIAliasProvider_EndToEndRequest(t *testing.T) {
 
 // TestOpenAIAliasProvider_LiveAPI performs a real request against each alias's
 // API. A provider's subtest is skipped unless its TokenEnvVar is set in the
-// environment, so the default test run stays hermetic while allowing an
-// on-demand real check via, e.g.:
+// environment and any liveOptInEnvVar is exactly "1", allowing an on-demand
+// real check via, e.g.:
 //
 //	DEEPSEEK_API_KEY=sk-... go test -run TestOpenAIAliasProvider_LiveAPI ./pkg/model/provider/
+//
+// API Route additionally requires DOCKER_AGENT_RUN_API_ROUTE_LIVE_TEST=1.
 func TestOpenAIAliasProvider_LiveAPI(t *testing.T) {
 	for _, p := range openAIAliasProviders {
 		t.Run(p.provider, func(t *testing.T) {
-			apiKey := os.Getenv(p.envVar)
-			if apiKey == "" {
-				t.Skipf("%s not set; skipping live %s API test", p.envVar, p.provider)
-			}
-			// Templated-base-URL aliases (e.g. Cloudflare) also need their
-			// account/gateway ids to resolve a real endpoint.
-			for _, e := range p.extraLiveEnvVars {
-				if os.Getenv(e) == "" {
-					t.Skipf("%s not set; skipping live %s API test", e, p.provider)
-				}
-			}
-
-			// No BaseURL/TokenKey: both come from the built-in alias, so this
-			// hits the real endpoint.
-			modelCfg := &latest.ModelConfig{
-				Provider: p.provider,
-				Model:    p.model,
-			}
-
-			provider, err := fullTestRegistry().New(t.Context(), modelCfg, environment.NewOsEnvProvider())
-			require.NoError(t, err)
-
-			ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
-			defer cancel()
-
-			stream, err := provider.CreateChatCompletionStream(
-				ctx,
-				[]chat.Message{{Role: chat.MessageRoleUser, Content: "Reply with the single word: pong"}},
-				[]tools.Tool{},
-			)
-			require.NoError(t, err)
-			defer stream.Close()
-
-			content := collectStreamContent(t, stream)
-			require.NotEmpty(t, content, "live %s API must return a non-empty completion", p.provider)
-			t.Logf("%s live response: %q", p.provider, content)
+			runOpenAIAliasProviderLiveAPI(t, p, "")
 		})
 	}
+}
+
+func TestAPIRouteLiveAPIRequiresExplicitOptIn(t *testing.T) {
+	var p openAIAliasProvider
+	for _, candidate := range openAIAliasProviders {
+		if candidate.provider == "api-route" {
+			p = candidate
+			break
+		}
+	}
+	require.NotEmpty(t, p.liveOptInEnvVar)
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEChunk(w, map[string]any{
+			"id": "chatcmpl-test", "object": "chat.completion.chunk", "model": p.model,
+			"choices": []map[string]any{{"index": 0, "delta": map[string]any{"content": "pong"}, "finish_reason": nil}},
+		})
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+	t.Setenv(p.envVar, "credential-alone-must-not-send-a-request")
+	for _, optIn := range []string{"", "0", "true"} {
+		t.Setenv(p.liveOptInEnvVar, optIn)
+		skipped := false
+		t.Run("opt-in="+optIn, func(t *testing.T) {
+			defer func() { skipped = t.Skipped() }()
+			runOpenAIAliasProviderLiveAPI(t, p, server.URL)
+		})
+		require.True(t, skipped, "credentials alone must never enable paid inference")
+	}
+	require.Zero(t, requests.Load())
+	t.Setenv(p.liveOptInEnvVar, "1")
+	t.Run("explicit-opt-in", func(t *testing.T) {
+		runOpenAIAliasProviderLiveAPI(t, p, server.URL)
+	})
+	require.Equal(t, int32(1), requests.Load())
+}
+
+func runOpenAIAliasProviderLiveAPI(t *testing.T, p openAIAliasProvider, baseURL string) {
+	t.Helper()
+	if p.liveOptInEnvVar != "" && os.Getenv(p.liveOptInEnvVar) != "1" {
+		t.Skipf("%s=1 required; skipping live %s API test", p.liveOptInEnvVar, p.provider)
+	}
+	apiKey := os.Getenv(p.envVar)
+	if apiKey == "" {
+		t.Skipf("%s not set; skipping live %s API test", p.envVar, p.provider)
+	}
+	// Templated-base-URL aliases (e.g. Cloudflare) also need their
+	// account/gateway ids to resolve a real endpoint.
+	for _, e := range p.extraLiveEnvVars {
+		if os.Getenv(e) == "" {
+			t.Skipf("%s not set; skipping live %s API test", e, p.provider)
+		}
+	}
+
+	// The live test leaves BaseURL empty; the opt-in regression uses a local server.
+	modelCfg := &latest.ModelConfig{
+		Provider: p.provider,
+		Model:    p.model,
+		BaseURL:  baseURL,
+	}
+
+	provider, err := fullTestRegistry().New(t.Context(), modelCfg, environment.NewOsEnvProvider())
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
+	defer cancel()
+
+	stream, err := provider.CreateChatCompletionStream(
+		ctx,
+		[]chat.Message{{Role: chat.MessageRoleUser, Content: "Reply with the single word: pong"}},
+		[]tools.Tool{},
+	)
+	require.NoError(t, err)
+	defer stream.Close()
+
+	content := collectStreamContent(t, stream)
+	require.NotEmpty(t, content, "live %s API must return a non-empty completion", p.provider)
+	t.Logf("%s live response: %q", p.provider, content)
 }
 
 // collectStreamContent drains a message stream and returns the concatenated

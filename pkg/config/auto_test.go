@@ -75,6 +75,13 @@ func TestAvailableProviders_NoGateway(t *testing.T) {
 			expectedProvider: "openrouter",
 		},
 		{
+			name: "api-route api key present",
+			envVars: map[string]string{
+				"API_ROUTE_API_KEY": "test-key",
+			},
+			expectedProvider: "api-route",
+		},
+		{
 			name: "atlascloud api key present",
 			envVars: map[string]string{
 				"ATLASCLOUD_API_KEY": "test-key",
@@ -318,6 +325,15 @@ func TestAutoModelConfig(t *testing.T) {
 			},
 			expectedProvider:  "openrouter",
 			expectedModel:     "meta-llama/llama-4-maverick",
+			expectedMaxTokens: 32000,
+		},
+		{
+			name: "api-route provider",
+			envVars: map[string]string{
+				"API_ROUTE_API_KEY": "test-key",
+			},
+			expectedProvider:  "api-route",
+			expectedModel:     "gpt-6.1-sol",
 			expectedMaxTokens: 32000,
 		},
 		{
