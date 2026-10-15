@@ -99,10 +99,15 @@ func newClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 		// OAuth2 (via the google transport in vertex.WithCredentials), so we
 		// must clear the stray X-Api-Key header that would otherwise leak a
 		// direct-API credential into Google's infrastructure.
-		sdkOptions := []option.RequestOption{
+		var sdkOptions []option.RequestOption
+		if source == nil {
+			// Before WithCredentials, OAuth wraps our transport instead of being replaced.
+			sdkOptions = append(sdkOptions, option.WithHTTPClient(wrappedHTTPClient(ctx, globalOptions)))
+		}
+		sdkOptions = append(sdkOptions,
 			sdkvertex.WithCredentials(ctx, location, project, creds),
 			option.WithAPIKey(""),
-		}
+		)
 		if source != nil {
 			sdkOptions = append(sdkOptions, tokenSourceOptions(ctx, globalOptions, source)...)
 		}
@@ -141,11 +146,9 @@ func credentials(ctx context.Context, source options.TokenSource) (*google.Crede
 // as-is, so the SDK never overrides the Authorization header that the
 // middleware sets from the request context.
 func tokenSourceOptions(ctx context.Context, globalOptions options.ModelOptions, source options.TokenSource) []option.RequestOption {
-	httpClient := httpclient.NewHTTPClient(ctx)
-	globalOptions.WrapTransport(ctx, httpClient)
 	return []option.RequestOption{
 		option.WithMiddleware(bearerTokenMiddleware(source)),
-		option.WithHTTPClient(httpClient),
+		option.WithHTTPClient(wrappedHTTPClient(ctx, globalOptions)),
 	}
 }
 
@@ -167,4 +170,10 @@ func bearerTokenMiddleware(source options.TokenSource) option.Middleware {
 		req.Header.Set("Authorization", "Bearer "+token)
 		return next(req)
 	}
+}
+
+func wrappedHTTPClient(ctx context.Context, globalOptions options.ModelOptions) *http.Client {
+	client := httpclient.NewHTTPClient(ctx)
+	globalOptions.WrapTransport(ctx, client)
+	return client
 }

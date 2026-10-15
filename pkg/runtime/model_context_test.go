@@ -13,7 +13,9 @@ import (
 
 	"github.com/docker/docker-agent/pkg/agent"
 	"github.com/docker/docker-agent/pkg/config/latest"
+	"github.com/docker/docker-agent/pkg/model/provider"
 	"github.com/docker/docker-agent/pkg/model/provider/base"
+	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 )
 
@@ -26,10 +28,12 @@ type contextProvider struct {
 func (p *contextProvider) ContextWindow(ctx context.Context) (int64, error) { return p.lookup(ctx) }
 
 func newContextProvider(endpoint string, lookup func(context.Context) (int64, error)) *contextProvider {
-	return &contextProvider{
+	p := &contextProvider{
 		configProvider: configProvider{Config: base.Config{BaseURL: endpoint, ModelConfig: latest.ModelConfig{Provider: "dmr", Model: "ai/qwen3"}}},
 		lookup:         lookup,
 	}
+	p.SetProviderRebuilder(func(context.Context, *latest.ModelConfig, ...options.Opt) (provider.Provider, error) { return p, nil })
+	return p
 }
 
 func TestResolveContextLimitDiscovery(t *testing.T) {

@@ -15,6 +15,7 @@ import (
 	"github.com/docker/docker-agent/pkg/agent"
 	"github.com/docker/docker-agent/pkg/chat"
 	"github.com/docker/docker-agent/pkg/config/latest"
+	providerbase "github.com/docker/docker-agent/pkg/model/provider/base"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/session/sqlitestore"
@@ -188,7 +189,7 @@ func TestDoCompactBeforeHookSuppliesSummary(t *testing.T) {
 
 	// The provider must NOT be called — if it is, we'll consume from
 	// the (empty) mockStream and the test will catch it.
-	prov := &mockProvider{id: "test/mock-model", stream: &mockStream{}}
+	prov := &cloneFailureProvider{Config: providerbase.Config{ModelConfig: latest.ModelConfig{Provider: "test", Model: "unclonable"}}}
 	root := agent.New("root", "test",
 		agent.WithModel(prov),
 		agent.WithHooks(hookCfg),

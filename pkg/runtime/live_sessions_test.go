@@ -14,7 +14,9 @@ import (
 	"github.com/docker/docker-agent/pkg/chat"
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/hooks"
+	"github.com/docker/docker-agent/pkg/model/provider"
 	"github.com/docker/docker-agent/pkg/model/provider/base"
+	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/team"
@@ -67,8 +69,12 @@ func (p *stepProvider) CreateChatCompletionStream(ctx context.Context, _ []chat.
 	return step.stream, nil
 }
 
-func (p *stepProvider) BaseConfig() base.Config { return base.Config{} }
-func (p *stepProvider) MaxTokens() int          { return 0 }
+func (p *stepProvider) BaseConfig() base.Config {
+	cfg := base.Config{}
+	cfg.RebuildProvider = func(context.Context, *latest.ModelConfig, ...options.Opt) (provider.Provider, error) { return p, nil }
+	return cfg
+}
+func (p *stepProvider) MaxTokens() int { return 0 }
 
 // newLiveSessionsRuntime builds a runtime with a "root" agent and a "worker"
 // agent whose model is the supplied provider.

@@ -140,7 +140,7 @@ func (g *Generator) Generate(ctx context.Context, sessionID string, userMessages
 func generateOnce(ctx context.Context, baseModel provider.Provider, messages []chat.Message) (string, error) {
 	// Clone the model with title-generation-specific options so each attempt
 	// gets a consistent, low-token one-shot call.
-	titleModel := provider.CloneWithOptions(
+	titleModel, err := provider.Clone(
 		ctx,
 		baseModel,
 		options.WithStructuredOutput(nil),
@@ -148,6 +148,9 @@ func generateOnce(ctx context.Context, baseModel provider.Provider, messages []c
 		options.WithNoThinking(),
 		options.WithGeneratingTitle(),
 	)
+	if err != nil {
+		return "", fmt.Errorf("model %q: cloning title model: %w", baseModel.ID(), err)
+	}
 
 	stream, err := titleModel.CreateChatCompletionStream(ctx, messages, nil)
 	if err != nil {

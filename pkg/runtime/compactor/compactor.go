@@ -204,11 +204,15 @@ func RunLLM(ctx context.Context, args LLMArgs) (result *Result, err error) {
 		return nil, errors.New("compactor: agent has no model")
 	}
 
-	summaryModel := provider.CloneWithOptions(ctx, baseModel,
+	summaryModel, err := provider.Clone(ctx, baseModel,
 		options.WithStructuredOutput(nil),
 		options.WithMaxTokens(summaryTokenBudget(args.ContextLimit)),
 		options.WithCompacting(),
 	)
+	if err != nil {
+		return nil, fmt.Errorf("compactor: cloning summary model: %w", err)
+	}
+
 	compactionAgent := agent.New(args.Agent.Name(), "", agent.WithModel(summaryModel))
 
 	messages, firstKeptEntry := extractMessages(args.Session, compactionAgent, args.ContextLimit, args.AdditionalPrompt)

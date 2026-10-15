@@ -18,7 +18,9 @@ import (
 	"github.com/docker/docker-agent/pkg/chat"
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/hooks"
+	"github.com/docker/docker-agent/pkg/model/provider"
 	"github.com/docker/docker-agent/pkg/model/provider/base"
+	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/modelinfo"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 	"github.com/docker/docker-agent/pkg/paths"
@@ -53,7 +55,11 @@ type recordingMsgProvider struct {
 	baseConfig base.Config
 }
 
-func (p *recordingMsgProvider) BaseConfig() base.Config { return p.baseConfig }
+func (p *recordingMsgProvider) BaseConfig() base.Config {
+	cfg := p.baseConfig
+	cfg.RebuildProvider = func(context.Context, *latest.ModelConfig, ...options.Opt) (provider.Provider, error) { return p, nil }
+	return cfg
+}
 
 func (p *recordingMsgProvider) CreateChatCompletionStream(_ context.Context, msgs []chat.Message, _ []tools.Tool) (chat.MessageStream, error) {
 	snapshot := slices.Clone(msgs)

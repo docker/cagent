@@ -26,14 +26,27 @@ type RebuildProviderFunc func(
 
 // Config is the common configuration embedded by provider clients.
 type Config struct {
-	ModelConfig  latest.ModelConfig
-	ModelOptions options.ModelOptions
-	Env          environment.Provider
+	// DispatchConfig keeps construction identity separate from catalogue identity.
+	DispatchConfig *latest.ModelConfig
+	ModelConfig    latest.ModelConfig
+	ModelOptions   options.ModelOptions
+	Env            environment.Provider
 	// RebuildProvider preserves the construction context needed to clone a provider.
 	RebuildProvider RebuildProviderFunc
 	// BaseURL is the resolved endpoint actually used by the provider, unlike
 	// ModelConfig.BaseURL, which contains the user-supplied value.
 	BaseURL string
+}
+
+// SetDispatchConfig takes ownership of a caller-isolated configuration for reconstruction.
+func (c *Config) SetDispatchConfig(cfg *latest.ModelConfig) { c.DispatchConfig = cfg }
+
+// CloneSource returns the construction configuration, not the catalogue identity.
+func (c *Config) CloneSource() latest.ModelConfig {
+	if c.DispatchConfig != nil {
+		return *c.DispatchConfig
+	}
+	return c.ModelConfig
 }
 
 // SetProviderRebuilder sets the function used to reconstruct the provider.

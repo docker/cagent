@@ -14,7 +14,10 @@ import (
 	"github.com/docker/docker-agent/pkg/agent"
 	"github.com/docker/docker-agent/pkg/chat"
 	"github.com/docker/docker-agent/pkg/compaction"
+	"github.com/docker/docker-agent/pkg/config/latest"
+	"github.com/docker/docker-agent/pkg/model/provider"
 	"github.com/docker/docker-agent/pkg/model/provider/base"
+	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/tools"
@@ -24,7 +27,9 @@ type fakeProvider struct{ id modelsdev.ID }
 
 func (p fakeProvider) ID() modelsdev.ID { return p.id }
 
-func (p fakeProvider) BaseConfig() base.Config { return base.Config{} }
+func (p fakeProvider) BaseConfig() base.Config {
+	return base.Config{RebuildProvider: func(context.Context, *latest.ModelConfig, ...options.Opt) (provider.Provider, error) { return p, nil }}
+}
 
 func (p fakeProvider) CreateChatCompletionStream(
 	context.Context,
@@ -754,4 +759,38 @@ func TestRunLLM_RequiresContextLimit(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ContextLimit")
+}
+
+type failedCloneModel struct {
+	base.Config
+}
+
+func (p *failedCloneModel) CreateChatCompletionStream(context.Context, []chat.Message, []tools.Tool) (chat.MessageStream, error) {
+	panic("base inference must not run")
+}
+
+func TestRunLLMCloneFailureLeavesSessionIntact(t *testing.T) {
+	t.Parallel()
+	synthetic := errors.New("synthetic reconstruction failure")
+	for _, failure := range []error{nil, synthetic} {
+		p := &failedCloneModel{Config: base.Config{ModelConfig: latest.ModelConfig{Provider: "test", Model: "broken"}}}
+		if failure != nil {
+			p.RebuildProvider = func(context.Context, *latest.ModelConfig, ...options.Opt) (provider.Provider, error) {
+				return nil, failure
+			}
+		}
+		sess := session.New(session.WithMessages([]session.Item{session.NewMessageItem(session.UserMessage("keep history"))}))
+		before := sess.MessagesSnapshot()
+		result, err := RunLLM(t.Context(), LLMArgs{Session: sess, Agent: agent.New("root", "", agent.WithModel(p)), ContextLimit: 100_000, RunAgent: func(context.Context, *agent.Agent, *session.Session) error {
+			t.Error("summary runtime must not run")
+			return nil
+		}})
+		want := failure
+		if want == nil {
+			want = provider.ErrNoRebuilder
+		}
+		require.ErrorIs(t, err, want)
+		assert.Nil(t, result)
+		assert.Equal(t, before, sess.MessagesSnapshot())
+	}
 }

@@ -2,10 +2,12 @@ package options
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 
 	"github.com/docker/docker-agent/pkg/config/latest"
+	"github.com/docker/docker-agent/pkg/model/provider/internal/deepcopy"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 )
 
@@ -13,18 +15,21 @@ import (
 type TokenSource func(context.Context) (string, error)
 
 type ModelOptions struct {
-	gateway          string
-	encryptedConfig  string
-	structuredOutput *latest.StructuredOutput
-	generatingTitle  bool
-	compacting       bool
-	noThinking       bool
-	maxTokens        int64
-	providers        map[string]latest.ProviderConfig
-	modelsDevStore   *modelsdev.Store
-	transportWrapper func(http.RoundTripper) http.RoundTripper
-	tokenSource      TokenSource
-	openAIVendor     bool
+	gateway              string
+	gatewaySet           bool
+	structuredOutputSet  bool
+	encryptedConfig      string
+	structuredOutput     *latest.StructuredOutput
+	generatingTitle      bool
+	compacting           bool
+	noThinking           bool
+	maxTokens            int64
+	maxTokensInheritable bool
+	providers            map[string]latest.ProviderConfig
+	modelsDevStore       *modelsdev.Store
+	transportWrapper     func(http.RoundTripper) http.RoundTripper
+	tokenSource          TokenSource
+	openAIVendor         bool
 }
 
 func (c *ModelOptions) Gateway() string {
@@ -51,6 +56,11 @@ func (c *ModelOptions) Compacting() bool {
 
 func (c *ModelOptions) MaxTokens() int64 {
 	return c.maxTokens
+}
+
+// MaxTokensInheritable reports whether an auxiliary cap applies to routed children.
+func (c *ModelOptions) MaxTokensInheritable() bool {
+	return c.maxTokensInheritable
 }
 
 func (c *ModelOptions) NoThinking() bool {
@@ -131,6 +141,7 @@ func ForEvaluator(cfg latest.EvaluatorConfig, opts ...Opt) ModelOptions {
 func WithGateway(gateway string) Opt {
 	return func(cfg *ModelOptions) {
 		cfg.gateway = gateway
+		cfg.gatewaySet = true
 	}
 }
 
@@ -149,7 +160,8 @@ func WithEncryptedConfig(encryptedConfig string) Opt {
 // constrain the response natively in that mode.
 func WithStructuredOutput(structuredOutput *latest.StructuredOutput) Opt {
 	return func(cfg *ModelOptions) {
-		if structuredOutput.ToolMode() {
+		cfg.structuredOutputSet = true
+		if structuredOutput == nil || structuredOutput.ToolMode() {
 			cfg.structuredOutput = nil
 			return
 		}
@@ -172,6 +184,15 @@ func WithCompacting() Opt {
 func WithMaxTokens(maxTokens int64) Opt {
 	return func(cfg *ModelOptions) {
 		cfg.maxTokens = maxTokens
+		cfg.maxTokensInheritable = false
+	}
+}
+
+// WithAuxiliaryMaxTokens imposes a cap on both direct and routed providers.
+func WithAuxiliaryMaxTokens(maxTokens int64) Opt {
+	return func(cfg *ModelOptions) {
+		cfg.maxTokens = maxTokens
+		cfg.maxTokensInheritable = true
 	}
 }
 
@@ -251,13 +272,13 @@ func WithHTTPTransportWrapper(fn func(base http.RoundTripper) http.RoundTripper)
 // Opt configuration functions. Later Opts override earlier ones when applied.
 func FromModelOptions(m ModelOptions) []Opt {
 	var out []Opt
-	if g := m.Gateway(); g != "" {
-		out = append(out, WithGateway(g))
+	if m.gatewaySet {
+		out = append(out, WithGateway(m.gateway))
 	}
 	if m.encryptedConfig != "" {
 		out = append(out, WithEncryptedConfig(m.encryptedConfig))
 	}
-	if m.structuredOutput != nil {
+	if m.structuredOutputSet {
 		out = append(out, WithStructuredOutput(m.structuredOutput))
 	}
 	if m.generatingTitle {
@@ -270,7 +291,11 @@ func FromModelOptions(m ModelOptions) []Opt {
 		out = append(out, WithNoThinking())
 	}
 	if m.maxTokens != 0 {
-		out = append(out, WithMaxTokens(m.maxTokens))
+		if m.maxTokensInheritable {
+			out = append(out, WithAuxiliaryMaxTokens(m.maxTokens))
+		} else {
+			out = append(out, WithMaxTokens(m.maxTokens))
+		}
 	}
 	if len(m.providers) > 0 {
 		out = append(out, WithProviders(m.providers))
@@ -288,4 +313,19 @@ func FromModelOptions(m ModelOptions) []Opt {
 		out = append(out, WithOpenAIVendor(true))
 	}
 	return out
+}
+
+// Clone copies mutable option state while preserving shared services and callbacks.
+func (c *ModelOptions) Clone() (ModelOptions, error) {
+	cloned := *c
+	var err error
+	cloned.structuredOutput, err = deepcopy.Value(c.structuredOutput)
+	if err != nil {
+		return ModelOptions{}, fmt.Errorf("copying structured_output: %w", err)
+	}
+	cloned.providers, err = deepcopy.Value(c.providers)
+	if err != nil {
+		return ModelOptions{}, fmt.Errorf("copying providers: %w", err)
+	}
+	return cloned, nil
 }

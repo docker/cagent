@@ -11,6 +11,7 @@ import (
 
 	"github.com/docker/docker-agent/pkg/chat"
 	"github.com/docker/docker-agent/pkg/config/latest"
+	"github.com/docker/docker-agent/pkg/model/provider"
 	"github.com/docker/docker-agent/pkg/model/provider/base"
 	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/modelsdev"
@@ -39,7 +40,7 @@ func (p *mockProvider) BaseConfig() base.Config {
 	if p.baseCfgFn != nil {
 		return p.baseCfgFn()
 	}
-	return base.Config{}
+	return base.Config{RebuildProvider: func(context.Context, *latest.ModelConfig, ...options.Opt) (provider.Provider, error) { return p, nil }}
 }
 
 type mockStream struct {
@@ -80,22 +81,22 @@ func streamWithContent(content string) chat.MessageStream {
 func TestGenerateOnceUsesTitleHeadroomAndClearsStructuredOutput(t *testing.T) {
 	t.Parallel()
 
+	clone := &mockProvider{id: modelsdev.NewID("google", "gemini-3-flash"), createFn: func() (chat.MessageStream, error) { return streamWithContent("Title"), nil }}
 	structured := &latest.StructuredOutput{Schema: map[string]any{"type": "object"}}
-	baseProvider := &mockProvider{
-		id: modelsdev.NewID("google", "gemini-3-flash"),
-		baseCfgFn: func() base.Config {
-			maxTokens := int64(7)
-			return base.Config{
-				ModelConfig:  latest.ModelConfig{MaxTokens: &maxTokens},
-				ModelOptions: options.Apply(options.WithStructuredOutput(structured)),
-			}
-		},
-		createFn: func() (chat.MessageStream, error) { return streamWithContent("Title"), nil },
-	}
-
+	baseProvider := &mockProvider{id: clone.id, baseCfgFn: func() base.Config {
+		return base.Config{ModelOptions: options.Apply(options.WithStructuredOutput(structured)), RebuildProvider: func(_ context.Context, cfg *latest.ModelConfig, opts ...options.Opt) (provider.Provider, error) {
+			assert.Equal(t, int64(titleMaxTokens), *cfg.MaxTokens)
+			m := options.Apply(opts...)
+			assert.Nil(t, m.StructuredOutput())
+			assert.True(t, m.NoThinking())
+			assert.True(t, m.GeneratingTitle())
+			return clone, nil
+		}}
+	}}
 	_, err := generateOnce(t.Context(), baseProvider, buildPrompt([]string{"hello"}))
 	require.NoError(t, err)
-	assert.Equal(t, 1, baseProvider.calls, "a failed clone would call the base provider and lose title-specific options")
+	assert.Zero(t, baseProvider.calls)
+	assert.Equal(t, 1, clone.calls)
 	assert.Equal(t, 128, titleMaxTokens)
 }
 
@@ -216,17 +217,16 @@ func TestGenerator_Generate_FallsBackOnEmptyOutput(t *testing.T) {
 
 // imageOutputProvider is an image-capable title candidate.
 func imageOutputProvider(id modelsdev.ID) *mockProvider {
-	return &mockProvider{
+	p := &mockProvider{
 		id: id,
 		createFn: func() (chat.MessageStream, error) {
 			return nil, errors.New("image-output title attempt failed")
 		},
-		baseCfgFn: func() base.Config {
-			return base.Config{ModelConfig: latest.ModelConfig{
-				OutputCapabilities: &latest.OutputCapabilitiesConfig{Image: new(true)},
-			}}
-		},
 	}
+	p.baseCfgFn = func() base.Config {
+		return base.Config{ModelConfig: latest.ModelConfig{OutputCapabilities: &latest.OutputCapabilitiesConfig{Image: new(true)}}, RebuildProvider: func(context.Context, *latest.ModelConfig, ...options.Opt) (provider.Provider, error) { return p, nil }}
+	}
+	return p
 }
 
 func TestNew_ImageOutputCandidateFallsThroughOnFailure(t *testing.T) {
@@ -303,4 +303,22 @@ func TestNew_KeepsUndeclaredAndExplicitFalseCandidates(t *testing.T) {
 	assert.Equal(t, "Ordinary Title", title)
 	assert.Equal(t, 1, undeclared.calls)
 	assert.Zero(t, declaredFalse.calls)
+}
+
+func TestGeneratorCloneFailuresExhaustCandidates(t *testing.T) {
+	t.Parallel()
+	synthetic := errors.New("synthetic rebuild failure")
+	missing := &mockProvider{id: modelsdev.NewID("test", "missing"), baseCfgFn: func() base.Config { return base.Config{} }}
+	broken := &mockProvider{id: modelsdev.NewID("test", "broken"), baseCfgFn: func() base.Config {
+		return base.Config{RebuildProvider: func(context.Context, *latest.ModelConfig, ...options.Opt) (provider.Provider, error) {
+			return nil, synthetic
+		}}
+	}}
+	title, err := New(missing, broken).Generate(t.Context(), "session", []string{"hello"})
+	assert.Empty(t, title)
+	require.ErrorIs(t, err, provider.ErrNoRebuilder)
+	require.ErrorIs(t, err, synthetic)
+	require.ErrorContains(t, err, "all 2 title model(s) failed")
+	assert.Zero(t, missing.calls)
+	assert.Zero(t, broken.calls)
 }
