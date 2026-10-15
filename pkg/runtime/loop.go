@@ -937,18 +937,23 @@ func (r *LocalRuntime) runTurn(
 
 	if usedModel != nil {
 		agentTools = toolsForProvider(ctx, usedModel, agentTools)
-		if usedModel.ID() != modelID {
-			slog.InfoContext(ctx, "Used fallback model", "agent", a.Name(), "primary", modelID.String(), "used", usedModel.ID().String())
-			modelID = usedModel.ID()
+		servingID, servingConfig := usedModel.ID(), usedModel.BaseConfig()
+		if res.Serving != nil {
+			servingID, servingConfig = res.Serving.ID, res.Serving.Config
+		}
+		if servingID != modelID {
+			if servingID == usedModel.ID() {
+				slog.InfoContext(ctx, "Used fallback model", "agent", a.Name(), "primary", modelID.String(), "used", servingID.String())
+			}
+			modelID = servingID
 			m, err = r.modelsStore.GetModel(ctx, modelID)
 			if err != nil {
 				slog.DebugContext(ctx, "Failed to get fallback model definition", "model_id", modelID.String(), "error", err)
 				m = nil
 			}
-			events.Emit(AgentInfo(a.Name(), modelID.String(), a.Description(), a.WelcomeMessage()))
 		}
-		// Fallbacks may share an ID but have different endpoints or cost overrides.
-		m = applyModelCost(m, modelID, res.Usage, usedModel.BaseConfig())
+		// Serving endpoints may share an ID but have different rates or cost overrides.
+		m = applyModelCost(m, modelID, res.Usage, servingConfig)
 	}
 
 	// A successful model call resets the overflow compaction counter.
@@ -1266,7 +1271,7 @@ func (r *LocalRuntime) Run(ctx context.Context, sess *session.Session) ([]sessio
 
 func applyModelCost(m *modelsdev.Model, id modelsdev.ID, usage *chat.Usage, config base.Config) *modelsdev.Model {
 	cfg := config.ModelConfig
-	// Routers cannot identify the serving endpoint here; custom endpoints need their own rates.
+	// Unreported routing endpoints and custom endpoints cannot use vendor tier multipliers.
 	isCustomEndpoint := func(endpoint string) bool {
 		return endpoint != "" && strings.TrimRight(endpoint, "/") != "https://api.openai.com/v1"
 	}

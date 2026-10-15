@@ -288,9 +288,24 @@ func (e *fallbackExecutor) execute(
 	var lastErr error
 	primaryFailedWithNonRetryable := false
 	hasFallbacks := len(fallbackModels) > 0
+	// The loop announces the primary before dispatch.
+	announcedID := primaryModel.ID()
+	needsAnnouncement := false
 
 	for chainIdx := startIndex; chainIdx < len(modelChain); chainIdx++ {
 		modelEntry := modelChain[chainIdx]
+
+		announceServing := func(stream chat.MessageStream) {
+			id := modelEntry.provider.ID()
+			if serving := servingModelFrom(stream); serving != nil {
+				id = serving.ID
+			}
+			if needsAnnouncement || id != announcedID {
+				events.Emit(AgentInfo(a.Name(), id.String(), a.Description(), a.WelcomeMessage()))
+				announcedID = id
+				needsAnnouncement = false
+			}
+		}
 
 		// Each model in the chain gets (1 + retries) attempts for retryable errors.
 		// Non-retryable errors (429 with fallbacks, 4xx) skip immediately to the next model.
@@ -336,6 +351,8 @@ func (e *fallbackExecutor) execute(
 					attempt+1,
 					maxAttempts,
 				))
+				// Not every consumer updates its model on ModelFallback.
+				needsAnnouncement = true
 			}
 
 			slog.DebugContext(ctx, "Creating chat completion stream",
@@ -369,18 +386,11 @@ func (e *fallbackExecutor) execute(
 
 			slog.DebugContext(ctx, "Processing stream", "agent", a.Name(), "model", modelEntry.provider.ID().String())
 
-			// If the provider is a rule-based router, notify the sidebar
-			// of the selected sub-model's YAML-configured name.
-			if rp, ok := modelEntry.provider.(interface {
-				LastSelectedModelID() modelsdev.ID
-			}); ok {
-				if selected := rp.LastSelectedModelID(); !selected.IsZero() {
-					events.Emit(AgentInfo(a.Name(), selected.String(), a.Description(), a.WelcomeMessage()))
-				}
-			}
+			announceServing(stream)
 
 			idleTimeout := streamIdleTimeoutFor(modelEntry.provider)
 			res, err := handleStream(streamCtx, streamCancel, stream, a, attemptTools, sess, events, idleTimeout)
+			res.Serving = servingModelFrom(stream)
 			streamCancel(nil) // always release the child context
 			if err != nil {
 				lastErr = err
@@ -418,12 +428,14 @@ func (e *fallbackExecutor) execute(
 					fbSpan.IncrementAttempt()
 					stream, err = modelEntry.provider.CreateChatCompletionStream(streamCtx, attemptMessages, attemptTools)
 					if err == nil {
+						announceServing(stream)
 						res, err = handleStream(streamCtx, streamCancel, stream, a, attemptTools, sess, events, idleTimeout)
+						res.Serving = servingModelFrom(stream)
 					}
 					streamCancel(nil)
 					if err == nil {
 						e.recordSuccess(a, modelEntry, primaryFailedWithNonRetryable)
-						fbSpan.SetFinalModel(modelEntry.provider.ID().Model)
+						fbSpan.SetFinalModel(finalModelFor(res.Serving, modelEntry.provider))
 						fbSpan.SetOutcome(genai.FallbackOutcomeSuccess)
 						return res, modelEntry.provider, nil
 					}
@@ -441,7 +453,7 @@ func (e *fallbackExecutor) execute(
 			}
 
 			e.recordSuccess(a, modelEntry, primaryFailedWithNonRetryable)
-			fbSpan.SetFinalModel(modelEntry.provider.ID().Model)
+			fbSpan.SetFinalModel(finalModelFor(res.Serving, modelEntry.provider))
 			fbSpan.SetOutcome(genai.FallbackOutcomeSuccess)
 			return res, modelEntry.provider, nil
 		}
@@ -558,4 +570,18 @@ func (e *fallbackExecutor) handleModelError(
 		"attempt", attempt+1,
 		"error", err)
 	return retryDecisionContinue
+}
+
+func finalModelFor(serving *provider.ServingModel, dispatched provider.Provider) string {
+	if serving != nil && serving.ID.Model != "" {
+		return serving.ID.Model
+	}
+	return dispatched.ID().Model
+}
+
+func servingModelFrom(stream chat.MessageStream) *provider.ServingModel {
+	if stream, ok := stream.(provider.ServingStream); ok {
+		return new(stream.ServingModel())
+	}
+	return nil
 }

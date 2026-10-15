@@ -133,7 +133,11 @@ func (t *tracedChat) CreateChatCompletionStream(ctx context.Context, messages []
 		span.End()
 		return nil, err
 	}
-	return genai.WrapStream(span, stream), nil
+	wrapped := genai.WrapStream(span, stream)
+	if serving, ok := stream.(ServingStream); ok {
+		return &tracedServingStream{MessageStream: wrapped, serving: serving.ServingModel()}, nil
+	}
+	return wrapped, nil
 }
 
 // embeddingRequestForConfig builds an EmbeddingRequest from the inner
@@ -282,4 +286,15 @@ func (t *tracedBatchEmbed) CreateBatchEmbedding(ctx context.Context, texts []str
 type tracedBatchEmbedRerank struct {
 	tracedBatchEmbed
 	tracedRerankOps
+}
+
+// tracedServingStream preserves metadata while Recv and Close retain span bookkeeping.
+type tracedServingStream struct {
+	chat.MessageStream
+
+	serving ServingModel
+}
+
+func (s *tracedServingStream) ServingModel() ServingModel {
+	return s.serving
 }

@@ -199,7 +199,7 @@ func TestClient_SelectProvider(t *testing.T) {
 			defer client.Close()
 
 			messages := []chat.Message{{Role: chat.MessageRoleUser, Content: tt.message}}
-			provider := client.selectProvider(messages)
+			provider, _ := client.selectProvider(messages)
 			require.NotNil(t, provider)
 			assert.Equal(t, tt.expectedModel, provider.ID().String())
 		})
@@ -311,7 +311,7 @@ func TestClient_DefaultProvider(t *testing.T) {
 	require.NoError(t, err)
 	defer client.Close()
 
-	provider := client.selectProvider(nil)
+	provider, _ := client.selectProvider(nil)
 	assert.Equal(t, "openai/gpt-4o", provider.ID().String())
 }
 
