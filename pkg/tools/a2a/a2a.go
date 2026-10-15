@@ -14,9 +14,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/a2aproject/a2a-go/a2a"
-	"github.com/a2aproject/a2a-go/a2aclient"
-	"github.com/a2aproject/a2a-go/a2aclient/agentcard"
+	"github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2aclient"
+	"github.com/a2aproject/a2a-go/v2/a2aclient/agentcard"
+	"github.com/a2aproject/a2a-go/v2/a2acompat/a2av0"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 
 	"github.com/docker/docker-agent/pkg/config"
 	"github.com/docker/docker-agent/pkg/config/latest"
@@ -27,7 +29,7 @@ import (
 )
 
 type streamingSender interface {
-	SendStreamingMessage(ctx context.Context, params *a2a.MessageSendParams) iter.Seq2[a2a.Event, error]
+	SendStreamingMessage(ctx context.Context, req *a2a.SendMessageRequest) iter.Seq2[a2a.Event, error]
 }
 
 type headerExpander interface {
@@ -207,25 +209,32 @@ func (t *Toolset) Start(ctx context.Context) error {
 	rec := &retryAfterRecorder{base: base}
 	client.Transport = rec
 
-	resolver := agentcard.NewResolver(client)
-	card, err := resolver.Resolve(ctx, t.url)
+	resolver := &agentcard.Resolver{Client: client, CardParser: parseAgentCard}
+	// url is a base URL; without WithPath the resolver would fetch a non-root path as the card itself.
+	card, err := resolver.Resolve(ctx, t.url, agentcard.WithPath(a2asrv.WellKnownAgentCardPath))
 	if err != nil {
 		return enrichCardError(err, rec)
 	}
 
-	httpClient := client
-
-	endpointOrigin := t.url
-	if card.URL != "" {
-		endpointOrigin = card.URL
-	}
 	headers := t.expander.ExpandMap(ctx, t.headers)
-	httpClient.Transport = upstream.NewHeaderTransportForOrigin(base, endpointOrigin, headers)
+	// Scope headers to the interface the factory selects, which need not be the first one listed.
+	clientFor := func(iface *a2a.AgentInterface) *http.Client {
+		c := *client
+		c.Transport = upstream.NewHeaderTransportForOrigin(base, iface.URL, headers)
+		return &c
+	}
 
 	a2aClient, err := a2aclient.NewFromCard(
 		ctx, card,
 		a2aclient.WithDefaultsDisabled(),
-		a2aclient.WithJSONRPCTransport(httpClient),
+		a2aclient.WithTransport(a2a.TransportProtocolJSONRPC, a2aclient.TransportFactoryFn(
+			func(_ context.Context, _ *a2a.AgentCard, iface *a2a.AgentInterface) (a2aclient.Transport, error) {
+				return a2aclient.NewJSONRPCTransport(iface.URL, clientFor(iface)), nil
+			})),
+		a2aclient.WithCompatTransport(a2av0.Version, a2a.TransportProtocolJSONRPC, a2aclient.TransportFactoryFn(
+			func(_ context.Context, _ *a2a.AgentCard, iface *a2a.AgentInterface) (a2aclient.Transport, error) {
+				return a2av0.NewJSONRPCTransport(a2av0.JSONRPCTransportConfig{URL: iface.URL, Client: clientFor(iface)}), nil
+			})),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create A2A client: %w", err)
@@ -266,12 +275,12 @@ func (t *Toolset) createHandler() tools.ToolHandler {
 			return nil, errors.New("A2A client not initialized")
 		}
 
-		params := &a2a.MessageSendParams{
-			Message: a2a.NewMessage(a2a.MessageRoleUser, &a2a.TextPart{Text: args.Message}),
+		req := &a2a.SendMessageRequest{
+			Message: a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart(args.Message)),
 		}
 
 		var response strings.Builder
-		for event, err := range client.SendStreamingMessage(ctx, params) {
+		for event, err := range client.SendStreamingMessage(ctx, req) {
 			if err != nil {
 				return nil, fmt.Errorf("A2A call failed: %w", err)
 			}
@@ -308,11 +317,8 @@ func extractText(event a2a.Event) string {
 
 	var sb strings.Builder
 	for _, part := range parts {
-		switch p := part.(type) {
-		case *a2a.TextPart:
-			sb.WriteString(p.Text)
-		case a2a.TextPart:
-			sb.WriteString(p.Text)
+		if part != nil {
+			sb.WriteString(part.Text())
 		}
 	}
 	return sb.String()
