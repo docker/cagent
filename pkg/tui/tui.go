@@ -1555,7 +1555,7 @@ func (m *appModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg
 		return m, nil
 
-	case *runtime.BackgroundAgentStatusEvent:
+	case *runtime.TokenUsageEvent, *runtime.EvaluationUsageEvent, *runtime.BackgroundAgentStatusEvent:
 		return m.forwardChat(msg)
 
 	default:
