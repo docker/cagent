@@ -217,7 +217,7 @@ func TestSettingsDialogFitsContent(t *testing.T) {
 				d.tab = tab
 				view := d.View()
 				assert.Equal(t, size.dialogWidth, lipgloss.Width(view))
-				assert.LessOrEqual(t, lipgloss.Height(view), size.dialogHeight)
+				assert.Equal(t, size.dialogHeight, lipgloss.Height(view))
 				assert.NotContains(t, view, "Changes are saved only when applied.")
 				assert.Contains(t, ansi.Strip(view), "Appearance")
 				assert.Contains(t, ansi.Strip(view), "Notifications")
@@ -229,7 +229,7 @@ func TestSettingsDialogFitsContent(t *testing.T) {
 			d.selected[tabBehavior] = rowYOLO
 			d.Update(tea.KeyPressMsg{Code: tea.KeySpace})
 			view := d.View()
-			assert.LessOrEqual(t, lipgloss.Height(view), size.dialogHeight)
+			assert.Equal(t, size.dialogHeight, lipgloss.Height(view))
 			assert.Contains(t, view, "Press again to enable.")
 		})
 	}
@@ -389,16 +389,42 @@ func TestSettingsDialogTitleSpacing(t *testing.T) {
 	assert.Contains(t, lines[3], "Appearance")
 }
 
-func TestSettingsDialogShortensSmallTabs(t *testing.T) {
+func TestSettingsDialogKeepsSizeAcrossCategories(t *testing.T) {
 	t.Parallel()
 
-	d := newTestSettingsDialog(t, messages.LayoutSettings{})
-	appearanceHeight := lipgloss.Height(d.View())
-	d.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-	assert.Less(t, lipgloss.Height(d.View()), appearanceHeight)
-	d.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-	assert.LessOrEqual(t, lipgloss.Height(d.View()), 16)
-	assert.NotContains(t, ansi.Strip(d.View()), "Changes are saved only when applied")
+	for _, showVisuals := range []bool{true, false} {
+		t.Run(fmt.Sprintf("sidebar=%t", showVisuals), func(t *testing.T) {
+			t.Parallel()
+			d := newTestSettingsDialog(t, messages.LayoutSettings{})
+			d.showVisuals = showVisuals
+			for _, size := range []struct{ width, height int }{{36, 18}, {80, 24}, {100, 40}, {140, 50}} {
+				d.Update(tea.WindowSizeMsg{Width: size.width, Height: size.height})
+				view := d.View()
+				width, height := lipgloss.Width(view), lipgloss.Height(view)
+				row, col := d.Position()
+				for range tabCount {
+					d.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+					view = d.View()
+					assert.Equal(t, width, lipgloss.Width(view))
+					assert.Equal(t, height, lipgloss.Height(view))
+					gotRow, gotCol := d.Position()
+					assert.Equal(t, row, gotRow)
+					assert.Equal(t, col, gotCol)
+				}
+				labels := settingsTabLabels
+				if size.width == 36 {
+					labels = [tabCount]string{"App", "Beh", "Notif"}
+				}
+				for _, label := range labels {
+					d.Update(settingsTabClick(t, d, label))
+					assert.Equal(t, height, lipgloss.Height(d.View()))
+					gotRow, gotCol := d.Position()
+					assert.Equal(t, row, gotRow)
+					assert.Equal(t, col, gotCol)
+				}
+			}
+		})
+	}
 }
 
 func settingsTabClick(t *testing.T, d *settingsDialog, label string) tea.MouseClickMsg {

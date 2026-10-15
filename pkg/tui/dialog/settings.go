@@ -413,8 +413,6 @@ func (d *settingsDialog) View() string {
 	controlsWidth := min(inner, settingsControlsWidth)
 	d.body.SetSize(controlsWidth, bodyHeight)
 	body := d.renderBody(d.body.ContentWidth())
-	bodyHeight = min(bodyHeight, len(body.lines))
-	d.body.SetSize(controlsWidth, bodyHeight)
 	d.body.SetContent(body.lines, len(body.lines))
 	d.body.SetScrollOffset(d.body.ScrollOffset())
 	if d.selected[d.tab] == 0 && body.selectedEnd < d.body.VisibleHeight() {

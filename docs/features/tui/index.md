@@ -570,7 +570,7 @@ Press <kbd>Ctrl</kbd>+<kbd>R</kbd> to enter incremental history search mode. Sta
 
 ## Settings
 
-Run `/settings` to open the settings dialog. Click a category tab, or use <kbd>Tab</kbd> (or <kbd>Shift</kbd>+<kbd>Tab</kbd>), to switch between **Appearance**, **Behavior**, and **Notifications**. Settings are grouped by purpose. Use <kbd>↑</kbd>/<kbd>↓</kbd> to navigate and <kbd>←</kbd>/<kbd>→</kbd> or <kbd>Space</kbd> to change a value. The dialog fits its contents and separates settings into sections. The list scrolls only when needed to keep the selected setting visible; the help below it describes the current action.
+Run `/settings` to open the settings dialog. Click a category tab, or use <kbd>Tab</kbd> (or <kbd>Shift</kbd>+<kbd>Tab</kbd>), to switch between **Appearance**, **Behavior**, and **Notifications**. Settings are grouped by purpose. Use <kbd>↑</kbd>/<kbd>↓</kbd> to navigate and <kbd>←</kbd>/<kbd>→</kbd> or <kbd>Space</kbd> to change a value. The dialog keeps the same compact size when switching categories and separates settings into sections. The list scrolls only when needed to keep the selected setting visible; the help below it describes the current action.
 
 > [!TIP]
 > **Full settings reference**
