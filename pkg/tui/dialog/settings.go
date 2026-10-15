@@ -462,7 +462,7 @@ func (c *settingsContent) addGroup(label string, width int) {
 }
 
 func (d *settingsDialog) renderBody(width int) settingsContent {
-	for _, spacing := range []struct{ group, row, chat int }{{2, 1, 1}, {2, 0, 1}, {1, 0, 0}} {
+	for _, spacing := range []struct{ group, row int }{{2, 1}, {2, 0}, {1, 0}} {
 		content := settingsContent{width: width, groupSpacing: spacing.group, rowSpacing: spacing.row}
 		switch d.tab {
 		case tabBehavior:
@@ -470,7 +470,7 @@ func (d *settingsDialog) renderBody(width int) settingsContent {
 		case tabNotifications:
 			d.renderNotificationsTab(&content, width)
 		default:
-			d.renderAppearanceTab(&content, width, spacing.chat)
+			d.renderAppearanceTab(&content, width)
 		}
 		if len(content.lines) <= d.body.VisibleHeight() || spacing.group == 1 {
 			return content
@@ -479,7 +479,7 @@ func (d *settingsDialog) renderBody(width int) settingsContent {
 	return settingsContent{}
 }
 
-func (d *settingsDialog) renderAppearanceTab(content *settingsContent, width, chatRowSpacing int) {
+func (d *settingsDialog) renderAppearanceTab(content *settingsContent, width int) {
 	add := func(row int, value string) { content.addRow(row, d.selected[d.tab], value) }
 	toggle := func(row int, label string, enabled bool) { add(row, d.renderToggleRow(row, label, enabled, width)) }
 	theme := styles.GetPersistedThemeRef()
@@ -502,7 +502,7 @@ func (d *settingsDialog) renderAppearanceTab(content *settingsContent, width, ch
 		toggle(rowTodos, "Todos", !d.current.Layout.HideTodos)
 	}
 	content.addGroup("Chat display", width)
-	content.rowSpacing = chatRowSpacing
+	content.rowSpacing = 0
 	toggle(rowSplitDiff, "Split diff view", d.current.SplitDiffView)
 	toggle(rowExpandThinking, "Expand thinking by default", d.current.ExpandThinking)
 	toggle(rowHideToolResults, "Hide tool results by default", d.current.HideToolResults)

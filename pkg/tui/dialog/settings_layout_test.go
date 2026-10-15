@@ -323,3 +323,29 @@ func TestSettingsDialogSpacingDoesNotForceScrolling(t *testing.T) {
 		assert.Contains(t, ansi.Strip(view), "Show startup banner", "height %d", height)
 	}
 }
+
+func TestSettingsDialogChatDisplayRowsAreContiguous(t *testing.T) {
+	t.Parallel()
+
+	for _, size := range []struct{ width, height int }{{80, 24}, {100, 40}, {140, 50}} {
+		t.Run(fmt.Sprintf("%dx%d", size.width, size.height), func(t *testing.T) {
+			t.Parallel()
+			d := newTestSettingsDialog(t, messages.LayoutSettings{})
+			d.Update(tea.WindowSizeMsg{Width: size.width, Height: size.height})
+			d.View()
+			content := d.renderBody(d.body.ContentWidth())
+			for i, line := range content.lines {
+				if !strings.Contains(line, "Split diff view") {
+					continue
+				}
+				require.GreaterOrEqual(t, len(content.lines)-i, 5)
+				assert.Contains(t, content.lines[i+1], "Expand thinking by default")
+				assert.Contains(t, content.lines[i+2], "Hide tool results by default")
+				assert.Contains(t, content.lines[i+3], "Render images")
+				assert.Contains(t, content.lines[i+4], "Show startup banner")
+				return
+			}
+			t.Fatal("Chat display settings are missing")
+		})
+	}
+}
