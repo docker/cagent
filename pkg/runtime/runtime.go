@@ -247,7 +247,7 @@ type LocalRuntime struct {
 	toolDeferrals             tools.DeferralTracker
 	team                      *team.Team
 	agents                    *agentRouter
-	resumeChan                chan ResumeRequest
+	resumeChan                chan ResumeRequest // Queues a decision delivered before the prompt emitter parks.
 	tracer                    trace.Tracer
 	modelsStore               ModelStore
 	sessionCompaction         bool
@@ -718,7 +718,7 @@ func NewLocalRuntime(ctx context.Context, agents *team.Team, opts ...Opt) (*Loca
 		liveSessions:                 make(map[string]*liveSessionEntry),
 		team:                         agents,
 		agents:                       newAgentRouter(agents, defaultAgent.Name()),
-		resumeChan:                   make(chan ResumeRequest),
+		resumeChan:                   make(chan ResumeRequest, 1),
 		steerQueue:                   NewInMemoryMessageQueue(defaultSteerQueueCapacity),
 		followUpQueue:                NewInMemoryMessageQueue(defaultFollowUpQueueCapacity),
 		sessionCompaction:            true,
@@ -1974,6 +1974,14 @@ func listToolsWithTimeout(ctx context.Context, toolset tools.ToolSet, timeout ti
 		return nil, toolCtx.Err()
 	case res := <-done:
 		return res.tools, res.err
+	}
+}
+
+// armResume discards an earlier decision before publishing a new prompt.
+func (r *LocalRuntime) armResume() {
+	select {
+	case <-r.resumeChan:
+	default:
 	}
 }
 

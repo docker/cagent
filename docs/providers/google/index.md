@@ -301,6 +301,18 @@ Gemini SDK:
 - **Other publishers** (e.g. `meta`, `mistral`) use Vertex AI's
   OpenAI-compatible `/chat/completions` endpoint.
 
+For Claude, the SDK puts the model in the URL and `anthropic_version` in the
+request body. ADC OAuth authenticates the request; `token_key` does not replace
+ADC, and the client clears any inherited Anthropic `X-Api-Key` header.
+
+`native_compaction` and `cache_diagnostics` are rejected by the current Vertex
+client. Anthropic documents Google Cloud beta support for on-demand compaction;
+that service feature is **not integrated** here. Structured output also requires
+an explicit organization-policy allowance. Mythos 5/5.1 have limited-access
+announcements but no dedicated Google card in the 2026-10-13 audit; this proves
+neither unavailability nor account entitlement. See [Claude access paths](../anthropic/index.md#claude-access-paths)
+for model IDs, evidence and policy prerequisites.
+
 Title, sampling and compaction clones keep the selected Model Garden transport.
 Claude requests remain on the Anthropic-native Vertex endpoints, with the model
 in the URL and `anthropic_version: vertex-2023-10-16` in the body. Project,
@@ -317,12 +329,16 @@ gcloud auth application-default login
 ```
 
 Go embedders can instead supply a request-context token source through
-`vertexai.NewClientWithTokenSource` or `options.WithTokenSource`. That source is
-preserved across clones and replaces ADC, including credential-file and metadata
-lookups. HTTP transport wrappers are preserved on both authentication paths;
+`vertexai.NewClientWithTokenSource` or `options.WithTokenSource`. Unlike
+`token_key`, that source replaces ADC, including credential-file and metadata
+lookups, and is preserved across clones. HTTP transport wrappers are preserved on both authentication paths;
 ADC still applies OAuth authorization around the wrapped transport.
 
 ### Configuration
+
+Use the location listed in the specific model's vendor documentation. Anthropic
+specifies global or multi-region endpoints for models newer than Sonnet 4.6;
+do not reuse an older model's single-region example.
 
 ```yaml
 models:
@@ -331,14 +347,14 @@ models:
     model: claude-sonnet-5
     provider_opts:
       project: my-gcp-project       # GCP project ID (or set GOOGLE_CLOUD_PROJECT)
-      location: us-east5             # GCP region (or set GOOGLE_CLOUD_LOCATION)
+      location: global              # Use a location supported by this model (or GOOGLE_CLOUD_LOCATION)
       publisher: anthropic           # Model publisher (anthropic, meta, etc.)
 ```
 
 | Option      | Description                                                                          |
 | ----------- | ------------------------------------------------------------------------------------ |
 | `project`   | GCP project ID. Falls back to `GOOGLE_CLOUD_PROJECT` env var                         |
-| `location`  | GCP region (e.g. `us-east5`, `us-central1`). Falls back to `GOOGLE_CLOUD_LOCATION`   |
+| `location`  | Model-supported location (global, multi-region or region). Falls back to `GOOGLE_CLOUD_LOCATION` |
 | `publisher`  | Model publisher (e.g. `anthropic`, `meta`, `mistral`). Must not be `google`          |
 
 > [!NOTE]

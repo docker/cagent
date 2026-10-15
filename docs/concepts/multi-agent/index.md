@@ -271,7 +271,7 @@ External references in `handoffs` and `force_handoff` carry the same per-run cos
 
 ## Harness-Backed Sub-Agents
 
-Sub-agents can be backed by external coding CLIs — Claude Code, Codex, opencode, or pi — instead of a model API. Add a `harness:` block in place of a `model:` field to create a harness sub-agent:
+Sub-agents can be backed by external coding CLIs — Claude Code, Codex, opencode, pi, or Command Code — instead of a model API. Add a `harness:` block in place of a `model:` field to create a harness sub-agent:
 
 ```yaml
 agents:

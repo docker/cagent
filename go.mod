@@ -62,7 +62,7 @@ require (
 	github.com/openai/openai-go/v3 v3.61.0
 	github.com/pb33f/libopenapi v0.41.5
 	github.com/rivo/uniseg v0.4.7
-	github.com/rumpl/harness v0.0.0-20261007225003-7683a7eab445
+	github.com/rumpl/harness v0.0.0-20261013122321-04282da16ab5
 	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10

@@ -47,6 +47,13 @@ agents:
 
 Use a named Anthropic provider to share settings across models while allowing model-level overrides. See [Default Inheritance](#default-inheritance) for the example and precedence rules.
 
+A custom Anthropic `base_url` reuses the Messages client but selects a different
+host. It does not inherit Claude API capability, beta, price or signature-portability
+guarantees. Intermediary prefix rewrites can invalidate signed history. The `azure`
+alias uses the OpenAI-compatible client, not native Azure AI Foundry Claude.
+These custom configurations are not live-tested by this guide; see
+[Claude access paths](../anthropic/index.md#claude-access-paths).
+
 ### Google with shared temperature
 
 ```yaml

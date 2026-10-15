@@ -36,6 +36,9 @@ type Gate struct {
 	// interactive sessions.
 	Resume <-chan ResumeRequest
 
+	// PrepareConfirmation discards earlier decisions before a prompt. May be nil.
+	PrepareConfirmation func()
+
 	// Hooks receives the "waiting for the user" and approval-decision
 	// notifications. May be nil.
 	Hooks HookDispatcher
@@ -60,10 +63,11 @@ func (g *Gate) ConfirmAndRun(ctx context.Context, run tools.ConfirmedRun, exec f
 		return "", err
 	}
 	d := &Dispatcher{
-		Hooks:          g.Hooks,
-		Resume:         g.Resume,
-		Permissions:    g.Permissions,
-		confirmationMu: g.Mu,
+		Hooks:               g.Hooks,
+		Resume:              g.Resume,
+		PrepareConfirmation: g.PrepareConfirmation,
+		Permissions:         g.Permissions,
+		confirmationMu:      g.Mu,
 	}
 	if d.confirmationMu == nil {
 		d.confirmationMu = &sync.Mutex{}

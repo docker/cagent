@@ -109,11 +109,14 @@ func TestEnforceMaxIterations_Interactive_ApproveExtends(t *testing.T) {
 	sess := session.New()
 	events := make(chan Event, 8)
 
-	// Pre-load an approval onto the resume channel so enforceMaxIterations
-	// returns immediately instead of blocking on user input.
-	go func() { rt.resumeChan <- ResumeApprove() }()
+	sink := EventSinkFunc(func(ev Event) {
+		events <- ev
+		if _, ok := ev.(*MaxIterationsReachedEvent); ok {
+			rt.Resume(t.Context(), ResumeApprove())
+		}
+	})
 
-	newMax, decision := rt.enforceMaxIterations(t.Context(), sess, a, 10, 10, NewChannelSink(events))
+	newMax, decision := rt.enforceMaxIterations(t.Context(), sess, a, 10, 10, sink)
 
 	assert.Equal(t, iterationContinue, decision)
 	assert.Equal(t, 20, newMax, "approve must extend by 10 iterations beyond the current iteration")
@@ -126,9 +129,14 @@ func TestEnforceMaxIterations_Interactive_RejectStops(t *testing.T) {
 	sess := session.New()
 	events := make(chan Event, 8)
 
-	go func() { rt.resumeChan <- ResumeReject("no thanks") }()
+	sink := EventSinkFunc(func(ev Event) {
+		events <- ev
+		if _, ok := ev.(*MaxIterationsReachedEvent); ok {
+			rt.Resume(t.Context(), ResumeReject("no thanks"))
+		}
+	})
 
-	_, decision := rt.enforceMaxIterations(t.Context(), sess, a, 10, 10, NewChannelSink(events))
+	_, decision := rt.enforceMaxIterations(t.Context(), sess, a, 10, 10, sink)
 
 	assert.Equal(t, iterationStop, decision)
 

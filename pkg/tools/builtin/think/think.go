@@ -3,6 +3,7 @@ package think
 import (
 	"context"
 	"strings"
+	"sync"
 
 	"github.com/docker/docker-agent/pkg/tools"
 )
@@ -15,6 +16,7 @@ func CreateToolSet() (tools.ToolSet, error) {
 }
 
 type ToolSet struct {
+	mu       sync.Mutex
 	thoughts []string
 }
 
@@ -23,6 +25,8 @@ type Args struct {
 }
 
 func (t *ToolSet) callTool(_ context.Context, params Args) (*tools.ToolCallResult, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.thoughts = append(t.thoughts, params.Thought)
 	return tools.ResultSuccess("Thoughts:\n" + strings.Join(t.thoughts, "\n")), nil
 }

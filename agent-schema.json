@@ -1106,7 +1106,8 @@
             "claude-code",
             "codex",
             "pi",
-            "opencode"
+            "opencode",
+            "command-code"
           ],
           "examples": [
             "claude-code",

@@ -128,7 +128,10 @@ OpenCode Go is implemented as a built-in alias in Docker Agent:
 - **Base URL:** `https://opencode.ai/zen/go/v1`
 - **Token Variable:** `OPENCODE_API_KEY`
 
-This means OpenCode Go uses the same client as OpenAI, making it fully compatible with all OpenAI features supported by Docker Agent.
+This alias uses the OpenAI Chat Completions client, not the custom Messages
+configuration above. Reusing a client does not guarantee every upstream feature;
+Messages signatures, beta support, caching and pricing do not carry over by default.
+See [Claude access paths](../anthropic/index.md#claude-access-paths).
 
 For Anthropic-compatible models (MiniMax, Qwen), Docker Agent uses a custom provider pointing to the Anthropic client at `https://opencode.ai/zen/go` with the same token.
 
