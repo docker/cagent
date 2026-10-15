@@ -22,9 +22,8 @@ import (
 // buildToolCallStart creates a tool call start update.
 func buildToolCallStart(toolCall tools.ToolCall, tool tools.Tool, workingDir string) acp.SessionUpdate {
 	kind := determineToolKind(toolCall.Function.Name, tool)
-	title := cmp.Or(tool.Annotations.Title, toolCall.Function.Name)
-
 	args := parseToolCallArguments(toolCall.Function.Arguments)
+	title := toolCallTitle(toolCall.Function.Name, tool.Annotations.Title, args)
 	locations := extractLocations(args, workingDir)
 
 	opts := []acp.ToolCallStartOpt{
@@ -72,9 +71,8 @@ func buildToolCallComplete(event *runtime.ToolCallResponseEvent) acp.SessionUpda
 // buildToolCallUpdate creates a tool call update for permission requests.
 func buildToolCallUpdate(toolCall tools.ToolCall, tool tools.Tool, status acp.ToolCallStatus, workingDir string) acp.ToolCallUpdate {
 	kind := determineToolKind(toolCall.Function.Name, tool)
-	title := cmp.Or(tool.Annotations.Title, toolCall.Function.Name)
-
 	args := parseToolCallArguments(toolCall.Function.Arguments)
+	title := toolCallTitle(toolCall.Function.Name, tool.Annotations.Title, args)
 	return acp.ToolCallUpdate{
 		Meta:       toolNameMeta(toolCall.Function.Name),
 		ToolCallId: acp.ToolCallId(toolCall.ID),
@@ -84,6 +82,49 @@ func buildToolCallUpdate(toolCall tools.ToolCall, tool tools.Tool, status acp.To
 		RawInput:   args,
 		Locations:  extractLocations(args, workingDir),
 	}
+}
+
+// toolCallTitle appends the command or path so an approval prompt is not just "Shell".
+func toolCallTitle(toolName, annotation string, args map[string]any) string {
+	base := cmp.Or(annotation, toolName)
+	detail := toolCallDetail(toolName, args)
+	if detail == "" {
+		return base
+	}
+	return base + ": " + detail
+}
+
+func toolCallDetail(toolName string, args map[string]any) string {
+	var keys []string
+	switch {
+	case toolName == "shell" || strings.HasPrefix(toolName, "run_") ||
+		strings.HasPrefix(toolName, "exec_") || strings.HasPrefix(toolName, "stop_"):
+		keys = []string{"cmd", "command", "script"}
+	case strings.HasPrefix(toolName, "read_") || strings.HasPrefix(toolName, "write_") || strings.HasPrefix(toolName, "edit_") ||
+		strings.HasPrefix(toolName, "delete_") || strings.HasPrefix(toolName, "create_") || toolName == "directory_tree":
+		keys = []string{"path", "file", "filepath", "file_path", "filename"}
+	case toolName == "fetch" || strings.HasPrefix(toolName, "http_"):
+		keys = []string{"url"}
+	default:
+		return ""
+	}
+	for _, key := range keys {
+		value, ok := args[key].(string)
+		if !ok {
+			continue
+		}
+		value = strings.Join(strings.Fields(value), " ")
+		if value == "" {
+			continue
+		}
+		const maxRunes = 80
+		runes := []rune(value)
+		if len(runes) > maxRunes {
+			value = string(runes[:maxRunes-1]) + "…"
+		}
+		return value
+	}
+	return ""
 }
 
 // determineToolKind maps tool names and annotations to ACP tool kinds.
