@@ -60,7 +60,7 @@ require (
 	github.com/muesli/cancelreader v0.2.2
 	github.com/natefinch/atomic v1.0.1
 	github.com/openai/openai-go/v3 v3.61.0
-	github.com/pb33f/libopenapi v0.41.5
+	github.com/pb33f/libopenapi v0.41.6
 	github.com/rivo/uniseg v0.4.7
 	github.com/rumpl/harness v0.0.0-20261013122321-04282da16ab5
 	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
