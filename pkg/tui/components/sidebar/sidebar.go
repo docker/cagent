@@ -1581,7 +1581,7 @@ func (m *model) computeCollapsedViewModel(contentWidth int) CollapsedViewModel {
 		TitleWithStar:    titleWithStar,
 		WorkingIndicator: m.workingIndicatorCollapsed(),
 		WorkingDir:       m.workingDirLine(),
-		InfoLine:         m.collapsedInfoLine(contentWidth),
+		InfoLine:         lipgloss.Wrap(m.collapsedInfoLine(contentWidth), contentWidth, ""),
 		PlansSummary:     toolcommon.TruncateText(m.plansSummary(), contentWidth),
 		ContentWidth:     contentWidth,
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -70,6 +71,30 @@ func TestBackgroundAgentCountRelayoutsSidebarBand(t *testing.T) {
 			p.Update(runtime.BackgroundAgentStatus("child", "worker", false))
 			assert.Equal(t, before, p.computeSidebarLayout())
 			assert.Equal(t, before, p.appliedLayout)
+		})
+	}
+}
+
+func TestBackgroundAgentCountBandHeightMatchesRendering(t *testing.T) {
+	t.Parallel()
+
+	for _, position := range []msgtypes.SidebarPosition{msgtypes.SidebarTop, msgtypes.SidebarBottom} {
+		t.Run(string(position), func(t *testing.T) {
+			t.Parallel()
+			p := newLayoutTestPage(t, position)
+			p.sessionState.SetCurrentAgentName("root")
+			p.sidebar.SetAgentInfo("root", "anthropic/claude-sonnet-4-5", "", 0, "", 0)
+			p.sidebar.SetTeamInfo([]runtime.AgentDetails{{Name: "root"}, {Name: "worker"}})
+			p.SetLayoutSettings(msgtypes.LayoutSettings{
+				SidebarPosition: position, HideSessionPath: true, HideUsage: true, HideTools: true, HideTodos: true,
+			})
+			p.SetSize(37, 40)
+			for _, running := range []bool{false, true, false} {
+				p.Update(runtime.BackgroundAgentStatus("child", "worker", running))
+				sl := p.computeSidebarLayout()
+				assert.Equal(t, sl.sidebarHeight, lipgloss.Height(p.renderCollapsedSidebar(sl)), "running=%v", running)
+				assert.Equal(t, p.height, lipgloss.Height(p.View()), "running=%v", running)
+			}
 		})
 	}
 }
