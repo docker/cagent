@@ -3,6 +3,7 @@ package openai
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/docker/docker-agent/pkg/chat"
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
+	"github.com/docker/docker-agent/pkg/modelerrors"
 )
 
 // TestCopilotEndpointSelection verifies that the GitHub Copilot provider
@@ -168,51 +170,52 @@ func TestCopilotExplicitAPITypeWins(t *testing.T) {
 	assert.Equal(t, "/chat/completions", gotPath)
 }
 
-// TestDirectClientPreservesErrorBody verifies that a non-OpenAI error body
-// (e.g. GitHub Copilot's bare 400) is surfaced to the caller instead of being
-// discarded, so failures are diagnosable. See
-// https://github.com/docker/docker-agent/issues/2885.
-func TestDirectClientPreservesErrorBody(t *testing.T) {
+func TestDirectClientClassifiesErrorsWithoutExposingProviderDetails(t *testing.T) {
 	t.Parallel()
 
-	const detail = "model is not supported by this endpoint"
+	for _, tc := range []struct {
+		name, body string
+		overflow   bool
+	}{
+		{"plain text", "model is not supported by this endpoint", false},
+		{"detail", `{"detail":"input exceeds the context window"}`, true},
+		{"private message", `{"error":{"message":"Invalid API key: random-opaque-production-password"}}`, false},
+		{"string error", `{"error":"input exceeds the context window"}`, true},
+		{"standard error", `{"error":{"message":"maximum context length exceeded","code":"context_length_exceeded"}}`, true},
+		{"long message", `{"error":{"message":"` + strings.Repeat("request rejected ", 30) + `input exceeds the context window"}}`, true},
+	} {
+		for _, apiType := range []string{"openai_chatcompletions", "openai_responses"} {
+			t.Run(tc.name+"/"+apiType, func(t *testing.T) {
+				t.Parallel()
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusBadRequest)
+					_, _ = w.Write([]byte(tc.body))
+				}))
+				defer server.Close()
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(detail))
-	}))
-	defer server.Close()
+				cfg := &latest.ModelConfig{
+					Provider:     "github-copilot",
+					Model:        "gpt-4o",
+					BaseURL:      server.URL,
+					TokenKey:     "GITHUB_TOKEN",
+					ProviderOpts: map[string]any{"api_type": apiType},
+				}
+				env := environment.NewMapEnvProvider(map[string]string{"GITHUB_TOKEN": "ghp_secret"})
+				client, err := NewClient(t.Context(), cfg, env)
+				require.NoError(t, err)
 
-	cfg := &latest.ModelConfig{
-		Provider: "github-copilot",
-		Model:    "gpt-4o",
-		BaseURL:  server.URL,
-		TokenKey: "GITHUB_TOKEN",
-	}
+				stream, err := client.CreateChatCompletionStream(t.Context(), []chat.Message{{Role: chat.MessageRoleUser, Content: "hi"}}, nil)
+				require.NoError(t, err)
+				defer stream.Close()
 
-	env := environment.NewMapEnvProvider(map[string]string{
-		"GITHUB_TOKEN": "ghp_secret",
-	})
-
-	client, err := NewClient(t.Context(), cfg, env)
-	require.NoError(t, err)
-
-	stream, err := client.CreateChatCompletionStream(
-		t.Context(),
-		[]chat.Message{{Role: chat.MessageRoleUser, Content: "hi"}},
-		nil,
-	)
-	require.NoError(t, err)
-	defer stream.Close()
-
-	var streamErr error
-	for {
-		if _, err := stream.Recv(); err != nil {
-			streamErr = err
-			break
+				_, streamErr := stream.Recv()
+				require.Error(t, streamErr)
+				assert.Contains(t, streamErr.Error(), "HTTP 400")
+				assert.NotContains(t, streamErr.Error(), "random-opaque-production-password")
+				assert.NotContains(t, streamErr.Error(), "input exceeds the context window")
+				assert.NotContains(t, streamErr.Error(), "model is not supported")
+				assert.Equal(t, tc.overflow, modelerrors.IsContextOverflowError(streamErr))
+			})
 		}
 	}
-
-	require.Error(t, streamErr)
-	assert.Contains(t, streamErr.Error(), detail, "the underlying provider error body must be preserved")
 }

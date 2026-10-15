@@ -88,7 +88,8 @@ agents:
 	convID := "e2e-failed-turn"
 	postChatCompletion(t, baseURL, convID, http.StatusOK, "first")
 	responseBody := postChatCompletion(t, baseURL, convID, http.StatusInternalServerError, "please fail")
-	require.Contains(t, string(responseBody), "forced failure")
+	require.Contains(t, string(responseBody), "HTTP 400")
+	assert.NotContains(t, string(responseBody), "forced failure")
 	postChatCompletion(t, baseURL, convID, http.StatusOK, "after failure")
 
 	requests := modelServer.requests()

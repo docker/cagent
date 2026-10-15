@@ -19,9 +19,12 @@ import (
 )
 
 type deferredToolPayload struct {
-	Name         string `json:"name"`
-	Type         string `json:"type"`
-	DeferLoading *bool  `json:"defer_loading"`
+	Name         string         `json:"name"`
+	Type         string         `json:"type"`
+	DeferLoading *bool          `json:"defer_loading"`
+	Description  string         `json:"description"`
+	Parameters   map[string]any `json:"parameters"`
+	Strict       *bool          `json:"strict"`
 }
 
 type deferredInputPayload struct {
@@ -82,6 +85,7 @@ func TestResponsesAPI_LoadsDeferredToolsThroughClientToolSearch(t *testing.T) {
 	readTool := tools.Tool{Name: "read", Parameters: map[string]any{"type": "object"}}
 	searchTool := tools.Tool{
 		Name:                 "search",
+		Description:          "Search the workspace",
 		Parameters:           map[string]any{"type": "object"},
 		Deferred:             true,
 		DeferredAtToolCallID: "call-1",
@@ -133,6 +137,11 @@ func TestResponsesAPI_LoadsDeferredToolsThroughClientToolSearch(t *testing.T) {
 	assert.Equal(t, call.CallID, output.CallID)
 	require.Len(t, output.Tools, 1)
 	assert.Equal(t, "search", output.Tools[0].Name)
+	assert.Equal(t, "function", output.Tools[0].Type)
+	assert.Equal(t, searchTool.Description, output.Tools[0].Description)
+	assert.Equal(t, "object", output.Tools[0].Parameters["type"])
+	require.NotNil(t, output.Tools[0].Strict)
+	assert.True(t, *output.Tools[0].Strict)
 	require.NotNil(t, output.Tools[0].DeferLoading)
 	assert.True(t, *output.Tools[0].DeferLoading)
 }

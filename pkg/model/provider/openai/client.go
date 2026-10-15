@@ -603,7 +603,7 @@ func injectDeferredToolLoads(input []responses.ResponseInputItemUnionParam, requ
 			continue
 		}
 
-		loaded := make([]responses.ToolUnionParam, 0, len(deferred))
+		loaded := make([]responses.ResponseToolSearchOutputItemParamToolUnion, 0, len(deferred))
 		names := make([]string, 0, len(deferred))
 		for _, tool := range deferred {
 			parameters, strict, err := ConvertParametersToSchema(tool.Parameters)
@@ -611,7 +611,7 @@ func injectDeferredToolLoads(input []responses.ResponseInputItemUnionParam, requ
 				return nil, err
 			}
 			tools.OrderedSchemaProperties(parameters)
-			loaded = append(loaded, responses.ToolUnionParam{OfFunction: &responses.FunctionToolParam{
+			loaded = append(loaded, responses.ResponseToolSearchOutputItemParamToolUnion{OfFunction: &responses.FunctionToolParam{
 				Name:         tool.Name,
 				Description:  param.NewOpt(tool.Description),
 				Parameters:   parameters,
