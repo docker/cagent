@@ -277,6 +277,12 @@ and `WithValue` preserve identity; escaped contexts and unresolved context
 constructors are excluded. Buffering alone is only sufficient for a one-shot
 result, not an arbitrary stream.
 
+`Lint/NonblockingChannelReplacement` flags a failed nonblocking send followed
+by an adjacent blocking drain/resend on the same local or stable field channel.
+Another consumer can empty the queue after the failed send. Nonblocking drains,
+indexed receivers, and effectful send expressions are excluded. The check does
+not prove ownership of a queue; exclusive-access protocols need review.
+
 ## Opening Issues
 
 File issues on the [GitHub issue tracker](https://github.com/docker/docker-agent/issues). Please:
