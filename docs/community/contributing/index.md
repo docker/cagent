@@ -105,14 +105,19 @@ Key conventions:
 ## Lint rules
 
 `task lint` runs the shared and project-specific cops selected in `lint/main.go`.
-Reusable checks come from [rubocop-go](https://github.com/dgageot/rubocop-go/blob/202b67b66167808e75285d0666f880a2bd4b1144/docs/shared-cops.md)
+Reusable checks come from [rubocop-go](https://github.com/dgageot/rubocop-go/blob/f5ca63a6433aa9ed2ea9e251986b0d728965dbb9/docs/shared-cops.md)
 (pinned in `go.mod`); project-specific checks and frozen-config exclusions stay
 in `lint/`. Cop IDs and `//rubocop:disable` annotations are unchanged. Add shared checks by their
-constructors, not by enabling the entire upstream catalog. 34 of the 36 shared
+constructors, not by enabling the entire upstream catalog. 40 of the 42 shared
 opt-in cops are currently selected. `Lint/ContextFirstParameter` and
 `Lint/NoContextField` remain disabled: existing public constructor signatures and
 intentionally owned lifecycle or telemetry contexts would require suppressions or
 unrelated refactoring.
+
+`CancellationLoop`, `ClosedChannelLoop`, `ChannelStateCheck`,
+`CancellationSafeResultSend`, `NonblockingChannelReplacement`, and `SlicesConcat`
+use the upstream implementations and synthetic tests. Their frozen-config
+exclusions, registration tests, and application regressions remain here.
 
 `Lint/ChannelDirection` suggests directional raw-channel parameters and results.
 It follows requirements through locals, fields, direct calls, returns, and closure
