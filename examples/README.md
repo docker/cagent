@@ -208,6 +208,7 @@ remote MCP endpoints.
 | [`nebius.yaml`](nebius.yaml) | Nebius cloud provider. |
 | [`api-route.yaml`](api-route.yaml) | API Route multi-model gateway provider. |
 | [`atlascloud.yaml`](atlascloud.yaml) | Atlas Cloud open-model host (`atlascloud`). |
+| [`cheaperinference.yaml`](cheaperinference.yaml) | Cheaper Inference multi-model gateway (`cheaperinference`). |
 | [`baseten.yaml`](baseten.yaml) | Baseten cloud provider. |
 | [`daoxe.yaml`](daoxe.yaml) | DaoXE multi-model gateway provider. |
 | [`ovhcloud.yaml`](ovhcloud.yaml) | OVHcloud AI Endpoints provider. |

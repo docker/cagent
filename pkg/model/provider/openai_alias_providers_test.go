@@ -73,6 +73,14 @@ var openAIAliasProviders = []openAIAliasProvider{
 		mergesSystemMessages: true,
 	},
 	{
+		provider:             "cheaperinference",
+		envVar:               "CHEAPER_INFERENCE_API_KEY",
+		testKey:              "test-cheaperinference-key",
+		model:                "gpt-5.4-mini",
+		greeting:             "Hello from Cheaper Inference",
+		mergesSystemMessages: true,
+	},
+	{
 		provider: "deepseek",
 		envVar:   "DEEPSEEK_API_KEY",
 		testKey:  "sk-test-deepseek-key",

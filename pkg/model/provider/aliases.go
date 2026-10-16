@@ -75,6 +75,11 @@ var Aliases = map[string]Alias{
 		BaseURL:     "https://api.atlascloud.ai/v1",
 		TokenEnvVar: "ATLASCLOUD_API_KEY",
 	},
+	"cheaperinference": {
+		APIType:     "openai",
+		BaseURL:     "https://api.cheaperinference.com/v1",
+		TokenEnvVar: "CHEAPER_INFERENCE_API_KEY",
+	},
 	"mistral": {
 		APIType:     "openai",
 		BaseURL:     "https://api.mistral.ai/v1",

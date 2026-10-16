@@ -168,6 +168,7 @@ func TestShouldMergeConsecutiveMessages_Gating(t *testing.T) {
 		{"openai with custom base_url (vLLM)", &latest.ModelConfig{Provider: "openai", Model: "Qwen/Qwen3.6-35B", BaseURL: "http://box:8000/v1"}, true},
 		{"open-model host alias openrouter", &latest.ModelConfig{Provider: "openrouter", Model: "qwen/qwen3.6-35b"}, true},
 		{"open-model host alias atlascloud", &latest.ModelConfig{Provider: "atlascloud", Model: "qwen/qwen3.8-max"}, true},
+		{"open-model host alias cheaperinference", &latest.ModelConfig{Provider: "cheaperinference", Model: "gpt-5.4-mini"}, true},
 		{"open-model host alias nebius", &latest.ModelConfig{Provider: "nebius", Model: "Qwen/Qwen3"}, true},
 		{"api-route, no base_url", &latest.ModelConfig{Provider: "api-route", Model: "gpt-6.1-sol"}, true},
 		{"baseten", &latest.ModelConfig{Provider: "baseten", Model: "zai-org/GLM-5.2"}, true},
