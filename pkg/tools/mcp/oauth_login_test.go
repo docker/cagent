@@ -318,13 +318,9 @@ func TestCallbackConfigAccessors(t *testing.T) {
 func reserveCallbackServer(t *testing.T) (int, func(context.Context, int) (*CallbackServer, error)) {
 	t.Helper()
 
-	server, err := NewCallbackServer(t.Context())
+	server, err := startCallbackServer(t.Context(), 0)
 	require.NoError(t, err)
-	var claimed atomic.Bool
 	t.Cleanup(func() {
-		if !claimed.Load() {
-			require.NoError(t, server.Start())
-		}
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 5*time.Second)
 		defer cancel()
 		require.NoError(t, server.Shutdown(ctx))
@@ -333,7 +329,6 @@ func reserveCallbackServer(t *testing.T) (int, func(context.Context, int) (*Call
 		if port != server.Port() {
 			return nil, fmt.Errorf("callback port = %d, want %d", port, server.Port())
 		}
-		claimed.Store(true)
 		return server, nil
 	}
 }
@@ -341,22 +336,21 @@ func reserveCallbackServer(t *testing.T) (int, func(context.Context, int) (*Call
 func TestReserveCallbackServer(t *testing.T) {
 	t.Parallel()
 
-	port, newCallbackServer := reserveCallbackServer(t)
+	port, startCallback := reserveCallbackServer(t)
 	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if listener != nil {
 		listener.Close()
 	}
 	require.Error(t, err, "the callback port must stay reserved")
 
-	_, err = newCallbackServer(t.Context(), 0)
+	_, err = startCallback(t.Context(), 0)
 	require.Error(t, err, "the factory must reject an unexpected port")
-	server, err := newCallbackServer(t.Context(), port)
+	server, err := startCallback(t.Context(), port)
 	require.NoError(t, err)
 	assert.Equal(t, port, server.Port())
-	require.NoError(t, server.Start())
 }
 
-func startOAuthLogin(t *testing.T, remote latest.Remote, newCallbackServer func(context.Context, int) (*CallbackServer, error)) <-chan error {
+func startOAuthLogin(t *testing.T, remote latest.Remote, startCallback func(context.Context, int) (*CallbackServer, error)) <-chan error {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -364,7 +358,7 @@ func startOAuthLogin(t *testing.T, remote latest.Remote, newCallbackServer func(
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		errCh <- performOAuthLogin(ctx, remote, newCallbackServer)
+		errCh <- performOAuthLogin(ctx, remote, startCallback)
 	}()
 	t.Cleanup(func() {
 		cancel()
@@ -448,14 +442,14 @@ func TestPerformOAuthLogin_DefaultCallback_UsesLoopbackRedirect_EndToEnd(t *test
 // PerformOAuthLogin end to end with RemoteOAuthConfig.CallbackPort set: the
 // local callback server must bind that exact port, and the redirect URI
 // used for /authorize and the token exchange must carry it — the same
-// contract NewCallbackServerOnPort gives the runtime's managed OAuth flow.
+// contract startCallbackServer gives the runtime's managed OAuth flow.
 func TestPerformOAuthLogin_CallbackPort_UsesConfiguredPort_EndToEnd(t *testing.T) {
 	resetDefaultStore(t)
 	store := NewInMemoryTokenStore()
 	SetDefaultTokenStoreFactory(func() OAuthTokenStore { return store })
 
 	urlCh := fakeBrowserOpener(t)
-	port, newCallbackServer := reserveCallbackServer(t)
+	port, startCallback := reserveCallbackServer(t)
 
 	const mcpPath = "/mcp"
 	var tokenRedirectURI string
@@ -501,7 +495,7 @@ func TestPerformOAuthLogin_CallbackPort_UsesConfiguredPort_EndToEnd(t *testing.T
 		OAuth: &latest.RemoteOAuthConfig{CallbackPort: port},
 	}
 
-	errCh := startOAuthLogin(t, remote, newCallbackServer)
+	errCh := startOAuthLogin(t, remote, startCallback)
 
 	authURL := requireCapturedAuthorizeURL(t, urlCh, errCh)
 	deliverFakeCallback(t, authURL, "code-configured-port")
@@ -520,7 +514,7 @@ func TestPerformOAuthLogin_CallbackPort_UsesConfiguredPort_EndToEnd(t *testing.T
 // TestPerformOAuthLogin_CallbackPortAlreadyInUse_HardErrors proves that a
 // configured CallbackPort docker-agent cannot bind is a hard error (no
 // fallback to a random port, no browser, no token stored) — the same
-// failure mode NewCallbackServerOnPort gives the runtime's managed flow.
+// failure mode startCallbackServer gives the runtime's managed flow.
 func TestPerformOAuthLogin_CallbackPortAlreadyInUse_HardErrors(t *testing.T) {
 	resetDefaultStore(t)
 	store := NewInMemoryTokenStore()
@@ -568,7 +562,7 @@ func TestPerformOAuthLogin_CallbackPortAlreadyInUse_HardErrors(t *testing.T) {
 
 	err = PerformOAuthLogin(t.Context(), remote)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to create callback server")
+	assert.Contains(t, err.Error(), "failed to start callback server")
 
 	require.Empty(t, urlCh, "no browser must be opened when the configured callback port cannot be bound")
 	_, err = store.GetToken(remote.URL)
@@ -671,7 +665,7 @@ func TestPerformOAuthLogin_CallbackPortWithExplicitClient_EndToEnd(t *testing.T)
 	SetDefaultTokenStoreFactory(func() OAuthTokenStore { return store })
 
 	urlCh := fakeBrowserOpener(t)
-	port, newCallbackServer := reserveCallbackServer(t)
+	port, startCallback := reserveCallbackServer(t)
 
 	const mcpPath = "/mcp"
 	var registerCalls int
@@ -722,7 +716,7 @@ func TestPerformOAuthLogin_CallbackPortWithExplicitClient_EndToEnd(t *testing.T)
 		},
 	}
 
-	errCh := startOAuthLogin(t, remote, newCallbackServer)
+	errCh := startOAuthLogin(t, remote, startCallback)
 
 	authURL := requireCapturedAuthorizeURL(t, urlCh, errCh)
 	deliverFakeCallback(t, authURL, "code-explicit-client-port")

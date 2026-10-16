@@ -385,11 +385,8 @@ func TestRefreshAccessToken_SendsEmptyClientIDWhenNotStored(t *testing.T) {
 func TestCallbackServer_RejectsCallbackBeforeStateSet(t *testing.T) {
 	t.Parallel()
 
-	cs, err := NewCallbackServer(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := cs.Start(); err != nil {
+	cs := NewCallbackServer()
+	if err := cs.Start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = cs.Shutdown(t.Context()) }()

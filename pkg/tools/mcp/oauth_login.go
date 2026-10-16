@@ -62,7 +62,7 @@ func setOAuthLoginHTTPClientForTesting(c *http.Client) (restore func()) {
 // token request follows.
 //
 // The callback/redirect mechanics below mirror the runtime's managed OAuth
-// flow exactly: NewCallbackServerOnPort honors RemoteOAuthConfig.CallbackPort
+// flow exactly: startCallbackServer honors RemoteOAuthConfig.CallbackPort
 // (0 lets the OS pick a free port, matching the prior NewCallbackServer
 // behavior) and ResolveRedirectURI honors CallbackRedirectURL (verbatim,
 // with the ${callbackPort} placeholder substituted; the local callback
@@ -70,10 +70,10 @@ func setOAuthLoginHTTPClientForTesting(c *http.Client) (restore func()) {
 // redirect URI is then reused, identically, for DCR, /authorize, and the
 // token exchange below.
 func PerformOAuthLogin(ctx context.Context, remote latest.Remote) error {
-	return performOAuthLogin(ctx, remote, NewCallbackServerOnPort)
+	return performOAuthLogin(ctx, remote, startCallbackServer)
 }
 
-func performOAuthLogin(ctx context.Context, remote latest.Remote, newCallbackServer func(context.Context, int) (*CallbackServer, error)) error {
+func performOAuthLogin(ctx context.Context, remote latest.Remote, startCallback func(context.Context, int) (*CallbackServer, error)) error {
 	tokenStore := NewKeyringTokenStore()
 	client := oauthLoginHTTPClient()
 
@@ -104,9 +104,9 @@ func performOAuthLogin(ctx context.Context, remote latest.Remote, newCallbackSer
 	// Set up the callback server for the redirect, honoring
 	// RemoteOAuthConfig.CallbackPort/CallbackRedirectURL exactly like the
 	// runtime's managed OAuth flow does.
-	callbackServer, err := newCallbackServer(ctx, callbackPortFrom(remote.OAuth))
+	callbackServer, err := startCallback(ctx, callbackPortFrom(remote.OAuth))
 	if err != nil {
-		return fmt.Errorf("failed to create callback server: %w", err)
+		return err
 	}
 	defer func() {
 		// Detach from ctx's cancellation (the request may be done) but
@@ -117,10 +117,6 @@ func performOAuthLogin(ctx context.Context, remote latest.Remote, newCallbackSer
 			slog.ErrorContext(ctx, "Failed to shutdown callback server", "error", err)
 		}
 	}()
-
-	if err := callbackServer.Start(); err != nil {
-		return fmt.Errorf("failed to start callback server: %w", err)
-	}
 
 	redirectURI := callbackServer.ResolveRedirectURI(callbackRedirectURLFrom(remote.OAuth))
 
