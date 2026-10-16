@@ -153,7 +153,10 @@ func (w *Watcher) refresh() {
 	select {
 	case w.changes <- branch:
 	default:
-		<-w.changes
+		select {
+		case <-w.changes:
+		default:
+		}
 		w.changes <- branch
 	}
 }

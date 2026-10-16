@@ -1,13 +1,18 @@
 package skills
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -187,4 +192,107 @@ func TestExpandCommands_RunnerSeesCancelledContext(t *testing.T) {
 	assert.True(t, called)
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Empty(t, result)
+}
+
+func TestCommandOutputBuffer(t *testing.T) {
+	t.Parallel()
+	var output commandOutputBuffer
+	for _, data := range [][]byte{nil, bytes.Repeat([]byte("x"), maxOutputSize-1), []byte("yz"), []byte("ignored")} {
+		n, err := output.Write(data)
+		require.NoError(t, err)
+		assert.Equal(t, len(data), n, "discarded bytes must still count as written")
+	}
+	assert.Equal(t, maxOutputSize, output.buffer.Len())
+	assert.True(t, strings.HasSuffix(output.buffer.String(), "y"))
+}
+
+func TestRunCommandDrainsBeyondOutputLimit(t *testing.T) {
+	t.Parallel()
+	skipOnWindows(t)
+	dir := t.TempDir()
+	output, err := runCommand(t.Context(), fmt.Sprintf("head -c %d /dev/zero; printf done > finished", maxOutputSize+10000), dir)
+	require.NoError(t, err)
+	assert.Equal(t, strings.Repeat("\x00", maxOutputSize), output)
+	data, err := os.ReadFile(filepath.Join(dir, "finished"))
+	require.NoError(t, err)
+	assert.Equal(t, "done", string(data))
+}
+
+func TestRunCommandPreservesStderrError(t *testing.T) {
+	t.Parallel()
+	skipOnWindows(t)
+	output, err := runCommand(t.Context(), "printf ignored; printf failure >&2; exit 7", t.TempDir())
+	require.ErrorContains(t, err, "failure")
+	var exitErr *exec.ExitError
+	require.ErrorAs(t, err, &exitErr)
+	assert.Equal(t, 7, exitErr.ExitCode())
+	assert.Empty(t, output)
+}
+
+func TestRunCommandCancellationWithInheritedPipes(t *testing.T) {
+	skipOnWindows(t)
+	t.Setenv("SHELL", "/bin/sh")
+	for _, tc := range []struct {
+		name, prefix, redirect string
+	}{
+		{name: "stdout", redirect: "2>/dev/null"},
+		{name: "stderr", redirect: ">/dev/null"},
+		{name: "both"},
+		{name: "stdout beyond limit", prefix: fmt.Sprintf("head -c %d /dev/zero; ", maxOutputSize+1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			dir := t.TempDir()
+			done := make(chan error, 1)
+			go func() {
+				_, err := runCommand(ctx, tc.prefix+"sleep 30 </dev/null "+tc.redirect+" & child=$!; printf '%s' \"$child\" > child.pid; wait", dir)
+				done <- err
+			}()
+			childPath := filepath.Join(dir, "child.pid")
+			childProcess := func() *os.Process {
+				data, err := os.ReadFile(childPath)
+				if err != nil {
+					return nil
+				}
+				pid, err := strconv.Atoi(string(data))
+				if err != nil || pid <= 0 {
+					return nil
+				}
+				child, _ := os.FindProcess(pid)
+				return child
+			}
+			joined := false
+			t.Cleanup(func() {
+				cancel()
+				if !joined {
+					select {
+					case <-done:
+					case <-time.After(3 * time.Second):
+						t.Error("command did not stop during cleanup")
+					}
+				}
+				if child := childProcess(); child != nil {
+					_ = child.Kill()
+				}
+			})
+			require.Eventually(t, func() bool { return childProcess() != nil }, 5*time.Second, 10*time.Millisecond)
+			cancel()
+			select {
+			case err := <-done:
+				joined = true
+				require.ErrorIs(t, err, context.Canceled)
+			case <-time.After(3 * time.Second):
+				t.Fatal("cancellation waited for a descendant to close inherited output pipes")
+			}
+		})
+	}
+}
+
+func TestRunCommandPreservesDelayedBackgroundOutput(t *testing.T) {
+	skipOnWindows(t)
+	t.Setenv("SHELL", "/bin/sh")
+	output, err := runCommand(t.Context(), "printf foreground; (sleep 1; printf background) &", t.TempDir())
+	require.NoError(t, err)
+	assert.Equal(t, "foregroundbackground", output)
 }
