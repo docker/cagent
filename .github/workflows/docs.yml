@@ -1,7 +1,7 @@
 # Checks for the documentation source in docs/**. Every job runs in parallel:
 #
 #   markdownlint  style, via docs/.markdownlint-cli2.yaml
-#   canonical     every mounted page canonicalizes to its docs.docker.com URL
+#   canonical     page canonicals match their authoritative surface; no stale community links
 #   links         relative Markdown links resolve to a real file (lychee,
 #                 offline); these are what the docs.docker.com module mount
 #                 resolves, so a broken one breaks the downstream build
@@ -61,6 +61,12 @@ jobs:
 
       - name: Check canonical front matter
         run: ./scripts/docs-check-canonical.sh
+
+      - name: Reject stale community links
+        run: ./scripts/docs-check-community-links.sh
+
+      - name: Test community URL policy
+        run: ./scripts/docs-test-community.sh
 
   links:
     timeout-minutes: 10

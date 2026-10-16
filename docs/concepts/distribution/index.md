@@ -250,7 +250,7 @@ $ docker agent run docker.io/myorg/private-agent:latest
 > [!NOTE]
 > **Troubleshooting**
 >
-> Having issues with push/pull? See [Troubleshooting](../../community/troubleshooting/index.md) for common registry issues.
+> Having issues with push/pull? See [Troubleshooting](../../guides/troubleshooting/index.md) for common registry issues.
 
 ## Local Development
 

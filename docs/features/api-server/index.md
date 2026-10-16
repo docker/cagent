@@ -259,7 +259,7 @@ See the [CLI reference](../cli/index.md#docker-agent-serve-api) for all flags, d
 > [!NOTE]
 > **What `--max-request-size` does and doesn't cover**
 >
-> This is a finite, process-wide cap on one serialized inbound HTTP request body — it isn't a model context-window limit, and raising it doesn't increase what a provider/model accepts or how large a local attachment/prompt file can be. A larger cap also means the server buffers more memory per request from an unauthenticated or malicious client, so weigh that against your deployment's exposure. If a reverse proxy or gateway sits in front of this server, it may enforce its own, lower cap regardless of this flag. See [Troubleshooting: HTTP 413](../../community/troubleshooting/index.md#http-413-request-body-too-large) for full diagnosis.
+> This is a finite, process-wide cap on one serialized inbound HTTP request body — it isn't a model context-window limit, and raising it doesn't increase what a provider/model accepts or how large a local attachment/prompt file can be. A larger cap also means the server buffers more memory per request from an unauthenticated or malicious client, so weigh that against your deployment's exposure. If a reverse proxy or gateway sits in front of this server, it may enforce its own, lower cap regardless of this flag. See [Troubleshooting: HTTP 413](../../guides/troubleshooting/index.md#http-413-request-body-too-large) for full diagnosis.
 
 > [!TIP]
 > **Live profiling (advanced)**
@@ -325,7 +325,7 @@ $ curl -X POST http://127.0.0.1:8080/api/sessions/$SID/followup \
 > [!WARNING]
 > **This control plane has a fixed 1 MiB request-body cap and no built-in authentication**
 >
-> Unlike the standalone `docker agent serve api` process above, an attached run's `--listen` control plane exposes neither `--max-request-size` nor `--auth-token`: every request is capped at a fixed, non-configurable 1 MiB body (returning HTTP 413 above it — see [Troubleshooting: HTTP 413](../../community/troubleshooting/index.md#http-413-request-body-too-large)), and there is no bearer token to require. If you need a configurable cap, built-in bearer auth, or a network-reachable listener, run a standalone `docker agent serve api` deployment instead. Otherwise, keep `--listen` on loopback, a unix socket, or behind an authenticating reverse proxy.
+> Unlike the standalone `docker agent serve api` process above, an attached run's `--listen` control plane exposes neither `--max-request-size` nor `--auth-token`: every request is capped at a fixed, non-configurable 1 MiB body (returning HTTP 413 above it — see [Troubleshooting: HTTP 413](../../guides/troubleshooting/index.md#http-413-request-body-too-large)), and there is no bearer token to require. If you need a configurable cap, built-in bearer auth, or a network-reachable listener, run a standalone `docker agent serve api` deployment instead. Otherwise, keep `--listen` on loopback, a unix socket, or behind an authenticating reverse proxy.
 
 ## Session event stream and reconnection
 

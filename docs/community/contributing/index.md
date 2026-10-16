@@ -3,7 +3,7 @@ title: "Contributing"
 description: "Docker Agent is open source. Here's how to set up your development environment and contribute."
 keywords: docker agent, ai agents, community, contributing
 weight: 10
-canonical: https://docs.docker.com/ai/docker-agent/community/contributing/
+canonical: https://docker.github.io/docker-agent/community/contributing/
 ---
 
 _Docker Agent is open source. Here's how to set up your development environment and contribute._
@@ -332,7 +332,7 @@ File issues on the [GitHub issue tracker](https://github.com/docker/docker-agent
 > [!NOTE]
 > **See also**
 >
-> [Troubleshooting](../troubleshooting/index.md) — Common issues and debug mode. [Telemetry](../telemetry/index.md) — What data is collected and how to opt out.
+> [Troubleshooting](../../guides/troubleshooting/index.md) — Common issues and debug mode. [Telemetry](../../configuration/telemetry/index.md) — What data is collected and how to opt out.
 
 - Use the included issue template
 - Search for existing issues before creating new ones

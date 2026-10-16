@@ -54,6 +54,10 @@
       url: /configuration/routing/
     - title: User Settings
       url: /configuration/user-settings/
+    - title: Telemetry
+      url: /configuration/telemetry/
+    - title: OpenTelemetry Tracing
+      url: /configuration/opentelemetry/
 
 - section: Built-in Tools
   groups:
@@ -236,29 +240,26 @@
     - title: Provider Definitions
       url: /providers/custom/
 
-- section: Resources
-  groups:
-    - label: Guides
-      items:
-        - title: Tips & Best Practices
-          url: /guides/tips/
-        - title: Thinking / Reasoning
-          url: /guides/thinking/
-        - title: Managing Secrets
-          url: /guides/secrets/
-        - title: Go SDK
-          url: /guides/go-sdk/
-        - title: Managing Context & Compaction
-          url: /guides/compaction/
-        - title: Running Agents Headless & in CI
-          url: /guides/headless/
-    - label: Community
-      items:
-        - title: Contributing
-          url: /community/contributing/
-        - title: Troubleshooting
-          url: /community/troubleshooting/
-        - title: Telemetry
-          url: /community/telemetry/
-        - title: OpenTelemetry Tracing
-          url: /community/opentelemetry/
+- section: Guides
+  items:
+    - title: Tips & Best Practices
+      url: /guides/tips/
+    - title: Thinking / Reasoning
+      url: /guides/thinking/
+    - title: Managing Secrets
+      url: /guides/secrets/
+    - title: Go SDK
+      url: /guides/go-sdk/
+    - title: Managing Context & Compaction
+      url: /guides/compaction/
+    - title: Running Agents Headless & in CI
+      url: /guides/headless/
+    - title: Troubleshooting
+      url: /guides/troubleshooting/
+
+- section: Community
+  items:
+    - title: Contributing
+      url: /community/contributing/
+    - title: Community Resources
+      url: /community/resources/

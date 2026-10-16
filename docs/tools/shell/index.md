@@ -29,7 +29,7 @@ Each description also points the model at `get_environment_info` for edge cases 
 
 ### ACP client execution
 
-In ACP mode, clients advertising terminal support execute the configured `shell` tool through client terminals rather than a host subprocess. The adapter uses `/bin/sh` or the absolute Windows system `cmd.exe`, requires matching client/agent platform and paths, forwards only configured environment overrides, retains a bounded output tail, and does not support `sudo_askpass`. Without terminal capability, native behavior is unchanged; client failures never trigger native fallback. See [ACP client terminals](../../features/acp/#client-terminals) for cleanup, cancellation, and unknown-create limitations.
+In ACP mode, clients advertising terminal support execute the configured `shell` tool through client terminals rather than a host subprocess. The adapter uses `/bin/sh` or the absolute Windows system `cmd.exe`, requires matching client/agent platform and paths, forwards only configured environment overrides, retains a bounded output tail, and does not support `sudo_askpass`. Without terminal capability, native behavior is unchanged; client failures never trigger native fallback. See [ACP client terminals](../../features/acp/index.md#client-terminals) for cleanup, cancellation, and unknown-create limitations.
 
 ### Dialect-error correction
 

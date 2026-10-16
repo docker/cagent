@@ -273,4 +273,4 @@ It exits non-zero when something would block a run, which makes it usable as a C
 - [**Quick Start**](../quickstart/index.md) — run your first agent now that a model is available.
 - [**Models**](../../concepts/models/index.md) — inline vs. named models, fallbacks, and `auto` selection.
 - [**Managing Secrets**](../../guides/secrets/index.md) — every way to store credentials, compared.
-- [**Troubleshooting**](../../community/troubleshooting/index.md#missing-credentials-or-model-errors) — decode "no model available" and credential errors.
+- [**Troubleshooting**](../../guides/troubleshooting/index.md#missing-credentials-or-model-errors) — decode "no model available" and credential errors.
