@@ -105,7 +105,7 @@ func TestRunAgentLoopDrainsAfterErrorsAndCancellation(t *testing.T) {
 		content = append(content, delta)
 		cancel()
 	}})
-	require.EqualError(t, err, "first failure\nsecond failure")
+	require.EqualError(t, err, "first failure\nsecond failure\ncontext canceled")
 	assert.Equal(t, []string{"cancel", "drained"}, content)
 	assert.ErrorIs(t, ctx.Err(), context.Canceled)
 }
