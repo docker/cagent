@@ -23,6 +23,7 @@ not the project's creation date.
 
 | Project | Description | Maintainer | Docs language | Added |
 | --- | --- | --- | --- | --- |
+| [Atelier](https://github.com/rumpl/daw) | An extensible coding studio built on Docker Agent, with project workspaces, plugins, and agents that run locally or in Docker Sandboxes. | [rumpl](https://github.com/rumpl) | English | 2026-10-16 |
 | [measix-tuck](https://github.com/topabomb/measix-tuck) | A self-hosted browser workbench using the official Docker Agent runtime, with responsive conversation and task views, workspace files, and versioned deliverables. | [topabomb](https://github.com/topabomb) | Chinese | 2026-10-16 |
 
 License note for measix-tuck: **No project license declared.**
