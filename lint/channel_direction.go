@@ -58,14 +58,15 @@ type channelFunction struct {
 }
 
 type channelAnalysis struct {
-	fset       *token.FileSet
-	keys       map[token.Pos]string
-	slots      map[string]*channelSlot
-	objects    map[types.Object]*channelSlot
-	functions  map[string]*channelFunction
-	info       *types.Info
-	direct     map[ast.Expr]bool
-	interfaces map[string][]*types.Signature
+	fset         *token.FileSet
+	keys         map[token.Pos]string
+	slots        map[string]*channelSlot
+	objects      map[types.Object]*channelSlot
+	functions    map[string]*channelFunction
+	info         *types.Info
+	direct       map[ast.Expr]bool
+	interfaces   map[string][]*types.Signature
+	escapedTypes map[types.Type]bool
 }
 
 func analyzeChannelDirections(p *prog.Pass, pkgs []*packages.Package) {
@@ -154,6 +155,8 @@ func analyzeChannelDirections(p *prog.Pass, pkgs []*packages.Package) {
 			})
 		}
 	}
+	// Registration is complete; escaping a type only adds capabilities from here on.
+	a.escapedTypes = make(map[types.Type]bool)
 	for _, pkg := range pkgs {
 		a.info = pkg.TypesInfo
 		if a.info == nil {
@@ -162,7 +165,7 @@ func analyzeChannelDirections(p *prog.Pass, pkgs []*packages.Package) {
 		// Generic function values can hide type arguments absent from their signatures.
 		for _, instantiation := range a.info.Instances {
 			for typ := range instantiation.TypeArgs.Types() {
-				a.escapeType(typ, make(map[types.Type]bool))
+				a.escapeType(typ)
 			}
 		}
 		for _, file := range pkg.Syntax {
@@ -382,7 +385,7 @@ func (a *channelAnalysis) bindValue(source channelValue, dest *channelSlot, typ 
 			channelFlow(source.slot, dest)
 		} else {
 			source.slot.needs |= fixedChannelNeeds(typ)
-			a.escapeType(source.typ, make(map[types.Type]bool))
+			a.escapeType(source.typ)
 		}
 		return
 	}
@@ -396,7 +399,7 @@ func (a *channelAnalysis) bindValue(source channelValue, dest *channelSlot, typ 
 	_, anonymous := underlying.(*types.Struct)
 	iface := isChannelInterface(typ)
 	if anonymous || iface || !types.Identical(source.typ, typ) {
-		a.escapeType(source.typ, make(map[types.Type]bool))
+		a.escapeType(source.typ)
 	}
 }
 
@@ -456,7 +459,7 @@ func (a *channelAnalysis) inspect(n ast.Node, fn *channelFunction) {
 			a.freezeFunction(a.function(expr))
 			if typ := a.info.TypeOf(expr); typ != nil {
 				if _, ok := typ.Underlying().(*types.Signature); ok {
-					a.escapeType(typ, make(map[types.Type]bool))
+					a.escapeType(typ)
 				}
 			}
 		}
@@ -571,14 +574,14 @@ func (a *channelAnalysis) call(call *ast.CallExpr) {
 		default:
 			for _, source := range a.values(call.Args) {
 				a.bindValue(source, nil, nil)
-				a.escapeType(source.typ, make(map[types.Type]bool))
+				a.escapeType(source.typ)
 			}
 		}
 		return
 	}
 	if a.info.Types[call.Fun].IsType() {
 		for _, arg := range call.Args {
-			a.escapeType(a.info.TypeOf(arg), make(map[types.Type]bool))
+			a.escapeType(a.info.TypeOf(arg))
 			a.bind(arg, nil, a.info.TypeOf(call))
 		}
 		return
@@ -619,7 +622,7 @@ func (a *channelAnalysis) call(call *ast.CallExpr) {
 			}
 		}
 		if callee == nil {
-			a.escapeType(source.typ, make(map[types.Type]bool))
+			a.escapeType(source.typ)
 		}
 		a.bindValue(source, dest, typ)
 	}
@@ -638,40 +641,40 @@ func (a *channelAnalysis) freezeFunction(fn *channelFunction) {
 	}
 }
 
-func (a *channelAnalysis) escapeType(typ types.Type, seen map[types.Type]bool) {
-	if typ == nil || seen[typ] {
+func (a *channelAnalysis) escapeType(typ types.Type) {
+	if typ == nil || a.escapedTypes[typ] {
 		return
 	}
-	seen[typ] = true
+	a.escapedTypes[typ] = true
 	switch typ := typ.Underlying().(type) {
 	case *types.Pointer:
-		a.escapeType(typ.Elem(), seen)
+		a.escapeType(typ.Elem())
 	case *types.Struct:
 		for field := range typ.Fields() {
 			if slot := a.variable(field, false); slot != nil {
 				slot.needs |= channelBoth
 			}
-			a.escapeType(field.Type(), seen)
+			a.escapeType(field.Type())
 		}
 	case *types.Array:
-		a.escapeType(typ.Elem(), seen)
+		a.escapeType(typ.Elem())
 	case *types.Chan:
-		a.escapeType(typ.Elem(), seen)
+		a.escapeType(typ.Elem())
 	case *types.Slice:
-		a.escapeType(typ.Elem(), seen)
+		a.escapeType(typ.Elem())
 	case *types.Map:
-		a.escapeType(typ.Key(), seen)
-		a.escapeType(typ.Elem(), seen)
+		a.escapeType(typ.Key())
+		a.escapeType(typ.Elem())
 	case *types.Signature:
 		for v := range typ.Params().Variables() {
-			a.escapeType(v.Type(), seen)
+			a.escapeType(v.Type())
 		}
 		for v := range typ.Results().Variables() {
-			a.escapeType(v.Type(), seen)
+			a.escapeType(v.Type())
 		}
 	case *types.Interface:
 		for method := range typ.Complete().Methods() {
-			a.escapeType(method.Type(), seen)
+			a.escapeType(method.Type())
 		}
 	}
 }
@@ -706,7 +709,7 @@ func (a *channelAnalysis) composite(lit *ast.CompositeLit) {
 				a.bind(expr, nil, container.Elem())
 			default:
 				a.require(expr, channelBoth)
-				a.escapeType(a.info.TypeOf(expr), make(map[types.Type]bool))
+				a.escapeType(a.info.TypeOf(expr))
 			}
 		}
 	}
