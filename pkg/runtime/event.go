@@ -181,6 +181,26 @@ func ToolCallResponse(toolCallID string, toolDefinition tools.Tool, result *tool
 	}
 }
 
+// BackgroundAgentStatusEvent tracks a detached agent without changing the foreground stream.
+type BackgroundAgentStatusEvent struct {
+	AgentContext
+
+	Type      string `json:"type"`
+	SessionID string `json:"session_id"`
+	Running   bool   `json:"running"`
+}
+
+func BackgroundAgentStatus(sessionID, agentName string, running bool) Event {
+	return &BackgroundAgentStatusEvent{
+		Type:         "background_agent_status",
+		SessionID:    sessionID,
+		Running:      running,
+		AgentContext: newAgentContext(agentName),
+	}
+}
+
+func (e *BackgroundAgentStatusEvent) GetSessionID() string { return e.SessionID }
+
 type StreamStartedEvent struct {
 	AgentContext
 

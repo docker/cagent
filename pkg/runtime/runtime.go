@@ -1653,11 +1653,7 @@ func (r *LocalRuntime) emitToolsChanged() {
 	handler(ToolsetInfo(len(agentTools), false, r.currentAgentName()))
 }
 
-// OnBackgroundEvent registers a handler that receives events surfaced from
-// detached background work — today the TokenUsageEvents of background agent
-// tasks (run_background_agent), whose sub-sessions run on their own goroutine
-// with no live event channel. This lets the UI keep per-agent context
-// accounting for background agents.
+// OnBackgroundEvent receives lifecycle and usage events from detached agent tasks.
 func (r *LocalRuntime) OnBackgroundEvent(handler func(Event)) {
 	r.backgroundEventMu.Lock()
 	defer r.backgroundEventMu.Unlock()

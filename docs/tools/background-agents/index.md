@@ -104,6 +104,10 @@ agents:
 >
 > Use `background_agents` when your orchestrator needs to fan out work to multiple specialists in parallel — for example, researching several topics simultaneously or running independent code analyses side by side.
 
+The TUI sidebar's Agents section shows **Background: N running** while background tasks are executing. The count also appears in the collapsed sidebar, counts separate tasks even when they use the same agent, and remains visible after the foreground agent finishes. Tasks leave the count once execution and cleanup finish, including failed or cancelled tasks. Hiding the Agents section hides the count.
+
+For remote sessions, the count tracks task lifecycle events received while connected; tasks already running before the connection or events lost during recovery may not be reflected. Use `list_background_agents` for the authoritative task list.
+
 In the TUI, each background task's token usage is accounted for live: the sidebar's Agents panel shows the sub-agent's context usage percentage on its roster row, the Agent Inspector shows its exact token counts, and the task's cost joins the session total.
 
 ## Using Harness Sub-Agents

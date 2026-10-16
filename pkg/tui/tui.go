@@ -1555,6 +1555,9 @@ func (m *appModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg
 		return m, nil
 
+	case *runtime.TokenUsageEvent, *runtime.EvaluationUsageEvent, *runtime.BackgroundAgentStatusEvent:
+		return m.forwardChat(msg)
+
 	default:
 		// Handle runtime events for active session
 		if event, isRuntimeEvent := msg.(runtime.Event); isRuntimeEvent {
@@ -1608,11 +1611,9 @@ func (m *appModel) handleRoutedMsg(msg messages.RoutedMsg) (tea.Model, tea.Cmd) 
 	// Update session state for inactive sessions
 	if event, isRuntimeEvent := msg.Inner.(runtime.Event); isRuntimeEvent {
 		if sessionState := tab.sessionState; sessionState != nil {
-			// Token-usage events are accounting, not agent-switch signals: a
-			// background agent task's usage can arrive while the tab is idle
-			// and must not move the current-agent marker to that agent.
+			// Background lifecycle and usage do not change the selected agent.
 			switch msg.Inner.(type) {
-			case *runtime.TokenUsageEvent, *runtime.EvaluationUsageEvent:
+			case *runtime.TokenUsageEvent, *runtime.EvaluationUsageEvent, *runtime.BackgroundAgentStatusEvent:
 			default:
 				if agentName := event.GetAgentName(); agentName != "" {
 					sessionState.SetCurrentAgentName(agentName)

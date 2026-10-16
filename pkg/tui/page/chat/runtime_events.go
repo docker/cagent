@@ -134,6 +134,9 @@ func (p *chatPage) handleRuntimeEvent(msg tea.Msg) (bool, tea.Cmd) {
 		return true, p.handleToolCallResponse(msg)
 
 	// ===== Sidebar Info Events (forwarded) =====
+	case *runtime.BackgroundAgentStatusEvent:
+		return true, p.forwardToSidebar(msg)
+
 	case *runtime.EvaluationUsageEvent:
 		if sess := p.app.Session(); sess != nil {
 			sess.AddEvaluationUsageRecord(msg.Evaluation)
