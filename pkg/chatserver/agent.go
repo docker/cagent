@@ -215,11 +215,13 @@ type agentEmit struct {
 // request. Elicitation is the exception — the runtime always blocks until we
 // respond, so its case is required for correctness, not just defence.
 //
-// All ErrorEvents seen in the run are joined into the returned error so
-// callers can see the full picture; the loop keeps draining until the
-// stream closes so the runtime can shut down cleanly.
+// All ErrorEvents seen in the run are joined into the returned error, along with
+// cancellation at the root's stop event (or channel close if no stop arrives).
+// The loop keeps draining until the stream closes so cleanup finishes before reuse.
 func runAgentLoop(ctx context.Context, rt runtimeRunner, sess *session.Session, emit agentEmit) error {
 	var runErrs []error
+	var completionErr error
+	stopped := false
 	toolIndex := 0
 	for ev := range rt.RunStream(ctx, sess) {
 		switch e := ev.(type) {
@@ -250,9 +252,27 @@ func runAgentLoop(ctx context.Context, rt runtimeRunner, sess *session.Session, 
 			rt.Resume(ctx, runtime.ResumeReject(""))
 		case *runtime.ErrorEvent:
 			runErrs = append(runErrs, errors.New(e.Error))
+		case *runtime.StreamStoppedEvent:
+			if e.SessionID != sess.ID {
+				continue
+			}
+			stopped = true
+			completionErr = ctx.Err()
+			switch e.Reason {
+			case runtime.TurnEndReasonNormal:
+				completionErr = nil
+			case runtime.TurnEndReasonCanceled:
+				if completionErr == nil {
+					completionErr = context.Canceled
+				}
+			}
 		}
 	}
-	return errors.Join(runErrs...)
+	// Cancellation during cleanup must not undo an already completed turn.
+	if !stopped {
+		completionErr = ctx.Err()
+	}
+	return errors.Join(append(runErrs, completionErr)...)
 }
 
 // sessionUsage extracts approximate token usage from a completed session

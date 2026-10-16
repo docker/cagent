@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -31,7 +32,12 @@ func TestNilExpander(t *testing.T) {
 			t.Parallel()
 			expander := New("https://example.com/spec", nil, WithExpander(tc.expander)).expander
 			assert.Nil(t, expander.ExpandMap(t.Context(), nil))
-			assert.Panics(t, func() { expander.ExpandMap(t.Context(), map[string]string{}) })
+			t.Run("nonempty map", func(t *testing.T) {
+				if runtime.GOOS == "windows" {
+					t.Skip("recovered hardware faults can corrupt memory on Windows: golang/go#81238")
+				}
+				assert.Panics(t, func() { expander.ExpandMap(t.Context(), map[string]string{}) })
+			})
 		})
 	}
 }

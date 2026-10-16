@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/docker/docker-agent/cmd/root"
+	"github.com/docker/docker-agent/pkg/concurrent"
 )
 
 func TestServeChatConversationFailedTurnDoesNotAdvanceCache(t *testing.T) {
@@ -48,7 +49,6 @@ agents:
 `, modelServer.URL())
 	require.NoError(t, os.WriteFile(agentFile, agentYAML, 0o644))
 
-	addr := freeTCPAddr(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
@@ -57,33 +57,38 @@ agents:
 	t.Setenv("CAGENT_MODELS_GATEWAY", "")
 	t.Setenv("OPENAI_API_KEY", "DUMMY")
 
-	var stdout, stderr bytes.Buffer
-	errCh := make(chan error, 1)
+	var stdout, stderr concurrent.Buffer
+	done := make(chan struct{})
+	var runErr error
+	args := []string{
+		"--cache-dir", filepath.Join(t.TempDir(), "cache"),
+		"--config-dir", filepath.Join(t.TempDir(), "config"),
+		"--data-dir", filepath.Join(t.TempDir(), "data"),
+		"serve", "chat",
+		"--listen", "127.0.0.1:0",
+		"--conversations-max", "10",
+		"--request-timeout", "30s",
+		agentFile,
+	}
 	go func() {
-		errCh <- root.Execute(ctx, nil, &stdout, &stderr,
-			"--cache-dir", filepath.Join(t.TempDir(), "cache"),
-			"--config-dir", filepath.Join(t.TempDir(), "config"),
-			"--data-dir", filepath.Join(t.TempDir(), "data"),
-			"serve", "chat",
-			"--listen", addr,
-			"--conversations-max", "10",
-			"--request-timeout", "30s",
-			agentFile,
-		)
+		defer close(done)
+		runErr = root.Execute(ctx, nil, &stdout, &stderr, args...)
 	}()
-	baseURL := "http://" + addr
-	waitForChatServer(t, baseURL)
-	defer func() {
+	t.Cleanup(func() {
 		cancel()
 		select {
-		case err := <-errCh:
-			if err != nil && !strings.Contains(err.Error(), "use of closed network connection") {
-				require.NoError(t, err, "stdout: %s\nstderr: %s", stdout.String(), stderr.String())
+		case <-done:
+			if runErr != nil && !strings.Contains(runErr.Error(), "use of closed network connection") {
+				assert.NoError(t, runErr, "stdout: %s\nstderr: %s", stdout.String(), stderr.String())
 			}
 		case <-time.After(5 * time.Second):
-			t.Fatal("chat server did not stop")
+			t.Error("chat server did not stop")
 		}
-	}()
+	})
+	readyCtx, readyCancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer readyCancel()
+	baseURL, err := waitForChatServer(readyCtx, &stdout, done)
+	require.NoError(t, err, "stdout: %s\nstderr: %s", stdout.String(), stderr.String())
 
 	convID := "e2e-failed-turn"
 	postChatCompletion(t, baseURL, convID, http.StatusOK, "first")
@@ -255,31 +260,55 @@ func writeSSEData(w http.ResponseWriter, payload any) {
 	}
 }
 
-func freeTCPAddr(t *testing.T) string {
-	t.Helper()
-	var lc net.ListenConfig
-	ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	defer ln.Close()
-	return ln.Addr().String()
+func waitForChatServer(ctx context.Context, stdout *concurrent.Buffer, done <-chan struct{}) (string, error) {
+	client := &http.Client{Timeout: 500 * time.Millisecond}
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-done:
+			return "", errors.New("chat server stopped before becoming ready")
+		case <-ticker.C:
+		}
+		for line := range strings.SplitSeq(stdout.String(), "\n") {
+			addr, ok := strings.CutPrefix(line, "Listening on ")
+			if !ok {
+				continue
+			}
+			baseURL := "http://" + strings.TrimSpace(addr)
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/v1/models", http.NoBody)
+			if err != nil {
+				return "", err
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				continue
+			}
+			_, err = io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+			if err == nil && resp.StatusCode == http.StatusOK {
+				return baseURL, nil
+			}
+		}
+	}
 }
 
-func waitForChatServer(t *testing.T, baseURL string) {
-	t.Helper()
-	client := &http.Client{Timeout: 500 * time.Millisecond}
-	require.Eventually(t, func() bool {
-		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, baseURL+"/v1/models", http.NoBody)
-		if err != nil {
-			return false
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			return false
-		}
-		defer resp.Body.Close()
-		_, err = io.Copy(io.Discard, resp.Body)
-		return err == nil && resp.StatusCode == http.StatusOK
-	}, 5*time.Second, 50*time.Millisecond)
+func TestWaitForChatServerStopped(t *testing.T) {
+	t.Parallel()
+	done := make(chan struct{})
+	close(done)
+	_, err := waitForChatServer(t.Context(), &concurrent.Buffer{}, done)
+	require.ErrorContains(t, err, "stopped before becoming ready")
+}
+
+func TestWaitForChatServerCanceled(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err := waitForChatServer(ctx, &concurrent.Buffer{}, make(chan struct{}))
+	require.ErrorIs(t, err, context.Canceled)
 }
 
 func postChatCompletion(t *testing.T, baseURL, conversationID string, expectedStatus int, userMessage string) []byte {
