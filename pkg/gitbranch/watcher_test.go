@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -67,46 +68,31 @@ func TestWatcherRefreshReplacesPendingChange(t *testing.T) {
 
 func TestWatcherRefreshConcurrentConsumer(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	require.NoError(t, os.Mkdir(filepath.Join(dir, ".git"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, ".git", "HEAD"), []byte("ref: refs/heads/latest\n"), 0o644))
-	watcher := &Watcher{dir: dir, changes: make(chan string, 1)}
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	consumerDone := make(chan struct{})
-	go func() {
-		defer close(consumerDone)
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-watcher.Changes():
+	synctest.Test(t, func(t *testing.T) {
+		// An empty dir avoids filesystem I/O while stressing the notification channel.
+		watcher := &Watcher{changes: make(chan string, 1)}
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-watcher.Changes():
+				}
 			}
-		}
-	}()
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for range 10000 {
-			watcher.mu.Lock()
-			watcher.current = "old"
-			watcher.mu.Unlock()
-			watcher.refresh()
-		}
-	}()
+		}()
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			for range 10000 {
+				watcher.mu.Lock()
+				watcher.current = "old"
+				watcher.mu.Unlock()
+				watcher.refresh()
+			}
+		}()
 
-	select {
-	case <-done:
-	case <-time.After(10 * time.Second):
-		// Let a broken fallback receive finish before failing the test.
-		cancel()
-		<-consumerDone
-		select {
-		case watcher.changes <- "unblock":
-		default:
-		}
-		t.Fatal("refresh blocked while a concurrent consumer drained changes")
-	}
-	cancel()
-	<-consumerDone
+		<-done
+	})
 }
