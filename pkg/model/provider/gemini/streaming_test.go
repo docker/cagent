@@ -16,9 +16,11 @@ import (
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/model/provider/options"
+	"github.com/docker/docker-agent/pkg/testutil/geminiintegration"
 )
 
 func TestCreateChatCompletionStream_Keepalive(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
 	for _, gateway := range []bool{false, true} {
@@ -93,6 +95,7 @@ func TestCreateChatCompletionStream_Keepalive(t *testing.T) {
 }
 
 func TestCreateChatCompletionStream_ToolCallReplay(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
 	for _, gateway := range []bool{false, true} {

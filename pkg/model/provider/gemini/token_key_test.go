@@ -14,6 +14,7 @@ import (
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/model/provider/options"
+	"github.com/docker/docker-agent/pkg/testutil/geminiintegration"
 )
 
 func TestNewClient_TokenKey(t *testing.T) {
@@ -76,18 +77,23 @@ func TestNewClient_TokenKey(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.wantErr == "" {
+				geminiintegration.Require(t)
+			}
 			t.Parallel()
 			var mu sync.Mutex
 			var seen []string
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				mu.Lock()
-				seen = append(seen, r.Header.Get("X-Goog-Api-Key"))
-				mu.Unlock()
-				writeGeminiSSEResponse(w)
-			}))
-			t.Cleanup(server.Close)
-
-			cfg := &latest.ModelConfig{Provider: "google", Model: "gemini-3.5-flash", BaseURL: server.URL, TokenKey: tt.tokenKey}
+			cfg := &latest.ModelConfig{Provider: "google", Model: "gemini-3.5-flash", TokenKey: tt.tokenKey}
+			if tt.wantErr == "" {
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					mu.Lock()
+					seen = append(seen, r.Header.Get("X-Goog-Api-Key"))
+					mu.Unlock()
+					writeGeminiSSEResponse(w)
+				}))
+				t.Cleanup(server.Close)
+				cfg.BaseURL = server.URL
+			}
 			client, err := NewClient(t.Context(), cfg, environment.NewMapEnvProvider(tt.env))
 			if tt.wantErr != "" {
 				require.EqualError(t, err, tt.wantErr)

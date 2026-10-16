@@ -20,6 +20,7 @@ import (
 	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/model/provider/base"
 	"github.com/docker/docker-agent/pkg/model/provider/options"
+	"github.com/docker/docker-agent/pkg/testutil/geminiintegration"
 	"github.com/docker/docker-agent/pkg/tools"
 )
 
@@ -256,6 +257,7 @@ func flattenAttrs(attrs []any) []string {
 // per-tool "Function" debug log would have produced. Not parallel: it
 // swaps process-global slog state.
 func TestCreateChatCompletionStream_DebugLogNeverLeaksToolSchemas(t *testing.T) {
+	geminiintegration.Require(t)
 	const marker = "SECRET_TOOL_DESCRIPTION_MARKER_E2E"
 
 	var buf bytes.Buffer

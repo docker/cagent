@@ -12,6 +12,7 @@ import (
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/model/provider/options"
+	"github.com/docker/docker-agent/pkg/testutil/geminiintegration"
 )
 
 // systemInstructionTextsInBody decodes body's systemInstruction part texts
@@ -49,6 +50,7 @@ func systemInstructionTextsInBody(t *testing.T, body []byte) []string {
 // that ordinary image-output chat requests carry the media-file marker
 // instruction exactly once on every supported Google surface.
 func TestCreateChatCompletionStream_MediaFileInstruction_PositiveRoutes(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
 	tests := []struct {
@@ -105,6 +107,7 @@ func TestCreateChatCompletionStream_MediaFileInstruction_PositiveRoutes(t *testi
 // instruction: gateway calls without image output enabled, plus gateway
 // title-generation and compaction calls.
 func TestCreateChatCompletionStream_MediaFileInstruction_AbsentOnOtherRoutes(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
 	tests := []struct {

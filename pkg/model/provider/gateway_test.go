@@ -19,6 +19,7 @@ import (
 	"github.com/docker/docker-agent/pkg/httpclient"
 	"github.com/docker/docker-agent/pkg/model/provider/base"
 	"github.com/docker/docker-agent/pkg/model/provider/options"
+	"github.com/docker/docker-agent/pkg/testutil/geminiintegration"
 )
 
 type gatewayEnvFunc func(context.Context, string) (string, bool)
@@ -59,6 +60,9 @@ func TestGatewayProviderRequests(t *testing.T) {
 		},
 	} {
 		t.Run(tc.provider, func(t *testing.T) {
+			if tc.provider == "google" {
+				geminiintegration.Require(t)
+			}
 			t.Parallel()
 
 			type request struct {

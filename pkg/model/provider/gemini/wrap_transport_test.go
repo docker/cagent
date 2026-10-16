@@ -16,6 +16,7 @@ import (
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/model/provider/options"
+	"github.com/docker/docker-agent/pkg/testutil/geminiintegration"
 )
 
 // geminiCountingTransport wraps a base RoundTripper and counts RoundTrip calls.
@@ -42,6 +43,7 @@ func writeGeminiSSEResponse(w http.ResponseWriter) {
 }
 
 func TestNewClient_TransportWrapperInvokedDirectPath(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeGeminiSSEResponse(w)
@@ -84,6 +86,7 @@ func TestNewClient_TransportWrapperInvokedDirectPath(t *testing.T) {
 }
 
 func TestNewClient_TransportWrapperInvokedGatewayPath(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeGeminiSSEResponse(w)
@@ -132,6 +135,7 @@ func TestNewClient_TransportWrapperInvokedGatewayPath(t *testing.T) {
 // set, the client automatically falls back to BackendGeminiAPI so the wrapper
 // can be applied. This mirrors the WebSocket→SSE fallback in the OpenAI provider.
 func TestNewClient_TransportWrapperVertexAIFallsBackToGeminiAPI(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeGeminiSSEResponse(w)
@@ -182,6 +186,7 @@ func TestNewClient_TransportWrapperVertexAIFallsBackToGeminiAPI(t *testing.T) {
 // transport wrapper: we own the HTTP client, no ADC lookup runs, and the
 // token is resolved per request.
 func TestNewClient_VertexAIExplicitTokenSource(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 	var got []*http.Request
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

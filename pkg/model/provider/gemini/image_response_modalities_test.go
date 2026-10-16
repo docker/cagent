@@ -20,6 +20,7 @@ import (
 	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 	"github.com/docker/docker-agent/pkg/rag/types"
+	"github.com/docker/docker-agent/pkg/testutil/geminiintegration"
 	"github.com/docker/docker-agent/pkg/tools"
 )
 
@@ -91,6 +92,7 @@ func (c *capturedRequests) all() [][]byte {
 // respond, so tests can decode the exact generationConfig sent on the wire.
 func newBodyCapturingGeminiServer(t *testing.T, respond func(w http.ResponseWriter)) (*httptest.Server, *capturedRequests) {
 	t.Helper()
+	geminiintegration.Require(t)
 	captured := &capturedRequests{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -155,6 +157,7 @@ func drainStream(t *testing.T, stream chat.MessageStream) {
 // TestCreateChatCompletionStream_ImageResponseModalities_PositiveRoutes pins
 // that supported Gemini surfaces request TEXT+IMAGE output in that order.
 func TestCreateChatCompletionStream_ImageResponseModalities_PositiveRoutes(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
 	tests := []struct {
@@ -203,6 +206,7 @@ func TestCreateChatCompletionStream_ImageResponseModalities_PositiveRoutes(t *te
 }
 
 func TestCreateChatCompletionStream_ImageResponseModalities_GoogleSurfaces(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
 	store := modelsdev.NewDatabaseStore(&modelsdev.Database{Providers: map[string]modelsdev.Provider{
@@ -256,6 +260,7 @@ func TestCreateChatCompletionStream_ImageResponseModalities_GoogleSurfaces(t *te
 // structured-output-only config — never gains response modalities, even on
 // a model explicitly declared image-output-capable.
 func TestRerank_NeverSetsResponseModalities(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
 	server, captured := newBodyCapturingGeminiServer(t, func(w http.ResponseWriter) {
@@ -288,6 +293,7 @@ func TestRerank_NeverSetsResponseModalities(t *testing.T) {
 // make zero provider calls, so nothing — including response modalities — is
 // ever serialized onto the wire. Server-side built-ins remain dispatchable.
 func TestCreateChatCompletionStream_ImageResponseModalities_GuardRejectedRoutesNeverDispatch(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
 	newRejectedClient := func(t *testing.T, serverURL string, extraOpts ...options.Opt) *Client {

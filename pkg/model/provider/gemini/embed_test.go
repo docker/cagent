@@ -20,6 +20,7 @@ import (
 	"github.com/docker/docker-agent/pkg/model/provider/base"
 	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/modelerrors"
+	"github.com/docker/docker-agent/pkg/testutil/geminiintegration"
 )
 
 // batchEmbedRequest mirrors the Gemini Developer API batchEmbedContents body.
@@ -79,6 +80,7 @@ func newVertexEmbedClient(t *testing.T, model, baseURL string, providerOpts map[
 // responses[i] to the i-th request.
 func recordingServer(t *testing.T, responses ...string) (*httptest.Server, *[]string, *[]map[string]any) {
 	t.Helper()
+	geminiintegration.Require(t)
 	var (
 		mu     sync.Mutex
 		paths  []string
@@ -103,12 +105,10 @@ func recordingServer(t *testing.T, responses ...string) (*httptest.Server, *[]st
 	return srv, &paths, &bodies
 }
 
-func embedServer(t *testing.T, status int, body string, captured *batchEmbedRequest, calls *atomic.Int32) *httptest.Server {
+func embedServer(t *testing.T, status int, body string, captured *batchEmbedRequest) *httptest.Server {
 	t.Helper()
+	geminiintegration.Require(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if calls != nil {
-			calls.Add(1)
-		}
 		assert.Equal(t, http.MethodPost, r.Method)
 		assert.Equal(t, "/v1beta/models/gemini-embedding-001:batchEmbedContents", r.URL.Path)
 		if captured != nil {
@@ -125,6 +125,7 @@ func embedServer(t *testing.T, status int, body string, captured *batchEmbedRequ
 }
 
 func TestCreateBatchEmbedding_WireShapeAndOrder(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
 	for _, gateway := range []bool{false, true} {
@@ -132,7 +133,7 @@ func TestCreateBatchEmbedding_WireShapeAndOrder(t *testing.T) {
 			t.Parallel()
 
 			var captured batchEmbedRequest
-			srv := embedServer(t, http.StatusOK, `{"embeddings":[{"values":[0.1,0.2,0.3]},{"values":[0.4,0.5,0.6]}]}`, &captured, nil)
+			srv := embedServer(t, http.StatusOK, `{"embeddings":[{"values":[0.1,0.2,0.3]},{"values":[0.4,0.5,0.6]}]}`, &captured)
 			var client *Client
 			if gateway {
 				client = newEmbedClient(t, "", nil, options.WithGateway(srv.URL))
@@ -163,10 +164,11 @@ func TestCreateBatchEmbedding_WireShapeAndOrder(t *testing.T) {
 }
 
 func TestCreateBatchEmbedding_OutputDimensionality(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
 	var captured batchEmbedRequest
-	srv := embedServer(t, http.StatusOK, `{"embeddings":[{"values":[0.1,0.2]}]}`, &captured, nil)
+	srv := embedServer(t, http.StatusOK, `{"embeddings":[{"values":[0.1,0.2]}]}`, &captured)
 	client := newEmbedClient(t, srv.URL, map[string]any{"output_dimensionality": 768})
 
 	_, err := client.CreateBatchEmbedding(t.Context(), []string{"text"})
@@ -184,21 +186,24 @@ func TestCreateBatchEmbedding_InvalidOutputDimensionality(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			var calls atomic.Int32
-			srv := embedServer(t, http.StatusOK, `{}`, nil, &calls)
-			client := newEmbedClient(t, srv.URL, map[string]any{"output_dimensionality": value})
+			client := &Client{
+				Config: base.Config{ModelConfig: latest.ModelConfig{ProviderOpts: map[string]any{"output_dimensionality": value}}},
+				clientFn: func(context.Context) (*genai.Client, error) {
+					panic("invalid config must fail before SDK construction")
+				},
+			}
 
 			_, err := client.CreateBatchEmbedding(t.Context(), []string{"text"})
 			require.ErrorContains(t, err, "output_dimensionality")
-			assert.Zero(t, calls.Load(), "invalid config must fail before any request")
 		})
 	}
 }
 
 func TestCreateBatchEmbedding_UsageFromStatistics(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
-	srv := embedServer(t, http.StatusOK, `{"embeddings":[{"values":[0.1],"statistics":{"tokenCount":3}},{"values":[0.2],"statistics":{"tokenCount":4}}],"metadata":{"billableCharacterCount":42}}`, nil, nil)
+	srv := embedServer(t, http.StatusOK, `{"embeddings":[{"values":[0.1],"statistics":{"tokenCount":3}},{"values":[0.2],"statistics":{"tokenCount":4}}],"metadata":{"billableCharacterCount":42}}`, nil)
 	client := newEmbedClient(t, srv.URL, nil)
 
 	result, err := client.CreateBatchEmbedding(t.Context(), []string{"a", "b"})
@@ -208,10 +213,11 @@ func TestCreateBatchEmbedding_UsageFromStatistics(t *testing.T) {
 }
 
 func TestCreateEmbedding_ReturnsFirstVector(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
 	var captured batchEmbedRequest
-	srv := embedServer(t, http.StatusOK, `{"embeddings":[{"values":[1,2]}]}`, &captured, nil)
+	srv := embedServer(t, http.StatusOK, `{"embeddings":[{"values":[1,2]}]}`, &captured)
 	client := newEmbedClient(t, srv.URL, nil)
 
 	result, err := client.CreateEmbedding(t.Context(), "hello")
@@ -224,20 +230,20 @@ func TestCreateEmbedding_ReturnsFirstVector(t *testing.T) {
 func TestCreateBatchEmbedding_EmptyInputSkipsRequest(t *testing.T) {
 	t.Parallel()
 
-	var calls atomic.Int32
-	srv := embedServer(t, http.StatusOK, `{}`, nil, &calls)
-	client := newEmbedClient(t, srv.URL, nil)
+	client := &Client{clientFn: func(context.Context) (*genai.Client, error) {
+		panic("empty input must return before SDK construction")
+	}}
 
 	result, err := client.CreateBatchEmbedding(t.Context(), nil)
 	require.NoError(t, err)
 	assert.Equal(t, &base.BatchEmbeddingResult{Embeddings: [][]float64{}}, result)
-	assert.Zero(t, calls.Load())
 }
 
 func TestCreateBatchEmbedding_CardinalityMismatch(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
-	srv := embedServer(t, http.StatusOK, `{"embeddings":[{"values":[0.1]}]}`, nil, nil)
+	srv := embedServer(t, http.StatusOK, `{"embeddings":[{"values":[0.1]}]}`, nil)
 	client := newEmbedClient(t, srv.URL, nil)
 
 	_, err := client.CreateBatchEmbedding(t.Context(), []string{"a", "b"})
@@ -245,9 +251,10 @@ func TestCreateBatchEmbedding_CardinalityMismatch(t *testing.T) {
 }
 
 func TestCreateBatchEmbedding_EmptyVector(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
-	srv := embedServer(t, http.StatusOK, `{"embeddings":[{"values":[0.1]},{}]}`, nil, nil)
+	srv := embedServer(t, http.StatusOK, `{"embeddings":[{"values":[0.1]},{}]}`, nil)
 	client := newEmbedClient(t, srv.URL, nil)
 
 	_, err := client.CreateBatchEmbedding(t.Context(), []string{"a", "b"})
@@ -255,9 +262,10 @@ func TestCreateBatchEmbedding_EmptyVector(t *testing.T) {
 }
 
 func TestCreateBatchEmbedding_InconsistentDimensions(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
-	srv := embedServer(t, http.StatusOK, `{"embeddings":[{"values":[0.1,0.2]},{"values":[0.3,0.4]},{"values":[0.5]}]}`, nil, nil)
+	srv := embedServer(t, http.StatusOK, `{"embeddings":[{"values":[0.1,0.2]},{"values":[0.3,0.4]},{"values":[0.5]}]}`, nil)
 	client := newEmbedClient(t, srv.URL, nil)
 
 	_, err := client.CreateBatchEmbedding(t.Context(), []string{"a", "b", "c"})
@@ -265,6 +273,7 @@ func TestCreateBatchEmbedding_InconsistentDimensions(t *testing.T) {
 }
 
 func TestCreateBatchEmbedding_Embedding2DeveloperAPI(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
 	srv, paths, bodies := recordingServer(t, `{"embeddings":[{"values":[0.1,0.2]},{"values":[0.3,0.4]}]}`)
@@ -292,6 +301,7 @@ func TestCreateBatchEmbedding_Embedding2DeveloperAPI(t *testing.T) {
 }
 
 func TestCreateBatchEmbedding_VertexPredict(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
 	srv, paths, bodies := recordingServer(t, `{"predictions":[
@@ -316,6 +326,7 @@ func TestCreateBatchEmbedding_VertexPredict(t *testing.T) {
 }
 
 func TestCreateBatchEmbedding_VertexEmbedding2SequentialEmbedContent(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
 	srv, paths, bodies := recordingServer(t,
@@ -344,9 +355,10 @@ func TestCreateBatchEmbedding_VertexEmbedding2SequentialEmbedContent(t *testing.
 }
 
 func TestCreateBatchEmbedding_429SurfacesAsStatusError(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
-	srv := embedServer(t, http.StatusTooManyRequests, `{"error":{"code":429,"message":"Resource has been exhausted","status":"RESOURCE_EXHAUSTED"}}`, nil, nil)
+	srv := embedServer(t, http.StatusTooManyRequests, `{"error":{"code":429,"message":"Resource has been exhausted","status":"RESOURCE_EXHAUSTED"}}`, nil)
 	client := newEmbedClient(t, srv.URL, nil)
 
 	_, err := client.CreateBatchEmbedding(t.Context(), []string{"hello"})
@@ -358,9 +370,10 @@ func TestCreateBatchEmbedding_429SurfacesAsStatusError(t *testing.T) {
 }
 
 func TestCreateBatchEmbedding_ContextCancelled(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
-	srv := embedServer(t, http.StatusOK, `{"embeddings":[{"values":[0.1]}]}`, nil, nil)
+	srv := embedServer(t, http.StatusOK, `{"embeddings":[{"values":[0.1]}]}`, nil)
 	client := newEmbedClient(t, srv.URL, nil)
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -392,6 +405,7 @@ func TestVertexEmbedsOneContentPerRequest(t *testing.T) {
 }
 
 func TestEmbedEach_OneVectorPerResponse(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
 	var calls atomic.Int32
@@ -424,6 +438,7 @@ func TestEmbedEach_OneVectorPerResponse(t *testing.T) {
 // Two vectors then zero would still total two: the per-response check must
 // catch the misalignment instead of silently pairing texts with wrong vectors.
 func TestEmbedEach_RejectsMisalignedResponses(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
 	srv, paths, _ := recordingServer(t, `{"embeddings":[{"values":[1]},{"values":[2]}]}`, `{"embeddings":[]}`)

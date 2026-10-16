@@ -14,9 +14,11 @@ import (
 	"github.com/docker/docker-agent/pkg/chat"
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
+	"github.com/docker/docker-agent/pkg/testutil/geminiintegration"
 )
 
 func TestAudioInlineDataWire(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 	for _, mime := range []string{"audio/wav", "audio/mpeg", "audio/ogg", "audio/pcm; rate=24000"} {
 		t.Run(mime, func(t *testing.T) {

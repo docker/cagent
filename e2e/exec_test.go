@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/docker/docker-agent/pkg/testutil/geminiintegration"
 )
 
 func TestExec_OpenAI(t *testing.T) {
@@ -97,6 +99,7 @@ func TestExec_Anthropic_AgentsMd(t *testing.T) {
 }
 
 func TestExec_Gemini(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 	out := runCLI(t, "run", "--exec", "testdata/basic.yaml", "--model=google/gemini-2.5-flash", "What's 2+2?")
 
@@ -106,6 +109,7 @@ func TestExec_Gemini(t *testing.T) {
 }
 
 func TestExec_Gemini_ToolCall(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 	out := runCLI(t, "run", "--exec", "testdata/fs_tools.yaml", "--model=google/gemini-2.5-flash", "How many files in testdata/working_dir? Only output the number.")
 

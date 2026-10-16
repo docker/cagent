@@ -20,6 +20,7 @@ import (
 	"github.com/docker/docker-agent/pkg/modelerrors"
 	"github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/session"
+	"github.com/docker/docker-agent/pkg/testutil/geminiintegration"
 	"github.com/docker/docker-agent/pkg/tools"
 	"github.com/docker/docker-agent/pkg/tui/animation"
 	"github.com/docker/docker-agent/pkg/tui/components/messages"
@@ -100,6 +101,7 @@ func (r *recordingMessages) RemoveSpinner() {
 // spinner. No assistant text or reasoning is ever appended, i.e. no silent
 // "success" alongside the error.
 func TestImageOutputGuard_RuntimeToTUI_RejectsBeforeDispatchAndClearsSpinner(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
 	var providerCalls atomic.Int64

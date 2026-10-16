@@ -17,6 +17,7 @@ import (
 	"github.com/docker/docker-agent/pkg/modelerrors"
 	"github.com/docker/docker-agent/pkg/modelinfo"
 	"github.com/docker/docker-agent/pkg/modelsdev"
+	"github.com/docker/docker-agent/pkg/testutil/geminiintegration"
 	"github.com/docker/docker-agent/pkg/tools"
 )
 
@@ -235,6 +236,7 @@ func TestImageOutputRequestIncompatibleError_RoutesThroughExistingErrorSeam(t *t
 // the guard through the real CreateChatCompletionStream path against an
 // httptest server, and asserts zero provider calls on rejection.
 func TestCreateChatCompletionStream_ImageOutputGuard_RejectsBeforeDispatch(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -317,6 +319,7 @@ func TestCreateChatCompletionStream_ImageOutputGuard_RejectsBeforeDispatch(t *te
 // it must not touch: no extras on the declared route and tools/structured
 // output when the declaration is false or missing.
 func TestCreateChatCompletionStream_ImageOutputGuard_PreservesNormalBehavior(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
