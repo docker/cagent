@@ -3,7 +3,6 @@ package codingharness
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -116,16 +115,19 @@ func useCodexCLI(t *testing.T, output string, exit int) string {
 	outPath := filepath.Join(dir, "events.jsonl")
 	argsPath := filepath.Join(dir, "args")
 	require.NoError(t, os.WriteFile(outPath, []byte(output), 0o600))
-	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > %q\ncat %q\nexit %d\n", argsPath, outPath, exit)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "codex"), []byte(script), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "exit-code"), []byte(strconv.Itoa(exit)+"\n"), 0o600))
+	// Reuse the executable inode to avoid macOS's per-file cold-exec checks.
+	binary, err := filepath.Abs("testdata/codex")
+	require.NoError(t, err)
+	require.NoError(t, os.Symlink(binary, filepath.Join(dir, "codex")))
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return argsPath
 }
 
 func TestCodexCancellation(t *testing.T) {
 	useCodexCLI(t, "", 0)
-	binary := filepath.Join(strings.Split(os.Getenv("PATH"), string(os.PathListSeparator))[0], "codex")
-	require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\nprintf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"canceled-thread\"}'\nexec sleep 30\n"), 0o700))
+	dir := strings.Split(os.Getenv("PATH"), string(os.PathListSeparator))[0]
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "wait"), nil, 0o600))
 	p, err := Factory(&latest.HarnessConfig{Type: TypeCodex})
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(t.Context())

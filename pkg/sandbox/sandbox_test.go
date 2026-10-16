@@ -375,7 +375,7 @@ func TestBuildExecCmd(t *testing.T) {
 	}
 }
 
-// writeMockScript writes a mock executable script to the given directory.
+// writeMockScript uses a shared executable with per-test script bodies on POSIX.
 // On Windows, it converts the POSIX shell script to a basic .bat script.
 //
 // Limitations:
@@ -394,10 +394,15 @@ func writeMockScript(t *testing.T, dir, name, script string) {
 		script = strings.ReplaceAll(script, "cat ", "type ")
 		script = strings.ReplaceAll(script, "exit 0", "exit /b 0")
 		script = "@echo off\n" + script
-	} else {
-		script = "#!/bin/sh\n" + script
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755))
+		return
 	}
-	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755))
+
+	launcher, err := filepath.Abs("testdata/cli")
+	require.NoError(t, err)
+	binary := filepath.Join(dir, name)
+	require.NoError(t, os.WriteFile(binary+".script", []byte(script), 0o600))
+	require.NoError(t, os.Symlink(launcher, binary))
 }
 
 func TestEnsureNeverRemovesOtherSandboxes(t *testing.T) {
