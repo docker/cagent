@@ -748,12 +748,7 @@ func (r *RemoteRuntime) handleOAuthElicitation(ctx context.Context, sessionID st
 	defer cancel()
 
 	slog.DebugContext(ctx, "Creating OAuth callback server")
-	callbackServer, err := oauthflow.NewCallbackServer(ctx)
-	if err != nil {
-		slog.ErrorContext(ctx, "Failed to create callback server", "error", err)
-		_ = r.client.ResumeElicitation(ctx, sessionID, "decline", nil, req.ElicitationID)
-		return fmt.Errorf("failed to create callback server: %w", err)
-	}
+	callbackServer := oauthflow.NewCallbackServer()
 	defer func() {
 		// Detach from ctx's cancellation (the request may be done) but
 		// keep its trace context for the shutdown.
@@ -764,7 +759,7 @@ func (r *RemoteRuntime) handleOAuthElicitation(ctx context.Context, sessionID st
 		}
 	}()
 
-	if err := callbackServer.Start(); err != nil {
+	if err := callbackServer.Start(ctx); err != nil {
 		slog.ErrorContext(ctx, "Failed to start callback server", "error", err)
 		_ = r.client.ResumeElicitation(ctx, sessionID, "decline", nil, req.ElicitationID)
 		return fmt.Errorf("failed to start callback server: %w", err)

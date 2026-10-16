@@ -21,6 +21,7 @@ import (
 type CallbackServer struct {
 	server   *http.Server
 	listener net.Listener
+	port     int
 	mu       sync.Mutex
 
 	// resultCh delivers the outcome of the first received callback.
@@ -41,22 +42,16 @@ type callbackResult struct {
 	err   error
 }
 
-// NewCallbackServer creates a new OAuth callback server on a random available port
-func NewCallbackServer(ctx context.Context) (*CallbackServer, error) {
-	return NewCallbackServerOnPort(ctx, 0)
+// NewCallbackServer creates an unstarted OAuth callback server using a random available port.
+func NewCallbackServer() *CallbackServer {
+	return NewCallbackServerOnPort(0)
 }
 
-// NewCallbackServerOnPort creates a new OAuth callback server on a specific port.
-// Use port 0 to let the OS pick a random available port.
-func NewCallbackServerOnPort(ctx context.Context, port int) (*CallbackServer, error) {
-	var lc net.ListenConfig
-	listener, err := lc.Listen(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", port))
-	if err != nil {
-		return nil, fmt.Errorf("failed to find available port: %w", err)
-	}
-
+// NewCallbackServerOnPort creates an unstarted OAuth callback server for a specific port.
+// Use port 0 to let the OS pick an available port when Start is called.
+func NewCallbackServerOnPort(port int) *CallbackServer {
 	cs := &CallbackServer{
-		listener: listener,
+		port:     port,
 		resultCh: make(chan callbackResult, 1),
 	}
 
@@ -73,20 +68,30 @@ func NewCallbackServerOnPort(ctx context.Context, port int) (*CallbackServer, er
 		WriteTimeout: 10 * time.Second,
 	}
 
-	return cs, nil
+	return cs
 }
 
-func (cs *CallbackServer) Start() error {
+// Start binds the callback port before serving requests in the background.
+// Call it once, before using the redirect URI; do not overlap it with Shutdown.
+func (cs *CallbackServer) Start(ctx context.Context) error {
+	var lc net.ListenConfig
+	listener, err := lc.Listen(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", cs.port))
+	if err != nil {
+		return fmt.Errorf("failed to listen on callback port: %w", err)
+	}
+	cs.listener = listener
+
 	go func() {
-		if err := cs.server.Serve(cs.listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("Callback server error", "error", err)
+		if err := cs.server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.ErrorContext(ctx, "Callback server error", "error", err)
 		}
 	}()
 
-	slog.Info("OAuth callback server started", "address", cs.GetRedirectURI())
+	slog.InfoContext(ctx, "OAuth callback server started", "address", cs.GetRedirectURI())
 	return nil
 }
 
+// GetRedirectURI returns the local callback URI after Start succeeds.
 func (cs *CallbackServer) GetRedirectURI() string {
 	addr := cs.listener.Addr().String()
 	return fmt.Sprintf("http://%s/callback", addr)
@@ -95,6 +100,7 @@ func (cs *CallbackServer) GetRedirectURI() string {
 // Port returns the local TCP port the callback server is listening on.
 // This is useful when a fixed port was not requested (i.e. port 0 was
 // passed) and the caller needs to know which port the OS assigned.
+// Call it after Start succeeds.
 func (cs *CallbackServer) Port() int {
 	if tcpAddr, ok := cs.listener.Addr().(*net.TCPAddr); ok {
 		return tcpAddr.Port
@@ -272,7 +278,12 @@ func (cs *CallbackServer) WaitForCallback(ctx context.Context) (code, state stri
 
 func (cs *CallbackServer) Shutdown(ctx context.Context) error {
 	if cs.server != nil {
-		return cs.server.Shutdown(ctx)
+		err := cs.server.Shutdown(ctx)
+		if cs.listener != nil {
+			// Serve may not have registered the listener before Shutdown ran.
+			_ = cs.listener.Close()
+		}
+		return err
 	}
 	return nil
 }

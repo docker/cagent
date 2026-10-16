@@ -2,18 +2,70 @@ package oauthflow
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestNewCallbackServer(t *testing.T) {
+	t.Parallel()
+
+	cs := NewCallbackServer()
+	require.Nil(t, cs.listener)
+	require.NoError(t, cs.Shutdown(t.Context()))
+}
+
+func TestCallbackServer_StartOnOccupiedPort(t *testing.T) {
+	t.Parallel()
+
+	held, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = held.Close() })
+	port := held.Addr().(*net.TCPAddr).Port
+
+	cs := NewCallbackServerOnPort(port)
+	t.Cleanup(func() { _ = cs.Shutdown(t.Context()) })
+	require.Nil(t, cs.listener, "construction must not bind the port")
+	require.ErrorContains(t, cs.Start(t.Context()), "failed to listen on callback port")
+
+	require.NoError(t, held.Close())
+	require.NoError(t, cs.Start(t.Context()), "a failed start must allow retrying")
+	assert.Equal(t, port, cs.Port())
+	assert.Equal(t, fmt.Sprintf("http://127.0.0.1:%d/callback", port), cs.GetRedirectURI())
+
+	other, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", held.Addr().String())
+	if other != nil {
+		_ = other.Close()
+	}
+	require.Error(t, err, "Start must reserve the port before returning")
+}
+
+func TestCallbackServer_ShutdownReleasesPort(t *testing.T) {
+	t.Parallel()
+
+	for range 20 {
+		cs := NewCallbackServer()
+		require.NoError(t, cs.Start(t.Context()))
+		addr := cs.listener.Addr().String()
+		require.NoError(t, cs.Shutdown(t.Context()))
+
+		listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", addr)
+		require.NoError(t, err, "Shutdown must release the port even if Serve hasn't started")
+		require.NoError(t, listener.Close())
+	}
+}
 
 func TestCallbackServer_Port(t *testing.T) {
 	t.Parallel()
 
-	cs, err := NewCallbackServer(t.Context())
-	if err != nil {
+	cs := NewCallbackServer()
+	if err := cs.Start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = cs.Shutdown(t.Context()) }()
@@ -87,11 +139,8 @@ func TestBuildRedirectURI(t *testing.T) {
 func TestCallbackServer_DuplicateCallbacksDoNotBlock(t *testing.T) {
 	t.Parallel()
 
-	cs, err := NewCallbackServer(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := cs.Start(); err != nil {
+	cs := NewCallbackServer()
+	if err := cs.Start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = cs.Shutdown(t.Context()) }()
@@ -140,8 +189,8 @@ func TestCallbackServer_DuplicateCallbacksDoNotBlock(t *testing.T) {
 func TestCallbackServer_ResolveRedirectURI(t *testing.T) {
 	t.Parallel()
 
-	cs, err := NewCallbackServer(t.Context())
-	if err != nil {
+	cs := NewCallbackServer()
+	if err := cs.Start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = cs.Shutdown(t.Context()) }()
