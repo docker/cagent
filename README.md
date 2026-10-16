@@ -98,3 +98,5 @@ We collect anonymous usage data to improve the tool. See [Telemetry](https://doc
 ## Community
 
 [Docker Community Slack](http://dockr.ly/comm-slack) · [#docker-agent channel](https://dockercommunity.slack.com/archives/C09DASHHRU4)
+
+Explore [community projects, videos, and articles](docs/community/resources/index.md) about Docker Agent.

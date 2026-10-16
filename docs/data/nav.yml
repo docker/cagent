@@ -256,6 +256,8 @@
       items:
         - title: Contributing
           url: /community/contributing/
+        - title: Community Resources
+          url: /community/resources/
         - title: Troubleshooting
           url: /community/troubleshooting/
         - title: Telemetry
