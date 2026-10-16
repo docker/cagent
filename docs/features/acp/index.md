@@ -408,6 +408,8 @@ Configured `post_edit` commands run **locally**, in the session toolset's workin
 
 ACP reports a tool awaiting permission as `pending`. Actual execution is reported as `in_progress`, followed by `completed` or `failed`. Permission requests and subsequent updates refer to the same opaque ACP tool-call ID; permission approval is not inferred from display status.
 
+Tool-call titles include the tool's display name, followed by a short detail when one is available: the command for shell-style tools (`shell` and `run_*`, `exec_*`, `stop_*` tools, read from `cmd`, `command`, or `script`), the path for file tools (`read_*`, `write_*`, `edit_*`, `delete_*`, `create_*`, and `directory_tree`), or the URL for `fetch` and `http_*` tools. For example, a permission prompt reads `Shell: docker ps -a` rather than just `Shell`. Whitespace in the detail is collapsed and it is truncated to 80 characters; if no detail is found the title is the display name alone. Other arguments, such as file content, never appear in the title.
+
 Rejected, policy-denied, or unavailable tools can produce a terminal result without executing. These become failed tool items instead of aborting the conversation or inventing a running phase. Tool kinds use one display classifier across permission and execution updates: operation names take precedence over generic hints, and a destructive hint alone does not mean deletion.
 
 ACP assigns fresh IDs rather than exposing runtime IDs directly. Correlation distinguishes agent names and supports sequential runtime-ID reuse, including across turns. The runtime does not yet provide enough identity to disambiguate simultaneous identical IDs from two sub-sessions of the same agent.

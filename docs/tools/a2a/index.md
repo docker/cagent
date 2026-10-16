@@ -32,6 +32,8 @@ Configured headers authenticate invocation requests, but are not sent while fetc
 
 The `url` is the server base URL used to discover `/.well-known/agent-card.json`. Local and private-IP servers require `allow_private_ips: true`.
 
+The toolset reads both A2A 1.0 agent cards and legacy 0.3 cards. For 0.3 cards, the primary `url` and complete `additionalInterfaces` entries are treated as the card's interfaces; additional entries missing `url` or `transport` are skipped. A 1.0 card with a `supportedInterfaces` entry that has no URL or no protocol binding is rejected as malformed. Invocation headers are scoped to the origin of the interface selected for the call.
+
 ## Properties
 
 | Property   | Type             | Required | Description                                                                                              |
