@@ -11,7 +11,7 @@ _Read, write, and edit individual files without exposing directory or search ope
 
 ## Overview
 
-The file toolset is a focused subset of the [filesystem toolset](../filesystem/). It reuses the filesystem implementations and exposes only these tools:
+The file toolset is a focused subset of the [filesystem toolset](../filesystem/index.md). It reuses the filesystem implementations and exposes only these tools:
 
 | Tool | Description |
 | --- | --- |
@@ -36,7 +36,7 @@ The file toolset supports the filesystem toolset's path and editing options:
 | `allow_list` | array | `[]` | Directories the tools may access. Empty means unrestricted. |
 | `deny_list` | array | `[]` | Directories the tools must not access. Takes precedence over `allow_list`. |
 
-Paths resolve relative to the agent's working directory. Home-directory expansion, absolute paths, access controls, symlink protection, post-edit hooks, and `.agentsignore` handling behave exactly as documented for the [filesystem toolset](../filesystem/).
+Paths resolve relative to the agent's working directory. Home-directory expansion, absolute paths, access controls, symlink protection, post-edit hooks, and `.agentsignore` handling behave exactly as documented for the [filesystem toolset](../filesystem/index.md).
 
 ```yaml
 toolsets:

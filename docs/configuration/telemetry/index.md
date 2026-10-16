@@ -1,9 +1,11 @@
 ---
 title: "Telemetry"
 description: "Docker Agent collects usage data to help improve the tool. Telemetry can be disabled at any time."
-keywords: docker agent, ai agents, community, telemetry
-weight: 30
-canonical: https://docs.docker.com/ai/docker-agent/community/telemetry/
+keywords: docker agent, ai agents, configuration, telemetry
+weight: 120
+canonical: https://docs.docker.com/ai/docker-agent/configuration/telemetry/
+aliases:
+  - /ai/docker-agent/community/telemetry/
 ---
 
 _Docker Agent collects usage data to help improve the tool. Telemetry can be disabled at any time._

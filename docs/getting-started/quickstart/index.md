@@ -153,4 +153,4 @@ agents:
 - [**Understand Agents**](../../concepts/agents/index.md) — learn how agents work and what you can configure.
 - [**Multi-Agent Systems**](../../concepts/multi-agent/index.md) — build teams of collaborating agents.
 - [**Configuration Reference**](../../configuration/overview/index.md) — full reference for all YAML and HCL options.
-- [**Troubleshooting**](../../community/troubleshooting/index.md) — something not working? Debug tips and common fixes.
+- [**Troubleshooting**](../../guides/troubleshooting/index.md) — something not working? Debug tips and common fixes.

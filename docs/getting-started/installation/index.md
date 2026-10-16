@@ -147,4 +147,4 @@ $ docker agent run myorg/agent:tag
 ## What's Next?
 
 - [**Quick Start**](../quickstart/index.md) — create and run your first agent in under 5 minutes.
-- [**Troubleshooting**](../../community/troubleshooting/index.md) — something not working? Debug mode, common issues, and solutions.
+- [**Troubleshooting**](../../guides/troubleshooting/index.md) — something not working? Debug mode, common issues, and solutions.

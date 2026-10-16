@@ -84,7 +84,7 @@ Session forking, editor provider configuration, document synchronization, MCP-ov
 
 ## Trace Propagation
 
-Enable export using `docker agent serve acp agent.yaml --otel` and the [OpenTelemetry configuration](../../community/opentelemetry/index.md). ACP metadata propagation itself needs no capability negotiation or exporter.
+Enable export using `docker agent serve acp agent.yaml --otel` and the [OpenTelemetry configuration](../../configuration/opentelemetry/index.md). ACP metadata propagation itself needs no capability negotiation or exporter.
 
 Send W3C context in **request/notification `params._meta`**, not at the JSON-RPC envelope root:
 

@@ -304,7 +304,7 @@ $ docker agent serve api <agent-file>|<agents-dir>|<registry-ref> [flags]
 | -------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------- |
 | `-l, --listen <addr>`      | `127.0.0.1:8080`   | Address to listen on.                                                                                      |
 | `--auth-token <token>`     | (none)             | Bearer token required for all API requests. When set, every request must include `Authorization: Bearer <token>`. Leave empty to disable authentication (safe when listening on loopback interfaces only). |
-| `--max-request-size <bytes>` | `1048576` (1 MiB) | Maximum request body size. Requests exceeding this limit are rejected with HTTP 413 — see [Troubleshooting: HTTP 413](../../community/troubleshooting/index.md#http-413-request-body-too-large).                      |
+| `--max-request-size <bytes>` | `1048576` (1 MiB) | Maximum request body size. Requests exceeding this limit are rejected with HTTP 413 — see [Troubleshooting: HTTP 413](../../guides/troubleshooting/index.md#http-413-request-body-too-large).                      |
 | `--session-workingdir-root <path>` | (none)     | Confine the `working_dir` of sessions created via `POST /api/sessions` to this directory and its descendants (symlinks are resolved before the check). Unrestricted by default — any clean host directory is accepted (raw values containing `..` are rejected), as local single-user daemons rely on. Recommended for multi-user or network-exposed deployments. |
 | `-s, --session-db <path>`  | `session.db`       | Path to the SQLite session database (relative paths resolve against the working directory).                |
 | `--pull-interval <minutes>`| `0`                | Periodically re-pull OCI/URL references and refresh the agent definition. `0` disables auto-pull.          |
@@ -425,7 +425,7 @@ $ docker agent serve chat <config> [flags]
 | `--api-key-env <name>`        | (none)             | Read the required API key from this non-empty environment variable.                                      |
 | `--insecure-no-auth`           | `false`            | Permit unauthenticated non-loopback binding.                                                                  |
 | `--safety <policy>`            | `restricted`       | Tool safety policy; CLI value overrides agent/runtime configuration.                                           |
-| `--max-request-size <bytes>`  | `1048576` (1 MiB)  | Maximum request body size. Requests exceeding this limit are rejected with HTTP 413 — see [Troubleshooting: HTTP 413](../../community/troubleshooting/index.md#http-413-request-body-too-large).                                                                                        |
+| `--max-request-size <bytes>`  | `1048576` (1 MiB)  | Maximum request body size. Requests exceeding this limit are rejected with HTTP 413 — see [Troubleshooting: HTTP 413](../../guides/troubleshooting/index.md#http-413-request-body-too-large).                                                                                        |
 | `--request-timeout <dur>`     | `5m`               | Per-request timeout (covers model + tool calls + streaming).                                                      |
 | `--conversations-max <n>`     | `0`                | Cache up to N conversations server-side, keyed by `X-Conversation-Id`. `0` disables — clients must resend history. |
 | `--conversation-ttl <dur>`    | `30m`              | Idle TTL after which a cached conversation is evicted.                                                            |
@@ -902,4 +902,4 @@ Commands that accept a config support multiple reference types:
 > [!NOTE]
 > **Debugging**
 >
-> Having issues? See [Troubleshooting](../../community/troubleshooting/index.md) for debug mode, log analysis, and common solutions.
+> Having issues? See [Troubleshooting](../../guides/troubleshooting/index.md) for debug mode, log analysis, and common solutions.
