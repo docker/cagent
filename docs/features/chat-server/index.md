@@ -147,11 +147,13 @@ first).
 
 ### Failure-safe caching
 
-When a request fails — for example because the model returns an error or the `--request-timeout` expires — the conversation cache is **not updated**. The server clones the cached session before processing each request and only commits the updated session when the turn completes successfully. This means:
+When agent execution fails — for example because the model returns an error or the `--request-timeout` interrupts the run — the conversation cache is **not updated**. The server clones the cached session before processing each request and only commits the updated session when the agent run completes successfully.
 
-- A failed turn leaves the conversation in the same state it was before the request.
-- Clients can safely retry with the same `X-Conversation-Id` after a failure.
-- Transient errors do not corrupt the conversation history.
+The server commits or rolls back the turn and releases the conversation before sending the final JSON response or terminal SSE events (error, finish reason, usage, and `[DONE]`). A follow-up request with the same `X-Conversation-Id` can then proceed. Requests that overlap an active run receive `409 Conflict`.
+
+A reported execution failure leaves the cached history unchanged, so a retry with the same `X-Conversation-Id` starts from the last successful turn. This does not undo tool side effects.
+
+A successful run is committed even if writing its response fails or the client disconnects. If the response is lost, times out in transit, or is incomplete, the client may not know whether the turn succeeded. Retrying can execute the turn and its tools again; the conversation ID is not an idempotency key, and the server does not guarantee exactly-once execution.
 
 ## Authentication
 
