@@ -166,7 +166,7 @@ func TestChannelStateCheckRunner(t *testing.T) {
 	}
 	var output bytes.Buffer
 	// The production wrapper extracts this file cop from a program-cop constructor.
-	wrapped := withTypedFiles(loadTypedPackages, func(opts ...cop.FuncOption) *prog.Func { return prog.FromFile(newChannelStateCheck(opts...)) }, false)
+	wrapped := withTypedFiles(func(opts ...cop.FuncOption) *prog.Func { return prog.FromFile(newChannelStateCheck(opts...)) })
 	r := runner.New(nil, config.DefaultConfig(), &output).WithProgramCops([]prog.Cop{wrapped})
 	count, err := r.Run([]string{"."})
 	require.NoError(t, err)

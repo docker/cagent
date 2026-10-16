@@ -80,7 +80,7 @@ func isAppName(info *types.Info, expr ast.Expr) bool {
 	if !ok || c.Name() != "AppName" || c.Pkg() == nil {
 		return false
 	}
-	pkg := c.Pkg().Path()
+	pkg := packageImportPath(c.Pkg().Path())
 	return pkg == versionPkgPath || pkg == cmdRootPkgPath
 }
 

@@ -14,7 +14,6 @@ import (
 
 	"github.com/dgageot/rubocop-go/cop"
 	"github.com/dgageot/rubocop-go/prog"
-	"golang.org/x/tools/go/packages"
 )
 
 var frozenConfigPath = regexp.MustCompile(`(^|/)pkg/config/v\d+/`)
@@ -104,61 +103,17 @@ func withDirectoryTypes(c *cop.Func) *cop.Func {
 	return &wrapped
 }
 
-// A loaded program is one source snapshot; never reuse types across runs.
-type typedPackageLoader struct {
-	mu       sync.Mutex
-	program  *prog.Program
-	packages []*packages.Package
-	err      error
-}
-
-func (l *typedPackageLoader) load(p *prog.Pass) ([]*packages.Package, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.program == p.Program {
-		return l.packages, l.err
-	}
-	l.program = p.Program
-	l.packages, l.err = loadTypedPackages(p)
-	return l.packages, l.err
-}
-
-func loadTypedPackages(p *prog.Pass) ([]*packages.Package, error) {
-	var dirs []string
-	for _, pkg := range p.Program.Packages {
-		if pkg.Dir != "" {
-			dirs = append(dirs, pkg.Dir)
-		}
-	}
-	if len(dirs) == 0 {
-		return nil, nil
-	}
-	return packages.Load(&packages.Config{
-		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
-			packages.NeedImports | packages.NeedTypes | packages.NeedTypesInfo |
-			packages.NeedSyntax | packages.NeedModule,
-		Dir: dirs[0], Fset: p.Program.Fset, Tests: true,
-	}, dirs...)
-}
-
-// Reuse shared matching and package loading, retaining each cop's type-error policy.
-func withTypedFiles(load func(*prog.Pass) ([]*packages.Package, error), newCop func(...cop.FuncOption) *prog.Func, skipIllTyped bool, opts ...cop.FuncOption) *prog.Func {
+// Reuse shared matching while retaining tests and partially resolved packages.
+func withTypedFiles(newCop func(...cop.FuncOption) *prog.Func, opts ...cop.FuncOption) *prog.Func {
 	fileCop := sharedFileCop(newCop, opts...)
 	return prog.New(fileCop.Meta, func(p *prog.Pass) {
-		pkgs, err := load(p)
+		pkgs, err := p.Program.PackagesWithTests()
 		if err != nil {
-			message := "cannot inspect packages: %v"
-			if skipIllTyped {
-				message = "cannot inspect modernization candidates: %v"
-			}
-			p.Reportf(token.NoPos, message, err)
+			p.Reportf(token.NoPos, "cannot inspect packages: %v", err)
 			return
 		}
 		seen := make(map[string]bool)
 		for _, pkg := range pkgs {
-			if skipIllTyped && pkg.IllTyped {
-				continue
-			}
 			for _, file := range pkg.Syntax {
 				pass := &cop.Pass{Cop: fileCop, FileSet: p.Program.Fset, File: file, Info: pkg.TypesInfo, Package: pkg.Types}
 				if seen[pass.Filename()] || !fileCop.InScope(pass) {

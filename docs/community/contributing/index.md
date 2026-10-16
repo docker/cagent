@@ -105,7 +105,7 @@ Key conventions:
 ## Lint rules
 
 `task lint` runs the shared and project-specific cops selected in `lint/main.go`.
-Reusable checks come from [rubocop-go](https://github.com/dgageot/rubocop-go/blob/202b67b66167808e75285d0666f880a2bd4b1144/docs/shared-cops.md)
+Reusable checks come from [rubocop-go](https://github.com/dgageot/rubocop-go/blob/3c1907ce6a229f5e5e37b1f4ac4ff7b1fdc490bd/docs/shared-cops.md)
 (pinned in `go.mod`); project-specific checks and frozen-config exclusions stay
 in `lint/`. Cop IDs and `//rubocop:disable` annotations are unchanged. Add shared checks by their
 constructors, not by enabling the entire upstream catalog. 34 of the 36 shared

@@ -16,21 +16,19 @@ import (
 // ChannelDirection follows channel capabilities backwards through assignments,
 // fields, calls and returns. It suggests coordinated type changes, not autofixes.
 // Unknown uses retain both capabilities; only the active build is analyzed.
-var ChannelDirection = newChannelDirection(loadTypedPackages)
+var ChannelDirection = prog.New(cop.Meta{
+	Name:        "Lint/ChannelDirection",
+	Description: "use directional channels when only one capability is required",
+	Severity:    cop.Convention,
+}, checkChannelDirection)
 
-func newChannelDirection(load func(*prog.Pass) ([]*packages.Package, error)) *prog.Func {
-	return prog.New(cop.Meta{
-		Name:        "Lint/ChannelDirection",
-		Description: "use directional channels when only one capability is required",
-		Severity:    cop.Convention,
-	}, func(p *prog.Pass) {
-		pkgs, err := load(p)
-		if err != nil {
-			p.Reportf(token.NoPos, "cannot inspect channel directions: %v", err)
-			return
-		}
-		analyzeChannelDirections(p, pkgs)
-	})
+func checkChannelDirection(p *prog.Pass) {
+	pkgs, err := p.Program.PackagesWithTests()
+	if err != nil {
+		p.Reportf(token.NoPos, "cannot inspect channel directions: %v", err)
+		return
+	}
+	analyzeChannelDirections(p, pkgs)
 }
 
 type channelCapabilities uint8

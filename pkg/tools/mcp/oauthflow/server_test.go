@@ -2,11 +2,15 @@ package oauthflow
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCallbackServer_Port(t *testing.T) {
@@ -27,6 +31,33 @@ func TestCallbackServer_Port(t *testing.T) {
 	if !strings.Contains(cs.GetRedirectURI(), ":"+strconv.Itoa(port)+"/callback") {
 		t.Errorf("GetRedirectURI() = %q does not contain port %d", cs.GetRedirectURI(), port)
 	}
+}
+
+func TestCallbackServerReservesPortBeforeStart(t *testing.T) {
+	t.Parallel()
+
+	cs, err := NewCallbackServer(t.Context())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cs.listener.Close() })
+
+	var lc net.ListenConfig
+	listener, err := lc.Listen(t.Context(), "tcp", cs.listener.Addr().String())
+	if listener != nil {
+		t.Cleanup(func() { _ = listener.Close() })
+	}
+	require.Error(t, err, "the advertised port must already be reserved")
+
+	other, err := NewCallbackServerOnPort(t.Context(), cs.Port())
+	if other != nil {
+		t.Cleanup(func() { _ = other.listener.Close() })
+	}
+	require.Error(t, err, "an occupied explicit port must fail during construction")
+	assert.Nil(t, other)
+
+	redirectURI := cs.GetRedirectURI()
+	require.NoError(t, cs.Start())
+	t.Cleanup(func() { _ = cs.Shutdown(t.Context()) })
+	assert.Equal(t, redirectURI, cs.GetRedirectURI())
 }
 
 // TestBuildRedirectURI tests the pure string-substitution logic without

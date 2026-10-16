@@ -1,9 +1,15 @@
 package main
 
 import (
+	"bytes"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/dgageot/rubocop-go/config"
+	"github.com/dgageot/rubocop-go/cop"
 	"github.com/dgageot/rubocop-go/coptest"
+	"github.com/dgageot/rubocop-go/runner"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -43,6 +49,30 @@ import (
 func f() { _ = otel.Tracer(version.AppName) }
 `
 	assert.Empty(t, coptest.RunTyped(t, OTelTracerName, src))
+}
+
+func TestOTelTracerNameRunnerAppName(t *testing.T) {
+	t.Chdir(t.TempDir())
+	files := map[string]string{
+		"go.mod":                 "module github.com/docker/docker-agent\n\ngo 1.27\nrequire go.opentelemetry.io/otel v0.0.0\nreplace go.opentelemetry.io/otel => ./otel\n",
+		"otel/go.mod":            "module go.opentelemetry.io/otel\n\ngo 1.27\n",
+		"otel/otel.go":           "package otel\nfunc Tracer(string) {}\n",
+		"pkg/version/version.go": "package version\nconst AppName = \"docker-agent\"\n",
+		"cmd/root/name.go":       "package root\nimport \"github.com/docker/docker-agent/pkg/version\"\nconst AppName = version.AppName\n",
+		"cmd/root/use.go":        "package root\nimport \"go.opentelemetry.io/otel\"\nfunc use() { otel.Tracer(AppName) }\n",
+		"other/use.go":           "package other\nimport \"go.opentelemetry.io/otel\"\nconst AppName = \"docker-agent\"\nfunc use() { otel.Tracer(AppName) }\n",
+	}
+	for name, src := range files {
+		require.NoError(t, os.MkdirAll(filepath.Dir(name), 0o700))
+		require.NoError(t, os.WriteFile(name, []byte(src), 0o600))
+	}
+	var output bytes.Buffer
+	r := runner.New([]cop.Cop{OTelTracerName}, config.DefaultConfig(), &output)
+	count, err := r.Run([]string{"cmd/root", "other"})
+	require.NoError(t, err)
+	assert.Equal(t, 1, count, output.String())
+	assert.Contains(t, output.String(), "other/use.go")
+	assert.NotContains(t, output.String(), "cmd/root/use.go:")
 }
 
 func TestOTelTracerNameFlagsWrongName(t *testing.T) {
