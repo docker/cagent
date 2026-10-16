@@ -11,9 +11,9 @@ import (
 	"github.com/dgageot/rubocop-go/prog"
 )
 
-var ChannelStateCheck = withTypedFiles(func(opts ...cop.FuncOption) *prog.Func {
+var ChannelStateCheck = withTypedFiles(loadTypedPackages, func(opts ...cop.FuncOption) *prog.Func {
 	return prog.FromFile(newChannelStateCheck(opts...))
-})
+}, false)
 
 func newChannelStateCheck(opts ...cop.FuncOption) *cop.Func {
 	return cop.New(cop.Meta{

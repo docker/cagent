@@ -10,13 +10,13 @@ import (
 	"golang.org/x/tools/go/cfg"
 )
 
-var CancellationLoop = withTypedFiles(func(opts ...cop.FuncOption) *prog.Func {
+var CancellationLoop = withTypedFiles(loadTypedPackages, func(opts ...cop.FuncOption) *prog.Func {
 	return prog.FromFile(newCancellationLoop(opts...))
-})
+}, false)
 
-var ClosedChannelLoop = withTypedFiles(func(opts ...cop.FuncOption) *prog.Func {
+var ClosedChannelLoop = withTypedFiles(loadTypedPackages, func(opts ...cop.FuncOption) *prog.Func {
 	return prog.FromFile(newClosedChannelLoop(opts...))
-})
+}, false)
 
 func newCancellationLoop(opts ...cop.FuncOption) *cop.Func {
 	return cop.New(cop.Meta{

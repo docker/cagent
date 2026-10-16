@@ -16,32 +16,21 @@ import (
 // ChannelDirection follows channel capabilities backwards through assignments,
 // fields, calls and returns. It suggests coordinated type changes, not autofixes.
 // Unknown uses retain both capabilities; only the active build is analyzed.
-var ChannelDirection = prog.New(cop.Meta{
-	Name:        "Lint/ChannelDirection",
-	Description: "use directional channels when only one capability is required",
-	Severity:    cop.Convention,
-}, checkChannelDirection)
+var ChannelDirection = newChannelDirection(loadTypedPackages)
 
-func checkChannelDirection(p *prog.Pass) {
-	var dirs []string
-	for _, pkg := range p.Program.Packages {
-		if pkg.Dir != "" {
-			dirs = append(dirs, pkg.Dir)
+func newChannelDirection(load func(*prog.Pass) ([]*packages.Package, error)) *prog.Func {
+	return prog.New(cop.Meta{
+		Name:        "Lint/ChannelDirection",
+		Description: "use directional channels when only one capability is required",
+		Severity:    cop.Convention,
+	}, func(p *prog.Pass) {
+		pkgs, err := load(p)
+		if err != nil {
+			p.Reportf(token.NoPos, "cannot inspect channel directions: %v", err)
+			return
 		}
-	}
-	if len(dirs) == 0 {
-		return
-	}
-	pkgs, err := packages.Load(&packages.Config{
-		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
-			packages.NeedImports | packages.NeedTypes | packages.NeedTypesInfo | packages.NeedSyntax,
-		Dir: dirs[0], Fset: p.Program.Fset, Tests: true,
-	}, dirs...)
-	if err != nil {
-		p.Reportf(token.NoPos, "cannot inspect channel directions: %v", err)
-		return
-	}
-	analyzeChannelDirections(p, pkgs)
+		analyzeChannelDirections(p, pkgs)
+	})
 }
 
 type channelCapabilities uint8

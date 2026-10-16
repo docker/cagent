@@ -88,6 +88,8 @@ func trim(s string) string {
 func sortInts(s []int) { sort.SliceStable(s, func(i, j int) bool { return s[i] < s[j] }) }`, true},
 		{"FieldsSeqLookup", `import ("strings"; "slices")
 func contains(s string) bool { return slices.Contains(strings.Fields(s), "x") }`, false},
+		{"SplitSeq", `import "strings"
+func words(s string) { for _, word := range strings.Split(s, ",") { println(word) } }`, true},
 		{"FieldsSeq", `import "strings"
 func words(s string) { for range strings.Fields(s) {} }`, false},
 		{"SplitTrimJoin", `import "strings"
@@ -107,6 +109,9 @@ func trim(s string) string {
 				}
 				if dir == "tests" {
 					name = dir + "/sample_test.go"
+					if tc.name == "SplitSeq" {
+						want = append(want, name)
+					}
 				} else if !tc.scoped || (dir != "pkg/config/v0" && dir != "pkg/config/v15" && dir != "generated") {
 					want = append(want, name)
 				}
@@ -238,6 +243,30 @@ func BenchmarkWork(b *testing.B) { b.ResetTimer(); for range b.N {} }
 		got = append(got, o.Cop+":"+strings.TrimPrefix(filepath.ToSlash(name), "./"))
 	}
 	assert.ElementsMatch(t, want, got)
+}
+
+func TestSharedTypedCopSuppressions(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	require.NoError(t, os.WriteFile("go.mod", []byte("module example.test\n\ngo 1.27\n"), 0o600))
+	const source = `package p
+import "strings"
+func words(s string) { for _, word := range strings.Split(s, ",") { println(word) } }
+`
+	for name, content := range map[string]string{
+		"plain.go":        source,
+		"inline_test.go":  strings.Replace(source, " } }", " } } //rubocop:disable Lint/SplitSeq", 1),
+		"ignored_test.go": "//rubocop:disable-file Lint/SplitSeq\n" + source,
+	} {
+		content = strings.Replace(content, "func words(", "func "+strings.ReplaceAll(name, ".", "_")+"(", 1)
+		require.NoError(t, os.WriteFile(name, []byte(content), 0o600))
+	}
+	var output bytes.Buffer
+	r := runner.New(nil, config.DefaultConfig(), &output).
+		WithProgramCops([]prog.Cop{registeredSharedCop(t, programCops, "Lint/SplitSeq")})
+	count, err := r.Run([]string{"."})
+	require.NoError(t, err)
+	assert.Equal(t, 1, count, output.String())
 }
 
 func TestMigratedSharedCopsRunner(t *testing.T) {
