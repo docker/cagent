@@ -480,8 +480,8 @@ func newBreakpointTestClient(provider, model string) *Client {
 }
 
 // TestConvertMessages_CacheControlToolAttachment verifies marker mapping when
-// generic conversion expands a source message: a marked tool result with an
-// image attachment injects a follow-up user message, and the breakpoint lands
+// generic conversion expands a source message: a marked tool result with a
+// text document attachment injects a follow-up user message, and the breakpoint lands
 // on that injected message's last block (the true end of the source message),
 // not on the tool message text.
 func TestConvertMessages_CacheControlToolAttachment(t *testing.T) {
@@ -494,7 +494,7 @@ func TestConvertMessages_CacheControlToolAttachment(t *testing.T) {
 			ToolCallID: "call_9",
 			MultiContent: []chat.MessagePart{
 				{Type: chat.MessagePartTypeText, Text: "saved"},
-				{Type: chat.MessagePartTypeImageURL, ImageURL: &chat.MessageImageURL{URL: "https://example.com/i.png", Detail: chat.ImageURLDetailLow}},
+				{Type: chat.MessagePartTypeDocument, Document: &chat.Document{Name: "report.txt", MimeType: "text/plain", Source: chat.DocumentSource{InlineText: "report"}}},
 			},
 			CacheControl: true,
 		},
@@ -519,7 +519,7 @@ func TestConvertMessages_CacheControlToolAttachment(t *testing.T) {
 	assert.NotContains(t, userContent[0], "prompt_cache_breakpoint")
 	last, ok := userContent[1].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "image_url", last["type"])
+	assert.Equal(t, "text", last["type"])
 	assert.Equal(t, explicitBreakpoint, last["prompt_cache_breakpoint"])
 }
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -147,28 +148,34 @@ func TestChatCompletions_CatalogAliasesPreserveImages(t *testing.T) {
 				require.NoError(t, json.Unmarshal(capturedBody(), &payload))
 				assert.Equal(t, model, payload.Model)
 				assert.Equal(t, wantMaxTokens, payload.MaxTokens)
-				var imageURLs []string
+				var imageURLs, toolImageURLs []string
 				for _, msg := range payload.Messages {
-					if msg.Role != "user" {
+					if msg.Role != "user" && msg.Role != "tool" {
 						continue
 					}
 					var parts []struct {
 						Type     string `json:"type"`
+						Text     string `json:"text"`
 						ImageURL struct {
 							URL string `json:"url"`
 						} `json:"image_url"`
 					}
 					require.NoError(t, json.Unmarshal(msg.Content, &parts))
 					for _, part := range parts {
+						if msg.Role == "tool" && part.Type == "text" && strings.HasPrefix(part.Text, "data:image/") {
+							toolImageURLs = append(toolImageURLs, part.Text)
+						}
 						if part.Type == "image_url" {
 							imageURLs = append(imageURLs, part.ImageURL.URL)
 						}
 					}
 				}
 				if wantImages {
-					assert.Equal(t, []string{"data:image/png;base64,AQ==", "data:image/png;base64,Ag=="}, imageURLs)
+					assert.Equal(t, []string{"data:image/png;base64,AQ=="}, imageURLs)
+					assert.Equal(t, []string{"data:image/png;base64,Ag=="}, toolImageURLs)
 				} else {
 					assert.Empty(t, imageURLs)
+					assert.Empty(t, toolImageURLs)
 				}
 			})
 		}

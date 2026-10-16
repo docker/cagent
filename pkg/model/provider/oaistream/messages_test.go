@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/docker/docker-agent/pkg/chat"
+	"github.com/docker/docker-agent/pkg/modelinfo"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 	"github.com/docker/docker-agent/pkg/tools"
 )
@@ -224,4 +225,43 @@ func TestJSONSchema_MarshalJSON(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(data), `"type":"object"`)
 	assert.Contains(t, string(data), `"properties"`)
+}
+
+func TestConvertToolImagesAsText(t *testing.T) {
+	t.Parallel()
+	const imageURL = "data:image/png;base64,AQID"
+	tests := []struct {
+		name string
+		part chat.MessagePart
+		want string
+	}{
+		{name: "image URL", part: chat.MessagePart{Type: chat.MessagePartTypeImageURL, ImageURL: &chat.MessageImageURL{URL: imageURL}}, want: imageURL},
+		{name: "image document", part: chat.MessagePart{Type: chat.MessagePartTypeDocument, Document: &chat.Document{Name: "image.png", MimeType: "image/png", Source: chat.DocumentSource{InlineData: []byte{1, 2, 3}}}}, want: imageURL},
+		{name: "nil image URL", part: chat.MessagePart{Type: chat.MessagePartTypeImageURL}},
+		{name: "nil document", part: chat.MessagePart{Type: chat.MessagePartTypeDocument}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			messages := []chat.Message{
+				{Role: chat.MessageRoleAssistant, ToolCalls: []tools.ToolCall{{ID: "A"}, {ID: "B"}}},
+				{Role: chat.MessageRoleTool, ToolCallID: "A", MultiContent: []chat.MessagePart{{Type: chat.MessagePartTypeText, Text: "Read image file"}, tt.part}},
+				{Role: chat.MessageRoleTool, ToolCallID: "B", Content: "Done"},
+			}
+			result := ConvertMessagesWithCaps(t.Context(), messages, modelinfo.CapsWith(true, true, false, false))
+			require.Len(t, result, 3)
+			require.NotNil(t, result[1].OfTool)
+			assert.Equal(t, "A", result[1].OfTool.ToolCallID)
+			parts := result[1].OfTool.Content.OfArrayOfContentParts
+			if tt.want == "" {
+				require.Len(t, parts, 1)
+			} else {
+				require.Len(t, parts, 2)
+				assert.Equal(t, tt.want, parts[1].Text)
+			}
+			assert.Equal(t, "Read image file", parts[0].Text)
+			require.NotNil(t, result[2].OfTool)
+			assert.Equal(t, "B", result[2].OfTool.ToolCallID)
+		})
+	}
 }
