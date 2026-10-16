@@ -59,6 +59,7 @@ type channelFunction struct {
 
 type channelAnalysis struct {
 	fset       *token.FileSet
+	keys       map[token.Pos]string
 	slots      map[string]*channelSlot
 	objects    map[types.Object]*channelSlot
 	functions  map[string]*channelFunction
@@ -69,7 +70,7 @@ type channelAnalysis struct {
 
 func analyzeChannelDirections(p *prog.Pass, pkgs []*packages.Package) {
 	a := &channelAnalysis{
-		fset: p.Program.Fset, slots: make(map[string]*channelSlot),
+		fset: p.Program.Fset, keys: make(map[token.Pos]string), slots: make(map[string]*channelSlot),
 		objects: make(map[types.Object]*channelSlot), functions: make(map[string]*channelFunction),
 		direct: make(map[ast.Expr]bool), interfaces: make(map[string][]*types.Signature),
 	}
@@ -207,8 +208,13 @@ func analyzeChannelDirections(p *prog.Pass, pkgs []*packages.Package) {
 }
 
 func (a *channelAnalysis) key(pos token.Pos) string {
+	if key, ok := a.keys[pos]; ok {
+		return key
+	}
 	p := a.fset.PositionFor(pos, false)
-	return fmt.Sprintf("%s:%d", p.Filename, p.Offset)
+	key := fmt.Sprintf("%s:%d", p.Filename, p.Offset)
+	a.keys[pos] = key
+	return key
 }
 
 func (a *channelAnalysis) slot(key string) *channelSlot {
