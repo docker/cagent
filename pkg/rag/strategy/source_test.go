@@ -55,8 +55,14 @@ func TestBM25InitializeDocuments(t *testing.T) {
 	assert.Positive(t, s.avgDocLength, "BM25 statistics are computed like after Initialize")
 
 	var seen []types.EventTye
-	for len(events) > 0 {
-		seen = append(seen, (<-events).Type)
+collectEvents:
+	for {
+		select {
+		case event := <-events:
+			seen = append(seen, event.Type)
+		default:
+			break collectEvents
+		}
 	}
 	assert.Equal(t, []types.EventTye{types.EventTypeIndexingStarted, types.EventTypeIndexingProgress, types.EventTypeIndexingProgress, types.EventTypeIndexingProgress, types.EventTypeIndexingComplete}, seen)
 

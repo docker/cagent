@@ -44,9 +44,15 @@ func TestInitializeConcurrentFilesRecordsUsageSafely(t *testing.T) {
 	assert.Zero(t, cost)
 
 	var lastTotal int64
-	for len(events) > 0 {
-		if ev := <-events; ev.Type == types.EventTypeUsage {
-			lastTotal = max(lastTotal, ev.TotalTokens)
+collectUsage:
+	for {
+		select {
+		case ev := <-events:
+			if ev.Type == types.EventTypeUsage {
+				lastTotal = max(lastTotal, ev.TotalTokens)
+			}
+		default:
+			break collectUsage
 		}
 	}
 	assert.Equal(t, tokens, lastTotal, "cumulative usage events end at the recorded total")

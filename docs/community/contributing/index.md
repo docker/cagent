@@ -127,6 +127,22 @@ for downstream users and validate other build targets. It covers the active buil
 not every build-tag or platform variant; it does not prove channel ownership or
 send/close race safety.
 
+`Lint/CancellationLoop` warns when a `context.Context.Done()` case can return to
+the same select in an unconditional loop, including an unlabelled `break` that
+only exits the select. `Lint/ClosedChannelLoop` follows explicit comma-ok closure
+checks and warns when the closed channel can be polled again without exiting or
+replacing/disabling it. These checks use local control flow and stable channel
+expressions; they do not prove aliases, helper side effects, conditional loops,
+or arbitrary cancellation protocols.
+
+`Lint/ChannelStateCheck` warns about potentially blocking channel operations
+guarded by a `len`/`cap` check on the same channel. The observation does not reserve
+capacity or a value; use `select` or explicit synchronization. Nonblocking select
+communications are excluded. Matching covers local guards and resolved storage
+expressions, not channel aliases or indexed containers; labels discard inferred
+guards rather than assuming jump paths are safe. All three checks include
+tests, skip generated files and frozen configs, and provide no automatic fixes.
+
 `Lint/HTTPRequestWithContext` enforces contextual HTTP request construction outside
 frozen config versions. It inspects production files only; matching is syntactic,
 so aliases and shadowing require care. `Lint/NoFatalOutsideMain` reserves
