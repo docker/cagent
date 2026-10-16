@@ -1,6 +1,7 @@
 package oaistream
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/openai/openai-go/v3"
@@ -224,4 +225,112 @@ func TestJSONSchema_MarshalJSON(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(data), `"type":"object"`)
 	assert.Contains(t, string(data), `"properties"`)
+}
+
+func TestToolResultAttachmentsFollowTheWholeGroup(t *testing.T) {
+	t.Parallel()
+
+	image := func(id, url, text string) chat.Message {
+		return chat.Message{
+			Role:       chat.MessageRoleTool,
+			ToolCallID: id,
+			MultiContent: []chat.MessagePart{
+				{Type: chat.MessagePartTypeText, Text: text},
+				{Type: chat.MessagePartTypeImageURL, ImageURL: &chat.MessageImageURL{URL: url}},
+			},
+		}
+	}
+	textOnly := func(id, text string) chat.Message {
+		return chat.Message{Role: chat.MessageRoleTool, ToolCallID: id, Content: text}
+	}
+	assistant := chat.Message{
+		Role: chat.MessageRoleAssistant,
+		ToolCalls: []tools.ToolCall{
+			{ID: "call_0", Function: tools.FunctionCall{Name: "read_file"}},
+			{ID: "call_1", Function: tools.FunctionCall{Name: "read_file"}},
+		},
+	}
+
+	convert := func(t *testing.T, messages []chat.Message) []openai.ChatCompletionMessageParamUnion {
+		t.Helper()
+		return ConvertMessages(t.Context(), messages, modelsdev.ID{}, modelsdev.NewDatabaseStore(&modelsdev.Database{}), nil)
+	}
+	roles := func(msgs []openai.ChatCompletionMessageParamUnion) []string {
+		out := make([]string, len(msgs))
+		for i, msg := range msgs {
+			out[i] = getMessageRole(msg)
+		}
+		return out
+	}
+	imageURL := func(t *testing.T, msg openai.ChatCompletionMessageParamUnion) string {
+		t.Helper()
+		require.NotNil(t, msg.OfUser)
+		raw, err := json.Marshal(msg.OfUser.Content)
+		require.NoError(t, err)
+		var parts []struct {
+			Type     string `json:"type"`
+			ImageURL struct {
+				URL string `json:"url"`
+			} `json:"image_url"`
+		}
+		require.NoError(t, json.Unmarshal(raw, &parts))
+		for _, part := range parts {
+			if part.Type == "image_url" && part.ImageURL.URL != "" {
+				return part.ImageURL.URL
+			}
+		}
+		t.Fatalf("no image url in %s", raw)
+		return ""
+	}
+
+	t.Run("two images stay after both tool results", func(t *testing.T) {
+		t.Parallel()
+		got := convert(t, []chat.Message{
+			assistant,
+			image("call_1", "https://example.test/1.png", "one"),
+			image("call_0", "https://example.test/0.png", "zero"),
+		})
+		assert.Equal(t, []string{"assistant", "tool", "tool", "user", "user"}, roles(got))
+		assert.Equal(t, "call_1", got[1].OfTool.ToolCallID)
+		assert.Equal(t, "call_0", got[2].OfTool.ToolCallID)
+		assert.Equal(t, "https://example.test/1.png", imageURL(t, got[3]))
+		assert.Equal(t, "https://example.test/0.png", imageURL(t, got[4]))
+	})
+
+	t.Run("text result does not split the image follow-up", func(t *testing.T) {
+		t.Parallel()
+		got := convert(t, []chat.Message{
+			assistant,
+			image("call_1", "https://example.test/1.png", "one"),
+			textOnly("call_0", "plain"),
+		})
+		assert.Equal(t, []string{"assistant", "tool", "tool", "user"}, roles(got))
+		assert.Equal(t, "call_0", got[2].OfTool.ToolCallID)
+		assert.Equal(t, "https://example.test/1.png", imageURL(t, got[3]))
+	})
+
+	t.Run("single image is still tool then user", func(t *testing.T) {
+		t.Parallel()
+		got := convert(t, []chat.Message{
+			{Role: chat.MessageRoleAssistant, ToolCalls: []tools.ToolCall{{ID: "call_0"}}},
+			image("call_0", "https://example.test/only.png", "only"),
+		})
+		assert.Equal(t, []string{"assistant", "tool", "user"}, roles(got))
+		assert.Equal(t, "https://example.test/only.png", imageURL(t, got[2]))
+	})
+
+	t.Run("a later user message stays after the attachments", func(t *testing.T) {
+		t.Parallel()
+		got := convert(t, []chat.Message{
+			assistant,
+			image("call_1", "https://example.test/1.png", "one"),
+			textOnly("call_0", "plain"),
+			{Role: chat.MessageRoleUser, Content: "thanks"},
+		})
+		assert.Equal(t, []string{"assistant", "tool", "tool", "user", "user"}, roles(got))
+		assert.Equal(t, "https://example.test/1.png", imageURL(t, got[3]))
+		text, ok := getStringContent(got[4])
+		require.True(t, ok)
+		assert.Equal(t, "thanks", text)
+	})
 }

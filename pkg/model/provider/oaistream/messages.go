@@ -81,12 +81,25 @@ func convertMultiContentWithCaps(ctx context.Context, multiContent []chat.Messag
 
 func convertMessagesWithCaps(ctx context.Context, messages []chat.Message, mc modelinfo.ModelCapabilities) []openai.ChatCompletionMessageParamUnion {
 	openaiMessages := make([]openai.ChatCompletionMessageParamUnion, 0, len(messages))
+	// Tool messages only carry text. Image and document parts become a
+	// follow-up user message, held until this run of tool results ends.
+	// Dropping one in the middle splits a parallel tool-call group, which
+	// strict chat-completions providers reject.
+	var deferred []openai.ChatCompletionMessageParamUnion
+	flushDeferred := func() {
+		openaiMessages = append(openaiMessages, deferred...)
+		deferred = nil
+	}
 	for i := range messages {
 		msg := &messages[i]
 
 		// Skip invalid assistant messages upfront. This can happen if the model is out of tokens (max_tokens reached)
 		if msg.Role == chat.MessageRoleAssistant && len(msg.ToolCalls) == 0 && len(msg.MultiContent) == 0 && strings.TrimSpace(msg.Content) == "" {
+			flushDeferred()
 			continue
+		}
+		if msg.Role != chat.MessageRoleTool {
+			flushDeferred()
 		}
 
 		var openaiMessage openai.ChatCompletionMessageParamUnion
@@ -214,10 +227,11 @@ func convertMessagesWithCaps(ctx context.Context, messages []chat.Message, mc mo
 			if len(attachmentParts) > 0 {
 				label := openai.TextContentPart("Attached content from tool result:")
 				allParts := append([]openai.ChatCompletionContentPartUnionParam{label}, attachmentParts...)
-				openaiMessages = append(openaiMessages, openai.UserMessage(allParts))
+				deferred = append(deferred, openai.UserMessage(allParts))
 			}
 		}
 	}
+	flushDeferred()
 	return openaiMessages
 }
 
