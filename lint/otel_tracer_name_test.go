@@ -51,6 +51,24 @@ func f() { _ = otel.Tracer(version.AppName) }
 	assert.Empty(t, coptest.RunTyped(t, OTelTracerName, src))
 }
 
+func TestPackageImportPath(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct{ path, want string }{
+		"module":          {modulePath, modulePath},
+		"import":          {cmdRootPkgPath, cmdRootPkgPath},
+		"relative":        {"cmd/root", cmdRootPkgPath},
+		"dot relative":    {"./cmd/root", cmdRootPkgPath},
+		"native":          {filepath.Join("cmd", "root"), cmdRootPkgPath},
+		"native relative": {"." + string(filepath.Separator) + filepath.Join("cmd", "root"), cmdRootPkgPath},
+		"version":         {filepath.Join("pkg", "version"), versionPkgPath},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tc.want, packageImportPath(tc.path))
+		})
+	}
+}
+
 func TestOTelTracerNameRunnerAppName(t *testing.T) {
 	t.Chdir(t.TempDir())
 	files := map[string]string{
@@ -71,8 +89,8 @@ func TestOTelTracerNameRunnerAppName(t *testing.T) {
 	count, err := r.Run([]string{"cmd/root", "other"})
 	require.NoError(t, err)
 	assert.Equal(t, 1, count, output.String())
-	assert.Contains(t, output.String(), "other/use.go")
-	assert.NotContains(t, output.String(), "cmd/root/use.go:")
+	assert.Contains(t, output.String(), filepath.Join("other", "use.go"))
+	assert.NotContains(t, output.String(), filepath.Join("cmd", "root", "use.go")+":")
 }
 
 func TestOTelTracerNameFlagsWrongName(t *testing.T) {

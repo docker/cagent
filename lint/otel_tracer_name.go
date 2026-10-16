@@ -5,6 +5,7 @@ import (
 	"go/constant"
 	"go/token"
 	"go/types"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -69,6 +70,7 @@ func isOTelTracerCall(info *types.Info, call *ast.CallExpr) bool {
 }
 
 func packageImportPath(pkgPath string) string {
+	pkgPath = filepath.ToSlash(pkgPath)
 	if strings.HasPrefix(pkgPath, modulePath+"/") || pkgPath == modulePath {
 		return pkgPath
 	}
