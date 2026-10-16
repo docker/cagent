@@ -167,56 +167,50 @@ func convertMessagesWithCaps(ctx context.Context, messages []chat.Message, mc mo
 				ToolCallID: msg.ToolCallID,
 			}
 
+			var attachmentParts []openai.ChatCompletionContentPartUnionParam
 			if len(msg.MultiContent) == 0 {
 				toolParam.Content.OfString = param.NewOpt(msg.Content)
 			} else {
-				// Convert multi-content for tool messages — only text parts go in the tool message
 				textParts := make([]openai.ChatCompletionContentPartTextParam, 0)
 				for _, part := range msg.MultiContent {
-					if part.Type == chat.MessagePartTypeText {
-						textParts = append(textParts, openai.ChatCompletionContentPartTextParam{
-							Text: part.Text,
-						})
+					switch part.Type {
+					case chat.MessagePartTypeText:
+						textParts = append(textParts, openai.ChatCompletionContentPartTextParam{Text: part.Text})
+					case chat.MessagePartTypeImageURL:
+						if part.ImageURL != nil {
+							textParts = append(textParts, openai.ChatCompletionContentPartTextParam{Text: part.ImageURL.URL})
+						}
+					case chat.MessagePartTypeDocument:
+						if part.Document != nil {
+							docParts, err := convertDocumentWithCaps(ctx, *part.Document, mc)
+							if err != nil {
+								slog.WarnContext(ctx, "failed to convert tool result document attachment", "error", err, "doc", part.Document.Name)
+								continue
+							}
+							for _, docPart := range docParts {
+								if docPart.OfImageURL != nil {
+									textParts = append(textParts, openai.ChatCompletionContentPartTextParam{Text: docPart.OfImageURL.ImageURL.URL})
+								} else {
+									attachmentParts = append(attachmentParts, docPart)
+								}
+							}
+						}
 					}
 				}
 				toolParam.Content.OfArrayOfContentParts = textParts
 			}
 
 			openaiMessage.OfTool = &toolParam
-		}
-
-		openaiMessages = append(openaiMessages, openaiMessage)
-
-		// For tool messages with attachments, inject a follow-up user message
-		// since OpenAI tool messages only support text.
-		if msg.Role == chat.MessageRoleTool && len(msg.MultiContent) > 0 {
-			var attachmentParts []openai.ChatCompletionContentPartUnionParam
-			for _, part := range msg.MultiContent {
-				switch part.Type {
-				case chat.MessagePartTypeImageURL:
-					if part.ImageURL != nil {
-						attachmentParts = append(attachmentParts, openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{
-							URL:    part.ImageURL.URL,
-							Detail: string(part.ImageURL.Detail),
-						}))
-					}
-				case chat.MessagePartTypeDocument:
-					if part.Document != nil {
-						docParts, err := convertDocumentWithCaps(ctx, *part.Document, mc)
-						if err != nil {
-							slog.WarnContext(ctx, "failed to convert tool result document attachment", "error", err, "doc", part.Document.Name)
-							continue
-						}
-						attachmentParts = append(attachmentParts, docParts...)
-					}
-				}
-			}
+			openaiMessages = append(openaiMessages, openaiMessage)
 			if len(attachmentParts) > 0 {
 				label := openai.TextContentPart("Attached content from tool result:")
 				allParts := append([]openai.ChatCompletionContentPartUnionParam{label}, attachmentParts...)
 				openaiMessages = append(openaiMessages, openai.UserMessage(allParts))
 			}
+			continue
 		}
+
+		openaiMessages = append(openaiMessages, openaiMessage)
 	}
 	return openaiMessages
 }
