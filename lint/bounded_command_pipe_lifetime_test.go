@@ -14,7 +14,9 @@ import (
 )
 
 func TestBoundedCommandPipeLifetime(t *testing.T) {
-	t.Parallel()
+	// These fixtures use Unix process groups, regardless of the test host.
+	t.Setenv("GOOS", "linux")
+	t.Setenv("GOARCH", "amd64")
 	const groupCommand = `cmd := ex.CommandContext(ctx, "sh", "-c", script); cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid:true}; stdout, _ := cmd.StdoutPipe(); `
 	const command = `cmd := ex.CommandContext(ctx, "/bin/sh", "-c", script); stdout, _ := cmd.StdoutPipe(); `
 	const grouped = groupCommand + `_ = cmd.Start(); `
