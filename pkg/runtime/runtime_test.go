@@ -4577,8 +4577,8 @@ func TestPostToolHookEmitsLifecycleEvents(t *testing.T) {
 
 	var started *HookStartedEvent
 	var finished *HookFinishedEvent
-	for len(events) > 0 {
-		switch ev := (<-events).(type) {
+	for _, event := range drainEvents(events) {
+		switch ev := event.(type) {
 		case *HookStartedEvent:
 			started = ev
 		case *HookFinishedEvent:

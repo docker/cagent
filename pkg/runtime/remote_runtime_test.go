@@ -498,8 +498,8 @@ func TestRemoteRuntime_BackgroundGapWaitsForIdleAndCloseCancelsRecovery(t *testi
 	}
 	assert.Equal(t, int32(1), runs.Load())
 	assert.Equal(t, int32(1), subscriptions.Load(), "never advance the cursor from a running snapshot")
-	for len(background) > 0 {
-		assert.IsType(t, &WarningEvent{}, <-background, "partial saved text must not be emitted")
+	for _, event := range drainEvents(background) {
+		assert.IsType(t, &WarningEvent{}, event, "partial saved text must not be emitted")
 	}
 }
 

@@ -753,8 +753,7 @@ func TestTransferTask_RetriesIdleStreamOnce(t *testing.T) {
 		warningCount := 0
 		completionCount := 0
 		var completedChild *session.Session
-		for len(eventCh) > 0 {
-			event := <-eventCh
+		for _, event := range drainEvents(eventCh) {
 			switch typed := event.(type) {
 			case *WarningEvent:
 				warningCount++
@@ -1022,8 +1021,8 @@ func TestTransferTask_SpendsIdleRetryBeforeFallback(t *testing.T) {
 			assert.Equal(t, tt.wantFallbackCalls, fallback.callCount())
 
 			warningCount := 0
-			for len(eventCh) > 0 {
-				if _, ok := (<-eventCh).(*WarningEvent); ok {
+			for _, event := range drainEvents(eventCh) {
+				if _, ok := event.(*WarningEvent); ok {
 					warningCount++
 				}
 			}

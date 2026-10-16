@@ -23,11 +23,46 @@ func drainEvents(ch <-chan Event) []Event {
 	var out []Event
 	for {
 		select {
-		case ev := <-ch:
+		case ev, ok := <-ch:
+			if !ok {
+				return out
+			}
 			out = append(out, ev)
 		default:
 			return out
 		}
+	}
+}
+
+func TestDrainEvents(t *testing.T) {
+	t.Parallel()
+
+	t.Run("empty", func(t *testing.T) {
+		t.Parallel()
+		assert.Empty(t, drainEvents(make(chan Event)))
+	})
+	t.Run("nil", func(t *testing.T) {
+		t.Parallel()
+		assert.Empty(t, drainEvents(nil))
+	})
+	for _, closed := range []bool{false, true} {
+		name := "open"
+		if closed {
+			name = "closed"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			first, last := Warning("first", "root"), Warning("last", "root")
+			ch := make(chan Event, 3)
+			ch <- first
+			ch <- nil
+			ch <- last
+			if closed {
+				close(ch)
+			}
+			assert.Equal(t, []Event{first, nil, last}, drainEvents(ch))
+			assert.Empty(t, drainEvents(ch))
+		})
 	}
 }
 

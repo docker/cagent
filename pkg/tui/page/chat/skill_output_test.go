@@ -149,6 +149,16 @@ func renderAppEventBatches(t *testing.T, sess *session.Session, batches [][]runt
 	runCtx, stop := context.WithCancel(ctx)
 	defer stop()
 	a.Run(runCtx, stop, "run skill", nil)
+	drain := func() {
+		for {
+			select {
+			case msg := <-received:
+				_, _ = p.handleRuntimeEvent(msg)
+			default:
+				return
+			}
+		}
+	}
 	for _, batch := range batches {
 		for _, event := range batch {
 			events <- event
@@ -156,15 +166,11 @@ func renderAppEventBatches(t *testing.T, sess *session.Session, batches [][]runt
 		synctest.Wait()
 		time.Sleep(100 * time.Millisecond) //nolint:forbidigo // Advance the throttle timer inside synctest's fake clock.
 		synctest.Wait()
-		for len(received) > 0 {
-			_, _ = p.handleRuntimeEvent(<-received)
-		}
+		drain()
 	}
 	close(events)
 	synctest.Wait()
-	for len(received) > 0 {
-		_, _ = p.handleRuntimeEvent(<-received)
-	}
+	drain()
 	return p
 }
 
