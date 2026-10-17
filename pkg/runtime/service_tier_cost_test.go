@@ -31,6 +31,9 @@ func TestRunStreamServiceTierCost(t *testing.T) {
 		{name: "Luna priority", model: "gpt-5.6-luna", tier: "priority", want: 0.0478},
 		{name: "Astra fast", model: "gpt-6-astra", tier: "fast", want: 2.29},
 		{name: "Astra ultrafast", model: "gpt-6-astra", tier: "ultrafast", want: 6.87},
+		{name: "Sol 6.1 fast", model: "gpt-6.1-sol", tier: "fast", want: 0.454},
+		{name: "Sol 6.1 ultrafast", model: "gpt-6.1-sol", tier: "ultrafast", want: 1.362},
+		{name: "Sol 6.1 fallback ultrafast", model: "gpt-6.1-sol", tier: "ultrafast", fallback: true, want: 1.362},
 		{name: "standard downgrade", model: "gpt-6-astra", tier: "default", want: 1.145},
 		{name: "fallback ultrafast", model: "gpt-6-astra", tier: "ultrafast", fallback: true, want: 6.87},
 		{name: "fallback override", model: "gpt-6-astra", tier: "ultrafast", fallback: true, cost: &latest.CostConfig{Input: 1, Output: 2, CacheRead: 0.1, CacheWrite: 1.25}, want: 0.0995},
@@ -108,7 +111,7 @@ func TestRunStreamServiceTierCost(t *testing.T) {
 func TestServiceTierMixedTurnsPersistCost(t *testing.T) {
 	t.Parallel()
 
-	for _, modelID := range []string{"gpt-5.6-luna", "gpt-6-astra"} {
+	for _, modelID := range []string{"gpt-5.6-luna", "gpt-6-astra", "gpt-6.1-sol"} {
 		t.Run(modelID, func(t *testing.T) {
 			t.Parallel()
 			model := &configuredProvider{cfg: latest.ModelConfig{Provider: "openai", Model: modelID, BaseURL: "https://api.openai.com/v1", ProviderOpts: map[string]any{"service_tier": "fast"}}}
@@ -128,10 +131,12 @@ func TestServiceTierMixedTurnsPersistCost(t *testing.T) {
 				input int64
 				luna  float64
 				astra float64
+				sol   float64
 			}{
-				{"fast", 50_000, 0.0478, 2.29},
-				{"default", 500_000, 0.2248, 11.165},
-				{"priority", 500_000, 0.4496, 22.33},
+				{"fast", 50_000, 0.0478, 2.29, 0.454},
+				{"default", 500_000, 0.2248, 11.165, 2.229},
+				{"priority", 500_000, 0.4496, 22.33, 4.458},
+				{"ultrafast", 500_000, 1.3488, 66.99, 13.374},
 			} {
 				stream := newStreamBuilder().AddContent("ok").AddStopWithUsage(0, 0).Build()
 				stream.responses[len(stream.responses)-1].Usage = &chat.Usage{InputTokens: turn.input, CachedInputTokens: 20_000, CacheWriteTokens: 30_000, OutputTokens: 5_000, ReasoningTokens: 3_000, ServiceTier: turn.tier}
@@ -142,8 +147,11 @@ func TestServiceTierMixedTurnsPersistCost(t *testing.T) {
 					}
 				}
 				want := turn.luna
-				if modelID == "gpt-6-astra" {
+				switch modelID {
+				case "gpt-6-astra":
 					want = turn.astra
+				case "gpt-6.1-sol":
+					want = turn.sol
 				}
 				wantTotal += want
 				assert.InDelta(t, wantTotal, sess.TotalCost(), 1e-9)
@@ -162,7 +170,7 @@ func TestServiceTierMixedTurnsPersistCost(t *testing.T) {
 					tiers = append(tiers, message.Message.Usage.ServiceTier)
 				}
 			}
-			assert.Equal(t, []string{"fast", "default", "priority"}, tiers)
+			assert.Equal(t, []string{"fast", "default", "priority", "ultrafast"}, tiers)
 			summaries, err := reopened.GetSessionSummaries(t.Context())
 			require.NoError(t, err)
 			require.Len(t, summaries, 1)

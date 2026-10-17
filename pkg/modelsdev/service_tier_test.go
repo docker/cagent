@@ -35,17 +35,18 @@ func TestCostForServiceTier(t *testing.T) {
 	}
 }
 
-func TestCostForServiceTierModels(t *testing.T) {
+func TestCostForServiceTierIndependentOfModel(t *testing.T) {
 	t.Parallel()
 
 	cost := &Cost{Input: 1}
-	for _, model := range []string{"gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol"} {
-		for _, tier := range []string{"fast", "priority"} {
-			assert.InDelta(t, 2.0, cost.ForServiceTier(NewID("openai", model), tier).Input, 1e-9, "%s/%s", model, tier)
-			assert.InDelta(t, 2.0, cost.ForServiceTier(NewID("openai", model+"-2026-09-04"), tier).Input, 1e-9, "dated %s/%s", model, tier)
+	for _, model := range []string{"gpt-6.1-sol", "gpt-6-astra-2026-09-04", "future-model", "future-model-fast"} {
+		for _, tc := range []struct {
+			tier   string
+			factor float64
+		}{{"fast", 2}, {"priority", 2}, {"ultrafast", 6}} {
+			assert.InDelta(t, tc.factor, cost.ForServiceTier(NewID("openai", model), tc.tier).Input, 1e-9, "%s/%s", model, tc.tier)
 		}
 	}
-	assert.InDelta(t, 6.0, cost.ForServiceTier(NewID("openai", "gpt-6-astra-2026-09-04"), "ultrafast").Input, 1e-9)
 }
 
 func TestCostForServiceTierUnchanged(t *testing.T) {
@@ -61,13 +62,6 @@ func TestCostForServiceTierUnchanged(t *testing.T) {
 		{"openai", "gpt-6-astra", "flex"},
 		{"openai", "gpt-6-astra", "scale"},
 		{"openai", "gpt-6-astra", "future-tier"},
-		{"openai", "gpt-5.6-luna", "ultrafast"},
-		{"openai", "gpt-6.1-sol", "ultrafast"},
-		{"openai", "gpt-5.5", "fast"},
-		{"openai", "gpt-7-astra", "fast"},
-		{"openai", "gpt-6-astra-fast", "fast"},
-		{"openai", "gpt-6-astra-extra", "fast"},
-		{"openai", "gpt-6-astra-2026-02-30", "fast"},
 		{"vercel", "openai/gpt-6-astra-fast", "fast"},
 		{"azure", "gpt-6-astra", "fast"},
 		{"chatgpt", "gpt-6-astra", "ultrafast"},
@@ -77,4 +71,50 @@ func TestCostForServiceTierUnchanged(t *testing.T) {
 	}
 	var missing *Cost
 	assert.Nil(t, missing.ForServiceTier(NewID("openai", "gpt-6-astra"), "ultrafast"))
+}
+
+func TestCatalogFastPremium(t *testing.T) {
+	t.Parallel()
+
+	base := &Cost{
+		Input: 2, Output: 10, CacheRead: 0.2, CacheWrite: 2.5,
+		Tiers: []CostTier{{Rates: Rates{Input: 4, Output: 15, CacheRead: 0.4, CacheWrite: 5}, Tier: TierSpec{Type: "context", Size: 272_000}}},
+	}
+	for _, tc := range []struct {
+		name     string
+		standard *Cost
+		fast     *Cost
+		factor   float64
+	}{
+		{name: "uniform premium", standard: base, fast: &Cost{Input: 5, Output: 25, CacheRead: 0.5, CacheWrite: 6.25}, factor: 2.5},
+		{name: "missing fast", standard: base, factor: 2},
+		{name: "missing standard", fast: &Cost{Input: 5, Output: 25, CacheRead: 0.5, CacheWrite: 6.25}, factor: 2},
+		{name: "different gateway base rates", standard: &Cost{Input: 1}, fast: &Cost{Input: 3}, factor: 2},
+		{name: "different token premiums", standard: base, fast: &Cost{Input: 5, Output: 20, CacheRead: 0.5, CacheWrite: 6.25}, factor: 2},
+		{name: "inconsistent context premium", standard: base, fast: &Cost{
+			Input: 5, Output: 25, CacheRead: 0.5, CacheWrite: 6.25,
+			Tiers: []CostTier{{Rates: Rates{Input: 8, Output: 30, CacheRead: 0.8, CacheWrite: 10}, Tier: TierSpec{Type: "context", Size: 272_001}}},
+		}, factor: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := NewDatabaseStore(&Database{Providers: map[string]Provider{
+				"openai": {Models: map[string]Model{"future-model": {Cost: base}, "future-model-2026-10-17": {Cost: base}}},
+				"vercel": {Models: map[string]Model{"openai/future-model": {Cost: tc.standard}, "openai/future-model-fast": {Cost: tc.fast}}},
+			}})
+			for _, name := range []string{"future-model", "future-model-2026-10-17"} {
+				id := NewID("openai", name)
+				model, err := store.GetModel(t.Context(), id)
+				require.NoError(t, err)
+				for _, tier := range []string{"fast", "priority"} {
+					priced := model.Cost.ForServiceTier(id, tier)
+					assert.InDelta(t, 2*tc.factor, priced.RatesFor(100).Input, 1e-9)
+					assert.InDelta(t, 4*tc.factor, priced.RatesFor(300_000).Input, 1e-9)
+				}
+				assert.InDelta(t, 12, model.Cost.ForServiceTier(id, "ultrafast").Input, 1e-9)
+				assert.Same(t, model.Cost, model.Cost.ForServiceTier(id, "default"))
+				assert.Zero(t, base.fastMultiplier, "catalogue metadata must not be mutated")
+			}
+		})
+	}
 }

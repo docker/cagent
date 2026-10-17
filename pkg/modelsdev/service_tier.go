@@ -1,41 +1,29 @@
 package modelsdev
 
 import (
+	"math"
 	"slices"
 	"time"
 )
 
-// ForServiceTier adjusts catalogue rates for the actual response tier without mutating c.
-// Unlisted models, providers and tiers retain their catalogue pricing.
+// ForServiceTier estimates tier pricing from the actual response tier without mutating c.
+// Other providers and unrecognized tiers retain their catalogue pricing.
 func (c *Cost) ForServiceTier(id ID, tier string) *Cost {
 	if c == nil || id.Provider != "openai" {
 		return c
 	}
-	model := id.Model
-	if len(model) > len("-2006-01-02") {
-		cut := len(model) - len("2006-01-02")
-		if model[cut-1] == '-' {
-			if _, err := time.Parse(time.DateOnly, model[cut:]); err == nil {
-				model = model[:cut-1]
-			}
-		}
-	}
-
-	// https://developers.openai.com/api/docs/pricing; don't extrapolate to future models.
-	factor := 1.0
+	// Current tier premiums; models with different rates need a cost override.
+	// https://developers.openai.com/api/docs/pricing
+	var factor float64
 	switch tier {
 	case "fast", "priority":
-		switch model {
-		case "gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
-			"gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol":
+		factor = c.fastMultiplier
+		if factor == 0 {
 			factor = 2
 		}
 	case "ultrafast":
-		if model == "gpt-6-astra" {
-			factor = 6
-		}
-	}
-	if factor == 1 {
+		factor = 6
+	default:
 		return c
 	}
 
@@ -52,4 +40,67 @@ func (c *Cost) ForServiceTier(id ID, tier string) *Cost {
 		out.Tiers[i].CacheWrite *= factor
 	}
 	return &out
+}
+
+// withFastPricing derives a uniform premium only when gateway and vendor base rates agree.
+func (c *Cost) withFastPricing(db *Database, id ID) *Cost {
+	if c == nil || id.Provider != "openai" {
+		return c
+	}
+	models := db.Providers["vercel"].Models
+	model := id.Model
+	for {
+		standard := models["openai/"+model].Cost
+		fast := models["openai/"+model+"-fast"].Cost
+		if standard != nil && fast != nil && standard.RatesFor(0) == c.RatesFor(0) {
+			if factor := uniformPremium(standard, fast); factor > 0 {
+				out := *c
+				out.fastMultiplier = factor
+				return &out
+			}
+		}
+		// Dated models may share the alias's pricing, but never assume its base rates match.
+		if len(model) <= len("-2006-01-02") {
+			return c
+		}
+		cut := len(model) - len("2006-01-02")
+		if model[cut-1] != '-' {
+			return c
+		}
+		if _, err := time.Parse(time.DateOnly, model[cut:]); err != nil {
+			return c
+		}
+		model = model[:cut-1]
+	}
+}
+
+func uniformPremium(standard, fast *Cost) float64 {
+	factor := fast.Input / standard.Input
+	if factor < 1 || math.IsNaN(factor) || math.IsInf(factor, 0) {
+		return 0
+	}
+	matches := func(base, premium Rates) bool {
+		return closeRate(base.Input*factor, premium.Input) &&
+			closeRate(base.Output*factor, premium.Output) &&
+			closeRate(base.CacheRead*factor, premium.CacheRead) &&
+			closeRate(base.CacheWrite*factor, premium.CacheWrite)
+	}
+	if !matches(standard.RatesFor(0), fast.RatesFor(0)) {
+		return 0
+	}
+	for _, tier := range fast.Tiers {
+		if tier.Tier.Size < 0 || tier.Tier.Size == math.MaxInt64 || (tier.Tier.Type != "" && tier.Tier.Type != "context") {
+			return 0
+		}
+		// Gateway thresholds may name the first long-context token, rather than the last short one.
+		if !matches(standard.RatesFor(tier.Tier.Size+1), tier.Rates) {
+			return 0
+		}
+	}
+	return factor
+}
+
+func closeRate(a, b float64) bool {
+	return !math.IsNaN(a) && !math.IsNaN(b) && !math.IsInf(a, 0) && !math.IsInf(b, 0) &&
+		math.Abs(a-b) <= 1e-9*math.Max(1, math.Max(math.Abs(a), math.Abs(b)))
 }

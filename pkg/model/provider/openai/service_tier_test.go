@@ -159,6 +159,9 @@ func TestServiceTierUsageTransports(t *testing.T) {
 			{requested: "ultrafast", actual: "ultrafast"},
 			{requested: "fast", actual: "default"},
 			{requested: "ultrafast", actual: "default"},
+			{requested: "ultrafast", actual: "fast"},
+			{requested: "fast", actual: "ultrafast"},
+			{actual: "ultrafast"},
 			{actual: "fast"},
 			{requested: "fast"},
 		} {

@@ -297,6 +297,7 @@ func (s *Store) GetModel(ctx context.Context, id ID) (*Model, error) {
 
 	provider, exists := db.Providers[id.Provider]
 	if model, ok := lookupModel(provider, id); ok {
+		model.Cost = model.Cost.withFastPricing(db, id)
 		return &model, nil
 	}
 

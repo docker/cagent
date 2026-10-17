@@ -45,6 +45,9 @@ type Cost struct {
 	CacheWrite float64 `json:"cache_write,omitempty"`
 
 	Tiers []CostTier `json:"tiers,omitempty"`
+
+	// fastMultiplier is derived at lookup from matching catalogue price tables.
+	fastMultiplier float64
 }
 
 // Rates is a single price band, in USD per 1M tokens.
