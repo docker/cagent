@@ -102,6 +102,31 @@ Key conventions:
 - Use functional options pattern for constructors
 - In tests: use `t.Context()`, `t.TempDir()`, `t.Setenv()`, and `t.Parallel()`
 
+## Profiling the lint runner
+
+Benchmark the full command with a warm Go build cache:
+
+```bash
+hyperfine --warmup 1 --runs 5 'go run ./lint .'
+```
+
+For CPU and allocation profiles of the in-process runner:
+
+```bash
+mkdir -p .cache/lint-profile
+go test ./lint -run '^$' -bench '^BenchmarkLintRepository$' -benchtime=1x \
+  -cpuprofile="$PWD/.cache/lint-profile/cpu.pprof" \
+  -memprofile="$PWD/.cache/lint-profile/mem.pprof" \
+  -o "$PWD/.cache/lint-profile/lint.test"
+go tool pprof -top .cache/lint-profile/cpu.pprof
+go tool pprof -alloc_space -top .cache/lint-profile/mem.pprof
+```
+
+`BenchmarkChannelDirection` isolates channel analysis on already-loaded packages.
+Go benchmark timings exclude compilation and may benefit from in-process caches;
+use the full command to confirm end-to-end improvements. Allocation totals are
+cumulative, not peak memory, and profiles do not include `go/packages` subprocesses.
+
 ## Lint rules
 
 `task lint` runs the shared and project-specific cops selected in `lint/main.go`.
