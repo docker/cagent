@@ -322,8 +322,9 @@ func RegisterClient(ctx context.Context, authMetadata *AuthorizationServerMetada
 }
 
 // RegisterClientWithClient is RegisterClient with an explicit *http.Client.
-// authMethod is the token endpoint auth method to use afterwards: the value
-// the server returned, or the one we asked for when the response omits it.
+// authMethod is the token endpoint auth method to use afterwards. A response
+// that omits token_endpoint_auth_method is client_secret_basic (RFC 7591),
+// not confirmation of the method we asked for.
 func RegisterClientWithClient(ctx context.Context, client *http.Client, authMetadata *AuthorizationServerMetadata, redirectURI string, scopes []string) (clientID, clientSecret, authMethod string, err error) {
 	if authMetadata.RegistrationEndpoint == "" {
 		return "", "", "", errors.New("authorization server does not support dynamic client registration")
@@ -382,6 +383,10 @@ func RegisterClientWithClient(ctx context.Context, client *http.Client, authMeta
 	}
 	if respBody.TokenEndpointAuthMethod != "" {
 		authMethod = respBody.TokenEndpointAuthMethod
+	} else {
+		// RFC 7591: an omitted method on the registration response is
+		// client_secret_basic, even when the request asked for post or none.
+		authMethod = "client_secret_basic"
 	}
 	if !supportedClientAuthMethod(authMethod) {
 		return "", "", "", fmt.Errorf("unsupported token endpoint auth method %q", authMethod)

@@ -91,6 +91,31 @@ func TestRegisterClientOmittedMetadataUsesBasic(t *testing.T) {
 	}
 }
 
+func TestRegisterClientOmittedResponseIsBasic(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &got)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"client_id":"cid","client_secret":"sec"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	_, _, method, err := RegisterClientWithClient(t.Context(), srv.Client(), &AuthorizationServerMetadata{
+		RegistrationEndpoint:              srv.URL,
+		TokenEndpointAuthMethodsSupported: []string{"client_secret_basic", "client_secret_post"},
+	}, "http://127.0.0.1/cb", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if method != "client_secret_basic" {
+		t.Fatalf("method = %q, want client_secret_basic", method)
+	}
+	if got["token_endpoint_auth_method"] != "client_secret_post" {
+		t.Fatalf("registration asked for %v, want client_secret_post", got["token_endpoint_auth_method"])
+	}
+}
+
 func TestExchangeUsesBasicWhenRegisteredThatWay(t *testing.T) {
 	var form url.Values
 	var auth string
@@ -142,13 +167,9 @@ func TestExchangePostsSecretByDefault(t *testing.T) {
 	}
 }
 
-func wantBasic(id, secret string) string {
-	user := url.QueryEscape(id) + ":" + url.QueryEscape(secret)
-	return "Basic " + base64.StdEncoding.EncodeToString([]byte(user))
-}
-
 func TestBasicAuthEncodesReservedCharacters(t *testing.T) {
 	const id, secret = "ci d+1", "s@ec:ret"
+	wantAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(url.QueryEscape(id)+":"+url.QueryEscape(secret)))
 	var exchangeAuth, refreshAuth string
 	var exchangeForm, refreshForm url.Values
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -171,8 +192,8 @@ func TestBasicAuthEncodesReservedCharacters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if exchangeAuth != wantBasic(id, secret) {
-		t.Fatalf("exchange Authorization = %q, want %q", exchangeAuth, wantBasic(id, secret))
+	if exchangeAuth != wantAuth {
+		t.Fatalf("exchange Authorization = %q, want %q", exchangeAuth, wantAuth)
 	}
 	if exchangeForm.Get("client_id") != "" || exchangeForm.Get("client_secret") != "" {
 		t.Fatalf("exchange form still has credentials: %v", exchangeForm)
@@ -193,8 +214,8 @@ func TestBasicAuthEncodesReservedCharacters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if refreshAuth != wantBasic(id, secret) {
-		t.Fatalf("refresh Authorization = %q, want %q", refreshAuth, wantBasic(id, secret))
+	if refreshAuth != wantAuth {
+		t.Fatalf("refresh Authorization = %q, want %q", refreshAuth, wantAuth)
 	}
 	if refreshForm.Get("client_id") != "" || refreshForm.Get("client_secret") != "" {
 		t.Fatalf("refresh form still has credentials: %v", refreshForm)
@@ -277,12 +298,15 @@ func TestLegacyEmptyMethodStillPostsSecret(t *testing.T) {
 }
 
 func TestUnsupportedAuthMethodIsRejected(t *testing.T) {
-	_, _, _, err := RegisterClientWithClient(t.Context(), http.DefaultClient, &AuthorizationServerMetadata{
+	id, secret, method, err := RegisterClientWithClient(t.Context(), http.DefaultClient, &AuthorizationServerMetadata{
 		RegistrationEndpoint:              "http://127.0.0.1/register",
 		TokenEndpointAuthMethodsSupported: []string{"client_secret_jwt", "private_key_jwt"},
 	}, "http://127.0.0.1/cb", nil)
 	if err == nil || !strings.Contains(err.Error(), "no usable token endpoint auth method") {
 		t.Fatalf("register err = %v", err)
+	}
+	if id != "" || secret != "" || method != "" {
+		t.Fatalf("register returned id=%q secret=%q method=%q", id, secret, method)
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -290,12 +314,15 @@ func TestUnsupportedAuthMethodIsRejected(t *testing.T) {
 		_, _ = w.Write([]byte(`{"client_id":"cid","client_secret":"sec","token_endpoint_auth_method":"private_key_jwt"}`))
 	}))
 	t.Cleanup(srv.Close)
-	_, _, _, err = RegisterClientWithClient(t.Context(), srv.Client(), &AuthorizationServerMetadata{
+	id, secret, method, err = RegisterClientWithClient(t.Context(), srv.Client(), &AuthorizationServerMetadata{
 		RegistrationEndpoint:              srv.URL,
 		TokenEndpointAuthMethodsSupported: []string{"client_secret_post"},
 	}, "http://127.0.0.1/cb", nil)
 	if err == nil || !strings.Contains(err.Error(), "private_key_jwt") {
 		t.Fatalf("negotiated err = %v", err)
+	}
+	if id != "" || secret != "" || method != "" {
+		t.Fatalf("negotiated returned id=%q secret=%q method=%q", id, secret, method)
 	}
 
 	if _, err := ExchangeCodeForTokenWithClient(t.Context(), srv.Client(), srv.URL, "code", "ver", "cid", "sec", "http://127.0.0.1/cb", "", "client_secret_jwt"); err == nil {
