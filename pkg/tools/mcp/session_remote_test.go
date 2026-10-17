@@ -265,7 +265,7 @@ func TestSessionRemoteHTTPBodyCancellationAndOrigin(t *testing.T) {
 	}))
 	defer hs.Close()
 	ctx, cancel := context.WithCancel(t.Context())
-	h := &sessionRemoteHTTP{ctx: ctx, endpoint: hs.URL, base: http.DefaultTransport}
+	h := &sessionRemoteHTTP{ctx: ctx, endpoint: hs.URL, base: newTestTransport(t)}
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, hs.URL, http.NoBody)
 	require.NoError(t, err)
 	response, err := h.RoundTrip(request)

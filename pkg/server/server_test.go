@@ -622,6 +622,7 @@ func (s mockStore) GetSessionSummaries(context.Context) ([]session.Summary, erro
 
 func TestServerPreservesServingContext(t *testing.T) {
 	t.Parallel()
+	client := newTestHTTPClient(t)
 	type contextKey struct{}
 	ctx := context.WithValue(t.Context(), contextKey{}, "selected Docker connection")
 	srv := NewWithManager(nil, "")
@@ -635,7 +636,7 @@ func TestServerPreservesServingContext(t *testing.T) {
 	go func() { _ = srv.Serve(ctx, ln) }()
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+ln.Addr().String()+"/context", http.NoBody)
 	require.NoError(t, err)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)

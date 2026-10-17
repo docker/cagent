@@ -2,6 +2,7 @@ package builtins_test
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -265,8 +266,11 @@ func TestAddPromptFilesNoArgsIsNoop(t *testing.T) {
 func lookup(t *testing.T, name string) hooks.BuiltinFunc {
 	t.Helper()
 	r := hooks.NewRegistry()
-	require.NoError(t, builtins.Register(r,
-		builtins.WithHTTPPostClient(httpclient.NewSafeClient(30*time.Second, true))))
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	t.Cleanup(transport.CloseIdleConnections)
+	client := httpclient.NewSafeClient(30*time.Second, true)
+	client.Transport = transport
+	require.NoError(t, builtins.Register(r, builtins.WithHTTPPostClient(client)))
 	fn, ok := r.LookupBuiltin(name)
 	require.True(t, ok, "builtin %q must be registered", name)
 	require.NotNil(t, fn)

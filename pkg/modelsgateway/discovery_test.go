@@ -152,11 +152,7 @@ func (t hostRewriteTransport) RoundTrip(req *http.Request) (*http.Response, erro
 		r2.URL.Scheme = t.scheme
 	}
 	r2.URL.Host = t.host
-	base := t.base
-	if base == nil {
-		base = http.DefaultTransport
-	}
-	return base.RoundTrip(r2)
+	return t.base.RoundTrip(r2)
 }
 
 func TestListModels_GenericGatewayNeedsNoDockerToken(t *testing.T) {
@@ -171,7 +167,7 @@ func TestListModels_GenericGatewayNeedsNoDockerToken(t *testing.T) {
 
 	// models.example.com is not a trusted Docker URL, so discovery must
 	// neither require the Docker token nor send any Authorization header.
-	client := &http.Client{Transport: hostRewriteTransport{host: server.Listener.Addr().String(), scheme: "http"}}
+	client := &http.Client{Transport: hostRewriteTransport{host: server.Listener.Addr().String(), base: server.Client().Transport, scheme: "http"}}
 	ids, err := listModelsWith(t.Context(), "https://models.example.com", environment.NewMapEnvProvider(nil), client)
 
 	require.NoError(t, err)

@@ -154,7 +154,7 @@ func sendA2AMessage(t *testing.T, url, requestID, messageID, text string) a2aRes
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := newTestHTTPClient(t).Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -202,7 +202,7 @@ func startA2AServer(t *testing.T, agentFile string, runConfig *config.RuntimeCon
 	cardReq, err := http.NewRequestWithContext(t.Context(), http.MethodGet, serverURL+a2asrv.WellKnownAgentCardPath, http.NoBody)
 	require.NoError(t, err)
 
-	resp, err := http.DefaultClient.Do(cardReq)
+	resp, err := newTestHTTPClient(t).Do(cardReq)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
