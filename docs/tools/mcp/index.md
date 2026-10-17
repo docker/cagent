@@ -134,6 +134,7 @@ MCP tool results can include embedded resources — images, PDFs, and text files
 
 - **Anthropic** — images become `image` blocks in the `tool_result`; PDFs and other documents become `document` blocks.
 - **OpenAI** — images are forwarded as `input_image` data URIs; PDFs as `input_file` data URIs in the tool result content.
+- **OpenAI Chat Completions** (`api_type: openai_chatcompletions`, the default, and OpenAI-compatible providers) — tool messages only accept text, so images (including image documents) are sent as text in the tool message as their data URI or URL. PDFs and other documents are attached in a follow-up user message labeled "Attached content from tool result:".
 - **Bedrock** and **Gemini** — receive equivalent provider-native representations.
 
 No configuration is required. When an MCP server returns an embedded resource alongside its text output, the resource is automatically attached and sent to the model on the next turn. This is useful for MCP servers that generate charts, export PDFs, or return binary data as part of their responses.
