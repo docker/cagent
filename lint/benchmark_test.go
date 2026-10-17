@@ -46,3 +46,14 @@ func BenchmarkBoundedCommandPipeLifetime(b *testing.B) {
 		require.Empty(b, pass.Offenses())
 	}
 }
+
+func BenchmarkSilentLimitedRead(b *testing.B) {
+	program, err := prog.LoadDir("..", "./...")
+	require.NoError(b, err)
+	b.ReportAllocs()
+	for b.Loop() {
+		pass := &prog.Pass{Cop: SilentLimitedRead, Program: program}
+		SilentLimitedRead.Check(pass)
+		require.Empty(b, pass.Offenses())
+	}
+}

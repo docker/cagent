@@ -51,6 +51,23 @@ func checkLimitedReadBody(p *cop.Pass, body *ast.BlockStmt) {
 	if body == nil {
 		return
 	}
+	found := false
+	ast.Inspect(body, func(n ast.Node) bool {
+		if found {
+			return false
+		}
+		if _, nested := n.(*ast.FuncLit); nested {
+			return false
+		}
+		if call, ok := n.(*ast.CallExpr); ok && len(call.Args) == 1 {
+			found = limitedReadCall(p, call, "io", "ReadAll")
+		}
+		return !found
+	})
+	if !found {
+		return
+	}
+
 	f := limitedReadFunction{
 		pass:     p,
 		bindings: make(map[types.Object]limitedReadBinding),
