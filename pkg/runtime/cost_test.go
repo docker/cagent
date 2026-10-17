@@ -152,6 +152,10 @@ func TestApplyModelCostServiceTier(t *testing.T) {
 		cfg                         latest.ModelConfig
 		short, long                 float64
 	}{
+		{name: "GPT-4o fast", provider: "openai", model: "gpt-4o", tier: "fast", short: 0.34, long: 2.2525},
+		{name: "dated GPT-4o priority", provider: "openai", model: "gpt-4o-2024-08-06", tier: "priority", short: 0.34, long: 2.2525},
+		{name: "GPT-5.5 fast", provider: "openai", model: "gpt-5.5", tier: "fast", short: 1.025, long: 13.1125},
+		{name: "GPT-5.5 downgrade", provider: "openai", model: "gpt-5.5", tier: "default", cfg: latest.ModelConfig{ProviderOpts: map[string]any{"service_tier": "fast"}}, short: 0.41, long: 5.245},
 		{name: "Luna fast", provider: "openai", model: "gpt-5.6-luna", tier: "fast", short: 0.0478, long: 0.4496},
 		{name: "Luna priority alias", provider: "openai", model: "gpt-5.6-luna", tier: "priority", short: 0.0478, long: 0.4496},
 		{name: "Astra fast", provider: "openai", model: "gpt-6-astra", tier: "fast", short: 2.29, long: 22.33},
@@ -160,7 +164,12 @@ func TestApplyModelCostServiceTier(t *testing.T) {
 		{name: "actual fast without requested tier", provider: "openai", model: "gpt-6-astra", tier: "fast", short: 2.29, long: 22.33},
 		{name: "missing actual tier", provider: "openai", model: "gpt-6-astra", cfg: latest.ModelConfig{ProviderOpts: map[string]any{"service_tier": "ultrafast"}}, short: 1.145, long: 11.165},
 		{name: "unknown tier", provider: "openai", model: "gpt-6-astra", tier: "future-tier", short: 1.145, long: 11.165},
-		{name: "unsupported Luna ultrafast", provider: "openai", model: "gpt-5.6-luna", tier: "ultrafast", short: 0.0239, long: 0.2248},
+		{name: "Luna reported ultrafast", provider: "openai", model: "gpt-5.6-luna", tier: "ultrafast", short: 0.1434, long: 1.3488},
+		{name: "Sol 6.1 fast", provider: "openai", model: "gpt-6.1-sol", tier: "fast", short: 0.454, long: 4.458},
+		{name: "Sol 6.1 ultrafast", provider: "openai", model: "gpt-6.1-sol", tier: "ultrafast", short: 1.362, long: 13.374},
+		{name: "Sol 6.1 downgraded to fast", provider: "openai", model: "gpt-6.1-sol", tier: "fast", cfg: latest.ModelConfig{ProviderOpts: map[string]any{"service_tier": "ultrafast"}}, short: 0.454, long: 4.458},
+		{name: "Sol 6.1 downgraded to default", provider: "openai", model: "gpt-6.1-sol", tier: "default", cfg: latest.ModelConfig{ProviderOpts: map[string]any{"service_tier": "ultrafast"}}, short: 0.227, long: 2.229},
+		{name: "Sol 6.1 missing actual tier", provider: "openai", model: "gpt-6.1-sol", cfg: latest.ModelConfig{ProviderOpts: map[string]any{"service_tier": "ultrafast"}}, short: 0.227, long: 2.229},
 		{name: "gateway fast already priced", provider: "vercel", model: "openai/gpt-6-astra-fast", tier: "fast", short: 2.29, long: 22.33},
 		{name: "Azure unchanged", provider: "azure", model: "gpt-6-astra", tier: "fast", short: 1.145, long: 11.165},
 		{name: "custom OpenAI endpoint unchanged", provider: "openai", model: "gpt-6-astra", tier: "ultrafast", cfg: latest.ModelConfig{BaseURL: "https://example.com/v1"}, short: 1.145, long: 11.165},
@@ -233,7 +242,7 @@ func TestApplyModelCostEndpointEligibility(t *testing.T) {
 	}
 }
 
-func TestLunaAstraPublishedCostBoundary(t *testing.T) {
+func TestPublishedCostBoundary(t *testing.T) {
 	t.Parallel()
 
 	store := modelsdev.NewDatabaseStore(modelsdev.EmbeddedSnapshot())
@@ -249,6 +258,9 @@ func TestLunaAstraPublishedCostBoundary(t *testing.T) {
 		{"Astra fast", "openai", "gpt-6-astra", "fast", modelsdev.Rates{Input: 20, CacheRead: 2, CacheWrite: 25, Output: 100}, modelsdev.Rates{Input: 40, CacheRead: 4, CacheWrite: 50, Output: 150}},
 		{"Astra priority", "openai", "gpt-6-astra", "priority", modelsdev.Rates{Input: 20, CacheRead: 2, CacheWrite: 25, Output: 100}, modelsdev.Rates{Input: 40, CacheRead: 4, CacheWrite: 50, Output: 150}},
 		{"Astra ultrafast", "openai", "gpt-6-astra", "ultrafast", modelsdev.Rates{Input: 60, CacheRead: 6, CacheWrite: 75, Output: 300}, modelsdev.Rates{Input: 120, CacheRead: 12, CacheWrite: 150, Output: 450}},
+		{"Sol 6.1 standard", "openai", "gpt-6.1-sol", "default", modelsdev.Rates{Input: 2, CacheRead: 0.1, CacheWrite: 2.5, Output: 10}, modelsdev.Rates{Input: 4, CacheRead: 0.2, CacheWrite: 5, Output: 15}},
+		{"Sol 6.1 fast", "openai", "gpt-6.1-sol", "fast", modelsdev.Rates{Input: 4, CacheRead: 0.2, CacheWrite: 5, Output: 20}, modelsdev.Rates{Input: 8, CacheRead: 0.4, CacheWrite: 10, Output: 30}},
+		{"Sol 6.1 ultrafast", "openai", "gpt-6.1-sol", "ultrafast", modelsdev.Rates{Input: 12, CacheRead: 0.6, CacheWrite: 15, Output: 60}, modelsdev.Rates{Input: 24, CacheRead: 1.2, CacheWrite: 30, Output: 90}},
 		{"gateway Astra", "vercel", "openai/gpt-6-astra", "default", modelsdev.Rates{Input: 10, CacheRead: 1, CacheWrite: 12.5, Output: 50}, modelsdev.Rates{Input: 20, CacheRead: 2, CacheWrite: 25, Output: 75}},
 		{"gateway Astra fast", "vercel", "openai/gpt-6-astra-fast", "fast", modelsdev.Rates{Input: 20, CacheRead: 2, CacheWrite: 25, Output: 100}, modelsdev.Rates{Input: 40, CacheRead: 4, CacheWrite: 50, Output: 150}},
 	} {
