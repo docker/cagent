@@ -33,7 +33,7 @@ func TestCloudCancellationCleansOwnedSandbox(t *testing.T) {
 	require.NoError(t, err)
 	fakeDir := t.TempDir()
 	script := fmt.Sprintf("#!/bin/sh\nexec %q -test.run=^TestCloudCancellationHelper$ -- \"$@\"\n", executable)
-	require.NoError(t, os.WriteFile(filepath.Join(fakeDir, "sbx"), []byte(script), 0o700))
+	writeMockCLI(t, filepath.Join(fakeDir, "sbx"), script)
 	t.Setenv("PATH", fakeDir)
 	t.Setenv("SANDBOX_CANCEL_HELPER", "1")
 	for _, phase := range []string{"create-with-id", "create-without-id", "exec"} {

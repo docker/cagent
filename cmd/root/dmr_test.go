@@ -87,7 +87,7 @@ func TestDMRDockerConnection(t *testing.T) {
 	require.NoError(t, err)
 	t.Setenv("DMR_DOCKER_HELPER", "1")
 	script := "#!/bin/sh\nexec \"" + testBinary + "\" -test.run=^TestDMRDockerHelper$ -- \"$@\"\n"
-	require.NoError(t, os.WriteFile(filepath.Join(shimDir, "docker"), []byte(script), 0o755))
+	writeMockCLI(t, filepath.Join(shimDir, "docker"), script)
 	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	relativeConfig, err := filepath.Rel(wd, configDir)
@@ -224,7 +224,7 @@ func TestDMRDockerConnectionErrorNamesEngine(t *testing.T) {
 		t.Skip("uses a shell Docker shim")
 	}
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "docker"), []byte("#!/bin/sh\necho 'missing engine' >&2\nexit 1\n"), 0o755))
+	writeMockCLI(t, filepath.Join(dir, "docker"), "#!/bin/sh\necho 'missing engine' >&2\nexit 1\n")
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	opts := cliflags.NewClientOptions()
 	flags := pflag.NewFlagSet("docker", pflag.ContinueOnError)
@@ -245,7 +245,7 @@ func TestDMRSelectedDockerStatusFailureDoesNotFallBack(t *testing.T) {
 		t.Skip("uses a shell Docker shim")
 	}
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "docker"), []byte("#!/bin/sh\necho 'selected engine unavailable' >&2\nexit 1\n"), 0o755))
+	writeMockCLI(t, filepath.Join(dir, "docker"), "#!/bin/sh\necho 'selected engine unavailable' >&2\nexit 1\n")
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("MODEL_RUNNER_HOST", "")
 	opts := cliflags.NewClientOptions()
@@ -308,7 +308,7 @@ func TestDMRDockerTunnelCancellation(t *testing.T) {
 	t.Setenv("MODEL_RUNNER_HOST", "")
 	dir := t.TempDir()
 	// Read forever without answering HTTP, as a stuck engine/TLS handshake would.
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "docker"), []byte("#!/bin/sh\nwhile read line; do :; done\n"), 0o755))
+	writeMockCLI(t, filepath.Join(dir, "docker"), "#!/bin/sh\nwhile read line; do :; done\n")
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	ctx, err := withDMRDockerConnection(t.Context(), nil, nil)
 	require.NoError(t, err)
