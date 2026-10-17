@@ -26,6 +26,9 @@ func TestBoundedCommandPipeLifetime(t *testing.T) {
 		want       int
 	}{
 		{"literal shell", setup + `_, _ = io.ReadAll(stdout); _ = cmd.Wait()`, 1},
+		{"parenthesized pipe", `cmd := ex.CommandContext(ctx, "sh", "-c", script); stdout, _ := (cmd.StdoutPipe)(); _ = cmd.Start(); _, _ = io.ReadAll(stdout); _ = cmd.Wait()`, 1},
+		{"nested block pipe", `{ ` + setup + `_, _ = io.ReadAll(stdout); _ = cmd.Wait() }`, 1},
+		{"no command pipe", `_, _ = io.ReadAll(io.LimitReader(nil, 0))`, 0},
 		{"copy", setup + `_, _ = io.Copy(io.Discard, stdout); _ = cmd.Wait()`, 1},
 		{"limited reader", setup + `_, _ = io.ReadAll(io.LimitReader(stdout, 1024)); _ = cmd.Wait()`, 1},
 		{"zero limited reader cannot block", setup + `_, _ = io.ReadAll(io.LimitReader(stdout, 0)); _ = cmd.Wait()`, 0},

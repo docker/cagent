@@ -102,17 +102,54 @@ Key conventions:
 - Use functional options pattern for constructors
 - In tests: use `t.Context()`, `t.TempDir()`, `t.Setenv()`, and `t.Parallel()`
 
+## Profiling the lint runner
+
+Benchmark the full command with a warm Go build cache:
+
+```bash
+hyperfine --warmup 1 --runs 5 'go run ./lint .'
+```
+
+For CPU and allocation profiles of the in-process runner:
+
+```bash
+mkdir -p .cache/lint-profile
+go test ./lint -run '^$' -bench '^BenchmarkLintRepository$' -benchtime=1x \
+  -cpuprofile="$PWD/.cache/lint-profile/cpu.pprof" \
+  -memprofile="$PWD/.cache/lint-profile/mem.pprof" \
+  -o "$PWD/.cache/lint-profile/lint.test"
+go tool pprof -top .cache/lint-profile/cpu.pprof
+go tool pprof -alloc_space -top .cache/lint-profile/mem.pprof
+```
+
+`BenchmarkChannelDirection` isolates channel analysis on already-loaded packages.
+Go benchmark timings exclude compilation and may benefit from in-process caches;
+use the full command to confirm end-to-end improvements. Allocation totals are
+cumulative, not peak memory, and profiles do not include `go/packages` subprocesses.
+
 ## Lint rules
 
 `task lint` runs the shared and project-specific cops selected in `lint/main.go`.
-Reusable checks come from [rubocop-go](https://github.com/dgageot/rubocop-go/blob/202b67b66167808e75285d0666f880a2bd4b1144/docs/shared-cops.md)
+Reusable checks come from [rubocop-go](https://github.com/dgageot/rubocop-go/blob/0bcefab0242e991adbd535e1acc9c6c680d68d5d/docs/shared-cops.md)
 (pinned in `go.mod`); project-specific checks and frozen-config exclusions stay
 in `lint/`. Cop IDs and `//rubocop:disable` annotations are unchanged. Add shared checks by their
-constructors, not by enabling the entire upstream catalog. 34 of the 36 shared
+constructors, not by enabling the entire upstream catalog. 40 of the 42 shared
 opt-in cops are currently selected. `Lint/ContextFirstParameter` and
 `Lint/NoContextField` remain disabled: existing public constructor signatures and
 intentionally owned lifecycle or telemetry contexts would require suppressions or
 unrelated refactoring.
+
+Execution adapters and candidate prefilters also come from rubocop-go.
+`runner.WithDirectoryTypes` retains inactive and partially typed constructor
+checks; `prog.FromFileWithTests` shares the test-package cache for slice checks.
+The runner opts into `WithSharedProgramLoad` to share production/test type-checking.
+Program cops must keep source files, package data, and the build environment
+unchanged during analysis; file-cop coverage still includes inactive files.
+
+`CancellationLoop`, `ClosedChannelLoop`, `ChannelStateCheck`,
+`CancellationSafeResultSend`, `NonblockingChannelReplacement`, and `SlicesConcat`
+use the upstream implementations and synthetic tests. Their frozen-config
+exclusions, registration tests, and application regressions remain here.
 
 `Lint/ChannelDirection` suggests directional raw-channel parameters and results.
 It follows requirements through locals, fields, direct calls, returns, and closure

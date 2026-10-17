@@ -1267,10 +1267,10 @@ func (t *oauthTransport) handleManagedOAuthFlow(ctx context.Context, authServer,
 		return fmt.Errorf("failed to fetch authorization server metadata: %w", err)
 	}
 
-	slog.DebugContext(ctx, "Creating OAuth callback server")
-	callbackServer, err := NewCallbackServerOnPort(ctx, callbackPortFrom(t.oauthConfig))
+	slog.DebugContext(ctx, "Starting OAuth callback server")
+	callbackServer, err := startCallbackServer(ctx, callbackPortFrom(t.oauthConfig))
 	if err != nil {
-		return fmt.Errorf("failed to create callback server: %w", err)
+		return err
 	}
 	defer func() {
 		// Detach from ctx's cancellation (the request may be done) but
@@ -1281,10 +1281,6 @@ func (t *oauthTransport) handleManagedOAuthFlow(ctx context.Context, authServer,
 			slog.ErrorContext(ctx, "Failed to shutdown callback server", "error", err)
 		}
 	}()
-
-	if err := callbackServer.Start(); err != nil {
-		return fmt.Errorf("failed to start callback server: %w", err)
-	}
 
 	redirectURI := callbackServer.ResolveRedirectURI(callbackRedirectURLFrom(t.oauthConfig))
 	slog.DebugContext(ctx, "Using redirect URI", "uri", redirectURI)

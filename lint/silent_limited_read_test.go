@@ -24,6 +24,9 @@ func TestSilentLimitedRead(t *testing.T) {
 		want       int
 	}{
 		{"cache file", read + write, 1},
+		{"parenthesized read call", `body, _ := (stream.ReadAll)(stream.LimitReader(resp.Body, limit)); ` + write, 1},
+		{"no read call", `return disk.WriteFile("cache", otherData, 0600)`, 0},
+		{"nested closure read only", `_ = func() error { ` + read + write + ` }; return nil`, 1},
 		{"write in if initializer", read + `if err := disk.WriteFile("cache", body, 0600); err != nil { return err }; return nil`, 1},
 		{"parenthesized", `body, _ := stream.ReadAll((stream.LimitReader(resp.Body, 1<<20))); return disk.WriteFile("cache", (body), 0600)`, 1},
 		{"var declaration", `var body, err = stream.ReadAll(stream.LimitReader(resp.Body, 1<<20)); if err != nil { return err }; ` + write, 1},

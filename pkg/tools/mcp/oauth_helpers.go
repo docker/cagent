@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -27,15 +28,23 @@ type AuthorizationServerMetadata = oauthflow.AuthorizationServerMetadata
 // CallbackServer is an alias for [oauthflow.CallbackServer].
 type CallbackServer = oauthflow.CallbackServer
 
-// NewCallbackServer creates a new OAuth callback server on a random available port
-func NewCallbackServer(ctx context.Context) (*CallbackServer, error) {
-	return oauthflow.NewCallbackServer(ctx)
+// NewCallbackServer creates an unstarted OAuth callback server using a random available port.
+func NewCallbackServer() *CallbackServer {
+	return oauthflow.NewCallbackServer()
 }
 
-// NewCallbackServerOnPort creates a new OAuth callback server on a specific port.
-// Use port 0 to let the OS pick a random available port.
-func NewCallbackServerOnPort(ctx context.Context, port int) (*CallbackServer, error) {
-	return oauthflow.NewCallbackServerOnPort(ctx, port)
+// NewCallbackServerOnPort creates an unstarted OAuth callback server for a specific port.
+// Use port 0 to let the OS pick an available port when Start is called.
+func NewCallbackServerOnPort(port int) *CallbackServer {
+	return oauthflow.NewCallbackServerOnPort(port)
+}
+
+func startCallbackServer(ctx context.Context, port int) (*CallbackServer, error) {
+	server := NewCallbackServerOnPort(port)
+	if err := server.Start(ctx); err != nil {
+		return nil, fmt.Errorf("failed to start callback server: %w", err)
+	}
+	return server, nil
 }
 
 // GenerateState generates a random state parameter for OAuth CSRF protection
