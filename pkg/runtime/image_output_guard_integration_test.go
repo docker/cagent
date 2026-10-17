@@ -17,6 +17,7 @@ import (
 	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/team"
+	"github.com/docker/docker-agent/pkg/testutil/geminiintegration"
 	"github.com/docker/docker-agent/pkg/tools"
 )
 
@@ -37,6 +38,7 @@ import (
 // pkg/tui/page/chat, which cannot import [team] (see
 // e2e/dependencies_test.go's "TUI musn't know about teams").
 func TestRunStream_ImageOutputGuard_RejectsBeforeDispatch(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
 	var providerCalls atomic.Int64

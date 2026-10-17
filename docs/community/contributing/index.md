@@ -416,3 +416,61 @@ We want to keep the Docker Agent community welcoming, inclusive, and collaborati
 - **Stay on topic** — Post to the correct channel and avoid off-topic discussions.
 
 The governance for this repository is handled by Docker Inc.
+
+## Reviewer-only Gemini integration fixtures
+
+Gemini HTTP/SSE fixtures, recorded CLI flows, and real SDK/session composition
+checks are **off by default**, including fixtures that use only loopback or an
+in-memory transport. Isolated adapter, configuration, policy, and metadata units
+remain enabled, as do non-Gemini subtests.
+
+Only reviewers on their own non-CI workstation may enable these fixtures with
+`DOCKER_AGENT_RUN_GEMINI_INTEGRATION_TESTS=1` (exactly `1`). Any nonempty
+`GITHUB_ACTIONS` value, even `false`, disables them regardless of opt-in. Do not
+unset that variable to bypass the guard in GitHub Actions. No workflow or test
+selection changes are needed: the guard applies to PRs (including drafts), main
+and tag pushes, merge groups, manual dispatches, and the WASM test lane.
+
+Before opting in, **deny external network egress while allowing loopback**, keep
+all checked-in cassettes, and do not supply live API credentials. The E2E proxy
+uses `ModeRecordOnce`: a missing cassette can attempt a real upstream request.
+The OpenCode fixture also relies on a transport redirect to stay local. Opt-in
+permits existing offline fixtures only, not cassette recording or paid calls.
+
+The following commands are for reviewer execution only, not for implementers or
+project CI. Run them from the repository root after checking out the PR head:
+
+```bash
+# Confirm GITHUB_ACTIONS is empty on your own workstation; never bypass it in CI.
+printf 'GITHUB_ACTIONS=%s\n' "$GITHUB_ACTIONS"
+export DOCKER_AGENT_RUN_GEMINI_INTEGRATION_TESTS=1
+
+go test -count=1 ./pkg/model/provider/gemini
+go test -count=1 ./pkg/model/provider -run '^TestGatewayProviderRequests$/^google$'
+go test -count=1 ./pkg/runtime -run '^TestRunStream_ImageOutputGuard_RejectsBeforeDispatch$'
+go test -count=1 ./pkg/tui/page/chat -run '^TestImageOutputGuard_RuntimeToTUI_RejectsBeforeDispatchAndClearsSpinner$'
+go test -count=1 ./e2e -run '^TestExec_Gemini($|_)'
+go test -count=1 ./e2e -run '^TestDebug_Title$/^Google_'
+
+# Requires Node for the Go WASM test runner.
+GOOS=js GOARCH=wasm go test -count=1 -tags docker_agent_wasm_cloud \
+  -exec="$(go env GOROOT)/lib/wasm/go_js_wasm_exec" ./cmd/wasm \
+  -run '^TestCloud(SessionsUseSessionEnvOnly|TokensReachRequests)$/.*gemini'
+GOOS=js GOARCH=wasm go test -count=1 \
+  -exec="$(go env GOROOT)/lib/wasm/go_js_wasm_exec" ./cmd/wasm \
+  -run '^TestGoogleFactory(RejectsVertexWithoutCloudTag|KeepsGeminiAPIWithoutCloudTag)$'
+```
+
+Expected: selected fixtures run rather than skip and their existing assertions
+pass. They cover streaming keepalives/tool replay, request wire shape, auth and
+transport wrapping, embeddings, image-output guards, runtime/TUI error propagation,
+CLI tools/title/sampling, and WASM session/token flows. These are existing
+regressions, not live-backend entitlement or new model acceptance tests. Record
+head SHA, OS/Go/Node versions, command, pass/fail/skip and sanitized evidence.
+A skip is not a pass, and pure unit success is not integration evidence.
+
+For the preparation change, no Gemini integration fixture was executed by the
+implementer, even to verify the skip path. Validation is limited to pure gate
+units, source placement review, compile-only checks, static analysis and builds.
+Future fixture additions must be guarded before server, proxy, transport, SDK
+flow or browser-session setup, with pure cases and non-Gemini rows kept separate.

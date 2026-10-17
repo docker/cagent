@@ -15,10 +15,12 @@ import (
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/model/provider/options"
+	"github.com/docker/docker-agent/pkg/testutil/geminiintegration"
 	"github.com/docker/docker-agent/pkg/tools"
 )
 
 func TestURLContext(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 	for _, surface := range []string{apiSurfaceGeminiAPI, apiSurfaceGateway, apiSurfaceVertexAI} {
 		for _, tc := range []struct {

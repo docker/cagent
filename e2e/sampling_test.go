@@ -15,6 +15,8 @@ import (
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
+
+	"github.com/docker/docker-agent/pkg/testutil/geminiintegration"
 )
 
 // TestExec_Gemini_SamplingWithTools exercises the MCP sampling-with-tools
@@ -25,6 +27,7 @@ import (
 // host LLM, "executes" the calculator, sends a follow-up sampling request
 // carrying the tool_result, and returns the final text.
 func TestExec_Gemini_SamplingWithTools(t *testing.T) {
+	geminiintegration.Require(t)
 	mcpURL := startSamplingToolsServer(t)
 	yamlPath := writeSamplingToolsAgent(t, mcpURL)
 

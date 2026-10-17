@@ -15,6 +15,7 @@ import (
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/model/provider/options"
+	"github.com/docker/docker-agent/pkg/testutil/geminiintegration"
 )
 
 // writeGeminiSSEResponseWithKeepalives replays what the Docker AI Gateway
@@ -57,6 +58,7 @@ func collectStream(t *testing.T, stream chat.MessageStream) (string, error) {
 // Without the gateway-scoped filter, genai's SSE parser fails the whole
 // stream with "invalid stream chunk: event: keepalive".
 func TestCreateChatCompletionStream_GatewaySurvivesKeepaliveFrames(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -87,6 +89,7 @@ func TestCreateChatCompletionStream_GatewaySurvivesKeepaliveFrames(t *testing.T)
 // Direct Gemini never emits these frames — this test only guards against
 // the filter accidentally widening beyond the gateway client.
 func TestCreateChatCompletionStream_DirectPathKeepaliveUnfiltered(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

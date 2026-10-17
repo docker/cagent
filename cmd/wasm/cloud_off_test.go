@@ -10,6 +10,7 @@ import (
 
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
+	"github.com/docker/docker-agent/pkg/testutil/geminiintegration"
 )
 
 // Without the docker_agent_wasm_cloud tag the demo links no cloud SDK.
@@ -55,12 +56,16 @@ func TestGoogleFactoryRejectsVertexWithoutCloudTag(t *testing.T) {
 		})
 	}
 
-	yaml := "models:\n  primary:\n    provider: google\n    model: gemini-2.5-flash\n    provider_opts:\n      project: my-project\n      location: us-central1\nagents:\n  root:\n    model: primary\n"
-	_, err := browserHost.openSession(t.Context(), sessionOptions{YAML: yaml})
-	require.ErrorContains(t, err, "-tags docker_agent_wasm_cloud", "rejected when the session is created")
+	t.Run("session", func(t *testing.T) {
+		geminiintegration.Require(t)
+		yaml := "models:\n  primary:\n    provider: google\n    model: gemini-2.5-flash\n    provider_opts:\n      project: my-project\n      location: us-central1\nagents:\n  root:\n    model: primary\n"
+		_, err := browserHost.openSession(t.Context(), sessionOptions{YAML: yaml})
+		require.ErrorContains(t, err, "-tags docker_agent_wasm_cloud", "rejected when the session is created")
+	})
 }
 
 func TestGoogleFactoryKeepsGeminiAPIWithoutCloudTag(t *testing.T) {
+	geminiintegration.Require(t)
 	const yaml = "models:\n  primary:\n    provider: google\n    model: gemini-2.5-flash\nagents:\n  root:\n    model: primary\n"
 	s, err := browserHost.openSession(t.Context(), sessionOptions{YAML: yaml, Env: map[string]string{"GOOGLE_API_KEY": "key"}})
 	require.NoError(t, err)

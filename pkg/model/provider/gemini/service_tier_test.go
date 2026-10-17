@@ -16,6 +16,7 @@ import (
 	"github.com/docker/docker-agent/pkg/model/provider/base"
 	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/rag/types"
+	"github.com/docker/docker-agent/pkg/testutil/geminiintegration"
 )
 
 func TestBuildConfig_ServiceTier(t *testing.T) {
@@ -113,6 +114,7 @@ var geminiSurfaces = []geminiSurface{
 }
 
 func TestCreateChatCompletionStream_ServiceTierOnWire(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
 	tiers := []struct {
@@ -150,6 +152,7 @@ func TestCreateChatCompletionStream_ServiceTierOnWire(t *testing.T) {
 }
 
 func TestRerank_ServiceTierOnWire(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 
 	for _, surface := range geminiSurfaces {

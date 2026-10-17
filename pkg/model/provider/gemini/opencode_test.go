@@ -19,10 +19,12 @@ import (
 	"github.com/docker/docker-agent/pkg/httpclient"
 	"github.com/docker/docker-agent/pkg/model/provider/base"
 	"github.com/docker/docker-agent/pkg/model/provider/options"
+	"github.com/docker/docker-agent/pkg/testutil/geminiintegration"
 )
 
 func startOpenCodeCapture(t *testing.T) (*httptest.Server, func() []string) {
 	t.Helper()
+	geminiintegration.Require(t)
 	var mu sync.Mutex
 	var seen []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -90,6 +92,7 @@ func streamOnce(t *testing.T, ctx context.Context, client *Client) {
 }
 
 func TestOpenCodeSessionHeaderOnCustomProvider(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 	server, seen := startOpenCodeCapture(t)
 	redirect, wrapperSaw := redirectTo(t, server.URL)
@@ -119,6 +122,7 @@ func TestOpenCodeSessionHeaderOnCustomProvider(t *testing.T) {
 }
 
 func TestOpenCodeSessionHeaderNotSentToGemini(t *testing.T) {
+	geminiintegration.Require(t)
 	t.Parallel()
 	server, seen := startOpenCodeCapture(t)
 	cfg := &latest.ModelConfig{
