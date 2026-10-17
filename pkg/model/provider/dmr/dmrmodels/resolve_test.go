@@ -79,8 +79,8 @@ func TestDMRConnectivity(t *testing.T) {
 	t.Run("unreachable endpoint", func(t *testing.T) {
 		t.Parallel()
 
-		// Use a port that's unlikely to have anything listening
-		result := testDMRConnectivity(t.Context(), &http.Client{}, "http://127.0.0.1:59999/")
+		client := failingDialClient(t, errors.New("model endpoint unreachable"))
+		result := testDMRConnectivity(t.Context(), client, "http://model-runner.invalid/")
 		assert.False(t, result)
 	})
 }
