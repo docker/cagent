@@ -97,6 +97,8 @@ type Settings struct {
 	Safety latest.SafetyMode `yaml:"safety,omitempty"`
 	// Lean makes the simplified TUI with minimal chrome the default UI.
 	Lean bool `yaml:"lean,omitempty"`
+	// LeanFullFilePreview shows entire written files instead of the last ten lines.
+	LeanFullFilePreview bool `yaml:"lean_full_file_preview,omitempty"`
 	// TabTitleMaxLength is the maximum display length for tab titles in the TUI.
 	// Titles longer than this are truncated with an ellipsis. Defaults to 20.
 	TabTitleMaxLength int `yaml:"tab_title_max_length,omitempty"`

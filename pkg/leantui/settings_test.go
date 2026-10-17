@@ -230,3 +230,33 @@ func TestSettingsImageToggleNeverReadsLiveInput(t *testing.T) {
 		assert.True(t, m.settings.values[settingRenderImages], "the panel must show the persisted preference")
 	}
 }
+
+func TestSettingsWrittenFilePreview(t *testing.T) {
+	setupLeanSettingsTest(t)
+	m := bareModel(80)
+	m.openSettings()
+	assert.Equal(t, "Last 10 lines", m.screen.Settings.Rows[settingFullFilePreview].Value)
+	m.screen.Settings.Selected = settingFullFilePreview
+	m.handleSettingsKey(ui.Key{Typ: ui.KeyRight})
+	assert.Equal(t, "Full", m.screen.Settings.Rows[settingFullFilePreview].Value)
+	m.handleSettingsKey(ui.Key{Typ: ui.KeyEnter})
+	assert.True(t, userconfig.Get().LeanFullFilePreview)
+	m.openSettings()
+	assert.True(t, m.settings.values[settingFullFilePreview])
+}
+
+func TestCtrlOTogglesFilePreview(t *testing.T) {
+	setupLeanSettingsTest(t)
+	m := bareModel(80)
+	m.screen.Editor.SetText("keep my input")
+	assert.False(t, m.screen.Transcript.FullFilePreview())
+	m.handleKey(t.Context(), ui.Key{Typ: ui.KeyCtrlO})
+	assert.True(t, m.screen.Transcript.FullFilePreview())
+	assert.Equal(t, "keep my input", m.screen.Editor.Text())
+	assert.False(t, userconfig.Get().LeanFullFilePreview, "shortcut only changes the current session")
+	m.openSettings()
+	assert.Equal(t, "Full", m.screen.Settings.Rows[settingFullFilePreview].Value)
+	m.closeSettings()
+	m.handleKey(t.Context(), ui.Key{Typ: ui.KeyCtrlO})
+	assert.False(t, m.screen.Transcript.FullFilePreview())
+}

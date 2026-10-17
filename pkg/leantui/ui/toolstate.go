@@ -88,7 +88,11 @@ func (t *ToolTracker) Upsert(agentName string, toolCall tools.ToolCall, toolDef 
 		msg.Sender = agentName
 	}
 	if toolDef.Name != "" || toolCall.Function.Name != "" {
-		msg.ToolDefinition = EnsureToolDefinition(toolCall, toolDef)
+		definition := EnsureToolDefinition(toolCall, toolDef)
+		if definition.Annotations.Title == "" && definition.Name == msg.ToolDefinition.Name {
+			definition.Annotations.Title = msg.ToolDefinition.Annotations.Title
+		}
+		msg.ToolDefinition = definition
 	}
 	msg.ToolStatus = status
 	if status == tuitypes.ToolStatusRunning && msg.StartedAt == nil {
@@ -130,13 +134,17 @@ func (t *ToolTracker) Finish(id string, result ToolResult) *ToolView {
 		status = tuitypes.ToolStatusError
 	}
 	tv.message.ToolStatus = status
-	tv.message.ToolDefinition = EnsureToolDefinition(tv.message.ToolCall, result.ToolDefinition)
+	definition := EnsureToolDefinition(tv.message.ToolCall, result.ToolDefinition)
+	if definition.Annotations.Title == "" && definition.Name == tv.message.ToolDefinition.Name {
+		definition.Annotations.Title = tv.message.ToolDefinition.Annotations.Title
+	}
+	tv.message.ToolDefinition = definition
 	tv.message.Content = strings.ReplaceAll(result.Response, "\t", "    ")
 	tv.message.ToolResult = result.Result.WithoutPayload()
 	tv.images = result.Images
 
 	msg := *tv.message
-	snapshot := &ToolView{message: &msg, images: tv.images, renderers: tv.renderers}
+	snapshot := &ToolView{message: &msg, images: tv.images, renderers: tv.renderers, writeArgs: tv.writeArgs, fullFilePreview: tv.fullFilePreview}
 	t.Remove(id)
 	return snapshot
 }
@@ -184,7 +192,7 @@ func (t *ToolTracker) FinalizeAll(status tuitypes.ToolStatus) []*ToolView {
 			tv.message.Content = "Tool call ended before a result was received."
 		}
 		msg := *tv.message
-		views = append(views, &ToolView{message: &msg, images: tv.images, renderers: tv.renderers})
+		views = append(views, &ToolView{message: &msg, images: tv.images, renderers: tv.renderers, writeArgs: tv.writeArgs, fullFilePreview: tv.fullFilePreview})
 	})
 	t.Reset()
 	return views

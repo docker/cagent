@@ -66,9 +66,10 @@ func (b *block) lines(width int) []string {
 // blocks are immutable scrollback; the pending block and tool calls are the
 // live region that changes each frame until they finalize into blocks.
 type Transcript struct {
-	blocks  []*block
-	pending *pendingBlock
-	toolz   *ToolTracker
+	fullFilePreview bool
+	blocks          []*block
+	pending         *pendingBlock
+	toolz           *ToolTracker
 
 	liveToolRows [2]int
 }
@@ -211,14 +212,20 @@ func (t *Transcript) RemoveTool(id string) { t.toolz.Remove(id) }
 func (t *Transcript) FinishTool(id string, result ToolResult, sessionState service.SessionStateReader) {
 	t.toolz.Complete(id, result)
 	for _, view := range t.toolz.DrainCompleted() {
-		t.AddBlock(func(w int) []string { return RenderToolWithState(view, w, 0, sessionState) })
+		t.AddBlock(func(w int) []string {
+			view.fullFilePreview = t.fullFilePreview
+			return RenderToolWithState(view, w, 0, sessionState)
+		})
 	}
 }
 
 // FinalizeTools commits every in-flight tool with the given terminal status.
 func (t *Transcript) FinalizeTools(status tuitypes.ToolStatus, sessionState service.SessionStateReader) {
 	for _, view := range t.toolz.FinalizeAll(status) {
-		t.AddBlock(func(w int) []string { return RenderToolWithState(view, w, 0, sessionState) })
+		t.AddBlock(func(w int) []string {
+			view.fullFilePreview = t.fullFilePreview
+			return RenderToolWithState(view, w, 0, sessionState)
+		})
 	}
 }
 
@@ -237,6 +244,7 @@ func (t *Transcript) Lines(width, spinnerFrame int, _ bool, sessionState service
 	}
 	t.liveToolRows[0] = len(lines)
 	t.toolz.ForEach(func(tv *ToolView) {
+		tv.fullFilePreview = t.fullFilePreview
 		lines = append(lines, RenderToolWithState(tv, width, spinnerFrame, sessionState)...)
 		lines = append(lines, "")
 	})
@@ -286,4 +294,17 @@ func (t *Transcript) pendingLines(width int) []string {
 func spinnerLine(frame int) string {
 	f := spinnerFrames[frame%len(spinnerFrames)]
 	return StAccent().Render(f) + " " + StMuted().Render("Working…")
+}
+
+// SetFullFilePreview switches written-file previews between all lines and the last ten.
+func (t *Transcript) SetFullFilePreview(full bool) {
+	t.fullFilePreview = full
+	for _, b := range t.blocks {
+		b.cached = false
+	}
+}
+
+// FullFilePreview reports whether written-file previews show all lines.
+func (t *Transcript) FullFilePreview() bool {
+	return t.fullFilePreview
 }

@@ -29,6 +29,10 @@ import (
 )
 
 func (m *model) handleKey(ctx context.Context, k ui.Key) {
+	if k.Typ == ui.KeyCtrlO && m.screen.Settings == nil {
+		m.screen.Transcript.SetFullFilePreview(!m.screen.Transcript.FullFilePreview())
+		return
+	}
 	if m.screen.Confirm != nil {
 		if k.Typ == ui.KeyEsc || k.Typ == ui.KeyCtrlC {
 			m.handleInterrupt()
@@ -883,6 +887,7 @@ func (m *model) commitHelp() {
 			ui.StMuted().Render("  Option+Up  edit all pending messages"),
 			ui.StMuted().Render("  Esc        interrupt         Ctrl+C     cancel / quit"),
 			ui.StMuted().Render("  Ctrl+W     delete previous word"),
+			ui.StMuted().Render("  Ctrl+O     toggle compact / complete file previews"),
 		}
 	})
 }

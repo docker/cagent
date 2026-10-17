@@ -339,6 +339,8 @@ func newModel(term *ui.Terminal, cfg Config) *model {
 	renderImages := cfg.RenderImages == nil || *cfg.RenderImages
 
 	branch := gitbranch.Current(cfg.WorkingDir)
+	screen := ui.NewScreen(cfg.WorkingDir, branch, "", cfg.History)
+	screen.Transcript.SetFullFilePreview(userconfig.Get().LeanFullFilePreview)
 
 	return &model{
 		app:              cfg.App,
@@ -347,7 +349,7 @@ func newModel(term *ui.Terminal, cfg Config) *model {
 		r:                ui.NewRenderer(term.Writer(), w, h),
 		width:            w,
 		height:           h,
-		screen:           ui.NewScreen(cfg.WorkingDir, branch, "", cfg.History),
+		screen:           screen,
 		status:           ui.StatusModel{WorkingDir: cfg.WorkingDir, Branch: branch},
 		sessionState:     sessionState,
 		usage:            ui.NewUsageTracker(),
