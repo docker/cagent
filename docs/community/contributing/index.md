@@ -105,7 +105,7 @@ Key conventions:
 ## Lint rules
 
 `task lint` runs the shared and project-specific cops selected in `lint/main.go`.
-Reusable checks come from [rubocop-go](https://github.com/dgageot/rubocop-go/blob/f5ca63a6433aa9ed2ea9e251986b0d728965dbb9/docs/shared-cops.md)
+Reusable checks come from [rubocop-go](https://github.com/dgageot/rubocop-go/blob/0bcefab0242e991adbd535e1acc9c6c680d68d5d/docs/shared-cops.md)
 (pinned in `go.mod`); project-specific checks and frozen-config exclusions stay
 in `lint/`. Cop IDs and `//rubocop:disable` annotations are unchanged. Add shared checks by their
 constructors, not by enabling the entire upstream catalog. 40 of the 42 shared
@@ -113,6 +113,13 @@ opt-in cops are currently selected. `Lint/ContextFirstParameter` and
 `Lint/NoContextField` remain disabled: existing public constructor signatures and
 intentionally owned lifecycle or telemetry contexts would require suppressions or
 unrelated refactoring.
+
+Execution adapters and candidate prefilters also come from rubocop-go.
+`runner.WithDirectoryTypes` retains inactive and partially typed constructor
+checks; `prog.FromFileWithTests` shares the test-package cache for slice checks.
+The runner opts into `WithSharedProgramLoad` to share production/test type-checking.
+Program cops must keep source files, package data, and the build environment
+unchanged during analysis; file-cop coverage still includes inactive files.
 
 `CancellationLoop`, `ClosedChannelLoop`, `ChannelStateCheck`,
 `CancellationSafeResultSend`, `NonblockingChannelReplacement`, and `SlicesConcat`

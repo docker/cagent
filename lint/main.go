@@ -35,7 +35,7 @@ var cops = []cop.Cop{
 	rubocops.NewLintSlogContextual(),
 	ToolArgumentsViaAIJSON,
 	rubocops.NewLintConstructorPurity(),
-	withDirectoryTypes(sharedFileCop(rubocops.NewLintConstructorCommandExec)),
+	runner.WithDirectoryTypes(rubocops.NewLintConstructorCommandExecFile()),
 	rubocops.NewLintConstructorNetworkIO(),
 	rubocops.NewLintWrapErrors(),
 	rubocops.NewLintErrorStringMatching(cop.WithScope(outsideFrozenConfig)),
@@ -62,7 +62,7 @@ var programCops = []prog.Cop{
 	rubocops.NewLintSortedMapKeys(cop.WithScope(outsideFrozenConfig)),
 	rubocops.NewLintWaitGroupGo(cop.WithScope(outsideFrozenConfig)),
 	rubocops.NewLintHTTPTestRequestWithContext(cop.WithScope(outsideFrozenConfig)),
-	withTypedFiles(rubocops.NewLintSlicesClone, cop.WithScope(outsideFrozenConfig)),
+	prog.FromFileWithTests(rubocops.NewLintSlicesCloneFile(cop.WithScope(outsideFrozenConfig))),
 	rubocops.NewLintSortStableFunc(cop.WithScope(outsideFrozenConfig)),
 	rubocops.NewLintPointerHelper(cop.WithScope(outsideFrozenConfig)),
 	rubocops.NewLintReflectFields(cop.WithScope(outsideFrozenConfig)),
@@ -98,7 +98,8 @@ func main() {
 	}
 
 	r := runner.New(cops, config.DefaultConfig(), os.Stdout).
-		WithProgramCops(programCops)
+		WithProgramCops(programCops).
+		WithSharedProgramLoad()
 	offenseCount, err := r.Run(paths)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

@@ -23,20 +23,7 @@ var ChannelDirection = prog.New(cop.Meta{
 }, checkChannelDirection)
 
 func checkChannelDirection(p *prog.Pass) {
-	var dirs []string
-	for _, pkg := range p.Program.Packages {
-		if pkg.Dir != "" {
-			dirs = append(dirs, pkg.Dir)
-		}
-	}
-	if len(dirs) == 0 {
-		return
-	}
-	pkgs, err := packages.Load(&packages.Config{
-		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
-			packages.NeedImports | packages.NeedTypes | packages.NeedTypesInfo | packages.NeedSyntax,
-		Dir: dirs[0], Fset: p.Program.Fset, Tests: true,
-	}, dirs...)
+	pkgs, err := p.Program.PackagesWithTests()
 	if err != nil {
 		p.Reportf(token.NoPos, "cannot inspect channel directions: %v", err)
 		return
