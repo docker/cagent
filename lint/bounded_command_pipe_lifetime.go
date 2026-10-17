@@ -42,6 +42,19 @@ type boundedCommandPipe struct {
 }
 
 func checkCommandPipeBody(p *cop.Pass, body *ast.BlockStmt) {
+	found := false
+	ast.Inspect(body, func(n ast.Node) bool {
+		if found {
+			return false
+		}
+		if call, ok := n.(*ast.CallExpr); ok {
+			found = boundedPipeCall(p, call, "os/exec", "StdoutPipe") || boundedPipeCall(p, call, "os/exec", "StderrPipe")
+		}
+		return !found
+	})
+	if !found {
+		return
+	}
 	writes := make(map[types.Object]int)
 	uses := make(map[types.Object][]*ast.Ident)
 	parents := make(map[ast.Node]ast.Node)
