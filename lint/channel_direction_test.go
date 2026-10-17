@@ -199,3 +199,22 @@ func TestChannelDirectionInvalidTests(t *testing.T) {
 		"sample_test.go": "package p\nfunc broken() { close() }\nfunc bodyless(c chan int)",
 	}))
 }
+
+func TestChannelDirectionRepeatedInterfaceUses(t *testing.T) {
+	t.Parallel()
+	offenses := coptest.RunProgram(t, ChannelDirection, coptest.ProgramFiles{
+		"sample.go": `package p
+type Sender interface { Send(chan int) }
+type Receiver interface { Send(<-chan int) }
+type Worker struct{}
+func (Worker) Send(c chan int) { c <- 1 }
+func use(a, b Sender) { _ = a; _ = b; _ = []Sender{a,b} }
+func anonymous(a, b interface{ Send(chan int) }) { _ = a; _ = b }
+func narrow(c chan int) { c <- 1 }
+`,
+	})
+	assert.Len(t, offenses, 1)
+	if len(offenses) == 1 {
+		assert.Equal(t, 8, offenses[0].Pos.Line)
+	}
+}

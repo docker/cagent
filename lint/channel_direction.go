@@ -75,6 +75,16 @@ func analyzeChannelDirections(p *prog.Pass, pkgs []*packages.Package) {
 		objects: make(map[types.Object]*channelSlot), functions: make(map[string]*channelFunction),
 		direct: make(map[ast.Expr]bool), interfaces: make(map[string][]*types.Signature),
 	}
+	seenInterfaces := make(map[*types.Interface]bool)
+	collectInterface := func(iface *types.Interface) {
+		if seenInterfaces[iface] {
+			return
+		}
+		seenInterfaces[iface] = true
+		for method := range iface.Complete().Methods() {
+			a.interfaces[method.Name()] = append(a.interfaces[method.Name()], method.Type().(*types.Signature))
+		}
+	}
 	visited := make(map[*types.Package]bool)
 	var interfaces func(*types.Package)
 	interfaces = func(pkg *types.Package) {
@@ -85,10 +95,7 @@ func analyzeChannelDirections(p *prog.Pass, pkgs []*packages.Package) {
 		for _, name := range pkg.Scope().Names() {
 			if obj, ok := pkg.Scope().Lookup(name).(*types.TypeName); ok {
 				if iface, ok := obj.Type().Underlying().(*types.Interface); ok {
-					for method := range iface.Complete().Methods() {
-						sig := method.Type().(*types.Signature)
-						a.interfaces[method.Name()] = append(a.interfaces[method.Name()], sig)
-					}
+					collectInterface(iface)
 				}
 			}
 		}
@@ -109,9 +116,7 @@ func analyzeChannelDirections(p *prog.Pass, pkgs []*packages.Package) {
 				if expr, ok := n.(ast.Expr); ok {
 					if typ := a.info.TypeOf(expr); typ != nil {
 						if iface, ok := typ.Underlying().(*types.Interface); ok {
-							for method := range iface.Complete().Methods() {
-								a.interfaces[method.Name()] = append(a.interfaces[method.Name()], method.Type().(*types.Signature))
-							}
+							collectInterface(iface)
 						}
 					}
 				}
