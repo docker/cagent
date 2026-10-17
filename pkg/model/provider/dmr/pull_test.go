@@ -194,7 +194,7 @@ printf '%s\n' "$*" >> "$DMR_ARGS_FILE"
 [ "$3" = "inspect" ] && exit 1
 exit 0
 `
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "docker"), []byte(script), 0o755))
+	writeMockCLI(t, filepath.Join(dir, "docker"), script)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	ctx := dmrmodels.ContextWithDockerConnection(t.Context(), []string{"--context=desktop-test"}, nil)
 	require.NoError(t, PullTo(ctx, "ai/test", io.Discard, io.Discard))
@@ -209,7 +209,7 @@ func TestPullSelectedConnectionDoesNotRecoverLocalPartial(t *testing.T) {
 	}
 	dir := t.TempDir()
 	script := "#!/bin/sh\nprintf '%s\n' '" + testQwenBlobURL + ": 416 Requested Range Not Satisfiable' >&2\nexit 1\n"
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "docker"), []byte(script), 0o755))
+	writeMockCLI(t, filepath.Join(dir, "docker"), script)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	localConfig := t.TempDir()
 	t.Setenv("DOCKER_CONFIG", localConfig)
@@ -240,7 +240,7 @@ func TestAutomaticPullOutputCanBeRedirected(t *testing.T) {
 	}
 	dir := t.TempDir()
 	script := "#!/bin/sh\n[ \"$2\" = inspect ] && exit 1\nprintf 'download progress\\n'\nexit 0\n"
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "docker"), []byte(script), 0o755))
+	writeMockCLI(t, filepath.Join(dir, "docker"), script)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	r, w, err := os.Pipe()
 	require.NoError(t, err)
