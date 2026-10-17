@@ -600,10 +600,14 @@ var updateMu sync.Mutex
 // be acquired, Update returns an error without calling mutate or saving.
 // The mutate callback must not call Update.
 func Update(mutate func(*Config) error) error {
+	return update(mutate, acquireFileLock)
+}
+
+func update(mutate func(*Config) error, acquireLock func(string) (func(), error)) error {
 	updateMu.Lock()
 	defer updateMu.Unlock()
 
-	release, err := acquireFileLock(Path() + ".lock")
+	release, err := acquireLock(Path() + ".lock")
 	if err != nil {
 		return err
 	}

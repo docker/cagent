@@ -104,7 +104,7 @@ func TestRunInSandboxForwardsInheritedEvaluatorCredentials(t *testing.T) {
 			t.Setenv("EVALUATOR_TEST_EXEC_ARGS", argsFile)
 			t.Setenv("EVALUATOR_TEST_EXEC_ENV", envFile)
 			t.Setenv("PATH", fakeDir)
-			require.NoError(t, os.WriteFile(filepath.Join(fakeDir, "docker"), []byte(`#!/bin/sh
+			writeMockCLI(t, filepath.Join(fakeDir, "docker"), `#!/bin/sh
 set -eu
 case "$1 $2" in
   "sandbox version"|"sandbox policy"|"sandbox create") ;;
@@ -115,7 +115,7 @@ case "$1 $2" in
     ;;
   *) printf 'unexpected Docker invocation: %s\n' "$*" >&2; exit 99 ;;
 esac
-`), 0o700))
+`)
 
 			rc := &config.RuntimeConfig{Config: config.Config{WorkingDir: workspace}}
 			require.Nil(t, rc.GlobalHooks, "sandbox dispatch happens before runOrExec loads hooks")

@@ -26,6 +26,7 @@ import (
 	"github.com/docker/docker-agent/pkg/agent"
 	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/hooks"
+	"github.com/docker/docker-agent/pkg/modelsdev"
 	"github.com/docker/docker-agent/pkg/tools"
 	"github.com/docker/docker-agent/pkg/tools/builtin/filesystem"
 )
@@ -73,6 +74,9 @@ func runDebugToolConfigOutputs(t *testing.T, flags *debugFlags, cfg string, args
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "hello.txt"), []byte("hello from a tool"), 0o600))
 	flags.runConfig.WorkingDir = dir
 	flags.runConfig.EnvProviderOverride = environment.NewMapEnvProvider(map[string]string{"OPENAI_API_KEY": "test-key"})
+	if flags.runConfig.ModelsDevStoreOverride == nil {
+		flags.runConfig.ModelsDevStoreOverride = modelsdev.NewDatabaseStore(modelsdev.EmbeddedSnapshot())
+	}
 
 	var out, warnings bytes.Buffer
 	cmd := &cobra.Command{}
@@ -383,6 +387,8 @@ func TestDebugToolsetsCommand_IncludesDeferredTools(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte(debugToolConfig), 0o600))
 	flags := &debugFlags{toolsetsJSON: true}
 	flags.runConfig.EnvProviderOverride = environment.NewMapEnvProvider(map[string]string{"OPENAI_API_KEY": "test-key"})
+	flags.runConfig.ModelsDevStoreOverride = modelsdev.NewDatabaseStore(modelsdev.EmbeddedSnapshot())
+
 	var out bytes.Buffer
 	cmd := &cobra.Command{}
 	cmd.SetContext(t.Context())
@@ -1071,4 +1077,25 @@ func TestTransformDebugToolInput_RedactionPreservesNestedNumbers(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(updated), &args))
 	assert.Equal(t, int64(9007199254740993), args.Record.Value)
 	assert.Equal(t, portcullis.Marker, args.Record.Secret)
+}
+
+func TestDebugToolUsesEmbeddedCatalog(t *testing.T) {
+	t.Parallel()
+	flags := &debugFlags{}
+	_, err := runDebugTool(t, flags, "think")
+	require.NoError(t, err)
+	require.NotNil(t, flags.runConfig.ModelsDevStoreOverride)
+	db, err := flags.runConfig.ModelsDevStoreOverride.GetDatabase(t.Context())
+	require.NoError(t, err)
+	assert.Same(t, modelsdev.EmbeddedSnapshot(), db)
+}
+
+func TestDebugToolPreservesCatalogOverride(t *testing.T) {
+	t.Parallel()
+	store := modelsdev.NewDatabaseStore(&modelsdev.Database{})
+	flags := &debugFlags{}
+	flags.runConfig.ModelsDevStoreOverride = store
+	_, err := runDebugTool(t, flags, "think")
+	require.NoError(t, err)
+	assert.Same(t, store, flags.runConfig.ModelsDevStoreOverride)
 }

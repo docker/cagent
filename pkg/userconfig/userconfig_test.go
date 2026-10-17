@@ -9,7 +9,6 @@ import (
 	"sync"
 	"testing"
 	"testing/synctest"
-	"time"
 
 	"github.com/goccy/go-yaml"
 	"github.com/stretchr/testify/assert"
@@ -1425,36 +1424,29 @@ func TestUpdate_ConcurrentWritersDoNotLoseChanges(t *testing.T) {
 	assert.Len(t, cfg.Aliases, writers, "every concurrent update must be persisted")
 }
 
-func TestUpdate_SlowWriterDoesNotTimeOutOtherWriters(t *testing.T) {
+func TestUpdate_AcquiresMutexBeforeFileLock(t *testing.T) {
 	// Not parallel: SetConfigDir mutates process-global state.
 	paths.SetConfigDir(t.TempDir())
 	t.Cleanup(func() { paths.SetConfigDir("") })
 
-	started := make(chan struct{})
-	done := make(chan error, 1)
-	go func() {
-		done <- Update(func(cfg *Config) error {
-			close(started)
-			time.Sleep(lockTimeout + time.Second) //nolint:forbidigo // Mutex contention cannot use synctest's clock.
-			return cfg.SetAlias("slow", &Alias{Path: "./slow.yaml"})
-		})
-	}()
-	select {
-	case <-started:
-	case err := <-done:
-		t.Fatalf("slow update returned before mutation: %v", err)
-	}
-
-	err := Update(func(cfg *Config) error {
-		return cfg.SetAlias("fast", &Alias{Path: "./fast.yaml"})
+	acquired := false
+	err := update(func(cfg *Config) error {
+		return cfg.SetAlias("saved", &Alias{Path: "./agent.yaml"})
+	}, func(path string) (func(), error) {
+		// Queued writers must not start the file-lock timeout before owning updateMu.
+		if updateMu.TryLock() {
+			updateMu.Unlock()
+			return nil, errors.New("file lock attempted before acquiring updateMu")
+		}
+		acquired = true
+		return acquireFileLock(path)
 	})
-	slowErr := <-done
-	require.NoError(t, slowErr)
 	require.NoError(t, err)
-
+	require.True(t, acquired)
 	cfg, err := Load()
 	require.NoError(t, err)
-	assert.Len(t, cfg.Aliases, 2, "both updates must be persisted")
+	require.Contains(t, cfg.Aliases, "saved")
+	assert.Equal(t, "./agent.yaml", cfg.Aliases["saved"].Path)
 }
 
 func TestUpdate_LockErrorLeavesFileUntouched(t *testing.T) {

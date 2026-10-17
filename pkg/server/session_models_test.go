@@ -337,6 +337,7 @@ func TestAttachedServer_RunAgent_EmptyModelLeavesOverrideUntouched(t *testing.T)
 
 func TestAttachedServer_GetSessionModels_NotSupported(t *testing.T) {
 	t.Parallel()
+	client := newTestHTTPClient(t)
 
 	ctx := t.Context()
 	store := session.NewInMemorySessionStore()
@@ -350,7 +351,7 @@ func TestAttachedServer_GetSessionModels_NotSupported(t *testing.T) {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, addr+"/api/sessions/"+sess.ID+"/models", http.NoBody)
 	require.NoError(t, err)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
@@ -956,6 +957,7 @@ func TestSessionManager_SetSessionAgentModel_PreservesSafetyPolicy(t *testing.T)
 // reserved for client-side mistakes like an invalid request body.
 func TestAttachedServer_RunAgent_StoreFailureReturns500(t *testing.T) {
 	t.Parallel()
+	client := newTestHTTPClient(t)
 
 	ctx := t.Context()
 	store := &failingStore{Store: session.NewInMemorySessionStore()}
@@ -976,7 +978,7 @@ func TestAttachedServer_RunAgent_StoreFailureReturns500(t *testing.T) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, addr+"/api/sessions/"+sess.ID+"/agent/agent.yaml/root", body)
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
@@ -991,6 +993,7 @@ func TestAttachedServer_RunAgent_StoreFailureReturns500(t *testing.T) {
 // from an actual server-side problem.
 func TestAttachedServer_ModelEndpoints_404WhenNotRunning(t *testing.T) {
 	t.Parallel()
+	client := newTestHTTPClient(t)
 
 	ctx := t.Context()
 	store := session.NewInMemorySessionStore()
@@ -1005,7 +1008,7 @@ func TestAttachedServer_ModelEndpoints_404WhenNotRunning(t *testing.T) {
 	t.Run("GET", func(t *testing.T) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, addr+"/api/sessions/"+sess.ID+"/models", http.NoBody)
 		require.NoError(t, err)
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := client.Do(req)
 		require.NoError(t, err)
 		defer resp.Body.Close()
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode)

@@ -76,7 +76,7 @@ case "$2" in
   *) exit 99 ;;
 esac
 `, log)
-	require.NoError(t, os.WriteFile(filepath.Join(fakeDir, "sbx"), []byte(script), 0o700))
+	writeMockCLI(t, filepath.Join(fakeDir, "sbx"), script)
 	for _, tc := range []struct {
 		name               string
 		execExit, stopExit string
@@ -209,7 +209,7 @@ func TestCloudRejectsInvalidUserConfigBeforeProvisioning(t *testing.T) {
 `), 0o600))
 	fakeDir := t.TempDir()
 	calls := filepath.Join(fakeDir, "calls")
-	require.NoError(t, os.WriteFile(filepath.Join(fakeDir, "sbx"), fmt.Appendf(nil, "#!/bin/sh\nprintf '%%s\\n' \"$*\" >> %q\n", calls), 0o700))
+	writeMockCLI(t, filepath.Join(fakeDir, "sbx"), fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$*\" >> %q\n", calls))
 	t.Setenv("PATH", fakeDir)
 	t.Setenv("SANDBOX_VM_ID", "")
 	cmd := newRunCmd()
@@ -326,7 +326,7 @@ case "$1 $2" in
   *) exit 99 ;;
 esac
 `, calls, newConfig, configPath)
-	require.NoError(t, os.WriteFile(filepath.Join(fakeDir, "docker"), []byte(script), 0o700))
+	writeMockCLI(t, filepath.Join(fakeDir, "docker"), script)
 	t.Setenv("PATH", fakeDir)
 	cmd := newRunCmd()
 	cmd.SetOut(io.Discard)

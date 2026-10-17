@@ -527,7 +527,7 @@ func TestOAuthTransport_DoesNotForwardBearerAcrossOrigins(t *testing.T) {
 	store := NewInMemoryTokenStore()
 	require.NoError(t, store.StoreToken(source.URL, &OAuthToken{AccessToken: "stored-at"}))
 	transport := &oauthTransport{
-		base:       http.DefaultTransport,
+		base:       newTestTransport(t),
 		tokenStore: store,
 		baseURL:    source.URL,
 	}

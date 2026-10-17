@@ -1,8 +1,12 @@
 package dmrmodels
 
 import (
+	"context"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -93,8 +97,10 @@ func TestListModelsAt(t *testing.T) {
 	t.Run("unreachable endpoint is an error", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := ListModelsAt(t.Context(), &http.Client{}, "http://127.0.0.1:59998/")
-		require.Error(t, err)
+		dialErr := errors.New("model endpoint unreachable")
+		client := failingDialClient(t, dialErr)
+		_, err := ListModelsAt(t.Context(), client, "http://model-runner.invalid/")
+		require.ErrorIs(t, err, dialErr)
 	})
 }
 
@@ -119,8 +125,16 @@ func TestListModels(t *testing.T) {
 		assert.Equal(t, []string{"ai/gemma3:latest", "ai/qwen3:latest"}, models)
 	})
 
-	t.Run("unreachable MODEL_RUNNER_HOST returns an error, not a panic", func(t *testing.T) {
-		t.Setenv("MODEL_RUNNER_HOST", "http://127.0.0.1:59997")
+	t.Run("disconnected MODEL_RUNNER_HOST returns an error, not a panic", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "/engines/v1/models", r.URL.Path)
+			conn, _, err := w.(http.Hijacker).Hijack()
+			if assert.NoError(t, err) {
+				_ = conn.Close()
+			}
+		}))
+		defer server.Close()
+		t.Setenv("MODEL_RUNNER_HOST", server.URL)
 
 		_, err := ListModels(t.Context())
 		require.Error(t, err)
@@ -161,4 +175,20 @@ func TestGetModel(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, model.Metadata)
 	assert.Equal(t, int32(8192), model.Metadata.ContextWindow)
+}
+
+func failingDialClient(t *testing.T, dialErr error) *http.Client {
+	t.Helper()
+	var dialed atomic.Bool
+	transport := &http.Transport{
+		DialContext: func(context.Context, string, string) (net.Conn, error) {
+			dialed.Store(true)
+			return nil, dialErr
+		},
+	}
+	t.Cleanup(func() {
+		transport.CloseIdleConnections()
+		assert.True(t, dialed.Load(), "request must reach the failing dialer")
+	})
+	return &http.Client{Transport: transport}
 }

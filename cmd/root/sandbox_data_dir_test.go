@@ -138,7 +138,7 @@ case "$1 $2" in
   *) exit 99 ;;
 esac
 `, calls)
-	require.NoError(t, os.WriteFile(filepath.Join(fakeDir, "docker"), []byte(script), 0o700))
+	writeMockCLI(t, filepath.Join(fakeDir, "docker"), script)
 	t.Setenv("PATH", fakeDir)
 	logger := slog.Default()
 	t.Cleanup(func() {

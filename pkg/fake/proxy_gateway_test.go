@@ -51,7 +51,7 @@ func TestStartRecordingProxy_EncryptedConfigSecrecy(t *testing.T) {
 			defer upstream.Close()
 
 			cassettePath := t.TempDir() + "/recording"
-			transport := hostRewriteRoundTripper{target: upstream.URL}
+			transport := hostRewriteRoundTripper{target: upstream.URL, base: upstream.Client().Transport}
 			proxyURL, cleanup, err := startStreamingRecordingProxy(t.Context(), cassettePath, tt.upstreamTrustURL,
 				gatewayAuthHeaderUpdater(tt.upstreamTrustURL), transport)
 			require.NoError(t, err)
@@ -85,6 +85,7 @@ func TestStartRecordingProxy_EncryptedConfigSecrecy(t *testing.T) {
 
 type hostRewriteRoundTripper struct {
 	target string
+	base   http.RoundTripper
 }
 
 func (t hostRewriteRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -93,7 +94,7 @@ func (t hostRewriteRoundTripper) RoundTrip(req *http.Request) (*http.Response, e
 		return nil, err
 	}
 	target.Header = req.Header.Clone()
-	return http.DefaultTransport.RoundTrip(target)
+	return t.base.RoundTrip(target)
 }
 
 func TestStartRecordingProxy_NoUpstreamScrubsEncryptedConfig(t *testing.T) {
@@ -382,7 +383,7 @@ func TestTypeSafeRecordingAndReplay(t *testing.T) {
 	}))
 	t.Cleanup(upstream.Close)
 	path := t.TempDir() + "/typesafe"
-	proxyURL, cleanup, err := startStreamingRecordingProxy(t.Context(), path, "", APIKeyHeaderUpdater, hostRewriteRoundTripper{target: upstream.URL})
+	proxyURL, cleanup, err := startStreamingRecordingProxy(t.Context(), path, "", APIKeyHeaderUpdater, hostRewriteRoundTripper{target: upstream.URL, base: upstream.Client().Transport})
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, cleanup()) })
 	request := func(proxyURL string) {
@@ -446,7 +447,7 @@ func TestEvaluatorRecordingPreservesEnvironmentProviderKey(t *testing.T) {
 				assert.NoError(t, err)
 			}))
 			t.Cleanup(upstream.Close)
-			proxyURL, cleanup, err := startStreamingRecordingProxy(t.Context(), t.TempDir()+"/evaluator", "", APIKeyHeaderUpdater, hostRewriteRoundTripper{target: upstream.URL})
+			proxyURL, cleanup, err := startStreamingRecordingProxy(t.Context(), t.TempDir()+"/evaluator", "", APIKeyHeaderUpdater, hostRewriteRoundTripper{target: upstream.URL, base: upstream.Client().Transport})
 			require.NoError(t, err)
 			t.Cleanup(func() { assert.NoError(t, cleanup()) })
 			client, err := evaluatorprovider.New(t.Context(), latest.EvaluatorConfig{
@@ -500,7 +501,7 @@ func TestEvaluatorRecordingNeverFollowsRedirects(t *testing.T) {
 					if throughGateway {
 						gateway = upstream.URL
 					}
-					proxyURL, cleanup, err := startStreamingRecordingProxy(t.Context(), t.TempDir()+"/redirect", gateway, nil, hostRewriteRoundTripper{target: upstream.URL})
+					proxyURL, cleanup, err := startStreamingRecordingProxy(t.Context(), t.TempDir()+"/redirect", gateway, nil, hostRewriteRoundTripper{target: upstream.URL, base: upstream.Client().Transport})
 					require.NoError(t, err)
 					t.Cleanup(func() { assert.NoError(t, cleanup()) })
 					cfg := latest.EvaluatorConfig{Provider: backend, Model: "model", Type: "boolean", Instructions: "Assess."}
@@ -533,7 +534,7 @@ func TestCustomEvaluatorGatewayRecordingReplay(t *testing.T) {
 			}))
 			t.Cleanup(gateway.Close)
 			path := t.TempDir() + "/custom"
-			proxyURL, cleanup, err := StartRecordingProxy(t.Context(), path, gateway.URL)
+			proxyURL, cleanup, err := startStreamingRecordingProxy(t.Context(), path, gateway.URL, gatewayAuthHeaderUpdater(gateway.URL), gateway.Client().Transport)
 			require.NoError(t, err)
 			t.Cleanup(func() { assert.NoError(t, cleanup()) })
 			cfg := latest.EvaluatorConfig{Provider: backend, Model: "model", Type: "boolean", Instructions: "Assess.", Endpoint: "https://private.example.com/development%2Fpredict"}

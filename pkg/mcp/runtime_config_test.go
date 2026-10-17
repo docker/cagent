@@ -140,7 +140,7 @@ func TestMCPRuntimeConfig_ServerRetainsProviderButOmitsSwitchingAndBudgets(t *te
 	httpServer := httptest.NewServer(newStreamableHTTPHandler(server))
 	t.Cleanup(httpServer.Close)
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "config-test", Version: "1"}, nil)
-	conn, err := client.Connect(t.Context(), &mcpsdk.StreamableClientTransport{Endpoint: httpServer.URL}, nil)
+	conn, err := client.Connect(t.Context(), &mcpsdk.StreamableClientTransport{Endpoint: httpServer.URL, HTTPClient: httpServer.Client()}, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, conn.Close()) })
 	listed, err := conn.ListTools(t.Context(), nil)

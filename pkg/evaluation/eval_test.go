@@ -77,8 +77,6 @@ func TestEvaluateSkipsUnusedJudge(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the fake container runtime executable is a POSIX shell script")
 	}
-	sharedRuntime := filepath.Join(t.TempDir(), "runtime")
-	writeFakeContainerRuntime(t, sharedRuntime, `{"type":"agent_choice","content":"ok"}`)
 	t.Parallel()
 
 	for _, tt := range []struct {
@@ -115,7 +113,7 @@ func TestEvaluateSkipsUnusedJudge(t *testing.T) {
 			}
 
 			fakeRuntime := filepath.Join(tmpDir, "fake-runtime")
-			require.NoError(t, os.Symlink(sharedRuntime, fakeRuntime))
+			writeFakeContainerRuntime(t, fakeRuntime, `{"type":"agent_choice","content":"ok"}`)
 
 			runConfig := &config.RuntimeConfig{
 				EnvProviderForTests: environment.NewNoEnvProvider(),
@@ -1146,7 +1144,7 @@ func TestRunDockerAgentInContainerCancelInterruptsDocker(t *testing.T) {
 	binDir := filepath.Join(tmpDir, "bin")
 	require.NoError(t, os.Mkdir(binDir, 0o755))
 	script := "#!/bin/sh\nexec \"" + testBin + "\" -test.run='^TestRunDockerAgentInContainerHelperProcess$'\n"
-	require.NoError(t, os.WriteFile(filepath.Join(binDir, "docker"), []byte(script), 0o755))
+	writeMockCLI(t, filepath.Join(binDir, "docker"), script)
 
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("GO_WANT_HELPER_PROCESS", "1")
@@ -1228,11 +1226,11 @@ func TestContainerRuntimeOrDefault(t *testing.T) {
 	assert.Equal(t, "podman", custom.containerRuntimeOrDefault())
 }
 
-// Write before t.Parallel so forked children cannot inherit a writable executable.
+// Keep each script body beside its launcher symlink.
 func writeFakeContainerRuntime(t *testing.T, path, output string) {
 	t.Helper()
 	script := "#!/bin/sh\necho \"$@\" > \"${0%/*}/args\"\necho '" + output + "'\n"
-	require.NoError(t, os.WriteFile(path, []byte(script), 0o755))
+	writeMockCLI(t, path, script)
 }
 
 // TestRunDockerAgentInContainerUsesConfiguredRuntime proves that container

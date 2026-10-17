@@ -23,7 +23,7 @@ func newTestStream(t *testing.T, sseData string) *ssestream.Stream[openai.ChatCo
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL, http.NoBody)
 	require.NoError(t, err)
-	resp, err := http.DefaultClient.Do(req) //nolint:bodyclose // body is closed by the stream
+	resp, err := srv.Client().Do(req) //nolint:bodyclose // body is closed by the stream
 	require.NoError(t, err)
 	return ssestream.NewStream[openai.ChatCompletionChunk](ssestream.NewDecoder(resp), nil)
 }

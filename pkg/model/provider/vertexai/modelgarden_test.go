@@ -46,7 +46,7 @@ func TestOpenAIClientRefreshesToken(t *testing.T) {
 		return roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 			req.URL.Scheme = "http"
 			req.URL.Host = strings.TrimPrefix(server.URL, "http://")
-			return http.DefaultTransport.RoundTrip(req)
+			return server.Client().Transport.RoundTrip(req)
 		})
 	}))
 	require.NoError(t, err)

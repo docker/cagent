@@ -148,8 +148,9 @@ unchanged during analysis; file-cop coverage still includes inactive files.
 
 `CancellationLoop`, `ClosedChannelLoop`, `ChannelStateCheck`,
 `CancellationSafeResultSend`, `NonblockingChannelReplacement`, and `SlicesConcat`
-use the upstream implementations and synthetic tests. Their frozen-config
-exclusions, registration tests, and application regressions remain here.
+use the upstream implementations and tests. Shared-cop behavior and version
+compatibility are tested in rubocop-go; only project-owned rules, exclusions,
+and registration checks are tested here.
 
 `Lint/ChannelDirection` suggests directional raw-channel parameters and results.
 It follows requirements through locals, fields, direct calls, returns, and closure

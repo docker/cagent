@@ -1773,7 +1773,9 @@ func TestCatalogOAuthDiscoveryLive(t *testing.T) {
 	cat, err := Load()
 	require.NoError(t, err)
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	t.Cleanup(transport.CloseIdleConnections)
+	client := &http.Client{Timeout: 10 * time.Second, Transport: transport}
 
 	type result struct {
 		id, url, authServer string

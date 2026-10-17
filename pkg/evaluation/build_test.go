@@ -18,16 +18,12 @@ func TestBuildEvalImagePinsLocalAgentDigest(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the fake runtime is a POSIX shell script")
 	}
-	// Write before parallel tests can fork and inherit a writer to the executable,
-	// which would make exec fail with ETXTBSY. Subtests only symlink this script.
-	sharedRuntime := filepath.Join(t.TempDir(), "runtime")
-	require.NoError(t, os.WriteFile(sharedRuntime, []byte(
-		"#!/bin/sh\nd=${0%/*}\n"+
-			"if [ \"$1\" = image ]; then\n"+
-			" printf '%s\\n' \"$@\" > \"$d/inspect-args\"\n"+
-			" if [ -f \"$d/inspect-fail\" ]; then exit 1; fi\n"+
-			" cat \"$d/inspect-output\"\n"+
-			"else\n cat > \"$d/Dockerfile\"\n printf '%s\\n' sha256:eval-image\nfi\n"), 0o755))
+	const script = "#!/bin/sh\nd=${0%/*}\n" +
+		"if [ \"$1\" = image ]; then\n" +
+		" printf '%s\\n' \"$@\" > \"$d/inspect-args\"\n" +
+		" if [ -f \"$d/inspect-fail\" ]; then exit 1; fi\n" +
+		" cat \"$d/inspect-output\"\n" +
+		"else\n cat > \"$d/Dockerfile\"\n printf '%s\\n' sha256:eval-image\nfi\n"
 	t.Parallel()
 
 	digest := "sha256:" + strings.Repeat("a", 64)
@@ -58,7 +54,7 @@ func TestBuildEvalImagePinsLocalAgentDigest(t *testing.T) {
 			if tc.failedInspect {
 				require.NoError(t, os.WriteFile(filepath.Join(dir, "inspect-fail"), nil, 0o644))
 			}
-			require.NoError(t, os.Symlink(sharedRuntime, fakeRuntime))
+			writeMockCLI(t, fakeRuntime, script)
 			runner := newRunner(config.NewFileSource(filepath.Join(dir, "agent.yaml")), nil,
 				Config{EvalsDir: dir, ContainerRuntime: fakeRuntime, AgentImage: tc.image})
 			image, err := runner.buildEvalImage(t.Context(), &session.EvalCriteria{})
