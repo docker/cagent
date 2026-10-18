@@ -20,6 +20,7 @@ const (
 	settingRenderImages
 	settingShowBanner
 	settingSplitDiff
+	settingFullFilePreview
 	settingCount
 )
 
@@ -33,6 +34,7 @@ type leanSettings struct {
 func (m *model) openSettings() {
 	s := userconfig.Get()
 	values := [settingCount]bool{
+		settingFullFilePreview:    m.screen.Transcript.FullFilePreview(),
 		settingSendMode:           m.sendMode == messages.SendModeQueue,
 		settingYOLO:               s.YOLO,
 		settingSnapshot:           s.SnapshotsEnabled(),
@@ -63,6 +65,7 @@ func (m *model) refreshSettingsRows() {
 		"Render images (next launch if not detected)",
 		"Show startup banner (next launch)",
 		"Split diff view",
+		"Written file preview",
 	}
 	rows := make([]ui.SettingRow, settingCount)
 	for i, label := range labels {
@@ -74,6 +77,12 @@ func (m *model) refreshSettingsRows() {
 			value = "Steer"
 			if m.settings.values[i] {
 				value = "Queue"
+			}
+		}
+		if i == settingFullFilePreview {
+			value = "Last 10 lines"
+			if m.settings.values[i] {
+				value = "Full"
 			}
 		}
 		if i == settingSoundThreshold {
@@ -128,6 +137,7 @@ func (m *model) handleSettingsKey(k ui.Key) {
 			}
 			m.hideBanner = !m.settings.values[settingShowBanner]
 			m.sessionState.SetSplitDiffView(m.settings.values[settingSplitDiff])
+			m.screen.Transcript.SetFullFilePreview(m.settings.values[settingFullFilePreview])
 			m.addNotice("", "Settings updated.", ui.StMuted())
 		}
 		m.closeSettings()
@@ -190,6 +200,8 @@ func saveLeanSettings(p *leanSettings) error {
 				s.RenderImages = defaultOnPreference(value)
 			case settingShowBanner:
 				s.ShowBanner = defaultOnPreference(value)
+			case settingFullFilePreview:
+				s.LeanFullFilePreview = value
 			case settingSplitDiff:
 				s.SplitDiffView = defaultOnPreference(value)
 			}

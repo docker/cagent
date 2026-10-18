@@ -24,6 +24,7 @@ func TestParseSimplekeys(t *testing.T) {
 	assert.Equal(t, KeyBackspace, singleKey(t, "\x08").Typ)
 	assert.Equal(t, KeyCtrlC, singleKey(t, "\x03").Typ)
 	assert.Equal(t, KeyCtrlD, singleKey(t, "\x04").Typ)
+	assert.Equal(t, KeyCtrlO, singleKey(t, "\x0f").Typ)
 	assert.Equal(t, KeyHome, singleKey(t, "\x01").Typ)
 	assert.Equal(t, KeyEnd, singleKey(t, "\x05").Typ)
 	assert.Equal(t, KeyCtrlW, singleKey(t, "\x17").Typ)
@@ -83,6 +84,8 @@ func TestParseKittyKeyboardSequences(t *testing.T) {
 		{sequence: "\x1b[107;5u", want: KeyCtrlK},
 		{sequence: "\x1b[119;5u", want: KeyCtrlW},
 		{sequence: "\x1b[108;5u", want: KeyCtrlL},
+		{sequence: "\x1b[111;5u", want: KeyCtrlO},
+		{sequence: "\x1b[79;5u", want: KeyCtrlO},
 	}
 	for _, tt := range tests {
 		assert.Equal(t, tt.want, singleKey(t, tt.sequence).Typ)

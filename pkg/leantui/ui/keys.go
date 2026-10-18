@@ -37,6 +37,7 @@ const (
 	KeyCtrlK // delete to end of line
 	KeyCtrlW // delete word backwards
 	KeyCtrlL // redraw
+	KeyCtrlO // toggle compact/complete tool previews
 )
 
 // Key is a single decoded keyboard event. For KeyRune and KeyPaste the decoded
@@ -254,6 +255,9 @@ func parseChunk(b []byte) []Key {
 		case c == 0x17:
 			out = append(out, Key{Typ: KeyCtrlW})
 			i++
+		case c == 0x0f:
+			out = append(out, Key{Typ: KeyCtrlO})
+			i++
 		case c == 0x0c:
 			out = append(out, Key{Typ: KeyCtrlL})
 			i++
@@ -412,6 +416,8 @@ func parseCSI(b []byte) (int, Key) {
 				return consumed, Key{Typ: KeyCtrlK}
 			case 'w', 'W':
 				return consumed, Key{Typ: KeyCtrlW}
+			case 'o', 'O':
+				return consumed, Key{Typ: KeyCtrlO}
 			case 'l', 'L':
 				return consumed, Key{Typ: KeyCtrlL}
 			}

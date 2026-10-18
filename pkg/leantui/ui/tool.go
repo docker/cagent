@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/docker/docker-agent/pkg/tools"
+	filesystem "github.com/docker/docker-agent/pkg/tools/builtin/filesystem/types"
 	"github.com/docker/docker-agent/pkg/tui/animation"
 	"github.com/docker/docker-agent/pkg/tui/components/tool"
 	tooldefaults "github.com/docker/docker-agent/pkg/tui/components/tool/defaults"
@@ -21,11 +22,13 @@ import (
 // the same TUI message shape used by the full-screen TUI so the lean renderer
 // can delegate the visual representation to pkg/tui/components/tool.
 type ToolView struct {
-	renderers *tool.Registry
-	message   *tuitypes.Message
-	images    []InlineImage
-	lastWidth int
-	lastLines []string
+	renderers       *tool.Registry
+	message         *tuitypes.Message
+	images          []InlineImage
+	lastWidth       int
+	lastLines       []string
+	fullFilePreview bool
+	writeArgs       filesystem.WriteFileArgs
 }
 
 func (t *ToolView) Message() *tuitypes.Message {
@@ -85,18 +88,23 @@ func RenderToolWithState(t *ToolView, width, frame int, sessionState service.Ses
 	}
 	msg := *t.message
 	msg.HideToolProgress = true
-	view := t.renderers.New(ar, &msg, sessionState)
-	view.SetSize(innerWidth, 0)
-	if t.message.ToolStatus == tuitypes.ToolStatusPending || t.message.ToolStatus == tuitypes.ToolStatusRunning {
-		defer animation.StopView(view)
+	var content string
+	if msg.ToolCall.Function.Name == filesystem.ToolNameWriteFile {
+		content = t.renderWriteFile(&msg, ar, sessionState, innerWidth)
+	} else {
+		view := t.renderers.New(ar, &msg, sessionState)
+		view.SetSize(innerWidth, 0)
+		if msg.ToolStatus == tuitypes.ToolStatusPending || msg.ToolStatus == tuitypes.ToolStatusRunning {
+			defer animation.StopView(view)
+		}
+		content = view.View()
 	}
-
-	lines := splitRenderedLines(renderToolBox(view.View(), width), width)
+	lines := splitRenderedLines(renderToolBox(content, width), width)
 	for _, img := range t.images {
 		lines = append(lines, RenderInlineImage(img, width)...)
 	}
 
-	if t.shouldKeepLastPendingLines(width, lines) {
+	if msg.ToolCall.Function.Name != filesystem.ToolNameWriteFile && t.shouldKeepLastPendingLines(width, lines) {
 		return cloneLines(t.lastLines)
 	}
 	if t.message.ToolStatus == tuitypes.ToolStatusPending && len(lines) > 0 {

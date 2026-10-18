@@ -1,6 +1,9 @@
 package ui
 
 import (
+	"encoding/json"
+	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -93,4 +96,108 @@ func TestRenderToolWithoutRegistry(t *testing.T) {
 	assert.Equal(t, first, RenderToolWithState(&view, 80, 0, nil))
 	assert.Same(t, registry, view.renderers)
 	assert.Contains(t, strings.Join(first, "\n"), "pwd")
+}
+
+func TestWriteFileStreamingPreview(t *testing.T) {
+	t.Parallel()
+	tracker := NewToolTracker()
+	definition := tools.Tool{Name: "write_file", Annotations: tools.ToolAnnotations{Title: "Write"}}
+	call := tools.ToolCall{ID: "write", Function: tools.FunctionCall{Name: "write_file", Arguments: `{"path":"/tmp/file","content":"first\nsec`}}
+	tracker.Upsert("root", call, definition, tuitypes.ToolStatusPending)
+	view := tracker.Get(call.ID)
+	render := func() string { return strings.Join(RenderToolWithState(view, 80, 0, nil), "\n") }
+	first := render()
+	assert.Contains(t, first, "Write")
+	assert.NotContains(t, first, "write_file")
+	assert.Contains(t, first, "first")
+	assert.Contains(t, first, "sec")
+	for _, fragment := range []string{`ond\`, `nthird\u26`, `03"}`} {
+		tracker.Upsert("root", tools.ToolCall{ID: call.ID, Function: tools.FunctionCall{Name: "write_file", Arguments: fragment}}, tools.Tool{Name: "write_file"}, tuitypes.ToolStatusPending)
+		assert.Contains(t, render(), "Write")
+		assert.Contains(t, render(), "second")
+	}
+	assert.Contains(t, render(), "third☃")
+	snapshot := tracker.Finish(call.ID, ToolResult{})
+	final := strings.Join(RenderTool(*snapshot, 80), "\n")
+	assert.Contains(t, final, "Write")
+	assert.Contains(t, final, "third☃")
+}
+
+func TestWriteFilePreviewModes(t *testing.T) {
+	t.Parallel()
+	var content strings.Builder
+	for i := range 15 {
+		fmt.Fprintf(&content, "line-%02d\n", i)
+	}
+	raw, err := json.Marshal(map[string]string{"path": "/tmp/file", "content": content.String()})
+	require.NoError(t, err)
+	for _, full := range []bool{false, true} {
+		t.Run(strconv.FormatBool(full), func(t *testing.T) {
+			transcript := NewTranscript()
+			transcript.SetFullFilePreview(full)
+			transcript.UpsertTool("root", tools.ToolCall{ID: "write", Function: tools.FunctionCall{Name: "write_file", Arguments: string(raw)}}, tools.Tool{Name: "write_file", Annotations: tools.ToolAnnotations{Title: "Write"}}, tuitypes.ToolStatusPending)
+			rendered := strings.Join(transcript.Lines(80, 0, true, nil, nil), "\n")
+			assert.Contains(t, rendered, "line-14")
+			assert.Contains(t, rendered, "line-05")
+			assert.Equal(t, full, strings.Contains(rendered, "line-04"))
+			transcript.FinishTool("write", ToolResult{}, nil)
+			rendered = strings.Join(transcript.Lines(80, 0, false, nil, nil), "\n")
+			assert.Equal(t, full, strings.Contains(rendered, "line-04"))
+			transcript.SetFullFilePreview(!full)
+			rendered = strings.Join(transcript.Lines(80, 0, false, nil, nil), "\n")
+			assert.Equal(t, !full, strings.Contains(rendered, "line-04"))
+		})
+	}
+}
+
+func TestWriteFilePreviewHideAndError(t *testing.T) {
+	t.Parallel()
+	view := NewToolView("root", tools.ToolCall{Function: tools.FunctionCall{Name: "write_file", Arguments: `{"path":"/tmp/file","content":"secret"}`}}, tools.Tool{Name: "write_file"}, tuitypes.ToolStatusError)
+	view.Message().Content = "permission denied"
+	rendered := strings.Join(RenderTool(*view, 20), "\n")
+	assert.NotContains(t, rendered, "secret")
+	assert.Contains(t, rendered, "permission denied")
+	state := service.NewSessionState(nil)
+	state.SetHideToolResults(true)
+	rendered = strings.Join(RenderToolWithState(view, 80, 0, state), "\n")
+	assert.NotContains(t, rendered, "secret")
+	assert.NotContains(t, rendered, "permission denied")
+}
+
+func TestToolTitlesPersistAcrossLifecycle(t *testing.T) {
+	t.Parallel()
+	for _, tool := range []struct {
+		name  string
+		title string
+		args  string
+	}{
+		{"shell", "Shell", `{"cmd":"pwd"}`},
+		{"read_file", "Read", `{"path":"/tmp/file"}`},
+		{"custom_tool", "Custom Tool", `{"value":"test"}`},
+		{"untitled_tool", "", `{"value":"test"}`},
+	} {
+		t.Run(tool.name, func(t *testing.T) {
+			t.Parallel()
+			tracker := NewToolTracker()
+			call := tools.ToolCall{ID: "call", Function: tools.FunctionCall{Name: tool.name, Arguments: tool.args}}
+			definition := tools.Tool{Name: tool.name, Annotations: tools.ToolAnnotations{Title: tool.title}}
+			assertTitle := func(view *ToolView) {
+				t.Helper()
+				rendered := strings.Join(RenderToolWithState(view, 80, 0, nil), "\n")
+				if tool.title == "" {
+					assert.Contains(t, rendered, tool.name)
+				} else {
+					assert.Contains(t, rendered, tool.title)
+					assert.NotContains(t, rendered, tool.name)
+				}
+			}
+			tracker.Upsert("root", call, definition, tuitypes.ToolStatusPending)
+			assertTitle(tracker.Get(call.ID))
+			tracker.Upsert("root", tools.ToolCall{ID: call.ID, Function: tools.FunctionCall{Name: tool.name}}, tools.Tool{Name: tool.name}, tuitypes.ToolStatusPending)
+			assertTitle(tracker.Get(call.ID))
+			tracker.Upsert("root", call, tools.Tool{Name: tool.name}, tuitypes.ToolStatusRunning)
+			assertTitle(tracker.Get(call.ID))
+			assertTitle(tracker.Finish(call.ID, ToolResult{ToolDefinition: tools.Tool{Name: tool.name}}))
+		})
+	}
 }
