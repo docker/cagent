@@ -1,6 +1,7 @@
 package root
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
@@ -206,7 +207,8 @@ func (b *remoteBackend) CreateSessionRequest(workingDir string) runtime.CreateSe
 }
 
 func (b *remoteBackend) CreateSession(ctx context.Context, _ *teamloader.LoadResult, req runtime.CreateSessionRequest) (runtime.Runtime, *session.Session, func(), error) {
-	client, err := runtime.NewClient(b.flags.remoteAddress)
+	token := cmp.Or(b.flags.remoteAuthToken, os.Getenv("DOCKER_AGENT_REMOTE_AUTH_TOKEN"))
+	client, err := runtime.NewClient(b.flags.remoteAddress, runtime.WithAuthToken(token))
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to create remote client: %w", err)
 	}

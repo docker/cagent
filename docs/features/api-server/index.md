@@ -17,7 +17,7 @@ The `docker agent serve api` command starts an HTTP server that exposes your age
 $ docker agent serve api agent.yaml
 
 # Custom listen address
-$ docker agent serve api agent.yaml --listen 0.0.0.0:8080
+$ docker agent serve api agent.yaml --listen 0.0.0.0:8080 --auth-token "$AGENT_TOKEN"
 
 # With session persistence
 $ docker agent serve api agent.yaml --session-db ./sessions.db
@@ -245,6 +245,35 @@ $ curl -N -X POST http://localhost:8080/api/sessions/abc-123/agent/my-agent \
   -d '{"messages":[{"role":"user","content":"What files are in the current directory?"}]}'
 ```
 
+## HTTP security
+
+The REST API rejects cross-origin browser requests using Fetch Metadata and
+Origin checks, including bodyless approval toggles and OAuth callback posts.
+Reads are protected too: fetching an agent's tool count can start tool processes.
+JSON endpoints require `Content-Type: application/json` (optional media-type
+parameters are accepted); form and `text/plain` bodies are rejected with HTTP
+415. Native clients without browser headers remain supported.
+
+Unauthenticated TCP listeners accept only loopback IP addresses and `localhost`
+in the Host header to prevent DNS rebinding. Unix sockets and named pipes retain
+support for synthetic hostnames and rely on local access permissions. All
+non-loopback TCP listeners require `--auth-token`; clients must send it as
+`Authorization: Bearer <token>`. The `/health` and `/ready` probes remain exempt
+from bearer authentication. Reverse proxies must preserve these protections;
+forwarded headers do not authorize browser requests. For network deployments,
+use TLS or a trusted TLS-terminating proxy to protect the bearer token in transit.
+
+### Connecting with the CLI
+
+Use `--remote-auth-token` with `run --remote`, or set
+`DOCKER_AGENT_REMOTE_AUTH_TOKEN` to avoid putting the token in command-line
+arguments. The flag takes precedence over the environment variable.
+
+```bash
+$ export DOCKER_AGENT_REMOTE_AUTH_TOKEN='<server-token>'
+$ docker agent run --remote https://agent.example.com agent.yaml
+```
+
 ## CLI Flags
 
 ```bash
@@ -254,7 +283,7 @@ docker agent serve api <agent-file>|<agents-dir> [flags]
 See the [CLI reference](../cli/index.md#docker-agent-serve-api) for all flags, defaults, and shared runtime options.
 
 > [!WARNING]
-> Set `--auth-token` when listening on a network-reachable interface. For multi-user or network-exposed deployments, also set `--session-workingdir-root` to confine the host directories callers can use for sessions.
+> `--auth-token` is required for non-loopback TCP listeners, including inherited TCP listeners. For multi-user or network-exposed deployments, also set `--session-workingdir-root` to confine the host directories callers can use for sessions.
 
 > [!NOTE]
 > **What `--max-request-size` does and doesn't cover**
@@ -325,7 +354,7 @@ $ curl -X POST http://127.0.0.1:8080/api/sessions/$SID/followup \
 > [!WARNING]
 > **This control plane has a fixed 1 MiB request-body cap and no built-in authentication**
 >
-> Unlike the standalone `docker agent serve api` process above, an attached run's `--listen` control plane exposes neither `--max-request-size` nor `--auth-token`: every request is capped at a fixed, non-configurable 1 MiB body (returning HTTP 413 above it — see [Troubleshooting: HTTP 413](../../guides/troubleshooting/index.md#http-413-request-body-too-large)), and there is no bearer token to require. If you need a configurable cap, built-in bearer auth, or a network-reachable listener, run a standalone `docker agent serve api` deployment instead. Otherwise, keep `--listen` on loopback, a unix socket, or behind an authenticating reverse proxy.
+> Unlike the standalone `docker agent serve api` process above, an attached run's `--listen` control plane exposes neither `--max-request-size` nor `--auth-token`: every request is capped at a fixed, non-configurable 1 MiB body (returning HTTP 413 above it — see [Troubleshooting: HTTP 413](../../guides/troubleshooting/index.md#http-413-request-body-too-large)), and there is no bearer token to require. If you need a configurable cap, built-in bearer auth, or a network-reachable listener, run a standalone `docker agent serve api` deployment instead. `--listen` only supports loopback TCP addresses or local sockets; non-loopback TCP listeners are rejected. An authenticating proxy can connect to a local listener.
 
 ## Session event stream and reconnection
 

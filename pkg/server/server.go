@@ -25,6 +25,7 @@ import (
 	"github.com/docker/docker-agent/pkg/config"
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/echolog"
+	"github.com/docker/docker-agent/pkg/httpsec"
 	"github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/tools/mcp"
@@ -76,6 +77,7 @@ func NewWithManager(sm *SessionManager, authToken string, opts ...Option) *Serve
 	}
 
 	e := echo.New()
+	e.Pre(sameOrigin())
 	e.Use(echolog.RedactedRequestLogger())
 	e.Use(middleware.BodyLimit(strconv.FormatInt(maxBytes, 10)))
 	e.Use(echo.WrapMiddleware(upstream.Handler))
@@ -104,30 +106,30 @@ func (s *Server) registerRoutes() {
 	group.GET("/sessions/:id", s.getSession)
 	group.GET("/sessions/:id/status", s.getSessionStatus)
 	group.GET("/sessions/:id/snapshot", s.getSessionSnapshot)
-	group.POST("/sessions/:id/resume", s.resumeSession)
+	group.POST("/sessions/:id/resume", s.resumeSession, requireJSON)
 	group.POST("/sessions/:id/tools/toggle", s.toggleSessionYolo)
-	group.PATCH("/sessions/:id/safety-policy", s.updateSessionSafetyPolicy)
-	group.PATCH("/sessions/:id/permissions", s.updateSessionPermissions)
-	group.PATCH("/sessions/:id/title", s.updateSessionTitle)
-	group.PATCH("/sessions/:id/tokens", s.updateSessionTokens)
-	group.PATCH("/sessions/:id/starred", s.setSessionStarred)
+	group.PATCH("/sessions/:id/safety-policy", s.updateSessionSafetyPolicy, requireJSON)
+	group.PATCH("/sessions/:id/permissions", s.updateSessionPermissions, requireJSON)
+	group.PATCH("/sessions/:id/title", s.updateSessionTitle, requireJSON)
+	group.PATCH("/sessions/:id/tokens", s.updateSessionTokens, requireJSON)
+	group.PATCH("/sessions/:id/starred", s.setSessionStarred, requireJSON)
 	group.GET("/sessions/:id/models", s.getSessionModels)
-	group.POST("/sessions", s.createSession)
-	group.POST("/sessions/:id/fork", s.forkSession)
+	group.POST("/sessions", s.createSession, requireJSON)
+	group.POST("/sessions/:id/fork", s.forkSession, requireJSON)
 	group.DELETE("/sessions/:id", s.deleteSession)
-	group.POST("/sessions/:id/agent/:agent", s.runAgent)
-	group.POST("/sessions/:id/agent/:agent/:agent_name", s.runAgent)
-	group.POST("/sessions/:id/elicitation", s.elicitation)
-	group.POST("/sessions/:id/steer", s.steerSession)
-	group.POST("/sessions/:id/followup", s.followUpSession)
+	group.POST("/sessions/:id/agent/:agent", s.runAgent, requireJSON)
+	group.POST("/sessions/:id/agent/:agent/:agent_name", s.runAgent, requireJSON)
+	group.POST("/sessions/:id/elicitation", s.elicitation, requireJSON)
+	group.POST("/sessions/:id/steer", s.steerSession, requireJSON)
+	group.POST("/sessions/:id/followup", s.followUpSession, requireJSON)
 	group.GET("/sessions/:id/events", s.sessionEvents)
-	group.POST("/sessions/:id/messages", s.addMessage)
-	group.PATCH("/sessions/:id/messages/:msg_id", s.updateMessage)
-	group.POST("/sessions/:id/summaries", s.addSummary)
+	group.POST("/sessions/:id/messages", s.addMessage, requireJSON)
+	group.PATCH("/sessions/:id/messages/:msg_id", s.updateMessage, requireJSON)
+	group.POST("/sessions/:id/summaries", s.addSummary, requireJSON)
 	group.GET("/sessions/:id/queue", s.getSessionQueueStatus)
 	group.GET("/sessions/:id/recovery", s.getSessionRecoveryData)
-	group.POST("/sessions/batch/delete", s.batchDeleteSessions)
-	group.POST("/sessions/batch/export", s.batchExportSessions)
+	group.POST("/sessions/batch/delete", s.batchDeleteSessions, requireJSON)
+	group.POST("/sessions/batch/export", s.batchExportSessions, requireJSON)
 
 	group.GET("/agents/:id/:agent_name/tools/count", s.getAgentToolCount)
 
@@ -140,6 +142,15 @@ func (s *Server) registerRoutes() {
 }
 
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
+	if err := httpsec.ValidateListenerAuth(ln.Addr(), s.authToken); err != nil {
+		return err
+	}
+
+	var handler http.Handler = s.e
+	if _, tcp := ln.Addr().(*net.TCPAddr); tcp && s.authToken == "" {
+		handler = httpsec.LoopbackHost(handler)
+	}
+
 	// Wrap the Echo handler with otelhttp so the configured W3C
 	// propagator extracts `traceparent` / `tracestate` / `baggage`
 	// from incoming API requests. Without this the API server's
@@ -148,7 +159,7 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	// chaining onto the calling client's trace.
 	srv := http.Server{
 		BaseContext:       func(net.Listener) context.Context { return ctx },
-		Handler:           otelhttp.NewHandler(s.e, "agent-api"),
+		Handler:           otelhttp.NewHandler(handler, "agent-api"),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
@@ -593,7 +604,7 @@ func (s *Server) elicitation(c echo.Context) error {
 //     blocks this regardless of state leakage, because the route then
 //     also requires bearer auth.
 //   - Operators running docker-agent on a network-reachable interface
-//     SHOULD configure --auth-token. Defaults to localhost-only via the
+//     must configure --auth-token. Defaults to localhost-only via the
 //     existing socket binding when not overridden.
 //
 // The handler never blocks: it hands the callback to the buffered

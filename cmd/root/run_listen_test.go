@@ -70,3 +70,16 @@ func TestStartSessionCoordinatorWithoutListenRoutesIdleRecallToApp(t *testing.T)
 		}
 	})
 }
+
+func TestStartSessionCoordinatorRejectsNonLocalListener(t *testing.T) {
+	t.Parallel()
+
+	store := session.NewInMemorySessionStore()
+	sess := session.New()
+	require.NoError(t, store.AddSession(t.Context(), sess))
+	flags := &runExecFlags{listenAddr: "0.0.0.0:0"}
+
+	opt, err := flags.startSessionCoordinator(t.Context(), nil, &recallRuntime{store: store}, sess)
+	require.ErrorContains(t, err, "require --auth-token")
+	assert.Nil(t, opt)
+}

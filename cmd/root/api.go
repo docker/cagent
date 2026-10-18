@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"os"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/docker/docker-agent/pkg/cli"
 	"github.com/docker/docker-agent/pkg/config"
 	"github.com/docker/docker-agent/pkg/config/sources"
+	"github.com/docker/docker-agent/pkg/httpsec"
 	pathx "github.com/docker/docker-agent/pkg/path"
 	"github.com/docker/docker-agent/pkg/profiling"
 	"github.com/docker/docker-agent/pkg/server"
@@ -54,7 +54,7 @@ func newAPICmd() *cobra.Command {
 	cmd.PersistentFlags().IntVar(&flags.pullIntervalMins, "pull-interval", 0, "Auto-pull OCI reference every N minutes (0 = disabled)")
 	cmd.PersistentFlags().StringVar(&flags.fakeResponses, "fake", "", "Replay AI responses from cassette file (for testing)")
 	cmd.PersistentFlags().StringVar(&flags.recordPath, "record", "", "Record AI API interactions to cassette file")
-	cmd.PersistentFlags().StringVar(&flags.authToken, "auth-token", "", "Bearer token required for API requests (empty = no authentication)")
+	cmd.PersistentFlags().StringVar(&flags.authToken, "auth-token", "", "Bearer token required for API requests (required for non-loopback TCP listeners)")
 	cmd.PersistentFlags().Int64Var(&flags.maxRequestSize, "max-request-size", 1<<20, "Maximum request body size in bytes (default 1 MiB). Requests exceeding this limit are rejected with HTTP 413.")
 	cmd.PersistentFlags().StringVar(&flags.sessionWorkingDirRoot, "session-workingdir-root", "", "Restrict the working_dir of sessions created via POST /api/sessions to this directory and its descendants (empty = no restriction; recommended for multi-user deployments)")
 	cmd.PersistentFlags().StringVar(&flags.pprofAddr, "pprof-addr", "", "TCP host:port to expose Go pprof endpoints at /debug/pprof/ (e.g. 127.0.0.1:6060); also set via DOCKER_AGENT_PPROF_ADDR")
@@ -120,8 +120,10 @@ func (f *apiFlags) runAPICommand(cmd *cobra.Command, args []string) (commandErr 
 	}
 	defer lnCleanup()
 
+	if err := httpsec.ValidateListenerAuth(ln.Addr(), f.authToken); err != nil {
+		return err
+	}
 	out.Println("Listening on", ln.Addr().String())
-	warnIfNotLoopback(out, ln.Addr())
 
 	slog.DebugContext(ctx, "Starting server", "agents", agentsPath, "addr", ln.Addr().String())
 
@@ -153,23 +155,4 @@ func (f *apiFlags) runAPICommand(cmd *cobra.Command, args []string) (commandErr 
 	}
 
 	return s.Serve(ctx, ln)
-}
-
-// warnIfNotLoopback prints a security warning when the API server is bound to
-// an address other than loopback. The default --listen value is 127.0.0.1, so
-// reaching this code path means the operator was explicit about exposing the
-// API; we just remind them that the API has no authentication.
-func warnIfNotLoopback(out *cli.Printer, addr net.Addr) {
-	tcpAddr, ok := addr.(*net.TCPAddr)
-	if !ok {
-		// Unix sockets and named pipes rely on filesystem permissions.
-		return
-	}
-	if tcpAddr.IP.IsLoopback() {
-		return
-	}
-	out.Println("WARNING: API server is listening on a non-loopback address.")
-	out.Println("         The API has no authentication; anyone able to reach")
-	out.Println("         this address can run agents and access all sessions.")
-	slog.Warn("API server bound to non-loopback address", "addr", tcpAddr.String())
 }

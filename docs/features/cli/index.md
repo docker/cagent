@@ -38,6 +38,7 @@ $ docker agent run [config] [message...] [flags]
 | `--attach <path>`                       | Attach an image file to the initial message                                                                                               |
 | `--dry-run`                             | Initialize the agent without executing anything (useful for validating a config)                                                          |
 | `--remote <addr>`                       | Use a remote runtime at the given address instead of running the agent locally. Mutually exclusive with `--sandbox`, `--worktree`, `--worktree-pr`, `--worktree-base`, `--session`, `--session-db`, `--record`, and `--fake` — a remote runtime owns its own session storage and execution environment, so these local-only concerns don't apply. |
+| `--remote-auth-token <token>`           | Bearer token for `--remote`. Defaults to `DOCKER_AGENT_REMOTE_AUTH_TOKEN`; the flag takes precedence. Prefer the environment variable to keep the token out of command-line arguments. |
 | `--listen <addr>`                       | Expose this run's control plane over HTTP so an external process can drive the running TUI (send follow-ups, stream events, read the title). Accepts `host:port` or `unix://`, `npipe://`, `fd://`. Hidden from `docker agent run --help` — it's a stable but advanced/automation-oriented flag rather than a day-to-day one. See the [API Server](../api-server/index.md#listen) guide for the full walkthrough. |
 | `--session-workingdir-root <path>`      | Confine the `working_dir` of sessions created through the `--listen` control plane to this directory and its descendants (default: no restriction — any clean host directory is accepted, though raw values containing `..` are rejected). Recommended when the control plane is reachable by other users. Hidden from `--help`, like `--listen`. |
 | `--lean`                                | Use a simplified, non-alternate-screen TUI. Unlike the default full-screen TUI, this renders inline in the normal terminal buffer — useful in environments where an alternate screen is unwanted (e.g. inside tmux panes, CI with a tty, or log-friendly pipelines). Like the full TUI, displays an ASCII art banner on startup when the chat is empty (configurable via `show_banner` in [user settings](../../configuration/user-settings/index.md)). |
@@ -303,7 +304,7 @@ $ docker agent serve api <agent-file>|<agents-dir>|<registry-ref> [flags]
 | Flag                       | Default            | Description                                                                                                |
 | -------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------- |
 | `-l, --listen <addr>`      | `127.0.0.1:8080`   | Address to listen on.                                                                                      |
-| `--auth-token <token>`     | (none)             | Bearer token required for all API requests. When set, every request must include `Authorization: Bearer <token>`. Leave empty to disable authentication (safe when listening on loopback interfaces only). |
+| `--auth-token <token>`     | (none)             | Require `Authorization: Bearer <token>` for API requests. Mandatory for non-loopback TCP listeners; optional for loopback and local sockets. The `/health` and `/ready` probes are exempt. |
 | `--max-request-size <bytes>` | `1048576` (1 MiB) | Maximum request body size. Requests exceeding this limit are rejected with HTTP 413 — see [Troubleshooting: HTTP 413](../../guides/troubleshooting/index.md#http-413-request-body-too-large).                      |
 | `--session-workingdir-root <path>` | (none)     | Confine the `working_dir` of sessions created via `POST /api/sessions` to this directory and its descendants (symlinks are resolved before the check). Unrestricted by default — any clean host directory is accepted (raw values containing `..` are rejected), as local single-user daemons rely on. Recommended for multi-user or network-exposed deployments. |
 | `-s, --session-db <path>`  | `session.db`       | Path to the SQLite session database (relative paths resolve against the working directory).                |
@@ -319,7 +320,7 @@ All [runtime configuration flags](#runtime-configuration-flags) (`--working-dir`
 ```bash
 # Examples
 $ docker agent serve api agent.yaml
-$ docker agent serve api agent.yaml --listen :8080
+$ docker agent serve api agent.yaml --listen :8080 --auth-token "$AGENT_TOKEN"
 $ docker agent serve api ./agents/                          # directory of agent YAML/HCL configs
 $ docker agent serve api ociReference --pull-interval 10    # auto-refresh
 ```
