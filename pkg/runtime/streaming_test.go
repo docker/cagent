@@ -580,8 +580,9 @@ func TestHandleStream_ContextCancellation(t *testing.T) {
 	// Cancel the context once handleStream is provably blocked in Recv.
 	go func() {
 		<-stream.recvStarted
+		// Don't Close the stream here: an EOF racing ctx.Done() lets handleStream
+		// return success. Its deferred Close unblocks the reader goroutine.
 		cancel()
-		stream.Close() // unblock the stalled Recv so the reader goroutine can exit
 	}()
 
 	evCh := make(chan Event, 64)
