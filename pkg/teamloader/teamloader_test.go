@@ -934,13 +934,13 @@ func TestGetToolsForAgent_MultipleLSPToolsetsAreCombined(t *testing.T) {
 			{
 				Type:      "lsp",
 				Command:   "gopls",
-				Version:   "golang/tools@v0.21.0",
+				Version:   "false", // no auto-install: these tests never start gopls
 				FileTypes: []string{".go"},
 			},
 			{
 				Type:      "lsp",
 				Command:   "gopls",
-				Version:   "golang/tools@v0.21.0",
+				Version:   "false", // no auto-install: these tests never start gopls
 				FileTypes: []string{".mod"},
 			},
 		},
@@ -983,7 +983,7 @@ func TestGetToolsForAgent_SingleLSPToolsetNotWrapped(t *testing.T) {
 			{
 				Type:      "lsp",
 				Command:   "gopls",
-				Version:   "golang/tools@v0.21.0",
+				Version:   "false", // no auto-install: these tests never start gopls
 				FileTypes: []string{".go"},
 			},
 		},
