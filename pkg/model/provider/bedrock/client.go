@@ -45,7 +45,7 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 	}
 
 	if c5, ok := modelinfo.LookupClaude5(cfg.Model); ok && c5.BedrockMantleOnly {
-		err := errors.New("amazon-bedrock: claude-mythos-5 is only available on Bedrock Mantle, which docker-agent does not support; use claude-mythos-5-1 or the Claude API")
+		err := fmt.Errorf("amazon-bedrock: model %q is only available on Bedrock Mantle, which docker-agent does not support", cfg.Model)
 		slog.ErrorContext(ctx, "Bedrock client creation failed", "error", err)
 		return nil, err
 	}

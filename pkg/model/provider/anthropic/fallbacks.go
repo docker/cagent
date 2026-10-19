@@ -13,8 +13,8 @@ import (
 )
 
 // serverSideFallbackBeta enables the `fallbacks` request parameter, which
-// lets Anthropic reroute refused requests (e.g. Claude Fable 5 safety
-// refusals) to backup models in a single round trip.
+// lets Anthropic reroute refused requests to backup models in a single round
+// trip.
 const serverSideFallbackBeta anthropic.AnthropicBeta = "server-side-fallback-2026-06-01"
 
 // fallbackModels extracts the `fallbacks` provider_opt: a list of model IDs,
