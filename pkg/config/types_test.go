@@ -465,6 +465,32 @@ model: test-model
 	require.NotContains(t, outputStr, "params:") // Should be flattened
 }
 
+func TestRAGStrategyConfig_Unmarshal_Limit(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		input     string
+		wantLimit int
+	}{
+		{name: "integer limit", input: "type: bm25\nlimit: 10\n", wantLimit: 10},
+		{name: "no limit", input: "type: bm25\nk1: 1.5\n", wantLimit: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var strategy latest.RAGStrategyConfig
+			err := yaml.Unmarshal([]byte(tt.input), &strategy)
+			require.NoError(t, err)
+			require.Equal(t, tt.wantLimit, strategy.Limit)
+			// limit is a known field, so it must not leak into the strategy params
+			require.NotContains(t, strategy.Params, "limit")
+		})
+	}
+}
+
 func mustGetDBString(t *testing.T, db latest.RAGDatabaseConfig) string {
 	t.Helper()
 	str, err := db.AsString()

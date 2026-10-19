@@ -2261,8 +2261,8 @@ func (s *RAGStrategyConfig) UnmarshalYAML(unmarshal func(any) error) error {
 		delete(raw, "chunking")
 	}
 
-	if limit, ok := raw["limit"].(int); ok {
-		s.Limit = limit
+	if limit, ok := raw["limit"]; ok {
+		s.Limit = coerceToInt(limit)
 		delete(raw, "limit")
 	}
 
