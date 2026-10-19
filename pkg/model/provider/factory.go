@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"strings"
 
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/model/provider/contracts"
 	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/model/provider/rulebased"
-	"github.com/docker/docker-agent/pkg/model/provider/vertexai"
 	"github.com/docker/docker-agent/pkg/modelinfo"
 )
 
@@ -184,7 +184,9 @@ func warnThinkingCannotBeDisabled(ctx context.Context, providerType string, cfg 
 	switch providerType {
 	case "anthropic", "amazon-bedrock":
 	case "google":
-		if !vertexai.IsModelGardenConfig(cfg) {
+		// Only Model Garden's Anthropic publisher reaches a Claude client. Not
+		// vertexai.IsModelGardenConfig: importing vertexai links the OpenAI SDK.
+		if publisher, _ := cfg.ProviderOpts["publisher"].(string); !strings.EqualFold(publisher, "anthropic") {
 			return
 		}
 	default:
