@@ -31,6 +31,7 @@ var modelsDevCatalogProviders = map[string]string{
 var modelsDevAbsentProviders = map[string]bool{
 	"api-route":             true, // API Route model IDs come from its own /v1/models endpoint, not models.dev.
 	"atlascloud":            true, // Atlas Cloud model IDs come from its own /v1/models endpoint, not models.dev.
+	"cheaperinference":      true, // Cheaper Inference model IDs come from its own /v1/models endpoint, not models.dev.
 	"dmr":                   true, // Docker Model Runner (local, not in catalog)
 	"cloudflare-workers-ai": true, // example uses an @cf/... model id not present in the models.dev snapshot (only variant ids like -fp8 are listed)
 	"cloudflare-ai-gateway": true, // multi-provider router; example model ids use the gateway's provider/model form, not guaranteed to match a models.dev id

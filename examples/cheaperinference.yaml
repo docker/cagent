@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=../agent-schema.json
+
+models:
+  cheaperinference_model:
+    provider: cheaperinference
+    model: gpt-5.4-mini
+
+agents:
+  root:
+    model: cheaperinference_model
+    description: Assistant using Cheaper Inference
+    instruction: |
+      You are a helpful assistant.
+    toolsets:
+      - type: filesystem
+      - type: shell
+      - type: think

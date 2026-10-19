@@ -38,21 +38,22 @@ func TestCatalogAliases(t *testing.T) {
 	t.Parallel()
 
 	expected := map[string]Alias{
-		"openrouter":   {APIType: "openai", BaseURL: "https://openrouter.ai/api/v1", TokenEnvVar: "OPENROUTER_API_KEY"},
-		"api-route":    {APIType: "openai", BaseURL: "https://global.api-route.com/v1", TokenEnvVar: "API_ROUTE_API_KEY"},
-		"atlascloud":   {APIType: "openai", BaseURL: "https://api.atlascloud.ai/v1", TokenEnvVar: "ATLASCLOUD_API_KEY"},
-		"baseten":      {APIType: "openai", BaseURL: "https://inference.baseten.co/v1", TokenEnvVar: "BASETEN_API_KEY"},
-		"daoxe":        {APIType: "openai", BaseURL: "https://api.daoxe.com/v1", TokenEnvVar: "DAOXE_API_KEY"},
-		"ovhcloud":     {APIType: "openai", BaseURL: "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1", TokenEnvVar: "OVH_AI_ENDPOINTS_ACCESS_TOKEN"},
-		"groq":         {APIType: "openai", BaseURL: "https://api.groq.com/openai/v1", TokenEnvVar: "GROQ_API_KEY"},
-		"deepseek":     {APIType: "openai", BaseURL: "https://api.deepseek.com/v1", TokenEnvVar: "DEEPSEEK_API_KEY"},
-		"cerebras":     {APIType: "openai", BaseURL: "https://api.cerebras.ai/v1", TokenEnvVar: "CEREBRAS_API_KEY"},
-		"fireworks-ai": {APIType: "openai", BaseURL: "https://api.fireworks.ai/inference/v1", TokenEnvVar: "FIREWORKS_API_KEY"},
-		"togetherai":   {APIType: "openai", BaseURL: "https://api.together.xyz/v1", TokenEnvVar: "TOGETHER_API_KEY"},
-		"huggingface":  {APIType: "openai", BaseURL: "https://router.huggingface.co/v1", TokenEnvVar: "HF_TOKEN"},
-		"moonshotai":   {APIType: "openai", BaseURL: "https://api.moonshot.ai/v1", TokenEnvVar: "MOONSHOT_API_KEY"},
-		"nvidia":       {APIType: "openai", BaseURL: "https://integrate.api.nvidia.com/v1", TokenEnvVar: "NVIDIA_API_KEY"},
-		"vercel":       {APIType: "openai", BaseURL: "https://ai-gateway.vercel.sh/v1", TokenEnvVar: "AI_GATEWAY_API_KEY"},
+		"openrouter":       {APIType: "openai", BaseURL: "https://openrouter.ai/api/v1", TokenEnvVar: "OPENROUTER_API_KEY"},
+		"api-route":        {APIType: "openai", BaseURL: "https://global.api-route.com/v1", TokenEnvVar: "API_ROUTE_API_KEY"},
+		"atlascloud":       {APIType: "openai", BaseURL: "https://api.atlascloud.ai/v1", TokenEnvVar: "ATLASCLOUD_API_KEY"},
+		"cheaperinference": {APIType: "openai", BaseURL: "https://api.cheaperinference.com/v1", TokenEnvVar: "CHEAPER_INFERENCE_API_KEY"},
+		"baseten":          {APIType: "openai", BaseURL: "https://inference.baseten.co/v1", TokenEnvVar: "BASETEN_API_KEY"},
+		"daoxe":            {APIType: "openai", BaseURL: "https://api.daoxe.com/v1", TokenEnvVar: "DAOXE_API_KEY"},
+		"ovhcloud":         {APIType: "openai", BaseURL: "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1", TokenEnvVar: "OVH_AI_ENDPOINTS_ACCESS_TOKEN"},
+		"groq":             {APIType: "openai", BaseURL: "https://api.groq.com/openai/v1", TokenEnvVar: "GROQ_API_KEY"},
+		"deepseek":         {APIType: "openai", BaseURL: "https://api.deepseek.com/v1", TokenEnvVar: "DEEPSEEK_API_KEY"},
+		"cerebras":         {APIType: "openai", BaseURL: "https://api.cerebras.ai/v1", TokenEnvVar: "CEREBRAS_API_KEY"},
+		"fireworks-ai":     {APIType: "openai", BaseURL: "https://api.fireworks.ai/inference/v1", TokenEnvVar: "FIREWORKS_API_KEY"},
+		"togetherai":       {APIType: "openai", BaseURL: "https://api.together.xyz/v1", TokenEnvVar: "TOGETHER_API_KEY"},
+		"huggingface":      {APIType: "openai", BaseURL: "https://router.huggingface.co/v1", TokenEnvVar: "HF_TOKEN"},
+		"moonshotai":       {APIType: "openai", BaseURL: "https://api.moonshot.ai/v1", TokenEnvVar: "MOONSHOT_API_KEY"},
+		"nvidia":           {APIType: "openai", BaseURL: "https://integrate.api.nvidia.com/v1", TokenEnvVar: "NVIDIA_API_KEY"},
+		"vercel":           {APIType: "openai", BaseURL: "https://ai-gateway.vercel.sh/v1", TokenEnvVar: "AI_GATEWAY_API_KEY"},
 	}
 
 	for name, want := range expected {
@@ -128,11 +129,12 @@ func TestProviderIDsMatchEmbeddedCatalog(t *testing.T) {
 	t.Parallel()
 	db := modelsdev.EmbeddedSnapshot()
 	absent := map[string]string{
-		"api-route":  "model IDs come from API Route's /v1/models endpoint, not models.dev",
-		"atlascloud": "model IDs come from Atlas Cloud's /v1/models endpoint, not models.dev",
-		"chatgpt":    "subscription backend, distinct from OpenAI",
-		"dmr":        "local Docker Model Runner",
-		"ollama":     "local Ollama server",
+		"api-route":        "model IDs come from API Route's /v1/models endpoint, not models.dev",
+		"atlascloud":       "model IDs come from Atlas Cloud's /v1/models endpoint, not models.dev",
+		"chatgpt":          "subscription backend, distinct from OpenAI",
+		"cheaperinference": "model IDs come from Cheaper Inference's /v1/models endpoint, not models.dev",
+		"dmr":              "local Docker Model Runner",
+		"ollama":           "local Ollama server",
 	}
 	for _, name := range AllProviders() {
 		t.Run(name, func(t *testing.T) {

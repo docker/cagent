@@ -262,19 +262,20 @@ func (c *Client) convertMessages(ctx context.Context, messages []chat.Message) [
 // (openai, mistral, xai, minimax, github-copilot, opencode) tolerate multiple
 // system messages and are deliberately absent so their behavior is unchanged.
 var openModelHostProviders = map[string]bool{
-	"api-route":    true,
-	"atlascloud":   true,
-	"baseten":      true,
-	"daoxe":        true,
-	"ovhcloud":     true,
-	"openrouter":   true,
-	"nebius":       true,
-	"nvidia":       true,
-	"cerebras":     true,
-	"fireworks-ai": true,
-	"togetherai":   true,
-	"huggingface":  true,
-	"vercel":       true,
+	"api-route":        true,
+	"atlascloud":       true,
+	"cheaperinference": true,
+	"baseten":          true,
+	"daoxe":            true,
+	"ovhcloud":         true,
+	"openrouter":       true,
+	"nebius":           true,
+	"nvidia":           true,
+	"cerebras":         true,
+	"fireworks-ai":     true,
+	"togetherai":       true,
+	"huggingface":      true,
+	"vercel":           true,
 	// Cloudflare Workers AI serves open-weight models directly; the AI Gateway
 	// fronts them (and other providers) through one endpoint. Both plausibly
 	// reach models with strict single-system-message chat templates.
