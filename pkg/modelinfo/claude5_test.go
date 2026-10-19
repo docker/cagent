@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/docker/docker-agent/pkg/effort"
 )
 
 func TestLookupClaude5(t *testing.T) {
@@ -55,5 +57,30 @@ func TestLookupClaude5(t *testing.T) {
 			_, ok := LookupClaude5(id)
 			assert.False(t, ok)
 		})
+	}
+}
+
+func TestClaude5Capabilities(t *testing.T) {
+	t.Parallel()
+
+	ids := []string{
+		"claude-haiku-5-5", "claude-opus-5", "claude-opus-5-5", "claude-sonnet-5", "claude-sonnet-5-5",
+		"claude-fable-5", "claude-fable-5-1", "claude-mythos-5", "claude-mythos-5-1",
+		"us.anthropic.claude-haiku-5-5",
+	}
+	for _, id := range ids {
+		t.Run(id, func(t *testing.T) {
+			t.Parallel()
+			assert.True(t, RejectsTokenThinking(id), "RejectsTokenThinking")
+			assert.True(t, SupportsAdaptiveThinking(id), "SupportsAdaptiveThinking")
+			assert.False(t, SupportsFullThinkingDisplay(id), "SupportsFullThinkingDisplay")
+			assert.Equal(t, []effort.Level{effort.XHigh, effort.Max}, anthropicTopEfforts(id))
+		})
+	}
+
+	for _, provider := range []string{"anthropic", "amazon-bedrock"} {
+		assert.Equal(t,
+			[]effort.Level{effort.None, effort.Low, effort.Medium, effort.High, effort.XHigh, effort.Max},
+			SupportedThinkingLevels(provider, "claude-sonnet-5-5"), provider)
 	}
 }

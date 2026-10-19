@@ -181,7 +181,8 @@ func isAdaptiveOnlyOpus(modelID string) bool {
 // `thinking.type=enabled` (token-based extended thinking) and instead requires
 // `thinking.type=adaptive`.
 //
-// Applies to Claude Opus 4.6, 4.7, 4.8, 5, and their dated variants (e.g.
+// Applies to every model in the Claude 5.x table ([LookupClaude5]) and to
+// Claude Opus 4.6, 4.7, 4.8, 5, and their dated variants (e.g.
 // claude-opus-4-7-20251101, claude-opus-5-20260724). Bedrock-style identifiers
 // such as "global.anthropic.claude-opus-5" are recognised too.
 // For these models the agent transparently switches a token-based budget to
@@ -189,6 +190,9 @@ func isAdaptiveOnlyOpus(modelID string) bool {
 //
 // See https://platform.claude.com/docs/en/build-with-claude/adaptive-thinking
 func RejectsTokenThinking(modelID string) bool {
+	if _, ok := LookupClaude5(modelID); ok {
+		return true
+	}
 	return isAdaptiveOnlyOpus(modelID)
 }
 
@@ -201,7 +205,8 @@ func RejectsTokenThinking(modelID string) bool {
 // Claude 3.x) reject `thinking.type=adaptive`/`output_config.effort` with a 400
 // and must use token-based extended thinking (`thinking.type=enabled`) instead.
 //
-// Supported: Opus 4.6/4.7/4.8/5 (which additionally reject token budgets, see
+// Supported: every model in the Claude 5.x table ([LookupClaude5]), and by
+// name heuristics Opus 4.6/4.7/4.8/5 (which additionally reject token budgets, see
 // [RejectsTokenThinking]), Sonnet 4.6, the Claude 5 families (e.g. Sonnet 5,
 // Opus 5), and the codenamed frontier models (Fable, Mythos). Bedrock-style
 // identifiers such as "global.anthropic.claude-sonnet-4-6" are recognised too.
@@ -211,6 +216,9 @@ func RejectsTokenThinking(modelID string) bool {
 //
 // See https://platform.claude.com/docs/en/build-with-claude/adaptive-thinking
 func SupportsAdaptiveThinking(modelID string) bool {
+	if _, ok := LookupClaude5(modelID); ok {
+		return true
+	}
 	m := normalize(modelID)
 	if bare, ok := bedrockClaudeModelName(m); ok {
 		m = bare
