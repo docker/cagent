@@ -547,7 +547,7 @@ func TestDefaultModels(t *testing.T) {
 	assert.Equal(t, "kimi-k3", DefaultModels["moonshotai"])
 	assert.Equal(t, "openai/gpt-5.6-sol", DefaultModels["vercel"])
 	assert.Equal(t, "global.anthropic.claude-sonnet-5", DefaultModels["amazon-bedrock"])
-	assert.Equal(t, "deepseek-v4-flash", DefaultModels["opencode-go"])
+	assert.Equal(t, "deepseek-v4.1-flash", DefaultModels["opencode-go"])
 	assert.Equal(t, "deepseek-v4-flash-free", DefaultModels["opencode"])
 }
 

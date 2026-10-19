@@ -175,7 +175,7 @@ var DefaultModels = map[string]string{
 	"moonshotai":     "kimi-k3",
 	"vercel":         "openai/gpt-5.6-sol",
 	"amazon-bedrock": "global.anthropic.claude-sonnet-5",
-	"opencode-go":    "deepseek-v4-flash",
+	"opencode-go":    "deepseek-v4.1-flash",
 	"opencode":       "deepseek-v4-flash-free",
 }
 
