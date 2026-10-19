@@ -173,8 +173,10 @@ func (h *History) load() error {
 		return err
 	}
 
-	for line := range bytes.Lines(data) {
-		line = bytes.TrimSuffix(line, []byte("\n"))
+	seenRaw := make(map[string]struct{})
+	seenRedacted := make(map[string]struct{})
+	// Walk newest-first so duplicates need neither rescanning nor removal.
+	for _, line := range slices.Backward(bytes.Split(data, []byte("\n"))) {
 		if len(line) == 0 {
 			continue
 		}
@@ -182,11 +184,19 @@ func (h *History) load() error {
 		if err := json.Unmarshal(line, &msg); err != nil {
 			continue
 		}
-		// Redact on read so a history file that predates redaction
-		// (or was tampered with externally) never exposes secrets to
-		// the in-memory navigation cursor or downstream callers.
-		h.addInMemory(portcullis.Redact(msg))
+		if _, ok := seenRaw[msg]; ok {
+			continue
+		}
+		seenRaw[msg] = struct{}{}
+		// Distinct raw messages can become duplicates after redaction.
+		msg = portcullis.Redact(msg)
+		if _, ok := seenRedacted[msg]; ok {
+			continue
+		}
+		seenRedacted[msg] = struct{}{}
+		h.Messages = append(h.Messages, msg)
 	}
+	slices.Reverse(h.Messages)
 	return nil
 }
 

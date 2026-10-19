@@ -1,8 +1,13 @@
 package history
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/docker/portcullis"
@@ -657,4 +662,74 @@ func TestNewAtDir(t *testing.T) {
 	reloaded, err := NewAtDir(dir)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"hello"}, reloaded.Messages)
+}
+
+func TestHistory_Load(t *testing.T) {
+	t.Parallel()
+
+	pat := portcullistest.FakeGitHubPAT("cxLeRrvbJfmYdUtr70xnNE3Q7Gvli4")
+	otherPAT := portcullistest.FakeGitHubPAT("dxLeRrvbJfmYdUtr70xnNE3Q7Gvli4")
+	for _, tt := range []struct {
+		name string
+		data string
+		want []string
+	}{
+		{name: "empty"},
+		{name: "invalid only", data: "\ninvalid\n{}\n42\ntrue\n\"unterminated"},
+		{name: "latest occurrence wins", data: "\"a\"\n\"b\"\n\"c\"\n\"a\"\n\"b\"\n", want: []string{"c", "a", "b"}},
+		{name: "invalid between duplicates", data: "\"a\"\nbroken\n\"b\"\n\"a\"", want: []string{"b", "a"}},
+		{name: "empty strings and null", data: "\"\"\n\"a\"\nnull\n", want: []string{"a", ""}},
+		{name: "equivalent JSON strings", data: "\"a\"\n\"b\"\n\"\\u0061\"\n", want: []string{"b", "a"}},
+		{name: "whitespace and CRLF", data: "\"a\"\r\n \"b\" \r\n\r\n\"a\"\r\n", want: []string{"b", "a"}},
+		{name: "multiline message", data: "\"a\\nb\"\n\"c\"\n\"a\\nb\"", want: []string{"c", "a\nb"}},
+		{
+			name: "redacted collisions",
+			data: fmt.Sprintf("%q\n%q\n%q\n%q\n%q\n", "token "+pat, "token "+portcullis.Marker, "keep", "token "+otherPAT, "token "+pat),
+			want: []string{"keep", "token " + portcullis.Marker},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			path := filepath.Join(dir, "history")
+			require.NoError(t, os.WriteFile(path, []byte(tt.data), 0o600))
+
+			h, err := NewAtDir(dir)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, h.Messages)
+			assert.Equal(t, len(tt.want), h.current)
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+			assert.Equal(t, tt.data, string(data), "loading must not rewrite the history file")
+
+			for _, want := range slices.Backward(tt.want) {
+				assert.Equal(t, want, h.Previous())
+			}
+			require.NoError(t, h.Add("after load"))
+			assert.Equal(t, "after load", h.Previous())
+		})
+	}
+}
+
+func BenchmarkHistoryLoad(b *testing.B) {
+	for _, unique := range []int{1, 8000, 20000} {
+		b.Run(fmt.Sprintf("unique=%d", unique), func(b *testing.B) {
+			var data bytes.Buffer
+			encoder := json.NewEncoder(&data)
+			for i := range 20000 {
+				msg := fmt.Sprintf("Review change %d: %s", i%unique, strings.Repeat("check tests and error handling; ", 5))
+				require.NoError(b, encoder.Encode(msg))
+			}
+			dir := b.TempDir()
+			require.NoError(b, os.WriteFile(filepath.Join(dir, "history"), data.Bytes(), 0o600))
+			b.ReportAllocs()
+			b.SetBytes(int64(data.Len()))
+			b.ResetTimer()
+			for b.Loop() {
+				h, err := NewAtDir(dir)
+				require.NoError(b, err)
+				require.Len(b, h.Messages, unique)
+			}
+		})
+	}
 }
