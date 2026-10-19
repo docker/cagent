@@ -520,7 +520,7 @@ func TestCreateDirectProvider_WarnsWhenThinkingCannotBeDisabled(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
 	t.Cleanup(func() { slog.SetDefault(previous) })
 
-	const warning = "model cannot disable thinking"
+	const warning = "thinking_budget none or 0 is sent as adaptive thinking with low effort"
 	none := func() *latest.ThinkingBudget { return &latest.ThinkingBudget{Effort: "none"} }
 	cases := []struct {
 		name     string
@@ -533,6 +533,9 @@ func TestCreateDirectProvider_WarnsWhenThinkingCannotBeDisabled(t *testing.T) {
 		{name: "internal no-thinking call", cfg: latest.ModelConfig{Provider: "anthropic", Model: "claude-opus-5-5"}, opts: []options.Opt{options.WithNoThinking()}},
 		{name: "model can disable", cfg: latest.ModelConfig{Provider: "anthropic", Model: "claude-sonnet-5", ThinkingBudget: none()}},
 		{name: "openai-compatible provider", cfg: latest.ModelConfig{Provider: "openai", Model: "claude-opus-5-5", ThinkingBudget: none()}},
+		{name: "configured 0 on opus 5.5", cfg: latest.ModelConfig{Provider: "anthropic", Model: "claude-opus-5-5", ThinkingBudget: &latest.ThinkingBudget{}}, wantWarn: true},
+		{name: "vertex model garden", cfg: latest.ModelConfig{Provider: "google", Model: "claude-opus-5-5", ThinkingBudget: none(), ProviderOpts: map[string]any{"publisher": "anthropic"}}, wantWarn: true},
+		{name: "google without anthropic publisher", cfg: latest.ModelConfig{Provider: "google", Model: "claude-opus-5-5", ThinkingBudget: none()}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -12,6 +12,7 @@ import (
 	"github.com/docker/docker-agent/pkg/model/provider/contracts"
 	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/model/provider/rulebased"
+	"github.com/docker/docker-agent/pkg/model/provider/vertexai"
 	"github.com/docker/docker-agent/pkg/modelinfo"
 )
 
@@ -156,7 +157,7 @@ func (r *Registry) createDirectProvider(ctx context.Context, cfg *latest.ModelCo
 	}
 	providerType := resolveProviderType(enhancedCfg)
 	if budget.IsDisabled() && !globalOptions.NoThinking() {
-		warnThinkingCannotBeDisabled(ctx, providerType, enhancedCfg.Model)
+		warnThinkingCannotBeDisabled(ctx, providerType, enhancedCfg)
 	}
 	factory, ok := r.factory(providerType)
 	if !ok {
@@ -176,18 +177,22 @@ func (r *Registry) createDirectProvider(ctx context.Context, cfg *latest.ModelCo
 	return instrumentProvider(p), nil
 }
 
-// warnThinkingCannotBeDisabled flags a configured thinking_budget none that a
-// native Claude transport cannot honor. Internal no-thinking calls (titles,
-// sampling) are not configured by the user and stay silent.
-func warnThinkingCannotBeDisabled(ctx context.Context, providerType, model string) {
+// warnThinkingCannotBeDisabled flags a configured thinking_budget none or 0
+// that a native Claude transport cannot honor. Internal no-thinking calls
+// (titles, sampling) are not configured by the user and stay silent.
+func warnThinkingCannotBeDisabled(ctx context.Context, providerType string, cfg *latest.ModelConfig) {
 	switch providerType {
-	case "anthropic", "amazon-bedrock", "google":
+	case "anthropic", "amazon-bedrock":
+	case "google":
+		if !vertexai.IsModelGardenConfig(cfg) {
+			return
+		}
 	default:
 		return
 	}
-	if c5, ok := modelinfo.LookupClaude5(model); ok && !c5.CanDisableThinking {
-		slog.WarnContext(ctx, "model cannot disable thinking; thinking_budget none is sent as adaptive thinking with low effort",
-			"model", model, "provider", providerType)
+	if c5, ok := modelinfo.LookupClaude5(cfg.Model); ok && !c5.CanDisableThinking {
+		slog.WarnContext(ctx, "model cannot disable thinking; thinking_budget none or 0 is sent as adaptive thinking with low effort",
+			"model", cfg.Model, "provider", providerType)
 	}
 }
 
