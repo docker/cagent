@@ -26,6 +26,7 @@ import (
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/echolog"
 	"github.com/docker/docker-agent/pkg/runtime"
+	"github.com/docker/docker-agent/pkg/runtime/eventmerge"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/tools/mcp"
 	"github.com/docker/docker-agent/pkg/upstream"
@@ -514,7 +515,7 @@ func (s *Server) runAgent(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("invalid request body: %v", err))
 	}
 
-	streamChan, err := s.sm.RunSession(c.Request().Context(), sessionID, agentFilename, currentAgent, req.Messages, req.Model)
+	runEvents, err := s.sm.RunSession(c.Request().Context(), sessionID, agentFilename, currentAgent, req.Messages, req.Model)
 	if err != nil {
 		if errors.Is(err, ErrSessionBusy) {
 			return echo.NewHTTPError(http.StatusConflict, err.Error())
@@ -524,6 +525,7 @@ func (s *Server) runAgent(c echo.Context) error {
 		}
 		return agentSourceHTTPError("failed to run session", err)
 	}
+	streamChan := eventmerge.Coalesce(c.Request().Context(), runEvents, s.sm.streamCoalesceWindow)
 
 	c.Response().Header().Set("Content-Type", "text/event-stream")
 	c.Response().Header().Set("Cache-Control", "no-cache")
