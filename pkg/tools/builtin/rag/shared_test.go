@@ -16,6 +16,7 @@ import (
 	"github.com/docker/docker-agent/pkg/config"
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
+	"github.com/docker/docker-agent/pkg/httpclient"
 	ragtypes "github.com/docker/docker-agent/pkg/rag/types"
 	"github.com/docker/docker-agent/pkg/tools"
 )
@@ -283,4 +284,25 @@ func TestSharedToolSet_ToolsDoesNotWaitForIndexing(t *testing.T) {
 	close(release)
 	require.NoError(t, <-started)
 	require.NoError(t, s.Stop(t.Context()))
+}
+
+func TestSharedToolSet_BackgroundWorkCarriesNoSession(t *testing.T) {
+	t.Parallel()
+	backend := newCountingBackend()
+	watchCtx := make(chan context.Context, 1)
+	backend.watch = func(ctx context.Context) error {
+		watchCtx <- ctx
+		return nil
+	}
+	s := newSharedToolSet(newSharedRegistry(), sharedKey{config: "same"}, New(backend, "knowledge"))
+
+	require.NoError(t, s.Start(httpclient.ContextWithSessionID(t.Context(), "session-a")))
+	defer func() { _ = s.Stop(t.Context()) }()
+
+	select {
+	case ctx := <-watchCtx:
+		assert.Empty(t, httpclient.SessionIDFromContext(ctx), "a shared index must not act on behalf of the session that started it")
+	case <-time.After(5 * time.Second):
+		t.Fatal("file watcher not started")
+	}
 }

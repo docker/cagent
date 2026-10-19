@@ -11,6 +11,7 @@ import (
 	"github.com/docker/docker-agent/pkg/config"
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
+	"github.com/docker/docker-agent/pkg/httpclient"
 	"github.com/docker/docker-agent/pkg/model/provider"
 	ragtypes "github.com/docker/docker-agent/pkg/rag/types"
 	"github.com/docker/docker-agent/pkg/tools"
@@ -119,6 +120,9 @@ func (e *sharedEntry) start(ctx context.Context) error {
 	if e.started {
 		return nil
 	}
+	// The index outlives the starting session and serves others: keep the
+	// context's logging and tracing but not its session identity.
+	ctx = httpclient.ContextWithSessionID(ctx, "")
 	if err := e.ts.Start(ctx); err != nil {
 		return err
 	}
