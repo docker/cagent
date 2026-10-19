@@ -66,7 +66,7 @@ func checksThinkingPrefix(model string) bool {
 
 func rejectsSampling(model string) bool {
 	m, ok := parseClaudeModel(model)
-	return ok && (m.atLeast("opus", 4, 7) || m.atLeast("sonnet", 5, 0) || m.family == "fable" || m.family == "mythos")
+	return ok && (m.atLeast("opus", 4, 7) || m.atLeast("sonnet", 5, 0) || m.atLeast("haiku", 5, 0) || m.family == "fable" || m.family == "mythos")
 }
 
 func supportsProgressUpdates(model string) bool {
