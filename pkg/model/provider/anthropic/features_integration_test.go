@@ -350,7 +350,8 @@ func TestDisabledThinking(t *testing.T) {
 		assert.Equal(t, "Title", msg.Content)
 
 		req := srv.request(t, 0)
-		assert.NotContains(t, req.body, "thinking", "the model's default thinking is left in place")
+		assert.Equal(t, "adaptive", req.thinking()["type"], "Fable cannot disable thinking")
+		assert.Equal(t, "low", req.outputConfig()["effort"])
 		assert.InDelta(t, noThinkingMinOutputTokens, req.body["max_tokens"], 0)
 		assert.NotContains(t, req.body, "temperature")
 	})
@@ -783,4 +784,35 @@ func TestClaude5RejectsFinalAssistantPrefill(t *testing.T) {
 	legacy := newScriptedServer(t, textReply("msg_1", "ok"))
 	chatTurn(t, newScriptedClient(legacy, latest.ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-6"}), history, nil)
 	assert.Equal(t, 1, legacy.count())
+}
+
+// Through the factory a configured none arrives as a nil budget plus
+// WithNoThinking (see provider.applyModelDefaults).
+func TestClaude5NoThinkingOption(t *testing.T) {
+	t.Parallel()
+
+	send := func(t *testing.T, model string) capturedRequest {
+		t.Helper()
+		srv := newScriptedServer(t, textReply("msg_1", "ok"))
+		client := newScriptedClient(srv, latest.ModelConfig{Provider: "anthropic", Model: model}, options.WithNoThinking())
+		chatTurn(t, client, []chat.Message{user("hello")}, nil)
+		return srv.request(t, 0)
+	}
+
+	t.Run("sonnet 5 sends disabled", func(t *testing.T) {
+		t.Parallel()
+		assert.Equal(t, map[string]any{"type": "disabled"}, send(t, "claude-sonnet-5").thinking())
+	})
+
+	t.Run("opus 5.5 falls back to adaptive low", func(t *testing.T) {
+		t.Parallel()
+		req := send(t, "claude-opus-5-5")
+		assert.Equal(t, "adaptive", req.thinking()["type"])
+		assert.Equal(t, "low", req.outputConfig()["effort"])
+	})
+
+	t.Run("legacy model is unchanged", func(t *testing.T) {
+		t.Parallel()
+		assert.NotContains(t, send(t, "claude-sonnet-4-6").body, "thinking")
+	})
 }

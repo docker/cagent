@@ -1529,3 +1529,19 @@ func TestCreateChatCompletionStream_Claude5RejectsFinalAssistantPrefill(t *testi
 	}, nil)
 	require.ErrorContains(t, err, "does not accept a final assistant message")
 }
+
+// Through the factory a configured none arrives as a nil budget plus
+// WithNoThinking (see provider.applyModelDefaults).
+func TestBuildAdditionalModelRequestFields_Claude5NoThinkingOption(t *testing.T) {
+	t.Parallel()
+
+	sonnet := bedrockThinkingClient("anthropic.claude-sonnet-5", nil)
+	sonnet.ModelOptions = options.Apply(options.WithNoThinking())
+	assert.Equal(t, map[string]any{"type": "disabled"}, decodeRequestFields(t, sonnet.buildAdditionalModelRequestFields())["thinking"])
+
+	fable := bedrockThinkingClient("anthropic.claude-fable-5", nil)
+	fable.ModelOptions = options.Apply(options.WithNoThinking())
+	fields := decodeRequestFields(t, fable.buildAdditionalModelRequestFields())
+	assert.Equal(t, map[string]any{"type": "adaptive"}, fields["thinking"])
+	assert.Equal(t, map[string]any{"effort": "low"}, fields["output_config"])
+}

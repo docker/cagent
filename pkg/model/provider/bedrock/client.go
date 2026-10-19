@@ -271,18 +271,31 @@ func (c *Client) interleavedThinkingEnabled() bool {
 	return b
 }
 
+// thinkingBudget returns the configured thinking budget. The provider
+// defaults turn a configured none into nil plus WithNoThinking; Claude 5.x
+// thinks by default, so it gets the explicit none back.
+func (c *Client) thinkingBudget() *latest.ThinkingBudget {
+	if budget := c.ModelConfig.ThinkingBudget; budget != nil {
+		return budget
+	}
+	if _, ok := modelinfo.LookupClaude5(c.ModelConfig.Model); ok && c.ModelOptions.NoThinking() {
+		return &latest.ThinkingBudget{Effort: "none"}
+	}
+	return nil
+}
+
 // isThinkingEnabled returns true if a valid thinking budget is configured.
 // It mirrors the validation in buildAdditionalModelRequestFields but without
 // side effects (no logging), so it can safely be used to gate inference config.
 func (c *Client) isThinkingEnabled() bool {
-	if c.ModelConfig.ThinkingBudget == nil {
+	if c.thinkingBudget() == nil {
 		return false
 	}
 	if _, ok := c.adaptiveThinkingEffort(); ok {
 		return true
 	}
-	tokens := c.ModelConfig.ThinkingBudget.Tokens
-	if t, ok := c.ModelConfig.ThinkingBudget.EffortTokens(); ok {
+	tokens := c.thinkingBudget().Tokens
+	if t, ok := c.thinkingBudget().EffortTokens(); ok {
 		tokens = t
 	}
 	if tokens < 1024 {
@@ -307,7 +320,7 @@ func (c *Client) isThinkingEnabled() bool {
 // An empty effort with ok=true means adaptive thinking at the model's default
 // effort (a token budget on a Claude 5.x model).
 func (c *Client) adaptiveThinkingEffort() (string, bool) {
-	budget := c.ModelConfig.ThinkingBudget
+	budget := c.thinkingBudget()
 	if budget == nil {
 		return "", false
 	}
@@ -358,7 +371,7 @@ func (c *Client) buildAdditionalModelRequestFields() document.Interface {
 	}
 
 	// Configure thinking budget if present and valid
-	if budget := c.ModelConfig.ThinkingBudget; budget != nil {
+	if budget := c.thinkingBudget(); budget != nil {
 		if effortStr, ok := c.adaptiveThinkingEffort(); ok {
 			switch {
 			case budget.Tokens > 0:

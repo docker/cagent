@@ -148,7 +148,7 @@ func validThinkingTokens(tokens, maxTokens int64) (int64, bool) {
 // Disabled, zero, and negative budgets are passed through unchanged so
 // downstream code keeps treating them as "thinking off".
 func (c *Client) resolveThinkingBudget() *latest.ThinkingBudget {
-	budget := c.ModelConfig.ThinkingBudget
+	budget := c.thinkingBudget()
 	if budget == nil {
 		if checksThinkingPrefix(c.ModelConfig.Model) || c.progressUpdatesEnabled() {
 			return &latest.ThinkingBudget{Effort: "adaptive"}
@@ -389,11 +389,24 @@ func (c *Client) applyBetaThinkingConfig(params *anthropic.BetaMessageNewParams,
 	slog.Debug("Anthropic Beta API using thinking_budget", "budget_tokens", tokens, "display", display)
 }
 
+// thinkingBudget returns the configured thinking budget. The provider
+// defaults turn a configured none into nil plus WithNoThinking; Claude 5.x
+// thinks by default, so it gets the explicit none back.
+func (c *Client) thinkingBudget() *latest.ThinkingBudget {
+	if budget := c.ModelConfig.ThinkingBudget; budget != nil {
+		return budget
+	}
+	if _, ok := modelinfo.LookupClaude5(c.ModelConfig.Model); ok && c.ModelOptions.NoThinking() {
+		return &latest.ThinkingBudget{Effort: "none"}
+	}
+	return nil
+}
+
 // sendsEffort reports whether an adaptive request carries output_config.effort.
 // A token budget coerced to adaptive on a Claude 5.x model leaves effort unset
 // so the model's own default applies.
 func (c *Client) sendsEffort() bool {
-	budget := c.ModelConfig.ThinkingBudget
+	budget := c.thinkingBudget()
 	if budget == nil {
 		return false
 	}
