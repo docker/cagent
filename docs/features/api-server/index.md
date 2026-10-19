@@ -195,12 +195,14 @@ $ curl -N -X POST http://localhost:8080/api/sessions/$SID/agent/my-agent \
   -d '{"messages":[{"role":"user","content":"Hello!"}],"model":"openai/gpt-4o"}'
 
 # Response (SSE stream):
-data: {"type":"stream_started","session_id":"...","agent":"root"}
-data: {"type":"agent_choice","content":"Hello! How","agent":"root"}
-data: {"type":"agent_choice","content":" can I help","agent":"root"}
-data: {"type":"agent_choice","content":" you today?","agent":"root"}
-data: {"type":"stream_stopped","session_id":"...","agent":"root"}
+data: {"type":"stream_started","session_id":"...","agent_name":"root"}
+data: {"type":"agent_choice","content":"Hello! How","agent_name":"root"}
+data: {"type":"agent_choice","content":" can I help","agent_name":"root"}
+data: {"type":"agent_choice","content":" you today?","agent_name":"root"}
+data: {"type":"stream_stopped","session_id":"...","agent_name":"root"}
 ```
+
+Streaming deltas (`agent_choice`, `agent_choice_reasoning`, `partial_tool_call` and `tool_call_output`) carry only the new bytes, so clients must concatenate them. The server merges consecutive deltas for the same message or tool call that arrive within `--stream-coalesce-window` (50 ms by default) into a single event. This applies to this endpoint and to `GET /api/sessions/:id/events`. Merged events carry the same content in the same order. Only the chunk boundaries change, so don't rely on one event per model token. The first delta after a quiet spell is sent at once, and any other event is sent only after the deltas that preceded it.
 
 The `stream_stopped` event may include `finish_reason` with the terminal model result (such as `stop`, `length`, or `refusal`), even when that response has no content or usage. Its stream-level `reason` is `max_iterations` when execution stops at the iteration cap. These describe the root or sub-session identified by `session_id`; consumers should not combine child outcomes with the root result. Stream-stop delivery precedes session-end hooks, so draining the stream to closure remains the completion barrier.
 
@@ -208,7 +210,10 @@ Event types include:
 
 - `stream_started` / `stream_stopped` — Agent execution lifecycle
 - `agent_choice` — Streamed text content (partial responses)
+- `agent_choice_reasoning` — Streamed reasoning content
+- `partial_tool_call` — Streamed tool-call arguments, keyed by `tool_call.id`. The first one also carries `tool_definition`
 - `tool_call` — Agent requesting tool execution
+- `tool_call_output` — Streamed output of a running tool, keyed by `tool_call_id`
 - `tool_call_confirmation` — Tool call waiting for user approval
 - `tool_call_response` — Tool execution result
 - `plan_changed` — A shared plan was created, updated, or deleted through the plan toolset. The payload carries the plan's `scope`, `name`, `action`, and `version` — never its content. Shared plans are deliberately process-global: every active stream served by the same process subscribes to the same shared plan notifier and receives the event regardless of which session performed the mutation, and the payload does not identify the mutating session (read the plan's `author` metadata for collaborative attribution).

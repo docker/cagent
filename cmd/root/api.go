@@ -16,6 +16,7 @@ import (
 	"github.com/docker/docker-agent/pkg/config/sources"
 	pathx "github.com/docker/docker-agent/pkg/path"
 	"github.com/docker/docker-agent/pkg/profiling"
+	"github.com/docker/docker-agent/pkg/runtime/eventmerge"
 	"github.com/docker/docker-agent/pkg/server"
 	"github.com/docker/docker-agent/pkg/session/sqlitestore"
 	"github.com/docker/docker-agent/pkg/telemetry"
@@ -36,6 +37,7 @@ type apiFlags struct {
 	pprofAddr             string
 	maxRequestSize        int64
 	sessionWorkingDirRoot string
+	streamCoalesceWindow  time.Duration
 	runConfig             config.RuntimeConfig
 }
 
@@ -57,6 +59,7 @@ func newAPICmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&flags.authToken, "auth-token", "", "Bearer token required for API requests (empty = no authentication)")
 	cmd.PersistentFlags().Int64Var(&flags.maxRequestSize, "max-request-size", 1<<20, "Maximum request body size in bytes (default 1 MiB). Requests exceeding this limit are rejected with HTTP 413.")
 	cmd.PersistentFlags().StringVar(&flags.sessionWorkingDirRoot, "session-workingdir-root", "", "Restrict the working_dir of sessions created via POST /api/sessions to this directory and its descendants (empty = no restriction; recommended for multi-user deployments)")
+	cmd.PersistentFlags().DurationVar(&flags.streamCoalesceWindow, "stream-coalesce-window", eventmerge.DefaultWindow, "Merge consecutive streaming deltas (text, reasoning, tool-call arguments, tool output) arriving within this window into one SSE event (0 = one event per delta)")
 	cmd.PersistentFlags().StringVar(&flags.pprofAddr, "pprof-addr", "", "TCP host:port to expose Go pprof endpoints at /debug/pprof/ (e.g. 127.0.0.1:6060); also set via DOCKER_AGENT_PPROF_ADDR")
 	_ = cmd.PersistentFlags().MarkHidden("pprof-addr")
 	cmd.MarkFlagsMutuallyExclusive("fake", "record")
@@ -147,7 +150,8 @@ func (f *apiFlags) runAPICommand(cmd *cobra.Command, args []string) (commandErr 
 	}
 
 	s, err := server.New(ctx, sessionStore, &f.runConfig, time.Duration(f.pullIntervalMins)*time.Minute, agentSources, f.authToken, f.maxRequestSize,
-		server.WithSessionWorkingDirRoot(f.sessionWorkingDirRoot))
+		server.WithSessionWorkingDirRoot(f.sessionWorkingDirRoot),
+		server.WithStreamCoalesceWindow(f.streamCoalesceWindow))
 	if err != nil {
 		return fmt.Errorf("creating server: %w", err)
 	}

@@ -24,6 +24,7 @@ import (
 	"github.com/docker/docker-agent/pkg/config"
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/runtime"
+	"github.com/docker/docker-agent/pkg/runtime/eventmerge"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/sessiontitle"
 	"github.com/docker/docker-agent/pkg/team"
@@ -75,6 +76,10 @@ type SessionManager struct {
 	beforePersistActiveSession func()
 
 	refreshInterval time.Duration
+
+	// streamCoalesceWindow merges streaming deltas served over HTTP (see
+	// WithStreamCoalesceWindow). Zero disables merging.
+	streamCoalesceWindow time.Duration
 
 	mux sync.Mutex
 
@@ -149,6 +154,17 @@ func WithSessionWorkingDirRoot(root string) SessionManagerOpt {
 	}
 }
 
+// WithStreamCoalesceWindow sets how long streaming deltas (text, reasoning,
+// tool-call arguments and tool output) are held back so consecutive ones can
+// be sent as a single SSE event. The merged stream carries the same content
+// in the same order; only the chunk boundaries change. Zero or a negative
+// value sends one event per delta. Defaults to [eventmerge.DefaultWindow].
+func WithStreamCoalesceWindow(window time.Duration) SessionManagerOpt {
+	return func(sm *SessionManager) {
+		sm.streamCoalesceWindow = window
+	}
+}
+
 // NewSessionManager creates a new session manager.
 func NewSessionManager(ctx context.Context, sources config.Sources, sessionStore session.Store, refreshInterval time.Duration, runConfig *config.RuntimeConfig, opts ...SessionManagerOpt) *SessionManager {
 	loaders := make(config.Sources)
@@ -167,6 +183,7 @@ func NewSessionManager(ctx context.Context, sources config.Sources, sessionStore
 		sessionStore:          sessionStore,
 		Sources:               loaders,
 		refreshInterval:       refreshInterval,
+		streamCoalesceWindow:  eventmerge.DefaultWindow,
 		runConfig:             runConfig,
 		sessionReady:          make(chan struct{}),
 	}
@@ -1433,7 +1450,10 @@ func (sm *SessionManager) recallSession(ctx context.Context, sessionID string, m
 	go func() {
 		defer rt.streaming.Unlock()
 		defer runCancel()
-		stream := rt.runtime.RunStream(runCtx, sess)
+		// Merge before appending so replay sequence numbers name merged events.
+		// The log must still get the events emitted while the run is torn
+		// down, hence the uncancelled context.
+		stream := eventmerge.Coalesce(context.WithoutCancel(runCtx), rt.runtime.RunStream(runCtx, sess), sm.streamCoalesceWindow)
 		for event := range stream {
 			// Already appended exactly once via the OnElicitationRequest
 			// sink (see runtimeForSession); skip the best-effort RunStream
