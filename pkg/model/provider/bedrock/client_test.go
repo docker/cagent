@@ -1566,7 +1566,7 @@ func TestNewClient_RefusesMythos5(t *testing.T) {
 	env := environment.NewMapEnvProvider(map[string]string{"AWS_BEARER_TOKEN_BEDROCK": "token", "AWS_REGION": "us-east-1"})
 
 	_, err := NewClient(t.Context(), &latest.ModelConfig{Provider: "amazon-bedrock", Model: "us.anthropic.claude-mythos-5"}, env)
-	require.EqualError(t, err, "amazon-bedrock: claude-mythos-5 is only available on Bedrock Mantle, which docker-agent does not support; use claude-mythos-5-1 or the Claude API")
+	require.EqualError(t, err, `amazon-bedrock: model "us.anthropic.claude-mythos-5" is only available on Bedrock Mantle, which docker-agent does not support`)
 
 	client, err := NewClient(t.Context(), &latest.ModelConfig{Provider: "amazon-bedrock", Model: "anthropic.claude-mythos-5-1"}, env)
 	require.NoError(t, err)

@@ -267,7 +267,7 @@ func TestThinkingPrefixMismatch_ExplicitOption(t *testing.T) {
 		client := newScriptedClient(srv, latest.ModelConfig{
 			Provider: "anthropic", Model: "claude-sonnet-4-5",
 			ThinkingBudget: &latest.ThinkingBudget{Tokens: 2048},
-			ProviderOpts:   map[string]any{"fallbacks": []any{"claude-fable-5-1"}},
+			ProviderOpts:   map[string]any{"fallbacks": []any{"claude-fable-5-2"}},
 		})
 		chatTurn(t, client, []chat.Message{user("hello")}, nil)
 
