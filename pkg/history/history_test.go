@@ -6,9 +6,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 
 	"github.com/docker/portcullis"
 	"github.com/stretchr/testify/assert"
@@ -709,6 +713,107 @@ func TestHistory_Load(t *testing.T) {
 			assert.Equal(t, "after load", h.Previous())
 		})
 	}
+}
+
+func TestRedactMessages(t *testing.T) {
+	t.Parallel()
+
+	for _, count := range []int{0, 1, 2, runtime.NumCPU() + 3} {
+		t.Run(strconv.Itoa(count), func(t *testing.T) {
+			t.Parallel()
+			var messages, want []string
+			for i := range count {
+				messages = append(messages, strconv.Itoa(i))
+				want = append(want, "redacted "+strconv.Itoa(i))
+			}
+			calls := make([]atomic.Int32, count)
+			redactMessages(messages, func(msg string) string {
+				i, err := strconv.Atoi(msg)
+				if err != nil {
+					t.Errorf("invalid message index %q: %v", msg, err)
+					return ""
+				}
+				calls[i].Add(1)
+				return "redacted " + msg
+			})
+			assert.Equal(t, want, messages)
+			for i := range calls {
+				assert.Equal(t, int32(1), calls[i].Load())
+			}
+		})
+	}
+}
+
+func TestRedactMessagesConcurrentWorkers(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		workers := runtime.NumCPU()
+		messages := make([]string, workers*2+1)
+		for i := range messages {
+			messages[i] = strconv.Itoa(i)
+		}
+		entered := make(chan string, len(messages))
+		release := make(chan struct{})
+		done := make(chan struct{})
+		go func() {
+			redactMessages(messages, func(msg string) string {
+				entered <- msg
+				<-release
+				return "redacted " + msg
+			})
+			close(done)
+		}()
+
+		synctest.Wait()
+		assert.Len(t, entered, workers)
+		select {
+		case <-done:
+			t.Error("redaction returned before workers finished")
+		default:
+		}
+		close(release)
+		<-done
+		assert.Len(t, entered, len(messages))
+		for i, msg := range messages {
+			assert.Equal(t, "redacted "+strconv.Itoa(i), msg)
+		}
+	})
+}
+
+func TestHistory_ConcurrentRedactionOrder(t *testing.T) {
+	t.Parallel()
+
+	var data bytes.Buffer
+	encoder := json.NewEncoder(&data)
+	expected := &History{}
+	count := runtime.NumCPU()*4 + 1
+	pat := portcullistest.FakeGitHubPAT("cxLeRrvbJfmYdUtr70xnNE3Q7Gvli4")
+	otherPAT := portcullistest.FakeGitHubPAT("dxLeRrvbJfmYdUtr70xnNE3Q7Gvli4")
+	for i := range count {
+		for _, msg := range []string{
+			fmt.Sprintf("message %d %s", i, strings.Repeat("context ", (i%7)*100)),
+			"token " + pat,
+			fmt.Sprintf("middle %d", i),
+			"token " + otherPAT,
+		} {
+			require.NoError(t, encoder.Encode(msg))
+			expected.addInMemory(portcullis.Redact(msg))
+		}
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "history")
+	require.NoError(t, os.WriteFile(path, data.Bytes(), 0o600))
+	for range 5 {
+		h, err := NewAtDir(dir)
+		require.NoError(t, err)
+		assert.Equal(t, expected.Messages, h.Messages)
+		assert.Equal(t, len(expected.Messages), h.current)
+	}
+	persisted, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, data.Bytes(), persisted)
 }
 
 func BenchmarkHistoryLoad(b *testing.B) {

@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/docker/portcullis"
 
@@ -174,7 +176,7 @@ func (h *History) load() error {
 	}
 
 	seenRaw := make(map[string]struct{})
-	seenRedacted := make(map[string]struct{})
+	var messages []string
 	// Walk newest-first so duplicates need neither rescanning nor removal.
 	for _, line := range slices.Backward(bytes.Split(data, []byte("\n"))) {
 		if len(line) == 0 {
@@ -188,16 +190,50 @@ func (h *History) load() error {
 			continue
 		}
 		seenRaw[msg] = struct{}{}
-		// Distinct raw messages can become duplicates after redaction.
-		msg = portcullis.Redact(msg)
+		messages = append(messages, msg)
+	}
+
+	redactMessages(messages, portcullis.Redact)
+
+	// Deduplicate in file order, not worker completion order.
+	seenRedacted := make(map[string]struct{})
+	unique := messages[:0]
+	for _, msg := range messages {
 		if _, ok := seenRedacted[msg]; ok {
 			continue
 		}
 		seenRedacted[msg] = struct{}{}
-		h.Messages = append(h.Messages, msg)
+		unique = append(unique, msg)
 	}
-	slices.Reverse(h.Messages)
+	clear(messages[len(unique):])
+	slices.Reverse(unique)
+	h.Messages = unique
 	return nil
+}
+
+func redactMessages(messages []string, redact func(string) string) {
+	workers := min(runtime.NumCPU(), len(messages))
+	if workers <= 1 {
+		for i, msg := range messages {
+			messages[i] = redact(msg)
+		}
+		return
+	}
+
+	jobs := make(chan int)
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Go(func() {
+			for i := range jobs {
+				messages[i] = redact(messages[i])
+			}
+		})
+	}
+	for i := range messages {
+		jobs <- i
+	}
+	close(jobs)
+	wg.Wait()
 }
 
 // migrateOldHistory imports messages from the legacy history.json file (if it
