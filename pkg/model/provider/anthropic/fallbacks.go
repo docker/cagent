@@ -1,12 +1,15 @@
 package anthropic
 
 import (
+	"fmt"
 	"log/slog"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 
+	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/model/provider/providerutil"
+	"github.com/docker/docker-agent/pkg/modelinfo"
 )
 
 // serverSideFallbackBeta enables the `fallbacks` request parameter, which
@@ -38,4 +41,21 @@ func fallbacksBody(models []string) option.RequestOption {
 		fallbacks[i] = map[string]string{"model": m}
 	}
 	return option.WithJSONSet("fallbacks", fallbacks)
+}
+
+// validateFallbacks rejects server-side fallback when any model in the chain
+// is Claude 5.x: a fallback can change the serving model mid-response, which
+// the client does not handle yet. Malformed lists stay ignored, as in
+// [fallbackModels].
+func validateFallbacks(cfg *latest.ModelConfig) error {
+	fallbacks, ok := providerutil.GetProviderOptStringSlice(cfg.ProviderOpts, "fallbacks")
+	if !ok || len(fallbacks) == 0 {
+		return nil
+	}
+	for _, model := range append([]string{cfg.Model}, fallbacks...) {
+		if _, ok := modelinfo.LookupClaude5(model); ok {
+			return fmt.Errorf("anthropic: server-side fallback involving Claude 5.x model %q is not supported yet (see https://github.com/docker/docker-agent/issues/4584)", model)
+		}
+	}
+	return nil
 }

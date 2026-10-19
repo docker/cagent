@@ -262,6 +262,7 @@ Docker Agent recognizes nine Claude 5.x models by ID: `claude-haiku-5-5`, `claud
 - An integer token budget becomes adaptive thinking with the model's default effort; `max_tokens` is not raised.
 - `temperature`, `top_p` and `top_k` are never sent.
 - `thinking_budget: none` (or `0`) sends `thinking: disabled` on Haiku 5.5, Opus 5 and Sonnet 5. The other six cannot disable thinking: they get adaptive thinking with `low` effort, and Docker Agent logs a warning at startup.
+- Server-side `fallbacks` involving any of these models are rejected at startup until [#4584](https://github.com/docker/docker-agent/issues/4584).
 - A request that ends on an assistant message (a response prefill) is rejected before it is sent. Tool-mode structured output therefore fails after the first plain-text answer instead of retrying with a reminder.
 
 Other Claude IDs keep the existing name-based rules.
@@ -346,21 +347,25 @@ See the full schema on the [Model Configuration](../../configuration/models/inde
 
 ## Server-Side Fallbacks
 
-When the primary model refuses a request (e.g. Claude Fable 5's safety
-classifiers ending the turn with stop reason `refusal`), Anthropic can retry
-the request with backup models in a single round trip. Set `fallbacks` in
-`provider_opts` to a list of model IDs, in priority order:
+When the primary model refuses a request (stop reason `refusal`), Anthropic
+can retry the request with backup models in a single round trip. Set
+`fallbacks` in `provider_opts` to a list of model IDs, in priority order:
 
 ```yaml
 models:
-  fable:
+  opus:
     provider: anthropic
-    model: claude-fable-5-1
+    model: claude-opus-4-8
     provider_opts:
       fallbacks:
-        - claude-opus-4-8
+        - claude-opus-4-7
         - claude-sonnet-4-6
 ```
+
+> [!WARNING]
+> **Not yet available with Claude 5.x**
+>
+> A fallback can change the serving model mid-response, which Docker Agent does not handle yet. A `fallbacks` list is rejected at startup when the primary model or any fallback is a Claude 5.x model (Haiku 5.5, Opus 5/5.5, Sonnet 5/5.5, Fable 5/5.1, Mythos 5/5.1). Support is tracked in [#4584](https://github.com/docker/docker-agent/issues/4584).
 
 Docker Agent automatically attaches the required
 `server-side-fallback-2026-06-01` beta header and forwards the option as

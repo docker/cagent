@@ -189,3 +189,12 @@ func TestRejectClaudeAPIOnlyFeatures(t *testing.T) {
 		})
 	}
 }
+
+func TestNewClient_RejectsClaude5Fallbacks(t *testing.T) {
+	t.Parallel()
+
+	cfg := &latest.ModelConfig{Provider: "anthropic", Model: "claude-opus-4-8", ProviderOpts: map[string]any{"fallbacks": []any{"claude-fable-5"}}}
+	source := func(context.Context) (string, error) { return "token", nil }
+	_, err := NewClientWithTokenSource(t.Context(), cfg, environment.NewMapEnvProvider(nil), "test-project", "us-east5", source)
+	require.ErrorContains(t, err, "issues/4584")
+}
