@@ -296,7 +296,7 @@ func (s *VectorStore) initialize(ctx context.Context, src documentSource, docPat
 
 		seenFiles[filePath] = true
 
-		needsIndexing, err := s.needsIndexing(src, filePath)
+		needsIndexing, err := s.needsIndexing(ctx, src, filePath)
 		if err != nil {
 			slog.ErrorContext(ctx, "Failed to check if file needs indexing",
 				"path", filePath, "error", err)
@@ -468,7 +468,7 @@ func (s *VectorStore) CheckAndReindexChangedFiles(ctx context.Context, docPaths 
 
 		seenFiles[filePath] = true
 
-		needsIndexing, err := s.needsIndexing(src, filePath)
+		needsIndexing, err := s.needsIndexing(ctx, src, filePath)
 		if err != nil {
 			slog.ErrorContext(ctx, "Failed to check if file needs indexing", "path", filePath, "error", err)
 			continue
@@ -588,7 +588,7 @@ func (s *VectorStore) loadExistingHashes(ctx context.Context) error {
 	return nil
 }
 
-func (s *VectorStore) needsIndexing(src documentSource, filePath string) (bool, error) {
+func (s *VectorStore) needsIndexing(ctx context.Context, src documentSource, filePath string) (bool, error) {
 	currentHash, err := src.hash(filePath)
 	if err != nil {
 		return false, fmt.Errorf("failed to hash file: %w", err)
@@ -599,16 +599,30 @@ func (s *VectorStore) needsIndexing(src documentSource, filePath string) (bool, 
 	storedHash, exists := s.fileHashes[filePath]
 	s.fileHashesMu.Unlock()
 
-	if !exists {
-		slog.Debug("File not in metadata, needs indexing", "path", filePath)
-		return true, nil
+	if exists && storedHash == currentHash {
+		return false, nil
 	}
 
-	needsIndexing := storedHash != currentHash
-	if needsIndexing {
-		slog.Debug("File hash changed, needs re-indexing", "path", filePath)
+	// Another store sharing this database may already have committed this
+	// version; the in-memory map only tracks this store's own writes.
+	meta, err := s.db.GetFileMetadata(ctx, filePath)
+	if err != nil {
+		slog.WarnContext(ctx, "Failed to read file metadata, re-indexing", "path", filePath, "error", err)
+		return true, nil
 	}
-	return needsIndexing, nil
+	if meta != nil && meta.ChunkCount > 0 && meta.FileHash == currentHash {
+		s.fileHashesMu.Lock()
+		s.fileHashes[filePath] = currentHash
+		s.fileHashesMu.Unlock()
+		return false, nil
+	}
+
+	if exists {
+		slog.DebugContext(ctx, "File hash changed, needs re-indexing", "path", filePath)
+	} else {
+		slog.DebugContext(ctx, "File not in metadata, needs indexing", "path", filePath)
+	}
+	return true, nil
 }
 
 func (s *VectorStore) indexFile(ctx context.Context, src documentSource, filePath string) error {
@@ -954,7 +968,7 @@ func (s *VectorStore) watchLoop(ctx context.Context, docPaths []string) {
 				continue
 			}
 
-			needsIndexing, err := s.needsIndexing(src, file)
+			needsIndexing, err := s.needsIndexing(ctx, src, file)
 			if err != nil {
 				slog.DebugContext(ctx, "File no longer exists or inaccessible", "path", file, "error", err)
 				continue
