@@ -1518,3 +1518,14 @@ func TestBuildRequest_Claude5(t *testing.T) {
 		})
 	}
 }
+
+func TestCreateChatCompletionStream_Claude5RejectsFinalAssistantPrefill(t *testing.T) {
+	t.Parallel()
+
+	client := bedrockThinkingClient("us.anthropic.claude-opus-5-5", nil)
+	_, err := client.CreateChatCompletionStream(t.Context(), []chat.Message{
+		{Role: chat.MessageRoleUser, Content: "hello"},
+		{Role: chat.MessageRoleAssistant, Content: "Sure:"},
+	}, nil)
+	require.ErrorContains(t, err, "does not accept a final assistant message")
+}

@@ -768,3 +768,19 @@ func TestClaude5Thinking(t *testing.T) {
 		assert.InDelta(t, 8192, req.body["max_tokens"], 0)
 	})
 }
+
+func TestClaude5RejectsFinalAssistantPrefill(t *testing.T) {
+	t.Parallel()
+
+	history := []chat.Message{user("hello"), {Role: chat.MessageRoleAssistant, Content: "Sure:"}}
+
+	srv := newScriptedServer(t, textReply("msg_1", "ok"))
+	client := newScriptedClient(srv, latest.ModelConfig{Provider: "anthropic", Model: "claude-opus-5-5"})
+	_, err := client.CreateChatCompletionStream(t.Context(), history, nil)
+	require.ErrorContains(t, err, "does not accept a final assistant message")
+	assert.Zero(t, srv.count(), "rejected before any request")
+
+	legacy := newScriptedServer(t, textReply("msg_1", "ok"))
+	chatTurn(t, newScriptedClient(legacy, latest.ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-6"}), history, nil)
+	assert.Equal(t, 1, legacy.count())
+}

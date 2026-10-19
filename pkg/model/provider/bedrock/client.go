@@ -180,6 +180,10 @@ func (c *Client) CreateChatCompletionStream(
 		return nil, errors.New("at least one message is required")
 	}
 
+	if _, ok := modelinfo.LookupClaude5(c.ModelConfig.Model); ok && providerutil.FinalAssistantPrefill(messages) {
+		return nil, fmt.Errorf("%s does not accept a final assistant message (prefill)", c.ModelConfig.Model)
+	}
+
 	// Build Converse input
 	input := c.buildConverseStreamInput(ctx, messages, requestTools)
 
