@@ -258,9 +258,11 @@ Anthropic accepts either an integer token budget or a string effort value. When 
 Docker Agent recognizes nine Claude 5.x models by ID: `claude-haiku-5-5`, `claude-opus-5`, `claude-opus-5-5`, `claude-sonnet-5`, `claude-sonnet-5-5`, `claude-fable-5`, `claude-fable-5-1`, `claude-mythos-5` and `claude-mythos-5-1`. Bedrock (`us.anthropic.…`) and Vertex (`…@date`) spellings are recognized too. For these models:
 
 - Thinking is adaptive by default and accepts every effort level: `low`, `medium`, `high`, `xhigh` and `max`.
+- With `thinking_budget` unset, Haiku 5.5, Opus 5.5, Sonnet 5.5 and Fable 5.1 are sent explicit adaptive thinking (summarized display, no effort) so the server can check replayed thinking blocks; the other five keep their API default.
 - An integer token budget becomes adaptive thinking with the model's default effort; `max_tokens` is not raised.
 - `temperature`, `top_p` and `top_k` are never sent.
 - `thinking_budget: none` (or `0`) sends `thinking: disabled` on Haiku 5.5, Opus 5 and Sonnet 5. The other six cannot disable thinking: they get adaptive thinking with `low` effort, and Docker Agent logs a warning at startup.
+- A request that ends on an assistant message (a response prefill) is rejected before it is sent. Tool-mode structured output therefore fails after the first plain-text answer instead of retrying with a reminder.
 
 Other Claude IDs keep the existing name-based rules.
 
