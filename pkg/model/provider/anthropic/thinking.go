@@ -182,7 +182,7 @@ func (c *Client) resolveThinkingBudget() *latest.ThinkingBudget {
 	if budget.Tokens <= 0 || (!modelinfo.RejectsTokenThinking(c.ModelConfig.Model) && !usesDefaultThinking(c.ModelConfig.Model)) {
 		return budget
 	}
-	slog.Warn("Anthropic: model rejects token-based thinking budgets; switching to adaptive thinking",
+	slog.Warn("Anthropic: model rejects token-based thinking budgets; switching to adaptive thinking, the token ceiling is not enforced",
 		"model", c.ModelConfig.Model,
 		"thinking_budget_tokens", budget.Tokens)
 	return &latest.ThinkingBudget{Effort: "adaptive"}

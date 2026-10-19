@@ -1,9 +1,11 @@
 package bedrock
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
@@ -1544,4 +1546,16 @@ func TestBuildAdditionalModelRequestFields_Claude5NoThinkingOption(t *testing.T)
 	fields := decodeRequestFields(t, fable.buildAdditionalModelRequestFields())
 	assert.Equal(t, map[string]any{"type": "adaptive"}, fields["thinking"])
 	assert.Equal(t, map[string]any{"effort": "low"}, fields["output_config"])
+}
+
+// Sequential on purpose: it swaps the default logger to observe the warning.
+func TestBuildAdditionalModelRequestFields_CoercedTokenBudgetWarnsCeilingIsLost(t *testing.T) {
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	bedrockThinkingClient("anthropic.claude-sonnet-5", &latest.ThinkingBudget{Tokens: 16000}).buildAdditionalModelRequestFields()
+
+	assert.Contains(t, logs.String(), "the token ceiling is not enforced")
 }

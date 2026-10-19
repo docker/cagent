@@ -150,3 +150,18 @@ func TestBetaStream_WarnsOnDroppedThinking(t *testing.T) {
 	assert.Equal(t, "drop_block", req.thinking()["block_binding"].(map[string]any)["prefix_mismatch_behavior"])
 	assert.Contains(t, req.raw, `"signature":"stale"`, "the stale block is still sent; the server decides to drop it")
 }
+
+// Sequential on purpose: it swaps the default logger to observe the warning.
+func TestCoercedTokenBudget_WarnsCeilingIsLost(t *testing.T) {
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	srv := newScriptedServer(t, textReply("msg_1", "ok"))
+	chatTurn(t, newScriptedClient(srv, latest.ModelConfig{
+		Provider: "anthropic", Model: "claude-opus-5-5", ThinkingBudget: &latest.ThinkingBudget{Tokens: 16000},
+	}), []chat.Message{user("hello")}, nil)
+
+	assert.Contains(t, logs.String(), "the token ceiling is not enforced")
+}

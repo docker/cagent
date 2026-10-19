@@ -375,7 +375,7 @@ func (c *Client) buildAdditionalModelRequestFields() document.Interface {
 		if effortStr, ok := c.adaptiveThinkingEffort(); ok {
 			switch {
 			case budget.Tokens > 0:
-				slog.Warn("Bedrock: model rejects token-based thinking budgets; switching to adaptive thinking",
+				slog.Warn("Bedrock: model rejects token-based thinking budgets; switching to adaptive thinking, the token ceiling is not enforced",
 					"model", c.ModelConfig.Model,
 					"thinking_budget_tokens", budget.Tokens,
 					"effort", effortStr)
