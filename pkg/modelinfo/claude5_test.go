@@ -23,7 +23,7 @@ func TestLookupClaude5(t *testing.T) {
 		{"claude-sonnet-5-5", Claude5Model{ChecksThinkingPrefix: true}},
 		{"claude-fable-5", Claude5Model{}},
 		{"claude-fable-5-1", Claude5Model{ChecksThinkingPrefix: true}},
-		{"claude-mythos-5", Claude5Model{}},
+		{"claude-mythos-5", Claude5Model{BedrockMantleOnly: true}},
 		{"claude-mythos-5-1", Claude5Model{}},
 
 		{"anthropic.claude-opus-5-5", Claude5Model{ChecksThinkingPrefix: true}},
