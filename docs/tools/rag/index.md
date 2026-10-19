@@ -46,6 +46,33 @@ agents:
         ref: my_docs
 ```
 
+### Sharing a knowledge base between agents
+
+When several agents reference the same knowledge base, they share one index.
+Docker Agent indexes each document once, runs a single file watcher, and
+re-embeds a changed file once, no matter how many agents use it. Embedding
+calls are bounded by the knowledge base's own `max_embedding_concurrency`, not
+multiplied by the number of agents.
+
+References share an index only when they resolve to the same configuration
+and the same credentials. A reference that overrides `name:`, or a session
+loaded with different credentials, gets its own index. Background indexing
+for a shared knowledge base is not attributed to any session.
+
+```yaml
+agents:
+  researcher:
+    model: anthropic/claude-sonnet-4-5
+    toolsets:
+      - type: rag
+        ref: my_docs   # shares one index...
+  writer:
+    model: anthropic/claude-sonnet-4-5
+    toolsets:
+      - type: rag
+        ref: my_docs   # ...with this reference
+```
+
 ## Retrieval Strategies
 
 ### Chunked Embeddings (Semantic Search)
