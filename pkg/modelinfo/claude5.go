@@ -14,6 +14,9 @@ type Claude5Model struct {
 	// ChecksThinkingPrefix reports whether the server verifies that replayed
 	// thinking blocks still match their prefix.
 	ChecksThinkingPrefix bool
+	// BedrockMantleOnly reports that AWS serves the model only through
+	// Bedrock Mantle, not the runtime/Converse API docker-agent uses.
+	BedrockMantleOnly bool
 }
 
 var claude5Models = map[string]Claude5Model{
@@ -24,7 +27,7 @@ var claude5Models = map[string]Claude5Model{
 	"claude-sonnet-5-5": {ChecksThinkingPrefix: true},
 	"claude-fable-5":    {},
 	"claude-fable-5-1":  {ChecksThinkingPrefix: true},
-	"claude-mythos-5":   {},
+	"claude-mythos-5":   {BedrockMantleOnly: true},
 	"claude-mythos-5-1": {},
 }
 
