@@ -79,6 +79,7 @@ type runExecFlags struct {
 	workingDirChanged bool
 	attachmentPath    string
 	remoteAddress     string
+	remoteAuthToken   string
 	modelOverrides    []string
 	promptFiles       []string
 	dryRun            bool
@@ -187,6 +188,7 @@ func addRunOrExecFlags(cmd *cobra.Command, flags *runExecFlags) {
 	cmd.PersistentFlags().StringArrayVar(&flags.modelOverrides, "model", nil, "Override agent model: [agent=]provider/model (repeatable)")
 	cmd.PersistentFlags().BoolVar(&flags.dryRun, "dry-run", false, "Initialize the agent without executing anything")
 	cmd.PersistentFlags().StringVar(&flags.remoteAddress, "remote", "", "Use remote runtime with specified address")
+	cmd.PersistentFlags().StringVar(&flags.remoteAuthToken, "remote-auth-token", "", "Bearer token for --remote (defaults to DOCKER_AGENT_REMOTE_AUTH_TOKEN)")
 	cmd.PersistentFlags().StringVarP(&flags.sessionDB, "session-db", "s", "", "Path to the session database (default: <data-dir>/session.db)")
 	cmd.PersistentFlags().StringVar(&flags.sessionID, "session", "", "Continue from a previous session by ID or relative offset (e.g., -1 for last session). An explicit ID that does not exist yet is created with that ID.")
 	cmd.PersistentFlags().StringVar(&flags.fakeResponses, "fake", "", "Replay AI responses from cassette file (for testing)")
@@ -277,6 +279,9 @@ func (f *runExecFlags) runRunCommand(cmd *cobra.Command, args []string) (command
 		}()
 	}
 
+	if f.remoteAuthToken != "" && f.remoteAddress == "" {
+		return errors.New("--remote-auth-token requires --remote")
+	}
 	if f.last && !f.exec {
 		return errors.New("--last requires --exec")
 	}

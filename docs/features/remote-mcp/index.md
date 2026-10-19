@@ -194,7 +194,7 @@ A per-toolset `callbackRedirectURL` (in the YAML) overrides the runtime-wide `--
 > [!WARNING]
 > **Security note**
 >
-> The `POST /api/mcp-oauth/callback` route is open by default (no auth required) when `--auth-token` is unset. State values are 128-bit opaque tokens, so brute-force is infeasible, but a state value that leaks (e.g. via debug logs or a compromised host) could be exploited by an attacker to inject a code. Set `--auth-token` when `docker agent serve api` listens on a network-reachable interface. When set, `--auth-token` enforces Bearer-token authentication on all API routes including this callback endpoint.
+> The `POST /api/mcp-oauth/callback` route is open by default (no auth required) when `--auth-token` is unset. State values are 128-bit opaque tokens, so brute-force is infeasible, but a state value that leaks (e.g. via debug logs or a compromised host) could be exploited by an attacker to inject a code. `--auth-token` is required for non-loopback TCP listeners. Browser cross-origin posts are rejected even when bearer authentication is unset. When set, `--auth-token` enforces Bearer-token authentication on all API routes including this callback endpoint.
 
 ## Project Management &amp; Collaboration
 
