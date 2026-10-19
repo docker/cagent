@@ -33,7 +33,7 @@ The simplest way to use OpenCode Go:
 ```yaml
 agents:
   root:
-    model: opencode-go/deepseek-v4-flash
+    model: opencode-go/deepseek-v4.1-flash
     description: Assistant using OpenCode Go
     instruction: You are a helpful assistant.
 ```
@@ -71,7 +71,7 @@ These models use the `/v1/chat/completions` endpoint and work directly with the 
 
 | Model               | Description                           |
 | ------------------- | ------------------------------------- |
-| `deepseek-v4-flash` | Fast and cost-effective DeepSeek model |
+| `deepseek-v4.1-flash` | Fast and cost-effective DeepSeek model |
 | `deepseek-v4-pro`   | Most capable DeepSeek model           |
 | `kimi-k2.7-code`    | Kimi K2.7 optimized for code          |
 | `kimi-k2.6`         | Kimi K2.6 model                       |
@@ -144,10 +144,10 @@ OpenCode asks clients to send an `x-opencode-session` header carrying one stable
 ```yaml
 agents:
   coder:
-    model: opencode-go/deepseek-v4-flash
+    model: opencode-go/deepseek-v4.1-flash
     description: Expert code assistant
     instruction: |
-      You are an expert programmer using DeepSeek V4 Flash.
+      You are an expert programmer using DeepSeek V4.1 Flash.
       Write clean, efficient, well-documented code.
       Explain your reasoning when helpful.
     toolsets:
