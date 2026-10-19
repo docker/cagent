@@ -20,20 +20,20 @@ func TestThinkingBindingBehavior(t *testing.T) {
 		opts  map[string]any
 		want  string
 	}{
-		"fable 5.1":             {model: "claude-fable-5-1", want: "drop_block"},
-		"fable 5.1 dated":       {model: "claude-fable-5-1-20260901", want: "drop_block"},
-		"fable 5.2":             {model: "claude-fable-5-2", want: "drop_block"},
-		"mythos 5.1":            {model: "claude-mythos-5-1", want: "drop_block"},
-		"gateway qualified":     {model: "anthropic/claude-fable-5-1", want: "drop_block"},
-		"vertex":                {model: "claude-fable-5-1@20260901", want: "drop_block"},
-		"fable 5":               {model: "claude-fable-5"},
-		"mythos 5":              {model: "claude-mythos-5"},
-		"sonnet 5":              {model: "claude-sonnet-5"},
-		"opus 5":                {model: "claude-opus-5"},
-		"fallback checks":       {model: "claude-opus-4-7", opts: map[string]any{"fallbacks": []any{"claude-sonnet-5", "claude-fable-5-1"}}, want: "drop_block"},
-		"explicit error":        {model: "claude-fable-5-1", opts: map[string]any{"thinking_prefix_mismatch": "error"}, want: "error"},
-		"explicit on old":       {model: "claude-sonnet-4-6", opts: map[string]any{"thinking_prefix_mismatch": "drop_block"}, want: "drop_block"},
-		"non-string is ignored": {model: "claude-sonnet-4-6", opts: map[string]any{"thinking_prefix_mismatch": 1}},
+		"fable 5.1":                           {model: "claude-fable-5-1", want: "drop_block"},
+		"fable 5.1 dated":                     {model: "claude-fable-5-1-20260901", want: "drop_block"},
+		"fable 5.2":                           {model: "claude-fable-5-2", want: "drop_block"},
+		"mythos 5.1 (no server prefix check)": {model: "claude-mythos-5-1"},
+		"gateway qualified":                   {model: "anthropic/claude-fable-5-1", want: "drop_block"},
+		"vertex":                              {model: "claude-fable-5-1@20260901", want: "drop_block"},
+		"fable 5":                             {model: "claude-fable-5"},
+		"mythos 5":                            {model: "claude-mythos-5"},
+		"sonnet 5":                            {model: "claude-sonnet-5"},
+		"opus 5":                              {model: "claude-opus-5"},
+		"fallback checks":                     {model: "claude-opus-4-7", opts: map[string]any{"fallbacks": []any{"claude-sonnet-5", "claude-fable-5-1"}}, want: "drop_block"},
+		"explicit error":                      {model: "claude-fable-5-1", opts: map[string]any{"thinking_prefix_mismatch": "error"}, want: "error"},
+		"explicit on old":                     {model: "claude-sonnet-4-6", opts: map[string]any{"thinking_prefix_mismatch": "drop_block"}, want: "drop_block"},
+		"non-string is ignored":               {model: "claude-sonnet-4-6", opts: map[string]any{"thinking_prefix_mismatch": 1}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

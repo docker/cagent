@@ -387,7 +387,7 @@ func TestSonnet5_DefaultsOmitSamplingAndThinking(t *testing.T) {
 
 		req := srv.request(t, 0)
 		assert.Equal(t, map[string]any{"type": "adaptive", "display": "summarized"}, req.thinking())
-		assert.Equal(t, "high", req.outputConfig()["effort"])
+		assert.NotContains(t, req.outputConfig(), "effort", "the model default effort applies")
 		assert.InDelta(t, 8192, req.body["max_tokens"], 0, "token budget no longer inflates max_tokens")
 		assert.NotContains(t, req.body, "temperature")
 	})
@@ -719,4 +719,52 @@ func TestProgressUpdatesNormalizedOption(t *testing.T) {
 	request := srv.request(t, 0)
 	assert.Contains(t, request.betas, anthropic.AnthropicBetaThinkingDisplayUpdates2026_08_18)
 	assert.Equal(t, "updates", request.thinking()["display"])
+}
+
+func TestClaude5Thinking(t *testing.T) {
+	t.Parallel()
+
+	send := func(t *testing.T, cfg latest.ModelConfig) capturedRequest {
+		t.Helper()
+		srv := newScriptedServer(t, textReply("msg_1", "ok"))
+		chatTurn(t, newScriptedClient(srv, cfg), []chat.Message{user("hello")}, nil)
+		return srv.request(t, 0)
+	}
+
+	t.Run("haiku 5.5 effort is adaptive", func(t *testing.T) {
+		t.Parallel()
+		req := send(t, latest.ModelConfig{Provider: "anthropic", Model: "claude-haiku-5-5", ThinkingBudget: &latest.ThinkingBudget{Effort: "high"}})
+		assert.Equal(t, "adaptive", req.thinking()["type"])
+		assert.NotContains(t, req.thinking(), "budget_tokens")
+		assert.Equal(t, "high", req.outputConfig()["effort"])
+	})
+
+	t.Run("opus 5.5 none falls back to adaptive low", func(t *testing.T) {
+		t.Parallel()
+		req := send(t, latest.ModelConfig{Provider: "anthropic", Model: "claude-opus-5-5", ThinkingBudget: &latest.ThinkingBudget{Effort: "none"}})
+		assert.Equal(t, "adaptive", req.thinking()["type"])
+		assert.Equal(t, "low", req.outputConfig()["effort"])
+	})
+
+	t.Run("sonnet 5 none is disabled", func(t *testing.T) {
+		t.Parallel()
+		req := send(t, latest.ModelConfig{Provider: "anthropic", Model: "claude-sonnet-5", ThinkingBudget: &latest.ThinkingBudget{Effort: "none"}, Temperature: new(0.3)})
+		assert.Equal(t, map[string]any{"type": "disabled"}, req.thinking())
+		assert.NotContains(t, req.body, "temperature")
+	})
+
+	t.Run("mythos 5.1 has no default binding", func(t *testing.T) {
+		t.Parallel()
+		req := send(t, latest.ModelConfig{Provider: "anthropic", Model: "claude-mythos-5-1"})
+		assert.NotContains(t, req.body, "thinking")
+		assert.NotContains(t, req.raw, "block_binding")
+	})
+
+	t.Run("opus 5.5 token budget omits effort", func(t *testing.T) {
+		t.Parallel()
+		req := send(t, latest.ModelConfig{Provider: "anthropic", Model: "claude-opus-5-5", ThinkingBudget: &latest.ThinkingBudget{Tokens: 16000}})
+		assert.Equal(t, "adaptive", req.thinking()["type"])
+		assert.NotContains(t, req.outputConfig(), "effort")
+		assert.InDelta(t, 8192, req.body["max_tokens"], 0)
+	})
 }

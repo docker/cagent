@@ -330,7 +330,7 @@ func (c *Client) applyThinkingConfig(params *anthropic.MessageNewParams, maxToke
 			Display: anthropic.ThinkingConfigAdaptiveDisplay(display),
 		}
 		params.Thinking = anthropic.ThinkingConfigParamUnion{OfAdaptive: adaptive}
-		if c.ModelConfig.ThinkingBudget != nil {
+		if c.sendsEffort() {
 			params.OutputConfig.Effort = anthropic.OutputConfigEffort(effortStr)
 		}
 		slog.Debug("Anthropic API using adaptive thinking", "effort", effortStr, "display", display)
@@ -371,7 +371,7 @@ func (c *Client) applyBetaThinkingConfig(params *anthropic.BetaMessageNewParams,
 			Display: anthropic.BetaThinkingConfigAdaptiveDisplay(display),
 		}
 		params.Thinking = anthropic.BetaThinkingConfigParamUnion{OfAdaptive: adaptive}
-		if c.ModelConfig.ThinkingBudget != nil {
+		if c.sendsEffort() {
 			params.OutputConfig.Effort = anthropic.BetaOutputConfigEffort(effortStr)
 		}
 		slog.Debug("Anthropic Beta API using adaptive thinking", "effort", effortStr, "display", display)
@@ -387,6 +387,20 @@ func (c *Client) applyBetaThinkingConfig(params *anthropic.BetaMessageNewParams,
 		params.Thinking.OfEnabled.Display = anthropic.BetaThinkingConfigEnabledDisplay(display)
 	}
 	slog.Debug("Anthropic Beta API using thinking_budget", "budget_tokens", tokens, "display", display)
+}
+
+// sendsEffort reports whether an adaptive request carries output_config.effort.
+// A token budget coerced to adaptive on a Claude 5.x model leaves effort unset
+// so the model's own default applies.
+func (c *Client) sendsEffort() bool {
+	budget := c.ModelConfig.ThinkingBudget
+	if budget == nil {
+		return false
+	}
+	if _, ok := modelinfo.LookupClaude5(c.ModelConfig.Model); ok && budget.Effort == "" && budget.Tokens > 0 {
+		return false
+	}
+	return true
 }
 
 func (c *Client) progressUpdatesEnabled() bool {
