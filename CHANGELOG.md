@@ -3,6 +3,103 @@
 All notable changes to this project will be documented in this file.
 
 
+## [v1.151.0] - 2026-10-19
+
+This release adds Atlas Cloud and API Route as new provider aliases, introduces live background agent visibility in the sidebar, streaming file previews in the lean TUI, and the Command Code harness type, alongside numerous bug fixes for A2A compatibility, provider cloning, think tool concurrency, and TUI settings.
+
+## What's New
+- Adds Atlas Cloud as a built-in OpenAI-compatible provider alias, with automatic `ATLASCLOUD_API_KEY` discovery and credential forwarding
+- Adds API Route as an OpenAI-compatible provider alias, using `https://global.api-route.com/v1` and `API_ROUTE_API_KEY`
+- Adds `command-code` harness type, enabling agents to be run by the Command Code CLI (`cmd`)
+- Shows a live "Background: N running" indicator in the expanded and collapsed Agents sidebar
+- Streams syntax-highlighted file previews in the lean TUI as `write_file` tool arguments arrive, with filename-based syntax highlighting and plain-text fallback
+- Merges streaming deltas in the API server's SSE streams, coalescing per-provider chunks into larger events
+
+## Improvements
+- Shows the command or file path in tool-call titles (e.g., `Shell: docker ps -a`) instead of just the tool name
+- Redesigns the TUI settings dialog to be responsive, contiguous within sections, with clickable category tabs and stable geometry across category switches
+
+## Bug Fixes
+- Fixes race condition in the Think tool when multiple concurrent tool calls append to a shared slice without synchronization
+- Fixes A2A toolset failing to read A2A 1.0 agent cards, which caused `no compatible transports found` errors when calling agents served by `serve a2a`
+- Fixes A2A toolset failing to discover agent cards under a base URL that has a path component
+- Fixes A2A toolset panicking on null agent card interfaces instead of rejecting them
+- Fixes A2A toolset not sending configured headers to the endpoint the client selects
+- Fixes think scratchpads being shared across conversations instead of isolated per conversation
+- Fixes provider clones not preserving transport, and surfaces clone failures with actionable errors
+- Fixes routed provider clones not being isolated, and retains thinking-off intent and numeric precision across clones
+- Fixes serving model accounting for routed turns, so only the successful attempt is priced using the serving leaf's catalogue entry
+- Fixes serving metadata and fallback sidebar updates not being preserved across retries
+- Fixes fallback serving model notifications not reaching all UI consumers
+- Fixes runtime decisions delivered before confirmation waits being dropped
+- Fixes `context_size: 64000` (bare YAML integer) being ignored in Docker Model Runner configuration
+- Fixes tool-result images being sent incorrectly in chat completions; images are now sent as text (data URI/URL) inside the tool message
+- Fixes canceled input reads leaking goroutines blocked on the underlying read
+- Fixes potential deadlock in `gitbranch` watcher when replacing pending changes on a full channel
+- Fixes skills not unblocking inherited output pipes on cancellation
+- Fixes skills caching oversized files instead of rejecting them upfront
+- Fixes chat server not finalizing conversations before sending terminal responses
+- Fixes chat server not preserving cached history when execution is canceled
+- Fixes selected agent not being preserved during background usage updates
+- Fixes collapsed sidebar not sizing correctly from the wrapped agent summary
+- Fixes OpenAI requests not being priced by actual service tier (`fast`/`priority`/`ultrafast` premiums now derived per-model from the catalogue)
+
+## Technical Changes
+- Enables 11 additional shared rubocop-go lint cops, bringing enforcement to 34 of 36 available cops
+- Drops `ContextFirstParameter` and `NoContextField` lint suppressions
+- Decouples attention dialogs, tool expansion, title generation, RAG backend, streaming sender, and command resolution from concrete types via consumer-defined interfaces
+- Adds `Lint/ChannelDirection` cop to flag unnecessarily bidirectional channel parameters and return values
+- Adds `Lint/ChannelStateCheck`, `Lint/CancellationLoop`, and `Lint/ClosedChannelLoop` cops to detect channel drain races and busy-wait loops
+- Adds `cancellation_safe_result_send` and `nonblocking_channel_replacement` lint cops paired with the concurrency fixes
+- Reduces lint runtime by adopting shared rubocop-go execution infrastructure and targeted hot-path optimizations (deduped interface method sets, memoized escaped channel types, cached position keys)
+- Binds OAuth callback ports during startup rather than on demand
+- Shares streaming delta merging logic in `pkg/runtime/eventmerge`
+- Adds community resources documentation page and relocates operational guides
+- Adds Atelier to community resources
+### Pull Requests
+
+- [#3962](https://github.com/docker/docker-agent/pull/3962) - feat: add Atlas Cloud provider
+- [#4563](https://github.com/docker/docker-agent/pull/4563) - docs: update CHANGELOG.md for v1.150.0
+- [#4564](https://github.com/docker/docker-agent/pull/4564) - lint: enable the expanded shared rubocop-go cop catalog
+- [#4565](https://github.com/docker/docker-agent/pull/4565) - refactor: consumer-owned interfaces for dialogs, tools, and app services
+- [#4566](https://github.com/docker/docker-agent/pull/4566) - docs: auto-update for merged PRs (2026-10-10)
+- [#4567](https://github.com/docker/docker-agent/pull/4567) - feat: add API Route as an OpenAI-compatible provider alias
+- [#4570](https://github.com/docker/docker-agent/pull/4570) - fix(think): protect concurrent tool calls with a mutex
+- [#4572](https://github.com/docker/docker-agent/pull/4572) - fix(a2a): read A2A 1.0 agent cards in the a2a toolset
+- [#4573](https://github.com/docker/docker-agent/pull/4573) - chore: refresh models.dev snapshot (+151 -138 ~264)
+- [#4574](https://github.com/docker/docker-agent/pull/4574) - chore(deps): bump docker/docs/.github/workflows/validate-upstream.yml from 1cb9a4d2c65d712da863e30cd3a1319ddeea3298 to 3f5e702096f8f304d5c007fa633d57098506123b in the actions group across 1 directory
+- [#4577](https://github.com/docker/docker-agent/pull/4577) - codingharness: add the command-code harness type
+- [#4579](https://github.com/docker/docker-agent/pull/4579) - fix: price routed turns using the serving model
+- [#4586](https://github.com/docker/docker-agent/pull/4586) - docs(claude): distinguish access paths and feature limits
+- [#4587](https://github.com/docker/docker-agent/pull/4587) - fix(provider): preserve transport and surface clone failures
+- [#4589](https://github.com/docker/docker-agent/pull/4589) - fix(runtime): retain decisions delivered before confirmation waits
+- [#4591](https://github.com/docker/docker-agent/pull/4591) - docs: auto-update for merged PRs (2026-10-14)
+- [#4592](https://github.com/docker/docker-agent/pull/4592) - fix: isolate think scratchpads by conversation
+- [#4596](https://github.com/docker/docker-agent/pull/4596) - fix(dmr): honor a YAML integer context_size
+- [#4598](https://github.com/docker/docker-agent/pull/4598) - chore: bump direct Go dependencies
+- [#4599](https://github.com/docker/docker-agent/pull/4599) - fix(tui): clean up the settings dialog
+- [#4603](https://github.com/docker/docker-agent/pull/4603) - fix(acp): show the command in tool-call titles
+- [#4604](https://github.com/docker/docker-agent/pull/4604) - lint: detect unnecessarily bidirectional channels
+- [#4605](https://github.com/docker/docker-agent/pull/4605) - fix: concurrency/correctness fixes with matching custom lint cops
+- [#4606](https://github.com/docker/docker-agent/pull/4606) - docs: auto-update for merged PRs (2026-10-16)
+- [#4610](https://github.com/docker/docker-agent/pull/4610) - fix: send tool-result images as text in chat completions
+- [#4611](https://github.com/docker/docker-agent/pull/4611) - feat: show live background agent count in Agents sidebar
+- [#4612](https://github.com/docker/docker-agent/pull/4612) - lint: detect channel drain races and busy-wait loops
+- [#4613](https://github.com/docker/docker-agent/pull/4613) - test: reuse checked-in CLI fixtures across cases
+- [#4614](https://github.com/docker/docker-agent/pull/4614) - fix: stabilize flaky tests and chat conversation finalization
+- [#4616](https://github.com/docker/docker-agent/pull/4616) - test: run gitbranch watcher stress test in-memory with synctest
+- [#4618](https://github.com/docker/docker-agent/pull/4618) - docs: add community resources and keep Community on GitHub Pages
+- [#4619](https://github.com/docker/docker-agent/pull/4619) - test: make Gemini integration fixtures reviewer-only
+- [#4622](https://github.com/docker/docker-agent/pull/4622) - docs: add Atelier to community resources
+- [#4623](https://github.com/docker/docker-agent/pull/4623) - docs: auto-update for merged PRs (2026-10-17)
+- [#4625](https://github.com/docker/docker-agent/pull/4625) - fix: price OpenAI requests by actual service tier
+- [#4626](https://github.com/docker/docker-agent/pull/4626) - perf(lint): adopt shared rubocop-go execution and reduce analysis overhead
+- [#4627](https://github.com/docker/docker-agent/pull/4627) - test: speed up fixtures and isolate flaky test dependencies
+- [#4628](https://github.com/docker/docker-agent/pull/4628) - feat: stream syntax-highlighted file previews in lean TUI
+- [#4630](https://github.com/docker/docker-agent/pull/4630) - chore(deps): bump the actions group across 1 directory with 5 updates
+- [#4634](https://github.com/docker/docker-agent/pull/4634) - feat(server): merge streaming deltas in the API server's SSE streams
+
+
 ## [v1.150.0] - 2026-10-09
 
 This release adds new built-in toolsets, provider support, and agent execution capability reporting, along with several bug fixes for runtime configuration propagation and TUI startup behavior.
@@ -6915,3 +7012,5 @@ This release improves the terminal user interface with better error handling and
 [v1.149.0]: https://github.com/docker/docker-agent/releases/tag/v1.149.0
 
 [v1.150.0]: https://github.com/docker/docker-agent/releases/tag/v1.150.0
+
+[v1.151.0]: https://github.com/docker/docker-agent/releases/tag/v1.151.0
