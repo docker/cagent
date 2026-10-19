@@ -16,6 +16,7 @@ import (
 	"github.com/docker/docker-agent/pkg/chat"
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
+	"github.com/docker/docker-agent/pkg/model/provider"
 	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/model/provider/providers"
 )
@@ -34,6 +35,15 @@ type recorded struct {
 // user turn and returns the request that reached the wire. The fake transport
 // answers 400 so only the request is under test.
 func captureFinalRequest(t *testing.T, cfg latest.ModelConfig, env map[string]string, opts ...options.Opt) recorded {
+	t.Helper()
+	return captureRequest(t, func(wrapper options.Opt) provider.Provider {
+		p, err := providers.NewDefaultRegistry().New(t.Context(), &cfg, environment.NewMapEnvProvider(env), append(opts, wrapper)...)
+		require.NoError(t, err)
+		return p
+	})
+}
+
+func captureRequest(t *testing.T, build func(wrapper options.Opt) provider.Provider) recorded {
 	t.Helper()
 	var (
 		mu   sync.Mutex
@@ -56,9 +66,7 @@ func captureFinalRequest(t *testing.T, cfg latest.ModelConfig, env map[string]st
 		})
 	})
 
-	p, err := providers.NewDefaultRegistry().New(t.Context(), &cfg, environment.NewMapEnvProvider(env), append(opts, wrapper)...)
-	require.NoError(t, err)
-	stream, err := p.CreateChatCompletionStream(t.Context(), []chat.Message{{Role: chat.MessageRoleUser, Content: "hello"}}, nil)
+	stream, err := build(wrapper).CreateChatCompletionStream(t.Context(), []chat.Message{{Role: chat.MessageRoleUser, Content: "hello"}}, nil)
 	if err == nil {
 		for {
 			if _, err := stream.Recv(); err != nil {
@@ -142,6 +150,21 @@ func TestClaude5FinalRequests(t *testing.T) {
 		assert.True(t, strings.HasSuffix(req.path, "/converse-stream"), req.path)
 		assert.Equal(t, map[string]any{"type": "disabled"}, field(req.body, "additionalModelRequestFields", "thinking"))
 		assert.Nil(t, field(req.body, "inferenceConfig", "temperature"))
+	})
+
+	t.Run("title clone on opus 5.5", func(t *testing.T) {
+		t.Parallel()
+		req := captureRequest(t, func(wrapper options.Opt) provider.Provider {
+			cfg := latest.ModelConfig{Provider: "anthropic", Model: "claude-opus-5-5"}
+			base, err := providers.NewDefaultRegistry().New(t.Context(), &cfg, environment.NewMapEnvProvider(anthropicEnv), wrapper)
+			require.NoError(t, err)
+			title, err := provider.Clone(t.Context(), base, options.WithNoThinking(), options.WithMaxTokens(20))
+			require.NoError(t, err)
+			return title
+		})
+		assert.Equal(t, "adaptive", field(req.body, "thinking", "type"), "opus 5.5 cannot disable thinking")
+		assert.Equal(t, "low", field(req.body, "output_config", "effort"))
+		assert.InDelta(t, 256, req.body["max_tokens"], 0, "no-thinking floor")
 	})
 
 	t.Run("legacy direct unchanged", func(t *testing.T) {
