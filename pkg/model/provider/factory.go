@@ -12,6 +12,7 @@ import (
 	"github.com/docker/docker-agent/pkg/model/provider/contracts"
 	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/model/provider/rulebased"
+	"github.com/docker/docker-agent/pkg/modelinfo"
 )
 
 type Factory func(ctx context.Context, cfg *latest.ModelConfig, env environment.Provider, opts ...options.Opt) (Provider, error)
@@ -154,6 +155,9 @@ func (r *Registry) createDirectProvider(ctx context.Context, cfg *latest.ModelCo
 		opts = append(opts, options.WithGateway(""))
 	}
 	providerType := resolveProviderType(enhancedCfg)
+	if budget.IsDisabled() && !globalOptions.NoThinking() {
+		warnThinkingCannotBeDisabled(ctx, providerType, enhancedCfg.Model)
+	}
 	factory, ok := r.factory(providerType)
 	if !ok {
 		slog.ErrorContext(ctx, "Unknown provider type", "type", providerType)
@@ -170,6 +174,21 @@ func (r *Registry) createDirectProvider(ctx context.Context, cfg *latest.ModelCo
 	// createRuleBasedRouter is left bare — its routed targets go through
 	// resolveRoutedModel → createDirectProvider and end up wrapped here.
 	return instrumentProvider(p), nil
+}
+
+// warnThinkingCannotBeDisabled flags a configured thinking_budget none that a
+// native Claude transport cannot honor. Internal no-thinking calls (titles,
+// sampling) are not configured by the user and stay silent.
+func warnThinkingCannotBeDisabled(ctx context.Context, providerType, model string) {
+	switch providerType {
+	case "anthropic", "amazon-bedrock", "google":
+	default:
+		return
+	}
+	if c5, ok := modelinfo.LookupClaude5(model); ok && !c5.CanDisableThinking {
+		slog.WarnContext(ctx, "model cannot disable thinking; thinking_budget none is sent as adaptive thinking with low effort",
+			"model", model, "provider", providerType)
+	}
 }
 
 func (r *Registry) attachRebuilder(p Provider, models map[string]latest.ModelConfig, env environment.Provider) {
