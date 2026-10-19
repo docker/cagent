@@ -1475,3 +1475,46 @@ func TestConvertMessages_ToolResultWithCaching(t *testing.T) {
 	_, isCachePoint = secondLastContent.(*types.ContentBlockMemberCachePoint)
 	assert.True(t, isCachePoint, "assistant tool call message should have cache point")
 }
+
+func TestBuildRequest_Claude5(t *testing.T) {
+	t.Parallel()
+
+	adaptive := map[string]any{"type": "adaptive"}
+	cases := []struct {
+		name             string
+		model            string
+		budget           *latest.ThinkingBudget
+		wantThinking     any
+		wantOutputConfig any
+	}{
+		{name: "no budget sends nothing", model: "us.anthropic.claude-sonnet-5-5-v1:0"},
+		{name: "effort is adaptive", model: "anthropic.claude-haiku-5-5", budget: &latest.ThinkingBudget{Effort: "high"}, wantThinking: adaptive, wantOutputConfig: map[string]any{"effort": "high"}},
+		{name: "token budget uses model default effort", model: "anthropic.claude-sonnet-5", budget: &latest.ThinkingBudget{Tokens: 16000}, wantThinking: adaptive},
+		{name: "none is disabled when supported", model: "anthropic.claude-sonnet-5", budget: &latest.ThinkingBudget{Effort: "none"}, wantThinking: map[string]any{"type": "disabled"}},
+		{name: "none falls back to adaptive low", model: "anthropic.claude-fable-5", budget: &latest.ThinkingBudget{Effort: "none"}, wantThinking: adaptive, wantOutputConfig: map[string]any{"effort": "low"}},
+		{name: "explicit adaptive keeps high", model: "anthropic.claude-mythos-5-1", budget: &latest.ThinkingBudget{Effort: "adaptive"}, wantThinking: adaptive, wantOutputConfig: map[string]any{"effort": "high"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := bedrockThinkingClient(tc.model, tc.budget)
+			client.ModelConfig.Temperature = new(0.2)
+			client.ModelConfig.TopP = new(0.9)
+			client.ModelConfig.ProviderOpts = map[string]any{"top_k": 5}
+
+			fields := map[string]any{}
+			if result := client.buildAdditionalModelRequestFields(); result != nil {
+				fields = decodeRequestFields(t, result)
+			}
+			assert.Equal(t, tc.wantThinking, fields["thinking"])
+			assert.Equal(t, tc.wantOutputConfig, fields["output_config"])
+			assert.NotContains(t, fields, "top_k")
+			assert.NotContains(t, fields, "anthropic_beta")
+
+			cfg := client.buildInferenceConfig(client.isThinkingEnabled())
+			assert.Nil(t, cfg.Temperature)
+			assert.Nil(t, cfg.TopP)
+		})
+	}
+}

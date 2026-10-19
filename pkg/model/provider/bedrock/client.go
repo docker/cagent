@@ -229,8 +229,13 @@ func (c *Client) buildInferenceConfig(thinkingEnabled bool) *types.InferenceConf
 	}
 
 	// Temperature and TopP cannot be set when extended thinking is enabled
-	// (Claude requires temperature=1.0 which is the default when thinking is on)
-	if !thinkingEnabled {
+	// (Claude requires temperature=1.0 which is the default when thinking is on).
+	// Claude 5.x rejects them in every mode.
+	if _, isClaude5 := modelinfo.LookupClaude5(c.ModelConfig.Model); isClaude5 {
+		if c.ModelConfig.Temperature != nil || c.ModelConfig.TopP != nil {
+			slog.Debug("Bedrock: Claude 5.x rejects sampling parameters, ignoring temperature/top_p", "model", c.ModelConfig.Model)
+		}
+	} else if !thinkingEnabled {
 		if c.ModelConfig.Temperature != nil {
 			cfg.Temperature = new(float32(*c.ModelConfig.Temperature))
 		}
@@ -294,9 +299,19 @@ func (c *Client) isThinkingEnabled() bool {
 //
 // It has no side effects so it can be shared by isThinkingEnabled and
 // buildAdditionalModelRequestFields.
+//
+// An empty effort with ok=true means adaptive thinking at the model's default
+// effort (a token budget on a Claude 5.x model).
 func (c *Client) adaptiveThinkingEffort() (string, bool) {
 	budget := c.ModelConfig.ThinkingBudget
-	if budget == nil || budget.IsDisabled() {
+	if budget == nil {
+		return "", false
+	}
+	c5, isClaude5 := modelinfo.LookupClaude5(c.ModelConfig.Model)
+	if budget.IsDisabled() {
+		if isClaude5 && !c5.CanDisableThinking {
+			return "low", true
+		}
 		return "", false
 	}
 	if e, ok := budget.AdaptiveEffort(); ok {
@@ -309,6 +324,9 @@ func (c *Client) adaptiveThinkingEffort() (string, bool) {
 		return effort.ForAnthropic(l)
 	}
 	if budget.Tokens > 0 {
+		if isClaude5 {
+			return "", true
+		}
 		// Coerced token budget: adaptive's default effort.
 		return "high", true
 	}
@@ -327,8 +345,10 @@ func (c *Client) promptCachingEnabled() bool {
 func (c *Client) buildAdditionalModelRequestFields() document.Interface {
 	fields := map[string]any{}
 
+	_, isClaude5 := modelinfo.LookupClaude5(c.ModelConfig.Model)
+
 	// Forward top_k from provider_opts (Anthropic on Bedrock supports it)
-	if topK, ok := providerutil.GetProviderOptInt64(c.ModelConfig.ProviderOpts, "top_k"); ok {
+	if topK, ok := providerutil.GetProviderOptInt64(c.ModelConfig.ProviderOpts, "top_k"); ok && !isClaude5 {
 		fields["top_k"] = topK
 		slog.Debug("Bedrock provider_opts: set top_k", "value", topK)
 	}
@@ -353,7 +373,11 @@ func (c *Client) buildAdditionalModelRequestFields() document.Interface {
 			}
 			slog.Debug("Bedrock request using adaptive thinking", "effort", effortStr)
 			fields["thinking"] = map[string]any{"type": "adaptive"}
-			fields["output_config"] = map[string]any{"effort": effortStr}
+			if effortStr != "" {
+				fields["output_config"] = map[string]any{"effort": effortStr}
+			}
+		} else if budget.IsDisabled() && isClaude5 {
+			fields["thinking"] = map[string]any{"type": "disabled"}
 		} else {
 			tokens := budget.Tokens
 			if t, ok := budget.EffortTokens(); ok {

@@ -170,6 +170,19 @@ Docker Agent recognizes these models (including Bedrock-style IDs) and transpare
 >
 > Bedrock Claude suppresses `temperature` and `top_p` while extended thinking is active — Anthropic requires `temperature=1.0` internally.
 
+### Claude 5.x models
+
+The nine Claude 5.x models listed in the [Anthropic provider guide](../anthropic/index.md#claude-5x-models) follow the same rules on Bedrock, including Bedrock-style IDs such as `us.anthropic.claude-sonnet-5-5-v1:0`:
+
+- Effort levels and `adaptive` are sent as adaptive thinking. An integer token budget becomes adaptive thinking with the model's default effort.
+- `temperature`, `top_p` and `top_k` are never sent.
+- `thinking_budget: none` sends `thinking: {"type": "disabled"}` on Haiku 5.5, Opus 5 and Sonnet 5. The other six get adaptive thinking with `low` effort and a startup warning.
+
+> [!NOTE]
+> **Not yet verified live**
+>
+> The `disabled` value follows the Claude Messages contract; it has not yet been verified against live Bedrock Converse.
+
 ## Interleaved Thinking (Claude on Bedrock)
 
 Interleaved thinking lets the model reason between tool calls, not just at the start. This is useful for complex agentic tasks. Enable it alongside a thinking budget:
