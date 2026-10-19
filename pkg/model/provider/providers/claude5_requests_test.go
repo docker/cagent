@@ -100,12 +100,39 @@ func TestClaude5FinalRequests(t *testing.T) {
 	anthropicEnv := map[string]string{"ANTHROPIC_API_KEY": "test-key"}
 	bedrockEnv := map[string]string{"AWS_BEARER_TOKEN_BEDROCK": "test-token", "AWS_REGION": "us-east-1"}
 
-	t.Run("direct standard", func(t *testing.T) {
+	// Sonnet 5 has no automatic thinking binding; with interleaved thinking
+	// off, the request stays on the standard Messages API.
+	standard := func(budget *latest.ThinkingBudget) latest.ModelConfig {
+		return latest.ModelConfig{
+			Provider: "anthropic", Model: "claude-sonnet-5", ThinkingBudget: budget, Temperature: new(0.2),
+			ProviderOpts: map[string]any{"interleaved_thinking": false},
+		}
+	}
+
+	t.Run("direct standard effort", func(t *testing.T) {
+		t.Parallel()
+		req := captureFinalRequest(t, standard(&latest.ThinkingBudget{Effort: "high"}), anthropicEnv)
+		assert.Equal(t, "fine-grained-tool-streaming-2025-05-14", req.header.Get("anthropic-beta"), "standard Messages API")
+		assert.Equal(t, "adaptive", field(req.body, "thinking", "type"))
+		assert.Equal(t, "high", field(req.body, "output_config", "effort"))
+		assert.NotContains(t, req.body, "temperature")
+	})
+
+	t.Run("direct standard token budget omits effort", func(t *testing.T) {
+		t.Parallel()
+		req := captureFinalRequest(t, standard(&latest.ThinkingBudget{Tokens: 16000}), anthropicEnv)
+		assert.Equal(t, "fine-grained-tool-streaming-2025-05-14", req.header.Get("anthropic-beta"), "standard Messages API")
+		assert.Equal(t, "adaptive", field(req.body, "thinking", "type"))
+		assert.Nil(t, field(req.body, "output_config", "effort"))
+	})
+
+	t.Run("direct beta with automatic binding", func(t *testing.T) {
 		t.Parallel()
 		req := captureFinalRequest(t, latest.ModelConfig{
 			Provider: "anthropic", Model: "claude-haiku-5-5",
 			ThinkingBudget: &latest.ThinkingBudget{Effort: "high"}, Temperature: new(0.2),
 		}, anthropicEnv)
+		assert.Contains(t, req.header.Get("anthropic-beta"), "thinking-binding-controls")
 		assert.Equal(t, "adaptive", field(req.body, "thinking", "type"))
 		assert.Equal(t, "high", field(req.body, "output_config", "effort"))
 		assert.NotContains(t, req.body, "temperature")
