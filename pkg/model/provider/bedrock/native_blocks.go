@@ -5,6 +5,7 @@ import (
 	"maps"
 	"reflect"
 	"slices"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 
@@ -28,6 +29,7 @@ type nativeBlock struct {
 
 type recordedBlock struct {
 	block   nativeBlock
+	text    strings.Builder
 	input   []byte
 	stopped bool
 }
@@ -59,7 +61,7 @@ func (r *blockRecorder) delta(idx int32, d types.ContentBlockDelta) {
 	switch d := d.(type) {
 	case *types.ContentBlockDeltaMemberText:
 		b := r.get(idx, "text")
-		b.block.Text += d.Value
+		b.text.WriteString(d.Value)
 	case *types.ContentBlockDeltaMemberToolUse:
 		b := r.get(idx, "tool_use")
 		if d.Value.Input != nil {
@@ -69,7 +71,7 @@ func (r *blockRecorder) delta(idx int32, d types.ContentBlockDelta) {
 		switch rd := d.Value.(type) {
 		case *types.ReasoningContentBlockDeltaMemberText:
 			b := r.get(idx, "reasoning")
-			b.block.Text += rd.Value
+			b.text.WriteString(rd.Value)
 		case *types.ReasoningContentBlockDeltaMemberSignature:
 			b := r.get(idx, "reasoning")
 			b.block.Signature += rd.Value
@@ -98,6 +100,7 @@ func (r *blockRecorder) state() *chat.ProviderState {
 		if !b.stopped {
 			return nil
 		}
+		b.block.Text = b.text.String()
 		if b.block.Type == "tool_use" {
 			input := b.input
 			if len(input) == 0 {
