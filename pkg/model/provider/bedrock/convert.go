@@ -255,7 +255,15 @@ func convertAssistantContent(msg *chat.Message) []types.ContentBlock {
 
 	// Flattened fallback (order: thinking, text, tool_use). A signature without
 	// text is signed thinking whose display was omitted, not redacted content.
-	if msg.ThinkingSignature != "" {
+	// A turn whose reasoning changed since it was recorded loses it.
+	if recovered, ok := recoveredNativeBlocks(msg); ok {
+		return recovered
+	}
+	recorded := msg.HasOwnRawContent(providerName)
+	if recorded && recordedReasoning(msg) {
+		slog.Warn("Bedrock: omitting thinking that changed after it was recorded")
+	}
+	if msg.ThinkingSignature != "" && !recorded {
 		blocks = append(blocks, &types.ContentBlockMemberReasoningContent{
 			Value: &types.ReasoningContentBlockMemberReasoningText{
 				Value: types.ReasoningTextBlock{

@@ -2,6 +2,7 @@ package bedrock
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"reflect"
 	"slices"
@@ -37,6 +38,7 @@ type recordedBlock struct {
 // blockRecorder accumulates content blocks by ContentBlockIndex. Reasoning
 // blocks may start with a delta, so any event creates its block.
 type blockRecorder struct {
+	model  string
 	blocks map[int32]*recordedBlock
 }
 
@@ -117,7 +119,7 @@ func (r *blockRecorder) state() *chat.ProviderState {
 	if err != nil {
 		return nil
 	}
-	return &chat.ProviderState{Provider: providerName, Content: content}
+	return &chat.ProviderState{Provider: providerName, Version: chat.ProviderStateVersion, Model: r.model, Content: content}
 }
 
 // replayNativeBlocks rebuilds the recorded Converse blocks when the message
@@ -132,12 +134,104 @@ func replayNativeBlocks(msg *chat.Message) ([]types.ContentBlock, bool) {
 	if err := json.Unmarshal(state.Content, &blocks); err != nil || !nativeBlocksDescribe(msg, blocks) {
 		return nil, false
 	}
+	return toContentBlocks(blocks)
+}
+
+// recoveredNativeBlocks rebuilds msg's own recorded blocks in their original
+// order when its reasoning is unchanged, taking text, tool names and arguments
+// from msg. Runtime transforms (sanitized tool names, redacted arguments)
+// change only those, so the signed and redacted reasoning stays valid. ok is
+// false when the reasoning changed, the tool calls no longer line up, or the
+// state is from a format this build cannot read.
+func recoveredNativeBlocks(msg *chat.Message) ([]types.ContentBlock, bool) {
+	state := msg.ProviderState
+	if !msg.HasOwnRawContent(providerName) || state.Version > chat.ProviderStateVersion {
+		return nil, false
+	}
+	var blocks []nativeBlock
+	if json.Unmarshal(state.Content, &blocks) != nil {
+		return nil, false
+	}
+	var reasoning strings.Builder
+	var text []int
+	call := 0
+	for i := range blocks {
+		b := &blocks[i]
+		switch b.Type {
+		case "reasoning":
+			reasoning.WriteString(b.Text)
+		case "text":
+			text = append(text, i)
+		case "tool_use":
+			if call >= len(msg.ToolCalls) || b.ID != msg.ToolCalls[call].ID {
+				return nil, false
+			}
+			args := msg.ToolCalls[call].Function.Arguments
+			if args == "" {
+				args = "{}"
+			}
+			if !json.Valid([]byte(args)) {
+				return nil, false
+			}
+			b.Name, b.Input = msg.ToolCalls[call].Function.Name, json.RawMessage(args)
+			call++
+		}
+	}
+	if call != len(msg.ToolCalls) || reasoning.String() != msg.ReasoningContent {
+		return nil, false
+	}
+	// The visible text may have been rewritten as a whole: keep it in the first
+	// text block, or before the first tool call when the turn had none.
+	patched := make([]nativeBlock, 0, len(blocks)+1)
+	inserted := msg.Content == ""
+	for i, b := range blocks {
+		if b.Type == "text" {
+			if len(text) > 0 && i == text[0] && msg.Content != "" {
+				b.Text = msg.Content
+				patched = append(patched, b)
+				inserted = true
+			}
+			continue
+		}
+		if !inserted && b.Type == "tool_use" {
+			patched = append(patched, nativeBlock{Type: "text", Text: msg.Content})
+			inserted = true
+		}
+		patched = append(patched, b)
+	}
+	if !inserted {
+		patched = append(patched, nativeBlock{Type: "text", Text: msg.Content})
+	}
+	out, ok := toContentBlocks(patched)
+	return out, ok && len(out) > 0
+}
+
+// recordedReasoning reports whether msg's own recorded blocks hold signed or
+// redacted reasoning, regardless of the editable flattened fields. A state
+// from a newer format cannot be read and is assumed to.
+func recordedReasoning(msg *chat.Message) bool {
+	state := msg.ProviderState
+	if state.Version > chat.ProviderStateVersion {
+		return true
+	}
+	var blocks []nativeBlock
+	if json.Unmarshal(state.Content, &blocks) != nil {
+		return true
+	}
+	return slices.ContainsFunc(blocks, func(b nativeBlock) bool {
+		return (b.Type == "reasoning" && b.Signature != "") || b.Type == "redacted_reasoning"
+	})
+}
+
+// toContentBlocks converts recorded blocks to request blocks. Unsigned
+// reasoning (cut off by max_tokens, or another vendor's) cannot be verified
+// by the API and is skipped. ok is false for an unknown or malformed block.
+func toContentBlocks(blocks []nativeBlock) ([]types.ContentBlock, bool) {
 	out := make([]types.ContentBlock, 0, len(blocks))
 	for _, b := range blocks {
 		switch b.Type {
 		case "reasoning":
 			if b.Signature == "" {
-				// Unsigned reasoning cannot be verified by the API.
 				continue
 			}
 			out = append(out, &types.ContentBlockMemberReasoningContent{
@@ -205,4 +299,26 @@ func sameJSON(arguments string, input json.RawMessage) bool {
 		return false
 	}
 	return reflect.DeepEqual(a, b)
+}
+
+// checkReplayableThinking refuses a thinking request whose active tool loop
+// holds an assistant turn whose reasoning changed since it was recorded: the
+// API requires that turn's signed thinking, which can no longer be replayed.
+func checkReplayableThinking(model string, thinks bool, messages []chat.Message) error {
+	if !thinks {
+		return nil
+	}
+	for i := chat.ActiveToolLoopStart(messages); i < len(messages); i++ {
+		msg := &messages[i]
+		if msg.Role != chat.MessageRoleAssistant || !msg.HasOwnRawContent(providerName) || !recordedReasoning(msg) {
+			continue
+		}
+		if _, ok := replayNativeBlocks(msg); ok {
+			continue
+		}
+		if _, ok := recoveredNativeBlocks(msg); !ok {
+			return fmt.Errorf("%s: the thinking of an assistant turn in the current tool loop changed after it was recorded and cannot be replayed; start a new user turn to continue", model)
+		}
+	}
+	return nil
 }

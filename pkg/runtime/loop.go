@@ -1443,9 +1443,6 @@ func (r *LocalRuntime) recordAssistantMessage(
 		Cost:              messageCost,
 		FinishReason:      res.FinishReason,
 	}
-	// Sealed after name sanitization so the hash reflects what is persisted.
-	assistantMessage.AttachProviderState(res.ProviderState)
-
 	if len(res.Media) > 0 {
 		mediaParts := r.materializeGeneratedMedia(ctx, sess, res.Media, a.Name(), events)
 		if len(mediaParts) > 0 && strings.TrimSpace(res.Content) != "" {
@@ -1461,6 +1458,8 @@ func (r *LocalRuntime) recordAssistantMessage(
 		}
 		assistantMessage.MultiContent = append(assistantMessage.MultiContent, mediaParts...)
 	}
+	// Sealed after name sanitization and media so the hash reflects what is persisted.
+	assistantMessage.AttachProviderState(res.ProviderState)
 
 	addAgentMessage(sess, a, &assistantMessage, events)
 	slog.DebugContext(ctx, "Added assistant message to session", "agent", a.Name(), "total_messages", sess.AllMessageCount())

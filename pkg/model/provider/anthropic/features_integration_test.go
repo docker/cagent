@@ -856,3 +856,213 @@ func TestForeignProviderStateKeepsThinking(t *testing.T) {
 		})
 	}
 }
+
+// editedToolTurn is an assistant tool-use turn whose own raw state no longer
+// matches it (e.g. a hook redacted its reasoning).
+func editedToolTurn(toolIDs ...string) chat.Message {
+	msg := chat.Message{Role: chat.MessageRoleAssistant, ReasoningContent: "t", ThinkingSignature: "s"}
+	blocks := []string{`{"type":"thinking","thinking":"t","signature":"s"}`}
+	for _, id := range toolIDs {
+		msg.ToolCalls = append(msg.ToolCalls, tools.ToolCall{ID: id, Type: "function", Function: tools.FunctionCall{Name: "read", Arguments: `{}`}})
+		blocks = append(blocks, fmt.Sprintf(`{"type":"tool_use","id":%q,"name":"read","input":{}}`, id))
+	}
+	msg.AttachProviderState(&chat.ProviderState{Provider: providerStateName, Content: json.RawMessage("[" + strings.Join(blocks, ",") + "]")})
+	msg.ReasoningContent = "[REDACTED]"
+	return msg
+}
+
+func toolResult(id string) chat.Message {
+	return chat.Message{Role: chat.MessageRoleTool, ToolCallID: id, Content: "ok"}
+}
+
+func TestUnreplayableRawState(t *testing.T) {
+	t.Parallel()
+
+	thinking := map[string]latest.ModelConfig{
+		"standard": {Provider: "anthropic", Model: "claude-sonnet-4-5", ThinkingBudget: &latest.ThinkingBudget{Tokens: 2048}, ProviderOpts: map[string]any{"interleaved_thinking": false}},
+		"beta":     {Provider: "anthropic", Model: "claude-fable-5-1"},
+	}
+
+	for name, cfg := range thinking {
+		t.Run(name+"/earlier edited turn omits thinking", func(t *testing.T) {
+			t.Parallel()
+			srv := newScriptedServer(t, textReply("msg_1", "ok"))
+			chatTurn(t, newScriptedClient(srv, cfg), []chat.Message{user("q"), editedToolTurn("t1"), toolResult("t1"), user("next")}, nil)
+
+			content, _ := srv.request(t, 0).messages()[1]["content"].([]any)
+			for _, block := range content {
+				assert.NotEqual(t, "thinking", block.(map[string]any)["type"])
+			}
+		})
+
+		t.Run(name+"/edited turn in the active loop is refused", func(t *testing.T) {
+			t.Parallel()
+			srv := newScriptedServer(t, textReply("msg_1", "ok"))
+			_, err := newScriptedClient(srv, cfg).CreateChatCompletionStream(t.Context(), []chat.Message{user("q"), editedToolTurn("t1"), toolResult("t1")}, nil)
+			require.ErrorContains(t, err, "changed after it was recorded and cannot be replayed")
+			assert.Zero(t, srv.count())
+		})
+
+		t.Run(name+"/parallel tool calls in the active loop are refused", func(t *testing.T) {
+			t.Parallel()
+			srv := newScriptedServer(t, textReply("msg_1", "ok"))
+			_, err := newScriptedClient(srv, cfg).CreateChatCompletionStream(t.Context(),
+				[]chat.Message{user("q"), editedToolTurn("t1", "t2"), toolResult("t1"), toolResult("t2")}, nil)
+			require.ErrorContains(t, err, "current tool loop")
+		})
+
+		t.Run(name+"/content-less state keeps flattened thinking", func(t *testing.T) {
+			t.Parallel()
+			turn := chat.Message{
+				Role: chat.MessageRoleAssistant, ReasoningContent: "t", ThinkingSignature: "s",
+				ToolCalls: []tools.ToolCall{{ID: "t1", Type: "function", Function: tools.FunctionCall{Name: "read", Arguments: `{}`}}},
+			}
+			turn.AttachProviderState(&chat.ProviderState{Provider: providerStateName, Content: json.RawMessage(`[]`), RequestContext: json.RawMessage(`{}`)})
+			srv := newScriptedServer(t, textReply("msg_1", "ok"))
+			chatTurn(t, newScriptedClient(srv, cfg), []chat.Message{user("q"), turn, toolResult("t1")}, nil)
+
+			content, _ := srv.request(t, 0).messages()[1]["content"].([]any)
+			require.NotEmpty(t, content)
+			assert.Equal(t, "thinking", content[0].(map[string]any)["type"])
+		})
+	}
+
+	t.Run("thinking off allows the edited active-loop turn", func(t *testing.T) {
+		t.Parallel()
+		srv := newScriptedServer(t, textReply("msg_1", "ok"))
+		cfg := latest.ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-5", ProviderOpts: map[string]any{"interleaved_thinking": false}}
+		chatTurn(t, newScriptedClient(srv, cfg), []chat.Message{user("q"), editedToolTurn("t1"), toolResult("t1")}, nil)
+		assert.Equal(t, 1, srv.count())
+	})
+}
+
+// Runtime transforms change a turn's text or tool calls without touching its
+// thinking: the recorded thinking is still replayed inside the tool loop.
+func TestIntactThinkingSurvivesRuntimeTransforms(t *testing.T) {
+	t.Parallel()
+
+	raw := json.RawMessage(`[{"type":"thinking","thinking":"t","signature":"s"},{"type":"tool_use","id":"t1","name":"read\" path=\"x","input":{"token":"abc"}}]`)
+	sanitized := func() chat.Message {
+		msg := chat.Message{
+			Role: chat.MessageRoleAssistant, ReasoningContent: "t", ThinkingSignature: "s",
+			ToolCalls: []tools.ToolCall{{ID: "t1", Type: "function", Function: tools.FunctionCall{Name: "read", Arguments: `{"token":"abc"}`}}},
+		}
+		msg.AttachProviderState(&chat.ProviderState{Provider: providerStateName, Content: raw})
+		return msg
+	}
+	redacted := func() chat.Message {
+		msg := sanitized()
+		msg.ToolCalls[0].Function.Arguments = `{"token":"[REDACTED]"}`
+		return msg
+	}
+
+	cfgs := map[string]latest.ModelConfig{
+		"standard": {Provider: "anthropic", Model: "claude-sonnet-4-5", ThinkingBudget: &latest.ThinkingBudget{Tokens: 2048}, ProviderOpts: map[string]any{"interleaved_thinking": false}},
+		"beta":     {Provider: "anthropic", Model: "claude-fable-5-1"},
+	}
+	for name, cfg := range cfgs {
+		for transform, turn := range map[string]func() chat.Message{"sanitized tool name": sanitized, "redacted arguments": redacted} {
+			t.Run(name+"/"+transform, func(t *testing.T) {
+				t.Parallel()
+				srv := newScriptedServer(t, textReply("msg_1", "ok"))
+				chatTurn(t, newScriptedClient(srv, cfg), []chat.Message{user("q"), turn(), toolResult("t1")}, nil)
+
+				content, _ := srv.request(t, 0).messages()[1]["content"].([]any)
+				require.Len(t, content, 2)
+				first := content[0].(map[string]any)
+				assert.Equal(t, "thinking", first["type"])
+				assert.Equal(t, "s", first["signature"])
+				second := content[1].(map[string]any)
+				assert.Equal(t, "read", second["name"], "the sanitized tool call is sent")
+			})
+		}
+	}
+}
+
+// recordedTurn seals msg with raw blocks, then applies edit, the way runtime
+// transforms (sanitized names, redaction) change a turn after recording.
+func recordedTurn(raw string, version int, msg chat.Message, edit func(*chat.Message)) chat.Message {
+	msg.Role = chat.MessageRoleAssistant
+	msg.AttachProviderState(&chat.ProviderState{Provider: providerStateName, Version: version, Content: json.RawMessage(raw)})
+	if edit != nil {
+		edit(&msg)
+	}
+	return msg
+}
+
+func readCall(id string) tools.ToolCall {
+	return tools.ToolCall{ID: id, Type: "function", Function: tools.FunctionCall{Name: "read", Arguments: `{}`}}
+}
+
+func TestRecordedThinkingRecovery(t *testing.T) {
+	t.Parallel()
+
+	cfgs := map[string]latest.ModelConfig{
+		"standard": {Provider: "anthropic", Model: "claude-sonnet-4-5", ThinkingBudget: &latest.ThinkingBudget{Tokens: 2048}, ProviderOpts: map[string]any{"interleaved_thinking": false}},
+		"beta":     {Provider: "anthropic", Model: "claude-fable-5-1"},
+	}
+	sanitize := func(m *chat.Message) {
+		for i := range m.ToolCalls {
+			m.ToolCalls[i].Function.Name = "read"
+		}
+	}
+
+	for name, cfg := range cfgs {
+		t.Run(name+"/split signature is recovered", func(t *testing.T) {
+			t.Parallel()
+			turn := recordedTurn(`[{"type":"thinking","thinking":"t","signature":"s1s2"},{"type":"tool_use","id":"t1","name":"read\" x","input":{}}]`, 1,
+				chat.Message{ReasoningContent: "t", ThinkingSignature: "s2", ToolCalls: []tools.ToolCall{{ID: "t1", Type: "function", Function: tools.FunctionCall{Name: `read" x`, Arguments: `{}`}}}}, sanitize)
+			srv := newScriptedServer(t, textReply("msg_1", "ok"))
+			chatTurn(t, newScriptedClient(srv, cfg), []chat.Message{user("q"), turn, toolResult("t1")}, nil)
+
+			content := srv.request(t, 0).messages()[1]["content"].([]any)
+			assert.Equal(t, "s1s2", content[0].(map[string]any)["signature"])
+			assert.Equal(t, "read", content[1].(map[string]any)["name"])
+		})
+
+		t.Run(name+"/interleaved thinking keeps its order", func(t *testing.T) {
+			t.Parallel()
+			raw := `[{"type":"thinking","thinking":"a","signature":"s1"},{"type":"tool_use","id":"t1","name":"read\" x","input":{}},` +
+				`{"type":"thinking","thinking":"b","signature":"s2"},{"type":"tool_use","id":"t2","name":"read\" y","input":{}}]`
+			turn := recordedTurn(raw, 1, chat.Message{ReasoningContent: "ab", ThinkingSignature: "s2", ToolCalls: []tools.ToolCall{
+				{ID: "t1", Type: "function", Function: tools.FunctionCall{Name: `read" x`, Arguments: `{}`}},
+				{ID: "t2", Type: "function", Function: tools.FunctionCall{Name: `read" y`, Arguments: `{}`}},
+			}}, sanitize)
+			srv := newScriptedServer(t, textReply("msg_1", "ok"))
+			chatTurn(t, newScriptedClient(srv, cfg), []chat.Message{user("q"), turn, toolResult("t1"), toolResult("t2")}, nil)
+
+			var types []string
+			for _, b := range srv.request(t, 0).messages()[1]["content"].([]any) {
+				types = append(types, b.(map[string]any)["type"].(string))
+			}
+			assert.Equal(t, []string{"thinking", "tool_use", "thinking", "tool_use"}, types)
+		})
+
+		t.Run(name+"/redacted-only thinking is refused when it cannot be recovered", func(t *testing.T) {
+			t.Parallel()
+			turn := recordedTurn(`[{"type":"redacted_thinking","data":"opaque"},{"type":"tool_use","id":"t1","name":"read","input":{}}]`, 1,
+				chat.Message{ToolCalls: []tools.ToolCall{readCall("t1")}}, func(m *chat.Message) { m.ToolCalls = append(m.ToolCalls, readCall("t2")) })
+			srv := newScriptedServer(t, textReply("msg_1", "ok"))
+			_, err := newScriptedClient(srv, cfg).CreateChatCompletionStream(t.Context(), []chat.Message{user("q"), turn, toolResult("t1"), toolResult("t2")}, nil)
+			require.ErrorContains(t, err, "cannot be replayed")
+		})
+
+		t.Run(name+"/cleared signature with intact thinking is recovered", func(t *testing.T) {
+			t.Parallel()
+			turn := recordedTurn(`[{"type":"thinking","thinking":"t","signature":"s"},{"type":"tool_use","id":"t1","name":"read","input":{}}]`, 1,
+				chat.Message{ReasoningContent: "t", ThinkingSignature: "s", ToolCalls: []tools.ToolCall{readCall("t1")}}, func(m *chat.Message) { m.ThinkingSignature = "" })
+			srv := newScriptedServer(t, textReply("msg_1", "ok"))
+			chatTurn(t, newScriptedClient(srv, cfg), []chat.Message{user("q"), turn, toolResult("t1")}, nil)
+			assert.Equal(t, "s", srv.request(t, 0).messages()[1]["content"].([]any)[0].(map[string]any)["signature"])
+		})
+
+		t.Run(name+"/newer state version is refused in the loop", func(t *testing.T) {
+			t.Parallel()
+			turn := recordedTurn(`[{"type":"thinking","thinking":"t","signature":"s"},{"type":"tool_use","id":"t1","name":"read","input":{}}]`, chat.ProviderStateVersion+1,
+				chat.Message{ReasoningContent: "t", ThinkingSignature: "s", ToolCalls: []tools.ToolCall{readCall("t1")}}, nil)
+			srv := newScriptedServer(t, textReply("msg_1", "ok"))
+			_, err := newScriptedClient(srv, cfg).CreateChatCompletionStream(t.Context(), []chat.Message{user("q"), turn, toolResult("t1")}, nil)
+			require.ErrorContains(t, err, "cannot be replayed")
+		})
+	}
+}

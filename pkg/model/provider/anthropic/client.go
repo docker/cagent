@@ -390,6 +390,7 @@ func (c *Client) convertMessagesWithDeferred(ctx context.Context, messages []cha
 	// Track whether the last appended assistant message included tool_use blocks
 	// so we can ensure the immediate next message is the grouped tool_result user message.
 	pendingAssistantToolUse := false
+	loopStart := chat.ActiveToolLoopStart(messages)
 
 	for i := 0; i < len(messages); i++ {
 		msg := &messages[i]
@@ -420,10 +421,17 @@ func (c *Client) convertMessagesWithDeferred(ctx context.Context, messages []cha
 				pendingAssistantToolUse = len(msg.ToolCalls) > 0
 				continue
 			}
+			if blocks, ok := recoveredParams(msg); ok {
+				anthropicMessages = append(anthropicMessages, anthropic.NewAssistantMessage(blocks...))
+				pendingAssistantToolUse = len(msg.ToolCalls) > 0
+				continue
+			}
 			contentBlocks := make([]anthropic.ContentBlockParamUnion, 0)
 
 			// Include thinking blocks when present to preserve extended thinking context
-			if !hasOwnProviderState(msg) && msg.ThinkingSignature != "" {
+			if include, err := c.flattenedThinking(i, loopStart, msg); err != nil {
+				return nil, err
+			} else if include {
 				contentBlocks = append(contentBlocks, anthropic.NewThinkingBlock(msg.ThinkingSignature, msg.ReasoningContent))
 			}
 

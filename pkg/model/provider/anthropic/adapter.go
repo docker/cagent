@@ -155,7 +155,7 @@ func (a *streamAdapter) Recv() (chat.MessageStreamResponse, error) {
 	case anthropic.MessageStopEvent:
 		response.Choices[0].FinishReason = finishReason(a.stopReason, a.toolCall)
 		if !a.rawLost {
-			response.Choices[0].Delta.ProviderState = newProviderState(a.message.ID, a.message.Content)
+			response.Choices[0].Delta.ProviderState = newProviderState(a.message.ID, a.message.Model, a.message.Content)
 		}
 	}
 

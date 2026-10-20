@@ -186,6 +186,10 @@ func (c *Client) CreateChatCompletionStream(
 		return nil, errors.New("at least one message is required")
 	}
 
+	if err := checkReplayableThinking(c.ModelConfig.Model, c.requestThinks(), messages); err != nil {
+		return nil, err
+	}
+
 	if _, ok := modelinfo.LookupClaude5(c.ModelConfig.Model); ok && providerutil.FinalAssistantPrefill(messages) {
 		return nil, fmt.Errorf("%s does not accept a final assistant message (prefill)", c.ModelConfig.Model)
 	}
@@ -288,6 +292,15 @@ func (c *Client) thinkingBudget() *latest.ThinkingBudget {
 		return &latest.ThinkingBudget{Effort: "none"}
 	}
 	return nil
+}
+
+// requestThinks reports whether the request sends, or defaults to, thinking.
+func (c *Client) requestThinks() bool {
+	if c.thinkingBudget() == nil {
+		_, isClaude5 := modelinfo.LookupClaude5(c.ModelConfig.Model)
+		return isClaude5
+	}
+	return c.isThinkingEnabled()
 }
 
 // isThinkingEnabled returns true if a valid thinking budget is configured.

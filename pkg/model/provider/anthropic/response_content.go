@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -22,7 +24,7 @@ const providerStateName = "anthropic"
 // Message or BetaMessage in wire order. Block JSON is only final once the
 // SDK refreshed it on message_stop, so call this from the stop event. Returns
 // nil for a response without content.
-func newProviderState[T interface{ RawJSON() string }](messageID string, blocks []T) *chat.ProviderState {
+func newProviderState[T interface{ RawJSON() string }](messageID, model string, blocks []T) *chat.ProviderState {
 	raws := make([]string, 0, len(blocks))
 	for _, block := range blocks {
 		if raw := block.RawJSON(); raw != "" {
@@ -34,6 +36,8 @@ func newProviderState[T interface{ RawJSON() string }](messageID string, blocks 
 	}
 	return &chat.ProviderState{
 		Provider:  providerStateName,
+		Version:   chat.ProviderStateVersion,
+		Model:     model,
 		MessageID: messageID,
 		Content:   json.RawMessage("[" + strings.Join(raws, ",") + "]"),
 	}
@@ -171,9 +175,151 @@ func toolInput(raw string) any {
 	return v
 }
 
-// hasOwnProviderState reports whether msg carries raw state recorded by this
-// provider. Thinking from another provider's state (e.g. Bedrock before a
-// fallback) is still replayed from the flattened fields.
-func hasOwnProviderState(msg *chat.Message) bool {
-	return msg.ProviderState != nil && msg.ProviderState.Provider == providerStateName
+// recoveredContent rebuilds msg's own recorded response in its original order
+// when its thinking is unchanged, taking text, tool names and arguments from
+// msg. Runtime transforms (sanitized tool names, redacted arguments) change
+// only those, so the signed and redacted thinking blocks stay valid. ok is
+// false when the thinking changed, the tool calls no longer line up, or the
+// state is from a format this build cannot read.
+func recoveredContent(msg *chat.Message) (json.RawMessage, bool) {
+	state := msg.ProviderState
+	if !msg.HasOwnRawContent(providerStateName) || state.Version > chat.ProviderStateVersion {
+		return nil, false
+	}
+	decoder := json.NewDecoder(bytes.NewReader(state.Content))
+	decoder.UseNumber()
+	var blocks []map[string]any
+	if decoder.Decode(&blocks) != nil {
+		return nil, false
+	}
+	var thinking strings.Builder
+	var text []int
+	call := 0
+	for i, b := range blocks {
+		switch b["type"] {
+		case "thinking":
+			s, _ := b["thinking"].(string)
+			thinking.WriteString(s)
+		case "text":
+			text = append(text, i)
+		case "tool_use":
+			if call >= len(msg.ToolCalls) || b["id"] != msg.ToolCalls[call].ID {
+				return nil, false
+			}
+			b["name"] = msg.ToolCalls[call].Function.Name
+			b["input"] = toolInput(msg.ToolCalls[call].Function.Arguments)
+			call++
+		}
+	}
+	if call != len(msg.ToolCalls) || thinking.String() != msg.ReasoningContent {
+		return nil, false
+	}
+	// The visible text may have been rewritten as a whole: keep it in the first
+	// text block, or before the first tool call when the turn had none.
+	drop := map[int]bool{}
+	if len(text) > 0 {
+		blocks[text[0]]["text"] = msg.Content
+		for _, i := range text[1:] {
+			drop[i] = true
+		}
+	}
+	patched := make([]map[string]any, 0, len(blocks)+1)
+	inserted := len(text) > 0 || msg.Content == ""
+	for i, b := range blocks {
+		if drop[i] {
+			continue
+		}
+		if !inserted && b["type"] == "tool_use" {
+			patched = append(patched, map[string]any{"type": "text", "text": msg.Content})
+			inserted = true
+		}
+		patched = append(patched, b)
+	}
+	if !inserted {
+		patched = append(patched, map[string]any{"type": "text", "text": msg.Content})
+	}
+	raw, err := json.Marshal(patched)
+	return raw, err == nil
+}
+
+// recoveredParams is recoveredContent decoded for the Messages API.
+func recoveredParams(msg *chat.Message) ([]anthropic.ContentBlockParamUnion, bool) {
+	raw, ok := recoveredContent(msg)
+	if !ok {
+		return nil, false
+	}
+	var blocks []anthropic.ContentBlockUnion
+	if json.Unmarshal(raw, &blocks) != nil {
+		return nil, false
+	}
+	params := make([]anthropic.ContentBlockParamUnion, 0, len(blocks))
+	for _, b := range blocks {
+		if (rawBlock{Type: b.Type, Text: b.Text, Signature: b.Signature}).skip() {
+			continue
+		}
+		if b.AsAny() == nil {
+			return nil, false
+		}
+		params = append(params, b.ToParam())
+	}
+	return params, len(params) > 0
+}
+
+// betaRecoveredParams is recoveredContent decoded for the Beta Messages API.
+func betaRecoveredParams(msg *chat.Message) ([]anthropic.BetaContentBlockParamUnion, bool) {
+	raw, ok := recoveredContent(msg)
+	if !ok {
+		return nil, false
+	}
+	var blocks []anthropic.BetaContentBlockUnion
+	if json.Unmarshal(raw, &blocks) != nil {
+		return nil, false
+	}
+	params := make([]anthropic.BetaContentBlockParamUnion, 0, len(blocks))
+	for _, b := range blocks {
+		if (rawBlock{Type: b.Type, Text: b.Text, Signature: b.Signature}).skip() {
+			continue
+		}
+		if b.AsAny() == nil {
+			return nil, false
+		}
+		params = append(params, b.ToParam())
+	}
+	return params, len(params) > 0
+}
+
+// recordedThinking reports whether msg's own recorded response holds signed
+// or redacted thinking, regardless of the editable flattened fields. A state
+// from a newer format cannot be read and is assumed to.
+func recordedThinking(msg *chat.Message) bool {
+	state := msg.ProviderState
+	if state.Version > chat.ProviderStateVersion {
+		return true
+	}
+	var blocks []rawBlock
+	if json.Unmarshal(state.Content, &blocks) != nil {
+		return true
+	}
+	return slices.ContainsFunc(blocks, func(b rawBlock) bool {
+		return (b.Type == "thinking" && b.Signature != "") || b.Type == "redacted_thinking"
+	})
+}
+
+// flattenedThinking reports whether a non-replayable assistant turn may carry
+// its flattened thinking. A turn with its own raw content whose thinking
+// changed since it was recorded loses that thinking, except inside the active
+// tool loop of a thinking request, where the API requires it and the request
+// is refused.
+func (c *Client) flattenedThinking(i, loopStart int, msg *chat.Message) (bool, error) {
+	if !msg.HasOwnRawContent(providerStateName) {
+		return msg.ThinkingSignature != "", nil
+	}
+	if !recordedThinking(msg) {
+		return false, nil
+	}
+	if i >= loopStart && c.requestThinks() {
+		return false, fmt.Errorf("%s: the thinking of an assistant turn in the current tool loop changed after it was recorded and cannot be replayed; start a new user turn to continue", c.ModelConfig.Model)
+	}
+	slog.Warn("Anthropic: omitting thinking that changed after it was recorded", "index", i)
+	return false, nil
 }
