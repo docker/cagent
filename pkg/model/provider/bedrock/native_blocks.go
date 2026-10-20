@@ -2,6 +2,7 @@ package bedrock
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"reflect"
 	"slices"
@@ -206,4 +207,23 @@ func sameJSON(arguments string, input json.RawMessage) bool {
 		return false
 	}
 	return reflect.DeepEqual(a, b)
+}
+
+// checkReplayableThinking refuses a thinking request whose active tool loop
+// holds an assistant turn edited since its blocks were recorded: the API
+// requires that turn's signed thinking, which can no longer be replayed.
+func checkReplayableThinking(model string, thinks bool, messages []chat.Message) error {
+	if !thinks {
+		return nil
+	}
+	for i := chat.ActiveToolLoopStart(messages); i < len(messages); i++ {
+		msg := &messages[i]
+		if msg.Role != chat.MessageRoleAssistant || msg.ThinkingSignature == "" || !msg.HasOwnRawContent(providerName) {
+			continue
+		}
+		if _, ok := replayNativeBlocks(msg); !ok {
+			return fmt.Errorf("%s: cannot replay the thinking of an edited assistant turn in the current tool loop; start a new user turn to continue", model)
+		}
+	}
+	return nil
 }

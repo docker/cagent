@@ -402,6 +402,15 @@ func (c *Client) thinkingBudget() *latest.ThinkingBudget {
 	return nil
 }
 
+// requestThinks reports whether the request sends, or defaults to, thinking.
+func (c *Client) requestThinks() bool {
+	budget := c.resolveThinkingBudget()
+	if budget == nil {
+		return usesDefaultThinking(c.ModelConfig.Model)
+	}
+	return !budget.IsDisabled()
+}
+
 // sendsEffort reports whether an adaptive request carries output_config.effort.
 // A token budget coerced to adaptive on a Claude 5.x model leaves effort unset
 // so the model's own default applies.

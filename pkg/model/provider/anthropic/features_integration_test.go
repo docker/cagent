@@ -856,3 +856,82 @@ func TestForeignProviderStateKeepsThinking(t *testing.T) {
 		})
 	}
 }
+
+// editedToolTurn is an assistant tool-use turn whose own raw state no longer
+// matches it (e.g. a hook redacted its reasoning).
+func editedToolTurn(toolIDs ...string) chat.Message {
+	msg := chat.Message{Role: chat.MessageRoleAssistant, ReasoningContent: "t", ThinkingSignature: "s"}
+	blocks := []string{`{"type":"thinking","thinking":"t","signature":"s"}`}
+	for _, id := range toolIDs {
+		msg.ToolCalls = append(msg.ToolCalls, tools.ToolCall{ID: id, Type: "function", Function: tools.FunctionCall{Name: "read", Arguments: `{}`}})
+		blocks = append(blocks, fmt.Sprintf(`{"type":"tool_use","id":%q,"name":"read","input":{}}`, id))
+	}
+	msg.AttachProviderState(&chat.ProviderState{Provider: providerStateName, Content: json.RawMessage("[" + strings.Join(blocks, ",") + "]")})
+	msg.ReasoningContent = "[REDACTED]"
+	return msg
+}
+
+func toolResult(id string) chat.Message {
+	return chat.Message{Role: chat.MessageRoleTool, ToolCallID: id, Content: "ok"}
+}
+
+func TestUnreplayableRawState(t *testing.T) {
+	t.Parallel()
+
+	thinking := map[string]latest.ModelConfig{
+		"standard": {Provider: "anthropic", Model: "claude-sonnet-4-5", ThinkingBudget: &latest.ThinkingBudget{Tokens: 2048}, ProviderOpts: map[string]any{"interleaved_thinking": false}},
+		"beta":     {Provider: "anthropic", Model: "claude-fable-5-1"},
+	}
+
+	for name, cfg := range thinking {
+		t.Run(name+"/earlier edited turn omits thinking", func(t *testing.T) {
+			t.Parallel()
+			srv := newScriptedServer(t, textReply("msg_1", "ok"))
+			chatTurn(t, newScriptedClient(srv, cfg), []chat.Message{user("q"), editedToolTurn("t1"), toolResult("t1"), user("next")}, nil)
+
+			content, _ := srv.request(t, 0).messages()[1]["content"].([]any)
+			for _, block := range content {
+				assert.NotEqual(t, "thinking", block.(map[string]any)["type"])
+			}
+		})
+
+		t.Run(name+"/edited turn in the active loop is refused", func(t *testing.T) {
+			t.Parallel()
+			srv := newScriptedServer(t, textReply("msg_1", "ok"))
+			_, err := newScriptedClient(srv, cfg).CreateChatCompletionStream(t.Context(), []chat.Message{user("q"), editedToolTurn("t1"), toolResult("t1")}, nil)
+			require.ErrorContains(t, err, "cannot replay the thinking of an edited assistant turn in the current tool loop")
+			assert.Zero(t, srv.count())
+		})
+
+		t.Run(name+"/parallel tool calls in the active loop are refused", func(t *testing.T) {
+			t.Parallel()
+			srv := newScriptedServer(t, textReply("msg_1", "ok"))
+			_, err := newScriptedClient(srv, cfg).CreateChatCompletionStream(t.Context(),
+				[]chat.Message{user("q"), editedToolTurn("t1", "t2"), toolResult("t1"), toolResult("t2")}, nil)
+			require.ErrorContains(t, err, "current tool loop")
+		})
+
+		t.Run(name+"/content-less state keeps flattened thinking", func(t *testing.T) {
+			t.Parallel()
+			turn := chat.Message{
+				Role: chat.MessageRoleAssistant, ReasoningContent: "t", ThinkingSignature: "s",
+				ToolCalls: []tools.ToolCall{{ID: "t1", Type: "function", Function: tools.FunctionCall{Name: "read", Arguments: `{}`}}},
+			}
+			turn.AttachProviderState(&chat.ProviderState{Provider: providerStateName, Content: json.RawMessage(`[]`), RequestContext: json.RawMessage(`{}`)})
+			srv := newScriptedServer(t, textReply("msg_1", "ok"))
+			chatTurn(t, newScriptedClient(srv, cfg), []chat.Message{user("q"), turn, toolResult("t1")}, nil)
+
+			content, _ := srv.request(t, 0).messages()[1]["content"].([]any)
+			require.NotEmpty(t, content)
+			assert.Equal(t, "thinking", content[0].(map[string]any)["type"])
+		})
+	}
+
+	t.Run("thinking off allows the edited active-loop turn", func(t *testing.T) {
+		t.Parallel()
+		srv := newScriptedServer(t, textReply("msg_1", "ok"))
+		cfg := latest.ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-5", ProviderOpts: map[string]any{"interleaved_thinking": false}}
+		chatTurn(t, newScriptedClient(srv, cfg), []chat.Message{user("q"), editedToolTurn("t1"), toolResult("t1")}, nil)
+		assert.Equal(t, 1, srv.count())
+	})
+}

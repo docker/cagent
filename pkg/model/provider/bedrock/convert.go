@@ -255,7 +255,12 @@ func convertAssistantContent(msg *chat.Message) []types.ContentBlock {
 
 	// Flattened fallback (order: thinking, text, tool_use). A signature without
 	// text is signed thinking whose display was omitted, not redacted content.
-	if msg.ThinkingSignature != "" {
+	// A turn edited since its blocks were recorded loses its thinking.
+	edited := msg.HasOwnRawContent(providerName)
+	if edited && (msg.ThinkingSignature != "" || msg.ReasoningContent != "") {
+		slog.Warn("Bedrock: omitting thinking from an edited assistant turn")
+	}
+	if msg.ThinkingSignature != "" && !edited {
 		blocks = append(blocks, &types.ContentBlockMemberReasoningContent{
 			Value: &types.ReasoningContentBlockMemberReasoningText{
 				Value: types.ReasoningTextBlock{

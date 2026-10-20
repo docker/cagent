@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"reflect"
 	"strings"
 
@@ -173,9 +174,20 @@ func toolInput(raw string) any {
 	return v
 }
 
-// hasOwnProviderState reports whether msg carries raw state recorded by this
-// provider. Thinking from another provider's state (e.g. Bedrock before a
-// fallback) is still replayed from the flattened fields.
-func hasOwnProviderState(msg *chat.Message) bool {
-	return msg.ProviderState != nil && msg.ProviderState.Provider == providerStateName
+// flattenedThinking reports whether a non-replayable assistant turn may carry
+// its flattened thinking. A turn with its own raw content was edited since it
+// was recorded: its thinking is omitted, except inside the active tool loop of
+// a thinking request, where the API requires it and the request is refused.
+func (c *Client) flattenedThinking(i, loopStart int, msg *chat.Message) (bool, error) {
+	if !msg.HasOwnRawContent(providerStateName) {
+		return msg.ThinkingSignature != "", nil
+	}
+	if msg.ThinkingSignature == "" && msg.ReasoningContent == "" {
+		return false, nil
+	}
+	if i >= loopStart && msg.ThinkingSignature != "" && c.requestThinks() {
+		return false, fmt.Errorf("%s: cannot replay the thinking of an edited assistant turn in the current tool loop; start a new user turn to continue", c.ModelConfig.Model)
+	}
+	slog.Warn("Anthropic: omitting thinking from an edited assistant turn", "index", i)
+	return false, nil
 }

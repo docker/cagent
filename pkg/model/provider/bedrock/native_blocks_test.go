@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/docker/docker-agent/pkg/chat"
+	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/tools"
 )
 
@@ -100,9 +101,12 @@ func TestConvertAssistantContent_FallsBackWhenEdited(t *testing.T) {
 	msg := sealedMessage(t, interleaved)
 	msg.Content = "edited"
 
-	flattened := msg
-	flattened.ProviderState = nil
-	assert.Equal(t, convertAssistantContent(&flattened), convertAssistantContent(&msg))
+	// The edited turn keeps its text and tool calls but loses its thinking,
+	// whose recorded signatures no longer match it.
+	withoutThinking := msg
+	withoutThinking.ProviderState = nil
+	withoutThinking.ReasoningContent, withoutThinking.ThinkingSignature = "", ""
+	assert.Equal(t, convertAssistantContent(&withoutThinking), convertAssistantContent(&msg))
 }
 
 // Unsigned reasoning (thinking cut off by max_tokens, or another vendor's
@@ -152,4 +156,49 @@ func TestBlockRecorder_AccumulatesDeltasWithoutPerDeltaCopies(t *testing.T) {
 	require.Len(t, blocks, 2)
 	assert.Equal(t, nativeBlock{Type: "reasoning", Text: strings.Repeat("y", n), Signature: "sig"}, blocks[0])
 	assert.Equal(t, nativeBlock{Type: "text", Text: strings.Repeat("x", n)}, blocks[1])
+}
+
+// editedNativeTurn is a Bedrock tool-use turn whose recorded blocks no longer
+// match it (e.g. a hook redacted its reasoning).
+func editedNativeTurn(t *testing.T) chat.Message {
+	t.Helper()
+	msg := sealedMessage(t, []nativeBlock{
+		{Type: "reasoning", Text: "t", Signature: "s"},
+		{Type: "tool_use", ID: "t1", Name: "read", Input: json.RawMessage(`{}`)},
+	})
+	msg.ReasoningContent = "[REDACTED]"
+	return msg
+}
+
+func TestUnreplayableNativeBlocks(t *testing.T) {
+	t.Parallel()
+
+	user := chat.Message{Role: chat.MessageRoleUser, Content: "q"}
+	result := chat.Message{Role: chat.MessageRoleTool, ToolCallID: "t1", Content: "ok"}
+
+	t.Run("edited turn omits thinking", func(t *testing.T) {
+		t.Parallel()
+		msg := editedNativeTurn(t)
+		for _, b := range convertAssistantContent(&msg) {
+			_, isReasoning := b.(*types.ContentBlockMemberReasoningContent)
+			assert.False(t, isReasoning)
+		}
+	})
+
+	t.Run("edited turn in the active loop is refused when thinking", func(t *testing.T) {
+		t.Parallel()
+		client := bedrockThinkingClient("anthropic.claude-sonnet-5-5", &latest.ThinkingBudget{Effort: "high"})
+		_, err := client.CreateChatCompletionStream(t.Context(), []chat.Message{user, editedNativeTurn(t), result}, nil)
+		require.ErrorContains(t, err, "cannot replay the thinking of an edited assistant turn in the current tool loop")
+	})
+
+	t.Run("earlier edited turn is not refused", func(t *testing.T) {
+		t.Parallel()
+		require.NoError(t, checkReplayableThinking("m", true, []chat.Message{user, editedNativeTurn(t), result, user}))
+	})
+
+	t.Run("thinking off is not refused", func(t *testing.T) {
+		t.Parallel()
+		require.NoError(t, checkReplayableThinking("m", false, []chat.Message{user, editedNativeTurn(t), result}))
+	})
 }
