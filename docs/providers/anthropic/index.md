@@ -506,7 +506,8 @@ Docker Agent preserves the original ordered assistant content blocks, including
 multiple thinking blocks, omitted thinking, redacted thinking and their signatures.
 A hook or user edit invalidates raw replay so stale content cannot override it.
 
-On Fable 5.1/Mythos 5.1, Docker Agent defaults to
+On Claude models whose server checks thinking prefixes (Haiku 5.5, Opus 5.5,
+Sonnet 5.5 and Fable 5.1), Docker Agent defaults to
 `thinking.block_binding.prefix_mismatch_behavior: drop_block`: when earlier
 history changes, the API drops invalidated thinking instead of rejecting the
 request. Dropped blocks are reported in logs. To enforce append-only history
