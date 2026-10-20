@@ -218,6 +218,7 @@ func TestCreateLSPTool_WorkingDir_ReachesHandler(t *testing.T) {
 	toolset := latest.Toolset{
 		Type:       "lsp",
 		Command:    "gopls",
+		Version:    "false", // no auto-install: the test never starts gopls
 		WorkingDir: customDir,
 	}
 
