@@ -1,0 +1,82 @@
+name: Hosted test profile
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/test-profile.yml
+      - scripts/ci-test-profile.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  profile:
+    # Investigation only; do not add this expensive matrix to the normal gate.
+    if: github.head_ref == 'ci/profile-hosted-tests' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        cache: [restored, cold]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      PROFILE_CACHE: ${{ matrix.cache }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: $/.github/actions/setup-go
+        with:
+          cache-name: ${{ matrix.os == 'windows-latest' && 'test-windows' || 'test-linux' }}
+          # Unique misses leave shared caches intact; PRs never save caches.
+          cache-version: ${{ matrix.cache == 'cold' && format('profile-{0}-{1}', github.run_id, github.run_attempt) || '2' }}
+          save: 'false'
+          task: 'false'
+
+      - name: Exclude build paths from Defender
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $paths = @($env:GITHUB_WORKSPACE, $env:RUNNER_TEMP, (go env GOROOT), (go env GOPATH), (go env GOCACHE), (go env GOMODCACHE))
+          Add-MpPreference -ExclusionPath $paths
+          Get-MpPreference | Select-Object -ExpandProperty ExclusionPath
+
+      - name: Runner and cache environment
+        run: bash scripts/ci-test-profile.sh environment
+
+      - name: Download modules
+        run: bash scripts/ci-test-profile.sh download
+
+      - name: Build (Linux CI only)
+        if: runner.os == 'Linux'
+        run: bash scripts/ci-test-profile.sh build
+
+      - name: Compile all tests without executing
+        run: bash scripts/ci-test-profile.sh compile
+
+      - name: Execute all tests (uncached results, first pass)
+        run: bash scripts/ci-test-profile.sh execute-1
+
+      - name: Execute all tests (uncached results, second pass)
+        if: success() || failure()
+        run: bash scripts/ci-test-profile.sh execute-2
+
+      - name: Upload measurements
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-profile-${{ matrix.os }}-${{ matrix.cache }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ci-test-profile
+          retention-days: 14
+          if-no-files-found: warn
