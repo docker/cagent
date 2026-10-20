@@ -79,7 +79,7 @@ func (c *Client) convertBetaMessagesWithDeferred(ctx context.Context, messages [
 
 			// With interleaved thinking, we can include thinking blocks anywhere
 			// If we have thinking content, include it first (conventional order)
-			if msg.ProviderState == nil && msg.ThinkingSignature != "" {
+			if !hasOwnProviderState(msg) && msg.ThinkingSignature != "" {
 				contentBlocks = append(contentBlocks,
 					anthropic.NewBetaThinkingBlock(msg.ThinkingSignature, msg.ReasoningContent))
 			}

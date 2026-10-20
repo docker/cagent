@@ -170,3 +170,10 @@ func toolInput(raw string) any {
 	}
 	return v
 }
+
+// hasOwnProviderState reports whether msg carries raw state recorded by this
+// provider. Thinking from another provider's state (e.g. Bedrock before a
+// fallback) is still replayed from the flattened fields.
+func hasOwnProviderState(msg *chat.Message) bool {
+	return msg.ProviderState != nil && msg.ProviderState.Provider == providerStateName
+}

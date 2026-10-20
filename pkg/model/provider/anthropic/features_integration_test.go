@@ -822,3 +822,37 @@ func TestClaude5NoThinkingOption(t *testing.T) {
 		assert.NotContains(t, send(t, "claude-sonnet-4-6").body, "thinking")
 	})
 }
+
+// A message produced on another provider (e.g. Bedrock before a fallback or a
+// model switch) carries that provider's raw state. Its flattened thinking must
+// still be replayed: signatures are portable across Claude platforms.
+func TestForeignProviderStateKeepsThinking(t *testing.T) {
+	t.Parallel()
+
+	assistant := chat.Message{
+		Role: chat.MessageRoleAssistant, ReasoningContent: "plan", ThinkingSignature: "sig",
+		ToolCalls: []tools.ToolCall{{ID: "t1", Type: "function", Function: tools.FunctionCall{Name: "read", Arguments: `{}`}}},
+	}
+	assistant.AttachProviderState(&chat.ProviderState{Provider: "amazon-bedrock", Content: json.RawMessage(`[]`)})
+	history := []chat.Message{
+		user("hello"), assistant,
+		{Role: chat.MessageRoleTool, ToolCallID: "t1", Content: "ok"},
+	}
+
+	for name, cfg := range map[string]latest.ModelConfig{
+		"standard": {Provider: "anthropic", Model: "claude-sonnet-4-5", ThinkingBudget: &latest.ThinkingBudget{Tokens: 2048}, ProviderOpts: map[string]any{"interleaved_thinking": false}},
+		"beta":     {Provider: "anthropic", Model: "claude-fable-5-1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			srv := newScriptedServer(t, textReply("msg_1", "ok"))
+			chatTurn(t, newScriptedClient(srv, cfg), history, nil)
+
+			content, _ := srv.request(t, 0).messages()[1]["content"].([]any)
+			require.NotEmpty(t, content)
+			first, _ := content[0].(map[string]any)
+			assert.Equal(t, "thinking", first["type"])
+			assert.Equal(t, "sig", first["signature"])
+		})
+	}
+}
