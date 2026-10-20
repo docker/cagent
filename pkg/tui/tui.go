@@ -166,7 +166,10 @@ type appModel struct {
 
 	// Speech-to-text
 	transcriber  Transcriber
-	transcriptCh chan string // bridges transcriber goroutine → Bubble Tea event loop
+	speechMu     sync.Mutex
+	speechCtx    context.Context //nolint:containedctx // Owns transcription across UI and external shutdown.
+	cancelSpeech context.CancelFunc
+	speech       *speechRun
 
 	// Working state indicator (resize handle spinner)
 	workingSpinner spinner.Spinner
@@ -310,9 +313,7 @@ type themeFileWatcher interface {
 // can inject a fake implementation via WithTranscriber and so that the TUI
 // does not depend on a concrete audio backend.
 type Transcriber interface {
-	Start(ctx context.Context, handler transcribe.TranscriptHandler) error
-	Stop()
-	IsRunning() bool
+	Run(ctx context.Context, finish <-chan struct{}, handler transcribe.TranscriptHandler, ready func(context.Context)) error
 	IsSupported() bool
 }
 
@@ -481,6 +482,7 @@ func WithToolRenderers(renderers map[string]tool.Builder) Option {
 func New(ctx context.Context, spawner SessionSpawner, initialApp *app.App, initialWorkingDir string, cleanup func(), opts ...Option) tea.Model {
 	tuiCtx := func() context.Context { return context.WithoutCancel(ctx) }
 	themeCtx, cancelThemes := context.WithCancel(ctx)
+	speechCtx, cancelSpeech := context.WithCancel(ctx)
 
 	ar := animation.NewRuntime()
 
@@ -514,6 +516,8 @@ func New(ctx context.Context, spawner SessionSpawner, initialApp *app.App, initi
 		shutdownDone:  ctx.Done(),
 		themeCtx:      themeCtx,
 		cancelThemes:  cancelThemes,
+		speechCtx:     speechCtx,
+		cancelSpeech:  cancelSpeech,
 		themeChanges:  make(chan messages.ThemeFileChangedMsg),
 		toolRenderers: tooldefaults.NewRegistry(),
 		buildCommandCategories: func(ctx context.Context, _ tea.Model) []commands.Category {
@@ -737,6 +741,9 @@ func (m *appModel) editorOpts() []editor.Option {
 func (m *appModel) initSessionComponents(tabID string, a *app.App, sess *session.Session) {
 	m.cancelSidebarPlanEdit()
 	tab := m.ensureTab(tabID)
+	if run := m.stopSpeechForTab(tab); run != nil {
+		run.editor.SetRecording(false)
+	}
 	if tab.chatPage != nil {
 		m.retireAttention(tab)
 		chat.Cleanup(tab.chatPage)
@@ -1555,10 +1562,8 @@ func (m *appModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.StopSpeakMsg:
 		return m.handleStopSpeak()
 
-	case messages.SpeakTranscriptMsg:
-		m.activeTab.editor.InsertText(msg.Delta)
-		cmd := m.waitForTranscript()
-		return m, cmd
+	case speechEvent:
+		return m.handleSpeechEvent(msg)
 
 	// --- MCP prompts ---
 
@@ -2027,6 +2032,7 @@ func (m *appModel) handleSwitchTab(sessionID string) (tea.Model, tea.Cmd) {
 	}
 	m.cancelSidebarPlanEdit()
 	if outgoing != m.tabs[sessionID] {
+		m.cancelSpeechSend(outgoing)
 		m.parkAttention(outgoing)
 	}
 
@@ -2155,6 +2161,7 @@ func (m *appModel) handleCloseTab(sessionID string) (tea.Model, tea.Cmd) {
 
 	// Clean up per-session state
 	if tab := m.tabs[sessionID]; tab != nil {
+		m.stopSpeechForTab(tab)
 		if tab.chatPage != nil {
 			chat.Cleanup(tab.chatPage)
 		}
@@ -2389,12 +2396,10 @@ func (m *appModel) handleKeyPress(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	// Check if we should stop transcription on Enter or Escape
-	if m.transcriber.IsRunning() {
+	if m.isTranscribing() {
 		switch {
 		case key.Matches(msg, transcriptionEnterKey):
-			model, cmd := m.handleStopSpeak()
-			sendCmd := m.activeTab.editor.SendContent()
-			return model, tea.Batch(cmd, sendCmd)
+			return m.handleFinishSpeak()
 
 		case key.Matches(msg, transcriptionEscapeKey):
 			return m.handleStopSpeak()
@@ -3217,6 +3222,10 @@ func (m *appModel) shutdownTimeoutOrDefault() time.Duration {
 // exit) and the context watcher (external cancellation).
 func (m *appModel) cleanupManagedResources() {
 	m.cleanupOnce.Do(func() {
+		if m.cancelSpeech != nil {
+			m.cancelSpeech()
+		}
+		m.stopSpeech()
 		if m.cancelThemes != nil {
 			m.cancelThemes()
 		}
@@ -3253,8 +3262,9 @@ func (m *appModel) Shutdown() {
 // wedged cleanup or arm parallel safety nets.
 func (m *appModel) cleanupAll() {
 	m.cleanupAllOnce.Do(func() {
-		m.transcriber.Stop()
-		m.closeTranscriptCh()
+		if m.cancelSpeech != nil {
+			m.cancelSpeech()
+		}
 		for _, tab := range m.tabs {
 			if tab.editor != nil {
 				tab.editor.Cleanup()
