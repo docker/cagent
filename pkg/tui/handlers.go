@@ -893,6 +893,10 @@ func (m *appModel) applyThemeChanged() (tea.Model, tea.Cmd) {
 
 // handleThemeFileChanged hot-reloads a theme that was modified on disk.
 func (m *appModel) handleThemeFileChanged(themeRef string) (tea.Model, tea.Cmd) {
+	// A canceled watcher may already have queued a notification for the old theme.
+	if themeRef != styles.CurrentTheme().Ref {
+		return m, nil
+	}
 	theme, err := styles.LoadTheme(themeRef)
 	if err != nil {
 		return m, notification.ErrorCmd(fmt.Sprintf("Failed to hot-reload theme: %v", err))
