@@ -1,9 +1,11 @@
 package bedrock
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
@@ -1474,4 +1476,86 @@ func TestConvertMessages_ToolResultWithCaching(t *testing.T) {
 	secondLastContent := secondLastMsg.Content[len(secondLastMsg.Content)-1]
 	_, isCachePoint = secondLastContent.(*types.ContentBlockMemberCachePoint)
 	assert.True(t, isCachePoint, "assistant tool call message should have cache point")
+}
+
+func TestBuildRequest_Claude5(t *testing.T) {
+	t.Parallel()
+
+	adaptive := map[string]any{"type": "adaptive"}
+	cases := []struct {
+		name             string
+		model            string
+		budget           *latest.ThinkingBudget
+		wantThinking     any
+		wantOutputConfig any
+	}{
+		{name: "no budget sends nothing", model: "us.anthropic.claude-sonnet-5-5-v1:0"},
+		{name: "effort is adaptive", model: "anthropic.claude-haiku-5-5", budget: &latest.ThinkingBudget{Effort: "high"}, wantThinking: adaptive, wantOutputConfig: map[string]any{"effort": "high"}},
+		{name: "token budget uses model default effort", model: "anthropic.claude-sonnet-5", budget: &latest.ThinkingBudget{Tokens: 16000}, wantThinking: adaptive},
+		{name: "none is disabled when supported", model: "anthropic.claude-sonnet-5", budget: &latest.ThinkingBudget{Effort: "none"}, wantThinking: map[string]any{"type": "disabled"}},
+		{name: "none falls back to adaptive low", model: "anthropic.claude-fable-5", budget: &latest.ThinkingBudget{Effort: "none"}, wantThinking: adaptive, wantOutputConfig: map[string]any{"effort": "low"}},
+		{name: "explicit adaptive keeps high", model: "anthropic.claude-mythos-5-1", budget: &latest.ThinkingBudget{Effort: "adaptive"}, wantThinking: adaptive, wantOutputConfig: map[string]any{"effort": "high"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := bedrockThinkingClient(tc.model, tc.budget)
+			client.ModelConfig.Temperature = new(0.2)
+			client.ModelConfig.TopP = new(0.9)
+			client.ModelConfig.ProviderOpts = map[string]any{"top_k": 5}
+
+			fields := map[string]any{}
+			if result := client.buildAdditionalModelRequestFields(); result != nil {
+				fields = decodeRequestFields(t, result)
+			}
+			assert.Equal(t, tc.wantThinking, fields["thinking"])
+			assert.Equal(t, tc.wantOutputConfig, fields["output_config"])
+			assert.NotContains(t, fields, "top_k")
+			assert.NotContains(t, fields, "anthropic_beta")
+
+			cfg := client.buildInferenceConfig(client.isThinkingEnabled())
+			assert.Nil(t, cfg.Temperature)
+			assert.Nil(t, cfg.TopP)
+		})
+	}
+}
+
+func TestCreateChatCompletionStream_Claude5RejectsFinalAssistantPrefill(t *testing.T) {
+	t.Parallel()
+
+	client := bedrockThinkingClient("us.anthropic.claude-opus-5-5", nil)
+	_, err := client.CreateChatCompletionStream(t.Context(), []chat.Message{
+		{Role: chat.MessageRoleUser, Content: "hello"},
+		{Role: chat.MessageRoleAssistant, Content: "Sure:"},
+	}, nil)
+	require.ErrorContains(t, err, "does not accept a final assistant message")
+}
+
+// Through the factory a configured none arrives as a nil budget plus
+// WithNoThinking (see provider.applyModelDefaults).
+func TestBuildAdditionalModelRequestFields_Claude5NoThinkingOption(t *testing.T) {
+	t.Parallel()
+
+	sonnet := bedrockThinkingClient("anthropic.claude-sonnet-5", nil)
+	sonnet.ModelOptions = options.Apply(options.WithNoThinking())
+	assert.Equal(t, map[string]any{"type": "disabled"}, decodeRequestFields(t, sonnet.buildAdditionalModelRequestFields())["thinking"])
+
+	fable := bedrockThinkingClient("anthropic.claude-fable-5", nil)
+	fable.ModelOptions = options.Apply(options.WithNoThinking())
+	fields := decodeRequestFields(t, fable.buildAdditionalModelRequestFields())
+	assert.Equal(t, map[string]any{"type": "adaptive"}, fields["thinking"])
+	assert.Equal(t, map[string]any{"effort": "low"}, fields["output_config"])
+}
+
+// Sequential on purpose: it swaps the default logger to observe the warning.
+func TestBuildAdditionalModelRequestFields_CoercedTokenBudgetWarnsCeilingIsLost(t *testing.T) {
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	bedrockThinkingClient("anthropic.claude-sonnet-5", &latest.ThinkingBudget{Tokens: 16000}).buildAdditionalModelRequestFields()
+
+	assert.Contains(t, logs.String(), "the token ceiling is not enforced")
 }

@@ -1155,7 +1155,7 @@ func (r *LocalRuntime) runTurn(
 		// final answer: remind the model (bounded) or fail with a coded error.
 		if structuredOutputEnabled(sess, a) {
 			if !soFinalized {
-				ctrl, reason := r.structuredOutputStop(ctx, sess, a, ls, events)
+				ctrl, reason := r.structuredOutputStop(ctx, sess, a, modelID.Model, ls, events)
 				endReason = reason
 				return ctrl
 			}

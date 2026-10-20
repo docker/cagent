@@ -229,6 +229,10 @@ func (c *Client) CreateChatCompletionStream(
 		"message_count", len(messages),
 		"tool_count", len(requestTools))
 
+	if _, ok := modelinfo.LookupClaude5(c.ModelConfig.Model); ok && providerutil.FinalAssistantPrefill(messages) {
+		return nil, fmt.Errorf("%s does not accept a final assistant message (prefill)", c.ModelConfig.Model)
+	}
+
 	// Default to 8192 if maxTokens is not set (0)
 	// This is a safe default that works for all Anthropic models
 	maxTokens := c.ModelOptions.MaxTokens()

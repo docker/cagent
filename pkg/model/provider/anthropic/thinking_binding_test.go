@@ -20,20 +20,20 @@ func TestThinkingBindingBehavior(t *testing.T) {
 		opts  map[string]any
 		want  string
 	}{
-		"fable 5.1":             {model: "claude-fable-5-1", want: "drop_block"},
-		"fable 5.1 dated":       {model: "claude-fable-5-1-20260901", want: "drop_block"},
-		"fable 5.2":             {model: "claude-fable-5-2", want: "drop_block"},
-		"mythos 5.1":            {model: "claude-mythos-5-1", want: "drop_block"},
-		"gateway qualified":     {model: "anthropic/claude-fable-5-1", want: "drop_block"},
-		"vertex":                {model: "claude-fable-5-1@20260901", want: "drop_block"},
-		"fable 5":               {model: "claude-fable-5"},
-		"mythos 5":              {model: "claude-mythos-5"},
-		"sonnet 5":              {model: "claude-sonnet-5"},
-		"opus 5":                {model: "claude-opus-5"},
-		"fallback checks":       {model: "claude-opus-4-7", opts: map[string]any{"fallbacks": []any{"claude-sonnet-5", "claude-fable-5-1"}}, want: "drop_block"},
-		"explicit error":        {model: "claude-fable-5-1", opts: map[string]any{"thinking_prefix_mismatch": "error"}, want: "error"},
-		"explicit on old":       {model: "claude-sonnet-4-6", opts: map[string]any{"thinking_prefix_mismatch": "drop_block"}, want: "drop_block"},
-		"non-string is ignored": {model: "claude-sonnet-4-6", opts: map[string]any{"thinking_prefix_mismatch": 1}},
+		"fable 5.1":                           {model: "claude-fable-5-1", want: "drop_block"},
+		"fable 5.1 dated":                     {model: "claude-fable-5-1-20260901", want: "drop_block"},
+		"fable 5.2":                           {model: "claude-fable-5-2", want: "drop_block"},
+		"mythos 5.1 (no server prefix check)": {model: "claude-mythos-5-1"},
+		"gateway qualified":                   {model: "anthropic/claude-fable-5-1", want: "drop_block"},
+		"vertex":                              {model: "claude-fable-5-1@20260901", want: "drop_block"},
+		"fable 5":                             {model: "claude-fable-5"},
+		"mythos 5":                            {model: "claude-mythos-5"},
+		"sonnet 5":                            {model: "claude-sonnet-5"},
+		"opus 5":                              {model: "claude-opus-5"},
+		"fallback checks":                     {model: "claude-opus-4-7", opts: map[string]any{"fallbacks": []any{"claude-sonnet-5", "claude-fable-5-1"}}, want: "drop_block"},
+		"explicit error":                      {model: "claude-fable-5-1", opts: map[string]any{"thinking_prefix_mismatch": "error"}, want: "error"},
+		"explicit on old":                     {model: "claude-sonnet-4-6", opts: map[string]any{"thinking_prefix_mismatch": "drop_block"}, want: "drop_block"},
+		"non-string is ignored":               {model: "claude-sonnet-4-6", opts: map[string]any{"thinking_prefix_mismatch": 1}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -149,4 +149,19 @@ func TestBetaStream_WarnsOnDroppedThinking(t *testing.T) {
 	req := srv.request(t, 0)
 	assert.Equal(t, "drop_block", req.thinking()["block_binding"].(map[string]any)["prefix_mismatch_behavior"])
 	assert.Contains(t, req.raw, `"signature":"stale"`, "the stale block is still sent; the server decides to drop it")
+}
+
+// Sequential on purpose: it swaps the default logger to observe the warning.
+func TestCoercedTokenBudget_WarnsCeilingIsLost(t *testing.T) {
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	srv := newScriptedServer(t, textReply("msg_1", "ok"))
+	chatTurn(t, newScriptedClient(srv, latest.ModelConfig{
+		Provider: "anthropic", Model: "claude-opus-5-5", ThinkingBudget: &latest.ThinkingBudget{Tokens: 16000},
+	}), []chat.Message{user("hello")}, nil)
+
+	assert.Contains(t, logs.String(), "the token ceiling is not enforced")
 }

@@ -180,6 +180,10 @@ func (c *Client) CreateChatCompletionStream(
 		return nil, errors.New("at least one message is required")
 	}
 
+	if _, ok := modelinfo.LookupClaude5(c.ModelConfig.Model); ok && providerutil.FinalAssistantPrefill(messages) {
+		return nil, fmt.Errorf("%s does not accept a final assistant message (prefill)", c.ModelConfig.Model)
+	}
+
 	// Build Converse input
 	input := c.buildConverseStreamInput(ctx, messages, requestTools)
 
@@ -229,8 +233,13 @@ func (c *Client) buildInferenceConfig(thinkingEnabled bool) *types.InferenceConf
 	}
 
 	// Temperature and TopP cannot be set when extended thinking is enabled
-	// (Claude requires temperature=1.0 which is the default when thinking is on)
-	if !thinkingEnabled {
+	// (Claude requires temperature=1.0 which is the default when thinking is on).
+	// Claude 5.x rejects them in every mode.
+	if _, isClaude5 := modelinfo.LookupClaude5(c.ModelConfig.Model); isClaude5 {
+		if c.ModelConfig.Temperature != nil || c.ModelConfig.TopP != nil {
+			slog.Debug("Bedrock: Claude 5.x rejects sampling parameters, ignoring temperature/top_p", "model", c.ModelConfig.Model)
+		}
+	} else if !thinkingEnabled {
 		if c.ModelConfig.Temperature != nil {
 			cfg.Temperature = new(float32(*c.ModelConfig.Temperature))
 		}
@@ -262,18 +271,31 @@ func (c *Client) interleavedThinkingEnabled() bool {
 	return b
 }
 
+// thinkingBudget returns the configured thinking budget. The provider
+// defaults turn a configured none into nil plus WithNoThinking; Claude 5.x
+// thinks by default, so it gets the explicit none back.
+func (c *Client) thinkingBudget() *latest.ThinkingBudget {
+	if budget := c.ModelConfig.ThinkingBudget; budget != nil {
+		return budget
+	}
+	if _, ok := modelinfo.LookupClaude5(c.ModelConfig.Model); ok && c.ModelOptions.NoThinking() {
+		return &latest.ThinkingBudget{Effort: "none"}
+	}
+	return nil
+}
+
 // isThinkingEnabled returns true if a valid thinking budget is configured.
 // It mirrors the validation in buildAdditionalModelRequestFields but without
 // side effects (no logging), so it can safely be used to gate inference config.
 func (c *Client) isThinkingEnabled() bool {
-	if c.ModelConfig.ThinkingBudget == nil {
+	if c.thinkingBudget() == nil {
 		return false
 	}
 	if _, ok := c.adaptiveThinkingEffort(); ok {
 		return true
 	}
-	tokens := c.ModelConfig.ThinkingBudget.Tokens
-	if t, ok := c.ModelConfig.ThinkingBudget.EffortTokens(); ok {
+	tokens := c.thinkingBudget().Tokens
+	if t, ok := c.thinkingBudget().EffortTokens(); ok {
 		tokens = t
 	}
 	if tokens < 1024 {
@@ -294,9 +316,19 @@ func (c *Client) isThinkingEnabled() bool {
 //
 // It has no side effects so it can be shared by isThinkingEnabled and
 // buildAdditionalModelRequestFields.
+//
+// An empty effort with ok=true means adaptive thinking at the model's default
+// effort (a token budget on a Claude 5.x model).
 func (c *Client) adaptiveThinkingEffort() (string, bool) {
-	budget := c.ModelConfig.ThinkingBudget
-	if budget == nil || budget.IsDisabled() {
+	budget := c.thinkingBudget()
+	if budget == nil {
+		return "", false
+	}
+	c5, isClaude5 := modelinfo.LookupClaude5(c.ModelConfig.Model)
+	if budget.IsDisabled() {
+		if isClaude5 && !c5.CanDisableThinking {
+			return "low", true
+		}
 		return "", false
 	}
 	if e, ok := budget.AdaptiveEffort(); ok {
@@ -309,6 +341,9 @@ func (c *Client) adaptiveThinkingEffort() (string, bool) {
 		return effort.ForAnthropic(l)
 	}
 	if budget.Tokens > 0 {
+		if isClaude5 {
+			return "", true
+		}
 		// Coerced token budget: adaptive's default effort.
 		return "high", true
 	}
@@ -327,18 +362,20 @@ func (c *Client) promptCachingEnabled() bool {
 func (c *Client) buildAdditionalModelRequestFields() document.Interface {
 	fields := map[string]any{}
 
+	_, isClaude5 := modelinfo.LookupClaude5(c.ModelConfig.Model)
+
 	// Forward top_k from provider_opts (Anthropic on Bedrock supports it)
-	if topK, ok := providerutil.GetProviderOptInt64(c.ModelConfig.ProviderOpts, "top_k"); ok {
+	if topK, ok := providerutil.GetProviderOptInt64(c.ModelConfig.ProviderOpts, "top_k"); ok && !isClaude5 {
 		fields["top_k"] = topK
 		slog.Debug("Bedrock provider_opts: set top_k", "value", topK)
 	}
 
 	// Configure thinking budget if present and valid
-	if budget := c.ModelConfig.ThinkingBudget; budget != nil {
+	if budget := c.thinkingBudget(); budget != nil {
 		if effortStr, ok := c.adaptiveThinkingEffort(); ok {
 			switch {
 			case budget.Tokens > 0:
-				slog.Warn("Bedrock: model rejects token-based thinking budgets; switching to adaptive thinking",
+				slog.Warn("Bedrock: model rejects token-based thinking budgets; switching to adaptive thinking, the token ceiling is not enforced",
 					"model", c.ModelConfig.Model,
 					"thinking_budget_tokens", budget.Tokens,
 					"effort", effortStr)
@@ -353,7 +390,11 @@ func (c *Client) buildAdditionalModelRequestFields() document.Interface {
 			}
 			slog.Debug("Bedrock request using adaptive thinking", "effort", effortStr)
 			fields["thinking"] = map[string]any{"type": "adaptive"}
-			fields["output_config"] = map[string]any{"effort": effortStr}
+			if effortStr != "" {
+				fields["output_config"] = map[string]any{"effort": effortStr}
+			}
+		} else if budget.IsDisabled() && isClaude5 {
+			fields["thinking"] = map[string]any{"type": "disabled"}
 		} else {
 			tokens := budget.Tokens
 			if t, ok := budget.EffortTokens(); ok {
