@@ -207,12 +207,11 @@ type appModel struct {
 	// perform a full terminal release/restore cycle on focus events.
 	program *tea.Program
 
-	// themeWatcher hot-reloads the active custom theme: it watches the
-	// current theme's backing file and reports edits as ThemeFileChangedMsg.
-	// Created in SetProgram (the callback needs the program to inject
-	// messages into the event loop) and re-targeted after every theme
-	// change via watchCurrentTheme.
-	themeWatcher themeFileWatcher
+	// The lifetime context is immutable; only the UI loop replaces individual runs.
+	themeCtx       context.Context //nolint:containedctx // Owns theme watching across UI and external shutdown.
+	cancelThemes   context.CancelFunc
+	themeWatcher   themeFileWatcher
+	cancelThemeRun context.CancelFunc
 
 	// dockerDesktop enables terminal mode restoration after a focus change.
 	dockerDesktop bool
@@ -299,11 +298,8 @@ type appModel struct {
 	imageWriter *tuiimage.Writer
 }
 
-// themeFileWatcher is the subset of *styles.ThemeWatcher the model drives.
-// It is an interface so tests can record Watch/Stop calls.
 type themeFileWatcher interface {
-	Watch(themeRef string) error
-	Stop()
+	Run(ctx context.Context, themeRef string) error
 }
 
 // Transcriber is the speech-to-text interface used by the TUI. It is an
@@ -481,6 +477,7 @@ func WithToolRenderers(renderers map[string]tool.Builder) Option {
 // New creates a new Model.
 func New(ctx context.Context, spawner SessionSpawner, initialApp *app.App, initialWorkingDir string, cleanup func(), opts ...Option) tea.Model {
 	tuiCtx := func() context.Context { return context.WithoutCancel(ctx) }
+	themeCtx, cancelThemes := context.WithCancel(ctx)
 
 	ar := animation.NewRuntime()
 
@@ -512,6 +509,8 @@ func New(ctx context.Context, spawner SessionSpawner, initialApp *app.App, initi
 	m := &appModel{
 		ar:            ar,
 		shutdownDone:  ctx.Done(),
+		themeCtx:      themeCtx,
+		cancelThemes:  cancelThemes,
 		toolRenderers: tooldefaults.NewRegistry(),
 		buildCommandCategories: func(ctx context.Context, _ tea.Model) []commands.Category {
 			return commanddefaults.BuildCommandCategories(ctx, initialApp)
@@ -598,9 +597,6 @@ func (m *appModel) SetProgram(p *tea.Program) {
 	m.program = p
 	m.supervisor.SetProgram(p)
 
-	if m.themeWatcher != nil {
-		m.themeWatcher.Stop()
-	}
 	m.themeWatcher = styles.NewThemeWatcher(func(themeRef string) {
 		p.Send(messages.ThemeFileChangedMsg{ThemeRef: themeRef})
 	})
@@ -611,16 +607,25 @@ func (m *appModel) SetProgram(p *tea.Program) {
 // so edits to its backing file hot-reload it. The watcher no-ops for themes
 // without a user theme file (e.g. built-ins).
 func (m *appModel) watchCurrentTheme() {
+	if m.cancelThemeRun != nil {
+		m.cancelThemeRun()
+	}
 	if m.themeWatcher == nil {
 		return
 	}
-	theme := styles.CurrentTheme()
-	if theme.Ref == "" {
+	themeRef := styles.CurrentTheme().Ref
+	if themeRef == "" {
 		return
 	}
-	if err := m.themeWatcher.Watch(theme.Ref); err != nil {
-		slog.Warn("Failed to watch theme file", "theme", theme.Ref, "error", err)
-	}
+	ctx, cancel := context.WithCancel(m.themeCtx)
+	m.cancelThemeRun = cancel
+	watcher := m.themeWatcher
+	go func() {
+		defer cancel()
+		if err := watcher.Run(ctx, themeRef); err != nil {
+			slog.WarnContext(ctx, "Failed to watch theme file", "theme", themeRef, "error", err)
+		}
+	}()
 }
 
 // reapplyKeyboardEnhancements forwards the cached keyboard enhancements message
@@ -3176,8 +3181,8 @@ func (m *appModel) shutdownTimeoutOrDefault() time.Duration {
 // exit) and the context watcher (external cancellation).
 func (m *appModel) cleanupManagedResources() {
 	m.cleanupOnce.Do(func() {
-		if m.themeWatcher != nil {
-			m.themeWatcher.Stop()
+		if m.cancelThemes != nil {
+			m.cancelThemes()
 		}
 		if m.tuiStore != nil {
 			_ = m.tuiStore.Close()
