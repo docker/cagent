@@ -14,6 +14,10 @@ set +a
 time_phase() {
   local phase="$1" start end status=0
   shift
+  {
+    printf '## Phase: %s\n\n' "$phase"
+    printf '| Phase | Wall time | Exit status |\n| --- | ---: | ---: |\n'
+  } >> "$GITHUB_STEP_SUMMARY"
   start=$(date +%s)
   if "$@"; then
     status=0
@@ -40,6 +44,7 @@ case "${1:?Specify a profiling phase}" in
       go version
       go env -json GOOS GOARCH GOFLAGS GOTOOLCHAIN GOROOT GOPATH GOCACHE GOMODCACHE CGO_ENABLED
       printf 'GOMAXPROCS override: %s\n' "${GOMAXPROCS:-unset (Go default)}"
+      printf 'HOME=%s\nUSERPROFILE=%s\nTEMP=%s\nTMP=%s\n' "${HOME:-}" "${USERPROFILE:-}" "${TEMP:-}" "${TMP:-}"
       df -h . "$RUNNER_TEMP"
       if [[ "$RUNNER_OS" == Linux ]]; then
         cat /proc/meminfo
@@ -53,8 +58,7 @@ case "${1:?Specify a profiling phase}" in
     } | tee "$PROFILE_DIR/environment.txt"
     {
       printf '## Hosted test profile: %s / %s\n\n' "$RUNNER_OS" "$PROFILE_CACHE"
-      printf 'Both execution passes use -count=1; compilation and module download are measured separately.\n\n'
-      printf '| Phase | Wall time | Exit status |\n| --- | ---: | ---: |\n'
+      printf 'Both test passes use -count=1 after a compile-only prewarm; go test still includes linking, vet, and test setup. Module download is measured separately.\n\n'
     } >> "$GITHUB_STEP_SUMMARY"
     ;;
   download)

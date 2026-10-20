@@ -111,7 +111,7 @@ tasks:
     desc: Run tests with CI timing reports
     dotenv: [.env.test]
     cmds:
-      - set -o pipefail; go test -json ./... | go run ./scripts/gotestreport -out "${RUNNER_TEMP:-/tmp}/go-test.json"
+      - set -o pipefail; go test -json {{.CLI_ARGS}} ./... | go run ./scripts/gotestreport -out "${RUNNER_TEMP:-/tmp}/go-test.json"
 
   test-race:
     desc: Run tests with the race detector and shuffled order (slow; CI runs it on main only)

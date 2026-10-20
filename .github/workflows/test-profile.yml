@@ -41,7 +41,7 @@ jobs:
           # Unique misses leave shared caches intact; PRs never save caches.
           cache-version: ${{ matrix.cache == 'cold' && format('profile-{0}-{1}', github.run_id, github.run_attempt) || '2' }}
           save: 'false'
-          task: 'false'
+          task: 'true'
 
       - name: Exclude build paths from Defender
         if: runner.os == 'Windows'
@@ -66,11 +66,32 @@ jobs:
         run: bash scripts/ci-test-profile.sh compile
 
       - name: Execute all tests (uncached results, first pass)
+        if: runner.os == 'Linux'
         run: bash scripts/ci-test-profile.sh execute-1
 
       - name: Execute all tests (uncached results, second pass)
-        if: success() || failure()
+        if: runner.os == 'Linux' && (success() || failure())
         run: bash scripts/ci-test-profile.sh execute-2
+
+      - name: Execute Windows tests through the normal CI launcher
+        if: runner.os == 'Windows' && (success() || failure())
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'ci-test-profile'
+          $failed = $false
+          foreach ($pass in 1..2) {
+            "## Windows uncached pass $pass (PowerShell + Task)" >> $env:GITHUB_STEP_SUMMARY
+            $timer = [Diagnostics.Stopwatch]::StartNew()
+            task test-ci -- -count=1
+            $status = $LASTEXITCODE
+            $timer.Stop()
+            $seconds = [int]$timer.Elapsed.TotalSeconds
+            "execute-$pass`t$seconds`t$status" >> (Join-Path $dir 'phases.tsv')
+            Move-Item (Join-Path $env:RUNNER_TEMP 'go-test.json') (Join-Path $dir "execute-$pass.json") -Force
+            "Wall time: ${seconds}s; exit status: $status" >> $env:GITHUB_STEP_SUMMARY
+            if ($status -ne 0) { $failed = $true }
+          }
+          if ($failed) { exit 1 }
 
       - name: Upload measurements
         if: always()
