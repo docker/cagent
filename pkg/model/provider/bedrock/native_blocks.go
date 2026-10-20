@@ -3,6 +3,7 @@ package bedrock
 import (
 	"encoding/json"
 	"maps"
+	"reflect"
 	"slices"
 
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
@@ -114,4 +115,87 @@ func (r *blockRecorder) state() *chat.ProviderState {
 		return nil
 	}
 	return &chat.ProviderState{Provider: providerName, Content: content}
+}
+
+// replayNativeBlocks rebuilds the recorded Converse blocks when the message
+// still matches them. ok is false when there is no replayable state, so the
+// caller falls back to the flattened fields.
+func replayNativeBlocks(msg *chat.Message) ([]types.ContentBlock, bool) {
+	state := msg.ReplayableProviderState(providerName)
+	if state == nil {
+		return nil, false
+	}
+	var blocks []nativeBlock
+	if err := json.Unmarshal(state.Content, &blocks); err != nil || !nativeBlocksDescribe(msg, blocks) {
+		return nil, false
+	}
+	out := make([]types.ContentBlock, 0, len(blocks))
+	for _, b := range blocks {
+		switch b.Type {
+		case "reasoning":
+			out = append(out, &types.ContentBlockMemberReasoningContent{
+				Value: &types.ReasoningContentBlockMemberReasoningText{
+					Value: types.ReasoningTextBlock{Text: new(b.Text), Signature: new(b.Signature)},
+				},
+			})
+		case "redacted_reasoning":
+			out = append(out, &types.ContentBlockMemberReasoningContent{
+				Value: &types.ReasoningContentBlockMemberRedactedContent{Value: b.Data},
+			})
+		case "text":
+			out = append(out, &types.ContentBlockMemberText{Value: b.Text})
+		case "tool_use":
+			var input map[string]any
+			if err := json.Unmarshal(b.Input, &input); err != nil {
+				return nil, false
+			}
+			if input == nil {
+				input = map[string]any{}
+			}
+			out = append(out, &types.ContentBlockMemberToolUse{
+				Value: types.ToolUseBlock{ToolUseId: new(b.ID), Name: new(b.Name), Input: mapToDocument(input)},
+			})
+		default:
+			return nil, false
+		}
+	}
+	return out, true
+}
+
+// nativeBlocksDescribe reports whether the blocks still match the message as
+// the runtime accumulated it: concatenated text and reasoning, and the same
+// tool calls in order with JSON-equal arguments.
+func nativeBlocksDescribe(msg *chat.Message, blocks []nativeBlock) bool {
+	var text, reasoning string
+	var toolUses []nativeBlock
+	for _, b := range blocks {
+		switch b.Type {
+		case "text":
+			text += b.Text
+		case "reasoning":
+			reasoning += b.Text
+		case "tool_use":
+			toolUses = append(toolUses, b)
+		}
+	}
+	if text != msg.Content || reasoning != msg.ReasoningContent || len(toolUses) != len(msg.ToolCalls) {
+		return false
+	}
+	for i, tc := range msg.ToolCalls {
+		if tc.ID != toolUses[i].ID || tc.Function.Name != toolUses[i].Name || !sameJSON(tc.Function.Arguments, toolUses[i].Input) {
+			return false
+		}
+	}
+	return true
+}
+
+func sameJSON(arguments string, input json.RawMessage) bool {
+	if arguments == "" {
+		arguments = "{}"
+	}
+	var a, b any
+	if json.Unmarshal([]byte(arguments), &a) != nil || json.Unmarshal(input, &b) != nil {
+		return false
+	}
+	return reflect.DeepEqual(a, b)
 }
