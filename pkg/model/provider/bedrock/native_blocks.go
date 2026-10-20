@@ -133,6 +133,10 @@ func replayNativeBlocks(msg *chat.Message) ([]types.ContentBlock, bool) {
 	for _, b := range blocks {
 		switch b.Type {
 		case "reasoning":
+			if b.Signature == "" {
+				// Unsigned reasoning cannot be verified by the API.
+				continue
+			}
 			out = append(out, &types.ContentBlockMemberReasoningContent{
 				Value: &types.ReasoningContentBlockMemberReasoningText{
 					Value: types.ReasoningTextBlock{Text: new(b.Text), Signature: new(b.Signature)},
