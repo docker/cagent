@@ -17,14 +17,22 @@ func runThemeWatcher(t *testing.T, watcher *ThemeWatcher, themeRef string) (cont
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
+	ready := make(chan struct{})
 	go func() {
-		done <- watcher.Run(ctx, themeRef)
+		done <- watcher.Run(ctx, themeRef, func() { close(ready) })
 		close(done)
 	}()
 	t.Cleanup(func() {
 		cancel()
 		waitThemeWatcher(t, done)
 	})
+	select {
+	case <-ready:
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("theme watcher did not attach")
+	}
 	return cancel, done
 }
 
@@ -45,7 +53,7 @@ func TestThemeWatcher_RunNoop(t *testing.T) {
 			t.Parallel()
 			dir := t.TempDir()
 			require.NoError(t, os.WriteFile(filepath.Join(dir, "default.yaml"), []byte("ignored"), 0o644))
-			watcher := &ThemeWatcher{themesDir: dir, onThemeChanged: func(string) {
+			watcher := &ThemeWatcher{themesDir: dir, onThemeChanged: func(context.Context, string) {
 				t.Error("unexpected theme change")
 			}}
 			_, done := runThemeWatcher(t, watcher, ref)
@@ -61,7 +69,7 @@ func TestThemeWatcher_RunCanceledContext(t *testing.T) {
 	watcher := &ThemeWatcher{themesDir: dir}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	require.NoError(t, watcher.Run(ctx, "test"))
+	require.NoError(t, watcher.Run(ctx, "test", func() { t.Error("canceled watcher became ready") }))
 }
 
 func TestThemeWatcher_RunFileChanges(t *testing.T) {
@@ -82,21 +90,18 @@ func TestThemeWatcher_RunFileChanges(t *testing.T) {
 			path := filepath.Join(dir, tc.file)
 			require.NoError(t, os.WriteFile(path, []byte("initial"), 0o644))
 			refs := make(chan string, 10)
-			watcher := NewThemeWatcher(func(ref string) { refs <- ref })
+			watcher := NewThemeWatcher(func(_ context.Context, ref string) { refs <- ref })
 			watcher.themesDir = dir
 			cancel, done := runThemeWatcher(t, watcher, tc.ref)
 
-			// Repeat writes until Run has attached its watcher; invalid YAML also signals.
-			require.Eventually(t, func() bool {
-				require.NoError(t, os.WriteFile(path, []byte("this is: [not: valid yaml"), 0o644))
-				select {
-				case ref := <-refs:
-					assert.Equal(t, tc.ref, ref)
-					return true
-				default:
-					return false
-				}
-			}, 5*time.Second, 700*time.Millisecond)
+			// A single write immediately after attachment must be observed, even for invalid YAML.
+			require.NoError(t, os.WriteFile(path, []byte("this is: [not: valid yaml"), 0o644))
+			select {
+			case ref := <-refs:
+				assert.Equal(t, tc.ref, ref)
+			case <-time.After(5 * time.Second):
+				t.Fatal("theme change was not observed")
+			}
 
 			cancel()
 			waitThemeWatcher(t, done)
@@ -123,7 +128,7 @@ func TestThemeWatcher_ConcurrentRuns(t *testing.T) {
 				secondRef = "first"
 			}
 			refs := make(chan string, 20)
-			watcher := NewThemeWatcher(func(ref string) { refs <- ref })
+			watcher := NewThemeWatcher(func(_ context.Context, ref string) { refs <- ref })
 			watcher.themesDir = dir
 			cancelFirst, firstDone := runThemeWatcher(t, watcher, "first")
 			_, secondDone := runThemeWatcher(t, watcher, secondRef)
@@ -184,7 +189,7 @@ func TestThemeWatcher_Debounce(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "test.yaml")
 		require.NoError(t, os.WriteFile(path, nil, 0o644))
 		refs := make(chan string, 2)
-		watcher := NewThemeWatcher(func(ref string) { refs <- ref })
+		watcher := NewThemeWatcher(func(_ context.Context, ref string) { refs <- ref })
 		events := make(chan fsnotify.Event)
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
@@ -234,7 +239,7 @@ func TestThemeWatcher_Events(t *testing.T) {
 					require.NoError(t, os.WriteFile(path, nil, 0o644))
 				}
 				var refs []string
-				watcher := NewThemeWatcher(func(ref string) { refs = append(refs, ref) })
+				watcher := NewThemeWatcher(func(_ context.Context, ref string) { refs = append(refs, ref) })
 				events := make(chan fsnotify.Event)
 				ctx, cancel := context.WithCancel(t.Context())
 				defer cancel()
@@ -252,6 +257,84 @@ func TestThemeWatcher_Events(t *testing.T) {
 					assert.Empty(t, refs)
 				}
 			})
+		})
+	}
+}
+
+func TestThemeWatcher_CancelBlockedNotification(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "test.yaml")
+		require.NoError(t, os.WriteFile(path, nil, 0o644))
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		entered := make(chan struct{})
+		watcher := NewThemeWatcher(func(runCtx context.Context, _ string) {
+			assert.Same(t, ctx, runCtx)
+			close(entered)
+			<-runCtx.Done()
+		})
+		events := make(chan fsnotify.Event)
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			watcher.watchLoop(ctx, "test", path, &fsnotify.Watcher{Events: events})
+		}()
+		events <- fsnotify.Event{Name: path, Op: fsnotify.Write}
+		time.Sleep(time.Second) //nolint:forbidigo // Advance past the debounce in fake time.
+		<-entered
+		cancel()
+		<-done
+	})
+}
+
+func TestThemeWatcher_NoopDoesNotSignalReady(t *testing.T) {
+	t.Parallel()
+	watcher := &ThemeWatcher{themesDir: t.TempDir()}
+	for _, ref := range []string{DefaultThemeRef, "missing"} {
+		require.NoError(t, watcher.Run(t.Context(), ref, func() {
+			t.Error("no-op watcher became ready")
+		}))
+	}
+}
+
+func TestThemeWatcher_FileReplacement(t *testing.T) {
+	t.Parallel()
+	for _, atomicSave := range []bool{false, true} {
+		name := "delete and recreate"
+		if atomicSave {
+			name = "atomic save"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			path := filepath.Join(dir, "test.yaml")
+			require.NoError(t, os.WriteFile(path, []byte("initial"), 0o644))
+			refs := make(chan string, 10)
+			watcher := &ThemeWatcher{
+				themesDir:      dir,
+				onThemeChanged: func(_ context.Context, ref string) { refs <- ref },
+			}
+			runThemeWatcher(t, watcher, "test")
+			if atomicSave {
+				temporary := filepath.Join(dir, "replacement.yaml")
+				require.NoError(t, os.WriteFile(temporary, []byte("replacement"), 0o644))
+				require.NoError(t, os.Rename(temporary, path))
+			} else {
+				require.NoError(t, os.Remove(path))
+				require.NoError(t, os.WriteFile(path, []byte("replacement"), 0o644))
+			}
+			for i := range 2 {
+				if i > 0 {
+					require.NoError(t, os.WriteFile(path, []byte("updated again"), 0o644))
+				}
+				select {
+				case ref := <-refs:
+					assert.Equal(t, "test", ref)
+				case <-time.After(5 * time.Second):
+					t.Fatal("replacement theme file was not watched")
+				}
+			}
 		})
 	}
 }

@@ -14,21 +14,22 @@ import (
 // ThemeWatcher reports theme file changes without applying them. It holds only
 // configuration; each Run owns its watcher and can run independently.
 type ThemeWatcher struct {
-	onThemeChanged func(themeRef string)
+	onThemeChanged func(context.Context, string)
 
 	// themesDir overrides ThemesDir in tests.
 	themesDir string
 }
 
 // NewThemeWatcher creates a watcher whose callback should notify the UI goroutine.
-func NewThemeWatcher(onThemeChanged func(themeRef string)) *ThemeWatcher {
+func NewThemeWatcher(onThemeChanged func(context.Context, string)) *ThemeWatcher {
 	return &ThemeWatcher{onThemeChanged: onThemeChanged}
 }
 
 // Run watches a user theme until ctx is canceled. Built-in themes without a user
 // override and missing files are no-ops. Cancellation returns nil.
-// The callback runs synchronously and should return promptly.
-func (tw *ThemeWatcher) Run(ctx context.Context, themeRef string) error {
+// Ready is called after attachment, before any notifications; no-op runs skip it.
+// The callbacks run synchronously and must return when the context is canceled.
+func (tw *ThemeWatcher) Run(ctx context.Context, themeRef string, ready func()) error {
 	if ctx.Err() != nil {
 		return nil
 	}
@@ -53,6 +54,9 @@ func (tw *ThemeWatcher) Run(ctx context.Context, themeRef string) error {
 		return err
 	}
 
+	if ready != nil {
+		ready()
+	}
 	slog.DebugContext(ctx, "Started watching theme file", "theme", themeRef, "path", themePath)
 	tw.watchLoop(ctx, themeRef, themePath, watcher)
 	return nil
@@ -124,7 +128,7 @@ func (tw *ThemeWatcher) watchLoop(ctx context.Context, themeRef, themePath strin
 			}
 			if _, err := os.Stat(themePath); err == nil && tw.onThemeChanged != nil {
 				slog.DebugContext(ctx, "Theme file changed, signaling", "theme", themeRef)
-				tw.onThemeChanged(themeRef)
+				tw.onThemeChanged(ctx, themeRef)
 			}
 
 		case err, ok := <-watcher.Errors:

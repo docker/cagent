@@ -2,14 +2,19 @@ package tui
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/docker/docker-agent/pkg/tui/components/statusbar"
+	"github.com/docker/docker-agent/pkg/tui/messages"
 	"github.com/docker/docker-agent/pkg/tui/styles"
 )
 
@@ -20,14 +25,35 @@ type themeWatchRun struct {
 }
 
 type fakeThemeWatcher struct {
-	runs chan themeWatchRun
+	runs          chan themeWatchRun
+	attach        <-chan struct{}
+	release       <-chan struct{}
+	notify        func(context.Context, string)
+	startupResult func() error
 }
 
-func (f *fakeThemeWatcher) Run(ctx context.Context, themeRef string) error {
+func (f *fakeThemeWatcher) Run(ctx context.Context, themeRef string, ready func()) error {
 	done := make(chan struct{})
 	defer close(done)
 	f.runs <- themeWatchRun{ctx: ctx, ref: themeRef, done: done}
+	if f.startupResult != nil {
+		return f.startupResult()
+	}
+	if f.attach != nil {
+		select {
+		case <-f.attach:
+		case <-ctx.Done():
+			return nil
+		}
+	}
+	ready()
+	if f.notify != nil {
+		f.notify(ctx, themeRef)
+	}
 	<-ctx.Done()
+	if f.release != nil {
+		<-f.release
+	}
 	return nil
 }
 
@@ -103,7 +129,7 @@ func TestCleanupManagedResources_CancelsThemeWatcher(t *testing.T) {
 
 	// A late theme change must not outlive shutdown either.
 	m.watchCurrentTheme()
-	waitThemeWatchRun(t, nextThemeWatchRun(t, fw))
+	assert.Empty(t, fw.runs)
 }
 
 func TestWatchCurrentTheme_ConcurrentShutdown(t *testing.T) {
@@ -115,7 +141,13 @@ func TestWatchCurrentTheme_ConcurrentShutdown(t *testing.T) {
 	m.watchCurrentTheme()
 	shutdown.Wait()
 
-	waitThemeWatchRun(t, nextThemeWatchRun(t, fw))
+	select {
+	case run := <-fw.runs:
+		waitThemeWatchRun(t, run)
+	default:
+	}
+	m.watchCurrentTheme()
+	assert.Empty(t, fw.runs)
 }
 
 func TestWatchCurrentTheme_ParentCancellation(t *testing.T) {
@@ -140,4 +172,184 @@ func TestHandleThemeFileChanged_IgnoresPreviousTheme(t *testing.T) {
 
 	assert.Nil(t, cmd)
 	assert.Same(t, current, styles.CurrentTheme())
+}
+
+func TestSendThemeChange_CancelWithoutReceiver(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		m := &appModel{themeChanges: make(chan messages.ThemeFileChangedMsg)}
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			m.sendThemeChange(ctx, "test")
+		}()
+		synctest.Wait()
+		select {
+		case <-done:
+			t.Fatal("delivery returned before cancellation")
+		default:
+		}
+		cancel()
+		<-done
+	})
+}
+
+func TestWaitForThemeChange_Cancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	m := &appModel{themeCtx: ctx, themeChanges: make(chan messages.ThemeFileChangedMsg)}
+	cmd := m.waitForThemeChange()
+	cancel()
+	assert.Nil(t, cmd())
+}
+
+func TestThemeChange_RearmsAfterIgnoredOrInvalidTheme(t *testing.T) {
+	for _, ref := range []string{"user:previous-theme", "user:missing"} {
+		t.Run(ref, func(t *testing.T) {
+			m, _ := newTestModel(t)
+			m.themeCtx = t.Context()
+			m.themeChanges = make(chan messages.ThemeFileChangedMsg)
+			if ref == "user:missing" {
+				previous := styles.CurrentTheme()
+				styles.ApplyTheme(&styles.Theme{Ref: ref})
+				t.Cleanup(func() { styles.ApplyTheme(previous) })
+			}
+			_, cmd := m.Update(messages.ThemeFileChangedMsg{ThemeRef: ref})
+			require.NotNil(t, cmd)
+			go m.sendThemeChange(t.Context(), "next")
+			msg := cmd()
+			if batch, ok := msg.(tea.BatchMsg); ok {
+				msg = batch[len(batch)-1]()
+			}
+			assert.Equal(t, messages.ThemeFileChangedMsg{ThemeRef: "next"}, msg)
+		})
+	}
+}
+
+func TestWatchCurrentTheme_WaitsForAttachment(t *testing.T) {
+	m, _ := newTestModel(t)
+	fw := setupThemeWatcher(t, m)
+	attach := make(chan struct{})
+	fw.attach = attach
+	returned := make(chan struct{})
+	go func() {
+		defer close(returned)
+		m.watchCurrentTheme()
+	}()
+	nextThemeWatchRun(t, fw)
+	select {
+	case <-returned:
+		t.Fatal("watchCurrentTheme returned before attachment")
+	default:
+	}
+	close(attach)
+	select {
+	case <-returned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("watchCurrentTheme did not return after attachment")
+	}
+}
+
+func TestCleanupManagedResources_JoinsThemeWatcher(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		m, _ := newTestModel(t)
+		fw := setupThemeWatcher(t, m)
+		release := make(chan struct{})
+		fw.release = release
+		m.watchCurrentTheme()
+		run := nextThemeWatchRun(t, fw)
+		returned := make(chan struct{})
+		go func() {
+			defer close(returned)
+			m.cleanupManagedResources()
+		}()
+		synctest.Wait()
+		require.ErrorIs(t, run.ctx.Err(), context.Canceled)
+		select {
+		case <-returned:
+			t.Fatal("cleanup returned before the watcher exited")
+		default:
+		}
+		close(release)
+		<-returned
+		select {
+		case <-run.done:
+		default:
+			t.Fatal("cleanup did not join the watcher")
+		}
+	})
+}
+
+func TestWatchCurrentTheme_JoinsPreviousRun(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		m, _ := newTestModel(t)
+		fw := setupThemeWatcher(t, m)
+		release := make(chan struct{})
+		fw.release = release
+		m.watchCurrentTheme()
+		first := nextThemeWatchRun(t, fw)
+		returned := make(chan struct{})
+		go func() {
+			defer close(returned)
+			m.watchCurrentTheme()
+		}()
+		synctest.Wait()
+		require.ErrorIs(t, first.ctx.Err(), context.Canceled)
+		assert.Empty(t, fw.runs, "replacement must wait for the previous run")
+		close(release)
+		<-returned
+		second := nextThemeWatchRun(t, fw)
+		require.NoError(t, second.ctx.Err())
+	})
+}
+
+func TestCleanupManagedResources_UnblocksThemeNotification(t *testing.T) {
+	m, _ := newTestModel(t)
+	fw := setupThemeWatcher(t, m)
+	m.themeChanges = make(chan messages.ThemeFileChangedMsg)
+	fw.notify = m.sendThemeChange
+	m.watchCurrentTheme()
+	run := nextThemeWatchRun(t, fw)
+	m.cleanupManagedResources()
+	select {
+	case <-run.done:
+	default:
+		t.Fatal("cleanup left a watcher blocked on notification delivery")
+	}
+}
+
+func TestCleanupManagedResources_CancelsPendingAttachment(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		m, _ := newTestModel(t)
+		fw := setupThemeWatcher(t, m)
+		fw.attach = make(chan struct{})
+		returned := make(chan struct{})
+		go func() {
+			defer close(returned)
+			m.watchCurrentTheme()
+		}()
+		run := nextThemeWatchRun(t, fw)
+		m.cleanupManagedResources()
+		<-returned
+		waitThemeWatchRun(t, run)
+		m.watchCurrentTheme()
+		assert.Empty(t, fw.runs)
+	})
+}
+
+func TestWatchCurrentTheme_ReturnsWithoutReadiness(t *testing.T) {
+	for _, err := range []error{nil, errors.New("watcher setup failed")} {
+		t.Run(fmt.Sprint(err), func(t *testing.T) {
+			m, _ := newTestModel(t)
+			fw := setupThemeWatcher(t, m)
+			fw.startupResult = func() error { return err }
+			m.watchCurrentTheme()
+			run := nextThemeWatchRun(t, fw)
+			select {
+			case <-run.done:
+			default:
+				t.Fatal("watchCurrentTheme returned before the no-op or failed run completed")
+			}
+		})
+	}
 }

@@ -207,11 +207,14 @@ type appModel struct {
 	// perform a full terminal release/restore cycle on focus events.
 	program *tea.Program
 
-	// The lifetime context is immutable; only the UI loop replaces individual runs.
+	// The lifetime context is immutable; themeMu guards run replacement and joining.
+	themeMu        sync.Mutex
 	themeCtx       context.Context //nolint:containedctx // Owns theme watching across UI and external shutdown.
 	cancelThemes   context.CancelFunc
 	themeWatcher   themeFileWatcher
+	themeChanges   chan messages.ThemeFileChangedMsg
 	cancelThemeRun context.CancelFunc
+	themeRunDone   <-chan struct{}
 
 	// dockerDesktop enables terminal mode restoration after a focus change.
 	dockerDesktop bool
@@ -299,7 +302,7 @@ type appModel struct {
 }
 
 type themeFileWatcher interface {
-	Run(ctx context.Context, themeRef string) error
+	Run(ctx context.Context, themeRef string, ready func()) error
 }
 
 // Transcriber is the speech-to-text interface used by the TUI. It is an
@@ -511,6 +514,7 @@ func New(ctx context.Context, spawner SessionSpawner, initialApp *app.App, initi
 		shutdownDone:  ctx.Done(),
 		themeCtx:      themeCtx,
 		cancelThemes:  cancelThemes,
+		themeChanges:  make(chan messages.ThemeFileChangedMsg),
 		toolRenderers: tooldefaults.NewRegistry(),
 		buildCommandCategories: func(ctx context.Context, _ tea.Model) []commands.Category {
 			return commanddefaults.BuildCommandCategories(ctx, initialApp)
@@ -591,15 +595,12 @@ func (m *appModel) Resolve(v any) any {
 }
 
 // SetProgram sets the tea.Program for the supervisor to send routed messages.
-// It also starts the theme file watcher, whose callback needs the program to
-// inject hot-reload messages into the event loop.
+// It also starts watching the active theme.
 func (m *appModel) SetProgram(p *tea.Program) {
 	m.program = p
 	m.supervisor.SetProgram(p)
 
-	m.themeWatcher = styles.NewThemeWatcher(func(themeRef string) {
-		p.Send(messages.ThemeFileChangedMsg{ThemeRef: themeRef})
-	})
+	m.themeWatcher = styles.NewThemeWatcher(m.sendThemeChange)
 	m.watchCurrentTheme()
 }
 
@@ -607,10 +608,14 @@ func (m *appModel) SetProgram(p *tea.Program) {
 // so edits to its backing file hot-reload it. The watcher no-ops for themes
 // without a user theme file (e.g. built-ins).
 func (m *appModel) watchCurrentTheme() {
+	m.themeMu.Lock()
+	defer m.themeMu.Unlock()
+
 	if m.cancelThemeRun != nil {
 		m.cancelThemeRun()
+		<-m.themeRunDone
 	}
-	if m.themeWatcher == nil {
+	if m.themeWatcher == nil || m.themeCtx.Err() != nil {
 		return
 	}
 	themeRef := styles.CurrentTheme().Ref
@@ -620,12 +625,42 @@ func (m *appModel) watchCurrentTheme() {
 	ctx, cancel := context.WithCancel(m.themeCtx)
 	m.cancelThemeRun = cancel
 	watcher := m.themeWatcher
+	ready, done := make(chan struct{}), make(chan struct{})
+	m.themeRunDone = done
 	go func() {
+		defer close(done)
 		defer cancel()
-		if err := watcher.Run(ctx, themeRef); err != nil {
+		if err := watcher.Run(ctx, themeRef, func() { close(ready) }); err != nil {
 			slog.WarnContext(ctx, "Failed to watch theme file", "theme", themeRef, "error", err)
 		}
 	}()
+	select {
+	case <-ready:
+	case <-done:
+	}
+}
+
+// sendThemeChange never ties filesystem cleanup to the UI consuming a message.
+func (m *appModel) sendThemeChange(ctx context.Context, themeRef string) {
+	select {
+	case m.themeChanges <- messages.ThemeFileChangedMsg{ThemeRef: themeRef}:
+	case <-ctx.Done():
+	}
+}
+
+func (m *appModel) waitForThemeChange() tea.Cmd {
+	ctx, changes := m.themeCtx, m.themeChanges
+	if changes == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		select {
+		case msg := <-changes:
+			return msg
+		case <-ctx.Done():
+			return nil
+		}
+	}
 }
 
 // reapplyKeyboardEnhancements forwards the cached keyboard enhancements message
@@ -747,7 +782,7 @@ func (m *appModel) contextShutdownCmd() tea.Cmd {
 
 // Init initializes the model.
 func (m *appModel) Init() tea.Cmd {
-	return tea.Batch(m.init(), m.tourStartupCmd(), m.autoThemeInitCmd(), m.refreshPlanSidebarCmd(), m.initTmuxVisibilityCmd(), m.refreshProgramStatus(), m.programStatusProbeCmd())
+	return tea.Batch(m.init(), m.waitForThemeChange(), m.tourStartupCmd(), m.autoThemeInitCmd(), m.refreshPlanSidebarCmd(), m.initTmuxVisibilityCmd(), m.refreshProgramStatus(), m.programStatusProbeCmd())
 }
 
 // autoThemeInitCmd enables DEC mode 2031 (terminal color-scheme reports) so
@@ -1492,7 +1527,8 @@ func (m *appModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.applyThemeChanged()
 
 	case messages.ThemeFileChangedMsg:
-		return m.handleThemeFileChanged(msg.ThemeRef)
+		model, cmd := m.handleThemeFileChanged(msg.ThemeRef)
+		return model, tea.Batch(cmd, m.waitForThemeChange())
 
 	// --- Settings (/settings) ---
 
@@ -3184,6 +3220,11 @@ func (m *appModel) cleanupManagedResources() {
 		if m.cancelThemes != nil {
 			m.cancelThemes()
 		}
+		m.themeMu.Lock()
+		if m.themeRunDone != nil {
+			<-m.themeRunDone
+		}
+		m.themeMu.Unlock()
 		if m.tuiStore != nil {
 			_ = m.tuiStore.Close()
 		}
