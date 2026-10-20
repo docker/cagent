@@ -2,6 +2,7 @@ package bedrock
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
@@ -123,4 +124,32 @@ func TestConvertAssistantContent_SkipsUnsignedReasoning(t *testing.T) {
 	assert.Equal(t, "s1", *signed.Value.Signature)
 	_, ok = blocks[1].(*types.ContentBlockMemberText)
 	assert.True(t, ok)
+}
+
+// Not parallel: AllocsPerRun counts process-wide allocations.
+func TestBlockRecorder_AccumulatesDeltasWithoutPerDeltaCopies(t *testing.T) {
+	const n = 1000
+	textDelta := &types.ContentBlockDeltaMemberText{Value: "x"}
+	reasoningDelta := &types.ContentBlockDeltaMemberReasoningContent{Value: &types.ReasoningContentBlockDeltaMemberText{Value: "y"}}
+
+	var r blockRecorder
+	allocs := testing.AllocsPerRun(1, func() {
+		r = blockRecorder{}
+		for range n {
+			r.delta(0, reasoningDelta)
+			r.delta(1, textDelta)
+		}
+	})
+	assert.Less(t, allocs, float64(n/10), "deltas must not copy the accumulated block")
+
+	r.delta(0, &types.ContentBlockDeltaMemberReasoningContent{Value: &types.ReasoningContentBlockDeltaMemberSignature{Value: "sig"}})
+	r.stop(0)
+	r.stop(1)
+	state := r.state()
+	require.NotNil(t, state)
+	var blocks []nativeBlock
+	require.NoError(t, json.Unmarshal(state.Content, &blocks))
+	require.Len(t, blocks, 2)
+	assert.Equal(t, nativeBlock{Type: "reasoning", Text: strings.Repeat("y", n), Signature: "sig"}, blocks[0])
+	assert.Equal(t, nativeBlock{Type: "text", Text: strings.Repeat("x", n)}, blocks[1])
 }
