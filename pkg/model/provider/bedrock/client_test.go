@@ -1146,33 +1146,27 @@ func TestConvertAssistantContent_MissingSignature(t *testing.T) {
 	assert.Equal(t, "Here's my answer", textBlock.Value)
 }
 
-func TestConvertAssistantContent_RedactedThinking(t *testing.T) {
+func TestConvertAssistantContent_SignedEmptyIsNotRedacted(t *testing.T) {
 	t.Parallel()
 
-	// When only signature is present but no reasoning content,
-	// a redacted thinking block should be included to maintain
-	// conversation integrity for multi-turn extended thinking.
+	// Without native blocks, a signature with no text is signed thinking whose
+	// display was omitted (the Claude 5 default), not redacted content.
 	msg := &chat.Message{
 		Role:              chat.MessageRoleAssistant,
 		Content:           "Here's my answer",
-		ReasoningContent:  "", // Content redacted for safety
 		ThinkingSignature: "sig_abc123",
 	}
 
 	blocks := convertAssistantContent(msg)
 
-	// Should have redacted thinking block first, then text block
 	require.Len(t, blocks, 2)
-
-	// First block should be redacted reasoning content
 	reasoningBlock, ok := blocks[0].(*types.ContentBlockMemberReasoningContent)
 	require.True(t, ok, "first block should be ContentBlockMemberReasoningContent")
+	text, ok := reasoningBlock.Value.(*types.ReasoningContentBlockMemberReasoningText)
+	require.True(t, ok, "signed-empty thinking replays as reasoning text")
+	assert.Empty(t, *text.Value.Text)
+	assert.Equal(t, "sig_abc123", *text.Value.Signature)
 
-	redactedContent, ok := reasoningBlock.Value.(*types.ReasoningContentBlockMemberRedactedContent)
-	require.True(t, ok, "reasoning block should be ReasoningContentBlockMemberRedactedContent")
-	assert.Equal(t, []byte("sig_abc123"), redactedContent.Value)
-
-	// Second block should be text
 	textBlock, ok := blocks[1].(*types.ContentBlockMemberText)
 	require.True(t, ok)
 	assert.Equal(t, "Here's my answer", textBlock.Value)

@@ -423,7 +423,7 @@ func (c *Client) convertMessagesWithDeferred(ctx context.Context, messages []cha
 			contentBlocks := make([]anthropic.ContentBlockParamUnion, 0)
 
 			// Include thinking blocks when present to preserve extended thinking context
-			if msg.ProviderState == nil && msg.ThinkingSignature != "" {
+			if !hasOwnProviderState(msg) && msg.ThinkingSignature != "" {
 				contentBlocks = append(contentBlocks, anthropic.NewThinkingBlock(msg.ThinkingSignature, msg.ReasoningContent))
 			}
 

@@ -1,0 +1,205 @@
+package bedrock
+
+import (
+	"encoding/json"
+	"maps"
+	"reflect"
+	"slices"
+
+	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
+
+	"github.com/docker/docker-agent/pkg/chat"
+)
+
+// providerName tags the [chat.ProviderState] recorded from Converse responses.
+const providerName = "amazon-bedrock"
+
+// nativeBlock is one Converse content block, kept exactly as streamed so
+// signed and redacted reasoning can be replayed verbatim.
+type nativeBlock struct {
+	Type      string          `json:"type"`
+	Text      string          `json:"text,omitempty"`
+	Signature string          `json:"signature,omitempty"`
+	Data      []byte          `json:"data,omitempty"`
+	ID        string          `json:"id,omitempty"`
+	Name      string          `json:"name,omitempty"`
+	Input     json.RawMessage `json:"input,omitempty"`
+}
+
+type recordedBlock struct {
+	block   nativeBlock
+	input   []byte
+	stopped bool
+}
+
+// blockRecorder accumulates content blocks by ContentBlockIndex. Reasoning
+// blocks may start with a delta, so any event creates its block.
+type blockRecorder struct {
+	blocks map[int32]*recordedBlock
+}
+
+func (r *blockRecorder) get(idx int32, typ string) *recordedBlock {
+	if r.blocks == nil {
+		r.blocks = map[int32]*recordedBlock{}
+	}
+	b, ok := r.blocks[idx]
+	if !ok {
+		b = &recordedBlock{block: nativeBlock{Type: typ}}
+		r.blocks[idx] = b
+	}
+	return b
+}
+
+func (r *blockRecorder) start(idx int32, toolID, toolName string) {
+	b := r.get(idx, "tool_use")
+	b.block.ID, b.block.Name = toolID, toolName
+}
+
+func (r *blockRecorder) delta(idx int32, d types.ContentBlockDelta) {
+	switch d := d.(type) {
+	case *types.ContentBlockDeltaMemberText:
+		b := r.get(idx, "text")
+		b.block.Text += d.Value
+	case *types.ContentBlockDeltaMemberToolUse:
+		b := r.get(idx, "tool_use")
+		if d.Value.Input != nil {
+			b.input = append(b.input, *d.Value.Input...)
+		}
+	case *types.ContentBlockDeltaMemberReasoningContent:
+		switch rd := d.Value.(type) {
+		case *types.ReasoningContentBlockDeltaMemberText:
+			b := r.get(idx, "reasoning")
+			b.block.Text += rd.Value
+		case *types.ReasoningContentBlockDeltaMemberSignature:
+			b := r.get(idx, "reasoning")
+			b.block.Signature += rd.Value
+		case *types.ReasoningContentBlockDeltaMemberRedactedContent:
+			b := r.get(idx, "redacted_reasoning")
+			b.block.Data = append(b.block.Data, rd.Value...)
+		}
+	}
+}
+
+func (r *blockRecorder) stop(idx int32) {
+	if b, ok := r.blocks[idx]; ok {
+		b.stopped = true
+	}
+}
+
+// state returns the recorded blocks in index order, or nil when nothing was
+// recorded or a block is incomplete: partial state is never replayed.
+func (r *blockRecorder) state() *chat.ProviderState {
+	if len(r.blocks) == 0 {
+		return nil
+	}
+	blocks := make([]nativeBlock, 0, len(r.blocks))
+	for _, idx := range slices.Sorted(maps.Keys(r.blocks)) {
+		b := r.blocks[idx]
+		if !b.stopped {
+			return nil
+		}
+		if b.block.Type == "tool_use" {
+			input := b.input
+			if len(input) == 0 {
+				input = []byte("{}")
+			}
+			if !json.Valid(input) {
+				return nil
+			}
+			b.block.Input = input
+		}
+		blocks = append(blocks, b.block)
+	}
+	content, err := json.Marshal(blocks)
+	if err != nil {
+		return nil
+	}
+	return &chat.ProviderState{Provider: providerName, Content: content}
+}
+
+// replayNativeBlocks rebuilds the recorded Converse blocks when the message
+// still matches them. ok is false when there is no replayable state, so the
+// caller falls back to the flattened fields.
+func replayNativeBlocks(msg *chat.Message) ([]types.ContentBlock, bool) {
+	state := msg.ReplayableProviderState(providerName)
+	if state == nil {
+		return nil, false
+	}
+	var blocks []nativeBlock
+	if err := json.Unmarshal(state.Content, &blocks); err != nil || !nativeBlocksDescribe(msg, blocks) {
+		return nil, false
+	}
+	out := make([]types.ContentBlock, 0, len(blocks))
+	for _, b := range blocks {
+		switch b.Type {
+		case "reasoning":
+			if b.Signature == "" {
+				// Unsigned reasoning cannot be verified by the API.
+				continue
+			}
+			out = append(out, &types.ContentBlockMemberReasoningContent{
+				Value: &types.ReasoningContentBlockMemberReasoningText{
+					Value: types.ReasoningTextBlock{Text: new(b.Text), Signature: new(b.Signature)},
+				},
+			})
+		case "redacted_reasoning":
+			out = append(out, &types.ContentBlockMemberReasoningContent{
+				Value: &types.ReasoningContentBlockMemberRedactedContent{Value: b.Data},
+			})
+		case "text":
+			out = append(out, &types.ContentBlockMemberText{Value: b.Text})
+		case "tool_use":
+			var input map[string]any
+			if err := json.Unmarshal(b.Input, &input); err != nil {
+				return nil, false
+			}
+			if input == nil {
+				input = map[string]any{}
+			}
+			out = append(out, &types.ContentBlockMemberToolUse{
+				Value: types.ToolUseBlock{ToolUseId: new(b.ID), Name: new(b.Name), Input: mapToDocument(input)},
+			})
+		default:
+			return nil, false
+		}
+	}
+	return out, true
+}
+
+// nativeBlocksDescribe reports whether the blocks still match the message as
+// the runtime accumulated it: concatenated text and reasoning, and the same
+// tool calls in order with JSON-equal arguments.
+func nativeBlocksDescribe(msg *chat.Message, blocks []nativeBlock) bool {
+	var text, reasoning string
+	var toolUses []nativeBlock
+	for _, b := range blocks {
+		switch b.Type {
+		case "text":
+			text += b.Text
+		case "reasoning":
+			reasoning += b.Text
+		case "tool_use":
+			toolUses = append(toolUses, b)
+		}
+	}
+	if text != msg.Content || reasoning != msg.ReasoningContent || len(toolUses) != len(msg.ToolCalls) {
+		return false
+	}
+	for i, tc := range msg.ToolCalls {
+		if tc.ID != toolUses[i].ID || tc.Function.Name != toolUses[i].Name || !sameJSON(tc.Function.Arguments, toolUses[i].Input) {
+			return false
+		}
+	}
+	return true
+}
+
+func sameJSON(arguments string, input json.RawMessage) bool {
+	if arguments == "" {
+		arguments = "{}"
+	}
+	var a, b any
+	if json.Unmarshal([]byte(arguments), &a) != nil || json.Unmarshal(input, &b) != nil {
+		return false
+	}
+	return reflect.DeepEqual(a, b)
+}
