@@ -110,6 +110,9 @@ func TestLoadExamples(t *testing.T) {
 		t.Setenv(env, "dummy")
 	}
 
+	// Examples validate loading, not tool installation.
+	t.Setenv("DOCKER_AGENT_AUTO_INSTALL", "false")
+
 	// Load real DMR clients without local discovery or model downloads.
 	dmrServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
