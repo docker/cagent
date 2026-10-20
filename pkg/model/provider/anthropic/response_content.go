@@ -22,7 +22,7 @@ const providerStateName = "anthropic"
 // Message or BetaMessage in wire order. Block JSON is only final once the
 // SDK refreshed it on message_stop, so call this from the stop event. Returns
 // nil for a response without content.
-func newProviderState[T interface{ RawJSON() string }](messageID string, blocks []T) *chat.ProviderState {
+func newProviderState[T interface{ RawJSON() string }](messageID, model string, blocks []T) *chat.ProviderState {
 	raws := make([]string, 0, len(blocks))
 	for _, block := range blocks {
 		if raw := block.RawJSON(); raw != "" {
@@ -34,6 +34,8 @@ func newProviderState[T interface{ RawJSON() string }](messageID string, blocks 
 	}
 	return &chat.ProviderState{
 		Provider:  providerStateName,
+		Version:   chat.ProviderStateVersion,
+		Model:     model,
 		MessageID: messageID,
 		Content:   json.RawMessage("[" + strings.Join(raws, ",") + "]"),
 	}

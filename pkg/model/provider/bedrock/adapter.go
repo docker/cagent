@@ -37,6 +37,7 @@ func newStreamAdapter(stream *bedrockruntime.ConverseStreamEventStream, model st
 		stream:     stream,
 		model:      model,
 		trackUsage: trackUsage,
+		recorder:   blockRecorder{model: model},
 	}
 }
 

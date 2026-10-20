@@ -109,6 +109,8 @@ func decodeBlocks(t *testing.T, state *chat.ProviderState) []nativeBlock {
 	t.Helper()
 	require.NotNil(t, state)
 	assert.Equal(t, providerName, state.Provider)
+	assert.Equal(t, chat.ProviderStateVersion, state.Version)
+	assert.Equal(t, "anthropic.claude-sonnet-5-5", state.Model)
 	var blocks []nativeBlock
 	require.NoError(t, json.Unmarshal(state.Content, &blocks))
 	return blocks

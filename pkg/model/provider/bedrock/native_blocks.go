@@ -37,6 +37,7 @@ type recordedBlock struct {
 // blockRecorder accumulates content blocks by ContentBlockIndex. Reasoning
 // blocks may start with a delta, so any event creates its block.
 type blockRecorder struct {
+	model  string
 	blocks map[int32]*recordedBlock
 }
 
@@ -117,7 +118,7 @@ func (r *blockRecorder) state() *chat.ProviderState {
 	if err != nil {
 		return nil
 	}
-	return &chat.ProviderState{Provider: providerName, Content: content}
+	return &chat.ProviderState{Provider: providerName, Version: chat.ProviderStateVersion, Model: r.model, Content: content}
 }
 
 // replayNativeBlocks rebuilds the recorded Converse blocks when the message

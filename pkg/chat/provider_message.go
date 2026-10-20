@@ -7,13 +7,21 @@ import (
 	"slices"
 )
 
+// ProviderStateVersion is the raw-state format this build writes and reads.
+// A state from a newer build is never replayed; 0 is the format written before
+// versioning, which is the same.
+const ProviderStateVersion = 1
+
 // ProviderState preserves an assistant response exactly as the provider
 // returned it so the next request can replay it in wire order. Anthropic
 // extended thinking needs this: several thinking blocks, omitted or redacted
 // thinking, and per-block signatures interleaved with text and tool_use
 // cannot be expressed by the flattened Message fields.
 type ProviderState struct {
-	Provider         string            `json:"provider"`
+	Provider string `json:"provider"`
+	Version  int    `json:"version,omitempty"`
+	// Model is the model that produced the response, for provenance.
+	Model            string            `json:"model,omitempty"`
 	MessageID        string            `json:"message_id,omitempty"`
 	CacheDiagnostics *CacheDiagnostics `json:"cache_diagnostics,omitempty"`
 	// Content is the provider's raw assistant content, e.g. the Anthropic
@@ -83,7 +91,7 @@ func (m *Message) AttachProviderState(state *ProviderState) {
 // flattened fields.
 func (m *Message) ReplayableProviderState(provider string) *ProviderState {
 	s := m.ProviderState
-	if s == nil || s.Provider != provider || s.ContentHash == "" || s.ContentHash != m.VisibleContentHash() {
+	if s == nil || s.Provider != provider || s.Version > ProviderStateVersion || s.ContentHash == "" || s.ContentHash != m.VisibleContentHash() {
 		return nil
 	}
 	return s

@@ -119,7 +119,7 @@ func (a *betaStreamAdapter) Recv() (chat.MessageStreamResponse, error) {
 		}
 		response.Choices[0].FinishReason = finishReason(anthropic.StopReason(a.stopReason), a.toolCall)
 		if !a.rawLost {
-			response.Choices[0].Delta.ProviderState = newProviderState(a.message.ID, a.message.Content)
+			response.Choices[0].Delta.ProviderState = newProviderState(a.message.ID, string(a.message.Model), a.message.Content)
 		}
 		state := withRequestContext(response.Choices[0].Delta.ProviderState, a.requestContext)
 		diagnosis := cacheDiagnostics(a.message.Diagnostics)
