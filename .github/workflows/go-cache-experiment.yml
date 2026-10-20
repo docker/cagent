@@ -45,7 +45,7 @@ jobs:
           retention-days: 3
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ~/.cache/go-build
+          path: /home/runner/.cache/go-build
           key: ${{ env.BASELINE_CACHE }}
           fail-on-cache-miss: true
       - name: Inventory baseline cache
@@ -110,7 +110,7 @@ jobs:
         name: Restore baseline cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ~/.cache/go-build
+          path: /home/runner/.cache/go-build
           key: ${{ env.BASELINE_CACHE }}
           fail-on-cache-miss: true
       - if: matrix.cache == 'pruned'
