@@ -41,7 +41,9 @@ func CreateToolSet(ctx context.Context, toolset latest.Toolset, parentDir string
 	}
 
 	toolName := cmp.Or(mgr.ToolName(), ragName)
-	return New(mgr, toolName, WithIndexingTimeout(toolset.RAGConfig.GetIndexingTimeout())), nil
+	own := New(mgr, toolName, WithIndexingTimeout(toolset.RAGConfig.GetIndexingTimeout()))
+	key, _ := sharedKeyFor(ragName, toolset.RAGConfig, parentDir, runConfig)
+	return newSharedToolSet(defaultSharedRegistry, key, own), nil
 }
 
 // EventCallback is called to forward RAG manager events during initialization.
