@@ -98,11 +98,11 @@ func (m *Message) ReplayableProviderState(provider string) *ProviderState {
 }
 
 // HasOwnRawContent reports whether m carries at least one raw content block
-// recorded by provider in a format this build reads. A state holding only
-// request context has none.
+// recorded by provider, in any format version. A state holding only request
+// context has none.
 func (m *Message) HasOwnRawContent(provider string) bool {
 	s := m.ProviderState
-	if s == nil || s.Provider != provider || s.Version > ProviderStateVersion {
+	if s == nil || s.Provider != provider {
 		return false
 	}
 	var blocks []json.RawMessage

@@ -76,13 +76,15 @@ func (c *Client) convertBetaMessagesWithDeferred(ctx context.Context, messages [
 				betaMessages = append(betaMessages, anthropic.BetaMessageParam{Role: anthropic.BetaMessageParamRoleAssistant, Content: blocks})
 				continue
 			}
+			if blocks, ok := betaRecoveredParams(msg); ok {
+				betaMessages = append(betaMessages, anthropic.BetaMessageParam{Role: anthropic.BetaMessageParamRoleAssistant, Content: blocks})
+				continue
+			}
 			contentBlocks := make([]anthropic.BetaContentBlockParamUnion, 0)
 
 			// With interleaved thinking, we can include thinking blocks anywhere
 			// If we have thinking content, include it first (conventional order)
-			if thinking, ok := betaThinkingPrefix(msg); ok {
-				contentBlocks = append(contentBlocks, thinking...)
-			} else if include, err := c.flattenedThinking(i, loopStart, msg); err != nil {
+			if include, err := c.flattenedThinking(i, loopStart, msg); err != nil {
 				return nil, err
 			} else if include {
 				contentBlocks = append(contentBlocks,

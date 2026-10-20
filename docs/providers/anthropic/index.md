@@ -511,8 +511,8 @@ Docker Agent preserves the original ordered assistant content blocks, including
 multiple thinking blocks, omitted thinking, redacted thinking and their signatures.
 A hook or user edit invalidates raw replay so stale content cannot override it.
 When only the rest of the turn changed (for example a sanitized tool name or a
-redacted tool argument), its recorded thinking is still replayed, followed by the
-current text and tool calls. When the thinking itself changed, the turn loses it,
+redacted tool argument), its recorded thinking is still replayed in its original
+place, with the current text and tool calls substituted. When the thinking itself changed, the turn loses it,
 with a warning in the logs. If that turn belongs to the tool loop the next
 request continues, and thinking is on, the API needs its original signed
 thinking: Docker Agent refuses the request with an error instead, and a new user
