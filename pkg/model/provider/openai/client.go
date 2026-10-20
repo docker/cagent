@@ -1072,66 +1072,14 @@ func (c *Client) convertMessagesToResponseInput(ctx context.Context, messages []
 			}
 
 		case chat.MessageRoleTool:
-			// Tool response message - convert to function call output
 			item.OfFunctionCallOutput = &responses.ResponseInputItemFunctionCallOutputParam{
 				CallID: param.NewOpt(msg.ToolCallID),
-				Output: responses.ResponseInputItemFunctionCallOutputOutputUnionParam{
-					OfString: param.NewOpt(msg.Content),
-				},
+				Output: c.convertToolResultOutput(ctx, msg),
 			}
 		}
 
 		if item.OfMessage != nil || item.OfInputMessage != nil || item.OfFunctionCall != nil || item.OfFunctionCallOutput != nil {
 			input = append(input, item)
-		}
-
-		// For tool messages with attachments, inject a follow-up user message
-		// since OpenAI function call outputs only support text.
-		if msg.Role == chat.MessageRoleTool && len(msg.MultiContent) > 0 {
-			var attachmentParts []responses.ResponseInputContentUnionParam
-			for _, part := range msg.MultiContent {
-				switch part.Type {
-				case chat.MessagePartTypeImageURL:
-					if part.ImageURL != nil {
-						detail := responses.ResponseInputImageContentDetailAuto
-						switch part.ImageURL.Detail {
-						case chat.ImageURLDetailHigh:
-							detail = responses.ResponseInputImageContentDetailHigh
-						case chat.ImageURLDetailLow:
-							detail = responses.ResponseInputImageContentDetailLow
-						}
-						attachmentParts = append(attachmentParts, responses.ResponseInputContentUnionParam{
-							OfInputImage: &responses.ResponseInputImageParam{
-								ImageURL: param.NewOpt(part.ImageURL.URL),
-								Detail:   responses.ResponseInputImageDetail(detail),
-							},
-						})
-					}
-				case chat.MessagePartTypeDocument:
-					if part.Document != nil {
-						docParts, err := convertDocumentToResponseInput(ctx, *part.Document, c.ID(), c.ModelOptions.ModelsDevStore(), c.CapsOverride())
-						if err != nil {
-							slog.WarnContext(ctx, "failed to convert tool result document attachment", "error", err, "doc", part.Document.Name)
-							continue
-						}
-						attachmentParts = append(attachmentParts, docParts...)
-					}
-				}
-			}
-			if len(attachmentParts) > 0 {
-				label := responses.ResponseInputContentUnionParam{
-					OfInputText: &responses.ResponseInputTextParam{
-						Text: "Attached content from tool result:",
-					},
-				}
-				allParts := append([]responses.ResponseInputContentUnionParam{label}, attachmentParts...)
-				input = append(input, responses.ResponseInputItemUnionParam{
-					OfInputMessage: &responses.ResponseInputItemMessageParam{
-						Role:    "user",
-						Content: allParts,
-					},
-				})
-			}
 		}
 
 		// Translate the CacheControl marker into an explicit prompt-cache

@@ -171,8 +171,8 @@ func TestChatCompletions_CatalogAliasesPreserveImages(t *testing.T) {
 					}
 				}
 				if wantImages {
-					assert.Equal(t, []string{"data:image/png;base64,AQ=="}, imageURLs)
-					assert.Equal(t, []string{"data:image/png;base64,Ag=="}, toolImageURLs)
+					assert.Equal(t, []string{"data:image/png;base64,AQ==", "data:image/png;base64,Ag=="}, imageURLs)
+					assert.Empty(t, toolImageURLs)
 				} else {
 					assert.Empty(t, imageURLs)
 					assert.Empty(t, toolImageURLs)
