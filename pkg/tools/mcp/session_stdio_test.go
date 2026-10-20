@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -35,7 +38,7 @@ func TestSessionStdioHelper(t *testing.T) {
 		os.Exit(0)
 		return nil, nil, nil
 	})
-	if os.Getenv("MCP_MODE") == "block-pipe" {
+	if mode := os.Getenv("MCP_MODE"); mode == "block-pipe" || mode == "sampling" || mode == "sampling-init" {
 		decoder, encoder := json.NewDecoder(os.Stdin), json.NewEncoder(os.Stdout)
 		for {
 			var req struct {
@@ -46,6 +49,11 @@ func TestSessionStdioHelper(t *testing.T) {
 				os.Exit(2)
 			}
 			if len(req.ID) == 0 {
+				continue
+			}
+			if (mode == "sampling-init" && req.Method == "initialize") || (mode == "sampling" && req.Method == "tools/call") {
+				// Keep the triggering request pending while sampling is handled.
+				_ = encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": "sample", "method": "sampling/createMessage", "params": map[string]any{"maxTokens": 1, "messages": []any{}}})
 				continue
 			}
 			response := map[string]any{"jsonrpc": "2.0", "id": req.ID}
@@ -60,7 +68,7 @@ func TestSessionStdioHelper(t *testing.T) {
 				response["result"] = map[string]any{}
 			}
 			_ = encoder.Encode(response)
-			if req.Method == "tools/list" {
+			if mode == "block-pipe" && req.Method == "tools/list" {
 				_ = os.WriteFile(marker+".blocked", []byte("blocked"), 0o600)
 				// Keep the helper alive without reading stdin until the parent kills it.
 				<-time.After(time.Hour)
@@ -166,5 +174,104 @@ func TestSessionStdioStopUnblocksPipeWrite(t *testing.T) {
 		require.Error(t, err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("tool call remained blocked after stop")
+	}
+}
+
+//nolint:staticcheck // Legacy server-initiated sampling remains supported.
+func TestSessionStdioStopJoinsSamplingCleanup(t *testing.T) {
+	for _, mode := range []string{"sampling", "sampling-init"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			ts, _ := sessionTestToolset(t, mode)
+			entered, canceled, release := make(chan struct{}), make(chan struct{}), make(chan struct{})
+			releaseCleanup := sync.OnceFunc(func() { close(release) })
+			defer releaseCleanup()
+			var live atomic.Int32
+			ts.SetSamplingWithToolsHandler(func(ctx context.Context, _ *gomcp.CreateMessageWithToolsParams) (*gomcp.CreateMessageWithToolsResult, error) {
+				live.Add(1)
+				defer live.Add(-1)
+				close(entered)
+				<-ctx.Done()
+				close(canceled)
+				<-release
+				return nil, ctx.Err()
+			})
+
+			started := make(chan error, 1)
+			go func() { started <- ts.Start(t.Context()) }()
+			var called chan error
+			if mode == "sampling" {
+				select {
+				case err := <-started:
+					require.NoError(t, err)
+				case <-time.After(5 * time.Second):
+					t.Fatal("startup did not complete")
+				}
+				called = make(chan error, 1)
+				go func() {
+					_, err := ts.mcpClient.CallTool(t.Context(), &gomcp.CallToolParams{Name: "sample", Arguments: map[string]any{}})
+					called <- err
+				}()
+			}
+			select {
+			case <-entered:
+			case err := <-called:
+				t.Fatalf("tool call returned before sampling: %v", err)
+			case <-time.After(5 * time.Second):
+				t.Fatal("sampling handler not entered")
+			}
+			if mode == "sampling-init" {
+				select {
+				case err := <-started:
+					t.Fatalf("startup completed before initialize response: %v", err)
+				default:
+				}
+			}
+
+			ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+			defer cancel()
+			stopped := make(chan error, 1)
+			go func() { stopped <- ts.Stop(ctx) }()
+			select {
+			case <-canceled:
+			case <-time.After(5 * time.Second):
+				t.Fatal("stop did not cancel the sampling handler")
+			}
+			<-ctx.Done()
+			require.EqualValues(t, 1, live.Load())
+			select {
+			case err := <-stopped:
+				t.Fatalf("stop returned before sampling cleanup finished: %v", err)
+			case <-time.After(50 * time.Millisecond):
+			}
+
+			releaseCleanup()
+			select {
+			case err := <-stopped:
+				require.ErrorIs(t, err, context.DeadlineExceeded)
+				if mode == "sampling" {
+					var exitErr *exec.ExitError
+					require.ErrorAs(t, err, &exitErr, "retain subprocess cleanup errors alongside the deadline")
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("stop did not join sampling cleanup")
+			}
+			require.Zero(t, live.Load(), "stop must not leave live sampling handlers")
+			if mode == "sampling-init" {
+				select {
+				case err := <-started:
+					require.Error(t, err)
+				case <-time.After(5 * time.Second):
+					t.Fatal("startup remained blocked after stop")
+				}
+			} else {
+				select {
+				case err := <-called:
+					require.Error(t, err)
+				case <-time.After(5 * time.Second):
+					t.Fatal("tool call remained blocked after stop")
+				}
+			}
+		})
 	}
 }

@@ -194,3 +194,14 @@ func (c *codeModeTool) Stop(ctx context.Context) error {
 	}
 	return errors.Join(errs...)
 }
+
+// CleanupFailedStart releases children even when every initial start failed.
+func (c *codeModeTool) CleanupFailedStart(ctx context.Context) error {
+	c.lifecycleMu.Lock()
+	defer c.lifecycleMu.Unlock()
+	var errs []error
+	for _, managed := range c.managed {
+		errs = append(errs, managed.StopIfStarted(ctx))
+	}
+	return errors.Join(errs...)
+}

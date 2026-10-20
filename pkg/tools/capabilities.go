@@ -14,6 +14,12 @@ type Startable interface {
 	Stop(ctx context.Context) error
 }
 
+// FailedStartCleaner releases resources retained after an unsuccessful Start.
+// Implementations must also be safe when no resources have been acquired.
+type FailedStartCleaner interface {
+	CleanupFailedStart(ctx context.Context) error
+}
+
 // StartReporter is implemented by toolsets whose live lifecycle state can
 // be queried independently of the StartableToolSet wrapper's latched state
 // (e.g. an MCP toolset whose supervisor lost the session in the background).

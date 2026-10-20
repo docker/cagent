@@ -80,7 +80,7 @@ type lspHandler struct {
 	// supervisor manages process lifecycle (start, watcher goroutine,
 	// auto-restart on crash, graceful Stop). Per-request methods consult
 	// it via ensureInitialized to lazy-start on first use.
-	supervisor *lifecycle.Supervisor
+	supervisor *lifecycle.Owner
 
 	// toolsChangedHandler is called after the supervisor's Connect has
 	// populated h.capabilities, so the runtime can re-fetch the (now
@@ -408,7 +408,7 @@ func New(command string, args, env []string, workingDir string, policy ...lifecy
 		defer h.diagnosticsMu.Unlock()
 		h.diagnostics = make(map[string][]lspDiagnostic)
 	}
-	h.supervisor = lifecycle.New("lsp/"+command, &lspConnector{h: h}, base)
+	h.supervisor = lifecycle.NewOwner("lsp/"+command, &lspConnector{h: h}, base)
 	return &ToolSet{handler: h}
 }
 
@@ -435,6 +435,9 @@ func (t *ToolSet) Start(ctx context.Context) error {
 func (t *ToolSet) Stop(ctx context.Context) error {
 	return t.handler.supervisor.Stop(ctx)
 }
+
+// CleanupFailedStart releases a Run retained after a startup timeout.
+func (t *ToolSet) CleanupFailedStart(ctx context.Context) error { return t.Stop(ctx) }
 
 // IsStarted implements tools.StartReporter: reports whether the supervisor
 // requires external action (Start/Restart) to serve requests again.

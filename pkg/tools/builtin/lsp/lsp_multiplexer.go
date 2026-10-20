@@ -79,6 +79,9 @@ func (m *Multiplexer) Stop(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
+// CleanupFailedStart includes the backend whose initialization timed out.
+func (m *Multiplexer) CleanupFailedStart(ctx context.Context) error { return m.Stop(ctx) }
+
 // Kind returns the user-facing classification of this toolset.
 func (m *Multiplexer) Kind() string { return "LSP" }
 

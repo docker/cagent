@@ -801,9 +801,20 @@ func (s *StartableToolSet) StopIfStarted(ctx context.Context) error {
 	s.stopRequestMu.Unlock()
 
 	if !s.started {
-		return s.stopErr
+		return s.cleanupFailedStartLocked(ctx)
 	}
 	return s.stopLocked(ctx)
+}
+
+func (s *StartableToolSet) cleanupFailedStartLocked(ctx context.Context) error {
+	if s.attempted {
+		if cleaner, ok := As[FailedStartCleaner](s.ToolSet); ok {
+			s.stopErr = cleaner.CleanupFailedStart(ctx)
+			// A deadline may end only the wait, not cleanup; allow a later caller to join.
+			s.attempted = errors.Is(s.stopErr, context.Canceled) || errors.Is(s.stopErr, context.DeadlineExceeded)
+		}
+	}
+	return s.stopErr
 }
 
 // stopLocked implements the stop sequence shared by Stop, StopIfStarted and
@@ -819,6 +830,9 @@ func (s *StartableToolSet) stopLocked(ctx context.Context) error {
 	s.stopErr = nil
 	if startable, ok := As[Startable](s.ToolSet); ok {
 		s.stopErr = startable.Stop(ctx)
+		if _, canJoin := As[FailedStartCleaner](s.ToolSet); canJoin {
+			s.attempted = errors.Is(s.stopErr, context.Canceled) || errors.Is(s.stopErr, context.DeadlineExceeded)
+		}
 	}
 	return s.stopErr
 }
@@ -863,10 +877,14 @@ func (s *StartableToolSet) settleStopRequestAndRelease() bool {
 	ctx := context.WithoutCancel(s.stopRequestCtx)
 	s.stopRequestCtx = nil
 	s.stopRequestMu.Unlock()
+	var err error
 	if s.started {
-		if err := s.stopLocked(ctx); err != nil {
-			slog.WarnContext(ctx, "Failed to stop toolset for a pending shutdown request", "toolset", DescribeToolSet(s), "error", err)
-		}
+		err = s.stopLocked(ctx)
+	} else {
+		err = s.cleanupFailedStartLocked(ctx)
+	}
+	if err != nil {
+		slog.WarnContext(ctx, "Failed to stop toolset for a pending shutdown request", "toolset", DescribeToolSet(s), "error", err)
 	}
 	return false
 }

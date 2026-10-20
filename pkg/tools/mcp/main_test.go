@@ -14,6 +14,10 @@ import (
 // servers (which prunes http.DefaultTransport's pool) can't break its
 // in-flight requests.
 func TestMain(m *testing.M) {
+	if marker := os.Getenv("MCP_GATEWAY_LIFETIME_HELPER"); marker != "" {
+		runGatewayLifetimeHelper(marker)
+	}
+
 	oauthflow.SetHTTPClientForTesting(oauthflow.HTTPClientForAllowPrivateIPs(true))
 	os.Exit(m.Run())
 }

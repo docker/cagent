@@ -51,7 +51,7 @@ func TestSupervisorRespectsContextCancellation(t *testing.T) {
 			MaxAttempts: 100, // large, so cancellation must be the exit reason
 			Backoff:     lifecycle.Backoff{Initial: 5 * time.Second},
 		}
-		s := lifecycle.New("ctx-test", &failing, policy)
+		s := lifecycle.NewOwner("ctx-test", &failing, policy)
 
 		// Drive the supervisor manually: simulate a session failure that the
 		// watcher would react to, by starting then forcing a reconnect under

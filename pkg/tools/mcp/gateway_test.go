@@ -296,14 +296,11 @@ func TestNewGatewayToolset_DoesNotCreateFilesUntilStart(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, entries, "constructor must remain side-effect free")
 
-	require.NoError(t, ts.prepare(t.Context()))
+	client := ts.mcpClient.(*stdioMCPClient)
+	client.command = filepath.Join(dir, "missing-gateway-command")
+	require.Error(t, ts.Start(t.Context()))
 	entries, err = os.ReadDir(dir)
 	require.NoError(t, err)
-	require.Len(t, entries, 2)
-
-	require.NoError(t, ts.cleanUp(t.Context()))
-	entries, err = os.ReadDir(dir)
-	require.NoError(t, err)
-	assert.Empty(t, entries)
-	require.NoError(t, ts.cleanUp(t.Context()), "cleanup must be idempotent")
+	assert.Empty(t, entries, "failed connection attempt must remove its files")
+	require.NoError(t, ts.Stop(t.Context()))
 }

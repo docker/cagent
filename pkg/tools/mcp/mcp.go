@@ -163,10 +163,8 @@ type mcpClient interface {
 
 // Toolset represents a set of MCP tools.
 //
-// Connection lifecycle (initial connect, watcher goroutine, restart with
-// backoff, graceful Stop) is delegated to a *lifecycle.Supervisor; the
-// historical watchConnection / tryRestart / forceReconnectAndWait helpers
-// have been replaced by the supervisor's Start / RestartAndWait / Stop.
+// A lifecycle.Owner bridges request-scoped tool calls to the context-owned
+// connection supervisor. The shared client permits only one Run at a time.
 type Toolset struct {
 	name         string
 	mcpClient    mcpClient
@@ -174,7 +172,7 @@ type Toolset struct {
 	description  string // user-visible description, set by constructors
 	instructions string
 
-	supervisor *lifecycle.Supervisor
+	supervisor *lifecycle.Owner
 
 	// callTimeout bounds an individual callTool invocation, including its
 	// one reconnect-retry. Zero means no timeout (use the caller's ctx).
@@ -364,8 +362,11 @@ func firstOrZero[T any](s []T) T {
 // When the policy is the zero value, the supervisor uses its built-in
 // defaults that match the historical mcp.Toolset behaviour:
 // RestartOnFailure, max 5 attempts, 1s..32s exponential backoff.
-func newSupervisor(ts *Toolset, base lifecycle.Policy) *lifecycle.Supervisor {
-	connector := &clientConnector{ts: ts}
+func newSupervisor(ts *Toolset, base lifecycle.Policy) *lifecycle.Owner {
+	return newSupervisorWithConnector(ts, base, &clientConnector{ts: ts})
+}
+
+func newSupervisorWithConnector(ts *Toolset, base lifecycle.Policy, connector lifecycle.Connector) *lifecycle.Owner {
 	policy := base
 	policy.Logger = slog.With("component", "mcp.supervisor", "server", ts.logID)
 	policy.OnDisconnect = func(error) {
@@ -382,7 +383,7 @@ func newSupervisor(ts *Toolset, base lifecycle.Policy) *lifecycle.Supervisor {
 		ts.refreshToolCache(ctx)
 		ts.refreshPromptCache(ctx)
 	}
-	return lifecycle.New(ts.logID, connector, policy)
+	return lifecycle.NewOwner(ts.logID, connector, policy)
 }
 
 // errServerUnavailable is returned by the connector when the MCP server could
@@ -536,6 +537,10 @@ func (ts *Toolset) Stop(ctx context.Context) error {
 		switch client := ts.mcpClient.(type) {
 		case *stdioMCPClient:
 			forceClose = client.cancelProcess
+			// Killing the process cancels inbound handlers; join their cleanup too.
+			finalize = func(ctx context.Context) error {
+				return ts.supervisor.Stop(context.WithoutCancel(ctx))
+			}
 		case *sessionRemoteClient:
 			forceClose = client.forceClose
 			finalize = client.Close
@@ -554,13 +559,16 @@ func (ts *Toolset) Stop(ctx context.Context) error {
 		}
 		return errors.Join(err, ctx.Err())
 	}
-	if err := ts.supervisor.Stop(ctx); err != nil && ctx.Err() == nil {
+	if err := ts.supervisor.Stop(ctx); err != nil {
 		slog.ErrorContext(ctx, "Failed to stop MCP toolset", "server", ts.logID, "error", err)
 		return err
 	}
 	slog.DebugContext(ctx, "Stopped MCP toolset successfully", "server", ts.logID)
 	return nil
 }
+
+// CleanupFailedStart releases a Run retained after a startup timeout.
+func (ts *Toolset) CleanupFailedStart(ctx context.Context) error { return ts.Stop(ctx) }
 
 // clientConnector adapts an mcpClient to the lifecycle.Connector interface.
 // It owns the initialize handshake and exposes the shared mcpClient as a
@@ -690,10 +698,58 @@ func (c *clientConnector) Connect(ctx context.Context) (lifecycle.Session, error
 // gomcp.ClientSession is created internally by the client each Initialize.
 type clientSession struct {
 	client mcpClient
+
+	mu      sync.Mutex
+	waitErr error
 }
 
-func (s *clientSession) Wait() error                     { return s.client.Wait() }
-func (s *clientSession) Close(ctx context.Context) error { return s.client.Close(ctx) }
+func (s *clientSession) Wait() error {
+	err := s.client.Wait()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.waitErr = err
+	return err
+}
+
+func (s *clientSession) Close(ctx context.Context) error {
+	// Only discount failures observed before Close, not failures caused by it.
+	s.mu.Lock()
+	waitErr := s.waitErr
+	s.mu.Unlock()
+	err, _ := removeWaitError(s.client.Close(ctx), waitErr)
+	return err
+}
+
+// The SDK's stdio Close repeats the cached process exit returned by Wait.
+// Remove that cause without discarding distinct errors joined with it.
+func removeWaitError(err, waitErr error) (error, bool) {
+	if err == nil || waitErr == nil {
+		return err, false
+	}
+	if errors.Is(waitErr, err) {
+		return nil, true
+	}
+	switch wrapped := err.(type) { //nolint:errorlint // Walk each node, not the first matching wrapped error.
+	case interface{ Unwrap() []error }:
+		var remaining []error
+		var changed bool
+		for _, child := range wrapped.Unwrap() {
+			filtered, removed := removeWaitError(child, waitErr)
+			changed = changed || removed
+			if filtered != nil {
+				remaining = append(remaining, filtered)
+			}
+		}
+		if changed {
+			return errors.Join(remaining...), true
+		}
+	case interface{ Unwrap() error }:
+		if filtered, changed := removeWaitError(wrapped.Unwrap(), waitErr); changed {
+			return filtered, true
+		}
+	}
+	return err, false
+}
 
 func (ts *Toolset) Instructions() string {
 	ts.mu.Lock()

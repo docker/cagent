@@ -30,13 +30,10 @@ const (
 type GatewayToolset struct {
 	*Toolset
 
-	mu            sync.Mutex
 	mcpServerName string
 	secrets       []gateway.Secret
 	config        []byte
 	envProvider   environment.Provider
-	secretsFile   string
-	configFile    string
 }
 
 var _ tools.ToolSet = (*GatewayToolset)(nil)
@@ -51,66 +48,39 @@ func NewGatewayToolset(_ context.Context, name, mcpServerName string, secrets []
 
 	inner := NewToolsetCommand(name, "docker", nil, nil, cwd, policy...)
 	inner.description = "mcp(ref=" + mcpServerName + ")"
-	return &GatewayToolset{
+	t := &GatewayToolset{
 		Toolset:       inner,
 		mcpServerName: mcpServerName,
 		secrets:       secrets,
 		config:        configData,
 		envProvider:   envProvider,
-	}, nil
+	}
+	inner.supervisor = newSupervisorWithConnector(inner, firstOrZero(policy), &gatewayConnector{gateway: t})
+	return t, nil
 }
 
-func (t *GatewayToolset) Start(ctx context.Context) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if err := t.prepare(ctx); err != nil {
-		return err
-	}
-	if err := t.Toolset.Start(ctx); err != nil {
-		return errors.Join(err, t.cleanUp(ctx))
-	}
-	return nil
-}
+// gatewayConnector gives each connection attempt its own temporary files.
+// Returning from a caller's Start wait does not end their lifetime.
+type gatewayConnector struct{ gateway *GatewayToolset }
 
-func (t *GatewayToolset) Restart(ctx context.Context) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if err := t.prepare(ctx); err != nil {
-		return err
-	}
-	if err := t.Toolset.Restart(ctx); err != nil {
-		return errors.Join(err, t.cleanUp(ctx))
-	}
-	return nil
-}
-
-func (t *GatewayToolset) Stop(ctx context.Context) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return errors.Join(t.Toolset.Stop(ctx), t.cleanUp(ctx))
-}
-
-func (t *GatewayToolset) prepare(ctx context.Context) error {
-	if t.secretsFile != "" && t.configFile != "" {
-		return nil
+func (c *gatewayConnector) Connect(ctx context.Context) (lifecycle.Session, error) {
+	t := c.gateway
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	runStartupSweep(ctx)
-
 	secretsFile, err := writeSecretsToFile(ctx, t.mcpServerName, t.secrets, t.envProvider)
 	if err != nil {
-		return fmt.Errorf("writing secrets to file: %w", err)
+		return nil, fmt.Errorf("writing secrets to file: %w", err)
 	}
 	configFile, err := writeTempFile(tempFilePattern(configFilePrefix), t.config)
 	if err != nil {
-		_ = removeIfExists(secretsFile)
-		return fmt.Errorf("writing config to file: %w", err)
+		return nil, errors.Join(fmt.Errorf("writing config to file: %w", err), removeIfExists(secretsFile))
 	}
-
-	t.secretsFile = secretsFile
-	t.configFile = configFile
+	cleanup := func() error { return errors.Join(removeIfExists(secretsFile), removeIfExists(configFile)) }
 	client, ok := t.mcpClient.(*stdioMCPClient)
 	if !ok {
-		return errors.Join(errors.New("gateway toolset requires stdio MCP client"), t.cleanUp(ctx))
+		return nil, errors.Join(errors.New("gateway toolset requires stdio MCP client"), cleanup())
 	}
 	client.setArgs([]string{
 		"mcp", "gateway", "run",
@@ -119,17 +89,26 @@ func (t *GatewayToolset) prepare(ctx context.Context) error {
 		"--secrets", secretsFile,
 		"--config", configFile,
 	})
-	return nil
+	session, err := (&clientConnector{ts: t.Toolset}).Connect(ctx)
+	if err != nil {
+		return nil, errors.Join(err, cleanup())
+	}
+	return &gatewaySession{Session: session, cleanup: cleanup}, nil
 }
 
-func (t *GatewayToolset) cleanUp(ctx context.Context) error {
-	err := errors.Join(removeIfExists(t.secretsFile), removeIfExists(t.configFile))
-	if err != nil {
-		slog.WarnContext(ctx, "Failed to clean up MCP Gateway temp files", "error", err)
-	}
-	t.secretsFile = ""
-	t.configFile = ""
-	return err
+type gatewaySession struct {
+	lifecycle.Session
+
+	cleanup func() error
+	once    sync.Once
+	err     error
+}
+
+func (s *gatewaySession) Close(ctx context.Context) error {
+	s.once.Do(func() {
+		s.err = errors.Join(s.Session.Close(ctx), s.cleanup())
+	})
+	return s.err
 }
 
 func removeIfExists(path string) error {

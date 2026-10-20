@@ -228,13 +228,15 @@ toolsets:
 | `backoff.multiplier` | number | Multiplier applied each attempt. Default: `2`. |
 | `backoff.jitter` | number | Fraction (0..1) of the computed delay applied as a uniform random offset. `0` disables jitter (default). |
 | `required` | boolean | Marks the toolset as critical. Today this is informational; a future eager-startup phase will refuse to start the agent when a required toolset cannot reach Ready. Defaults to `true` under `strict`, `false` otherwise. |
-| `startup_timeout` | duration | Cap on the initial connect+initialize duration. Enforced since v1.94.0: on expiry the toolset stays stopped and the runtime retries on the next turn. |
+| `startup_timeout` | duration | Cap on waiting for the initial connect+initialize. On expiry the toolset stays stopped; the next turn adopts the same pending attempt rather than starting an overlapping connection. |
 | `call_timeout` | duration | Cap on an individual tool call, including one reconnect-retry. Enforced: on expiry the call is cancelled and surfaced to the model as a tool error; cancellation is propagated to the server. `0`/unset means no timeout — opt-in only, no profile default. |
 
 > [!NOTE]
 > **`required` is not yet enforced**
 >
 > The schema validates this field and the supervisor stores it, but no code path acts on it yet. It is documented now so config files written today keep working when the planned eager-startup phase lands. Picking the `strict` profile is forward-compatible — it will start enforcing `required=true` automatically.
+
+Shutdown also cancels and joins retained startup attempts, even if the toolset never became ready. If the shutdown deadline expires, the connection remains owned until cleanup finishes; a later shutdown wait can collect its result. A transport that ignores cancellation is cleaned up when its pending connection eventually returns.
 
 ### Inspecting and restarting toolsets at runtime
 

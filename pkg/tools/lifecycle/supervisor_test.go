@@ -165,7 +165,7 @@ func TestSupervisor_StartFailurePropagates(t *testing.T) {
 
 	want := errors.New("boom")
 	c := newScriptedConnector(scriptStep{err: want})
-	s := lifecycle.New("test", c, lifecycle.Policy{})
+	s := lifecycle.NewOwner("test", c, lifecycle.Policy{})
 
 	err := s.Start(t.Context())
 	assert.Check(t, errors.Is(err, want))
@@ -177,7 +177,7 @@ func TestSupervisor_StartSucceedsAndReadies(t *testing.T) {
 
 	sess := newFakeSession()
 	c := newScriptedConnector(scriptStep{session: sess})
-	s := lifecycle.New("test", c, lifecycle.Policy{})
+	s := lifecycle.NewOwner("test", c, lifecycle.Policy{})
 
 	assert.NilError(t, s.Start(t.Context()))
 	assert.Check(t, is.Equal(s.State().State, lifecycle.StateReady))
@@ -193,7 +193,7 @@ func TestSupervisor_StartTimesOutOnSlowConnect(t *testing.T) {
 	t.Parallel()
 
 	c := &blockingConnector{release: make(chan struct{}), session: newFakeSession()}
-	s := lifecycle.New("test", c, lifecycle.Policy{StartupTimeout: 20 * time.Millisecond})
+	s := lifecycle.NewOwner("test", c, lifecycle.Policy{StartupTimeout: 20 * time.Millisecond})
 
 	err := s.Start(t.Context())
 	assert.Check(t, errors.Is(err, lifecycle.ErrInitTimeout))
@@ -212,7 +212,7 @@ func TestSupervisor_StartAdoptsLateConnect(t *testing.T) {
 
 	synctest.Test(t, func(t *testing.T) {
 		c := &blockingConnector{release: make(chan struct{}), session: newFakeSession()}
-		s := lifecycle.New("test", c, lifecycle.Policy{StartupTimeout: 20 * time.Millisecond})
+		s := lifecycle.NewOwner("test", c, lifecycle.Policy{StartupTimeout: 20 * time.Millisecond})
 
 		assert.Check(t, errors.Is(s.Start(t.Context()), lifecycle.ErrInitTimeout))
 
@@ -238,7 +238,7 @@ func TestSupervisor_StartAdoptsLateConnectAfterFirstCtxCancelled(t *testing.T) {
 
 	synctest.Test(t, func(t *testing.T) {
 		c := &blockingConnector{release: make(chan struct{}), session: newFakeSession()}
-		s := lifecycle.New("test", c, lifecycle.Policy{StartupTimeout: 20 * time.Millisecond})
+		s := lifecycle.NewOwner("test", c, lifecycle.Policy{StartupTimeout: 20 * time.Millisecond})
 
 		ctx, cancel := context.WithCancel(t.Context())
 		assert.Check(t, errors.Is(s.Start(ctx), lifecycle.ErrInitTimeout))
@@ -265,12 +265,17 @@ func TestSupervisor_StopReapsLateConnect(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		sess := newFakeSession()
 		c := &blockingConnector{release: make(chan struct{}), session: sess}
-		s := lifecycle.New("test", c, lifecycle.Policy{StartupTimeout: 20 * time.Millisecond})
+		s := lifecycle.NewOwner("test", runnerConnector(func(context.Context) (lifecycle.Session, error) {
+			<-c.release // Deliberately ignore owner cancellation.
+			return sess, nil
+		}), lifecycle.Policy{StartupTimeout: 20 * time.Millisecond})
 
 		assert.Check(t, errors.Is(s.Start(t.Context()), lifecycle.ErrInitTimeout))
 
 		// Stop while the connect is still wedged, then let it complete.
-		assert.NilError(t, s.Stop(t.Context()))
+		stopCtx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		assert.Check(t, errors.Is(s.Stop(stopCtx), context.DeadlineExceeded))
 		close(c.release)
 
 		// The reaper must close the late session.
@@ -285,7 +290,7 @@ func TestSupervisor_StartWithinTimeoutSucceeds(t *testing.T) {
 
 	c := &blockingConnector{release: make(chan struct{}), session: newFakeSession()}
 	close(c.release) // Connect returns immediately
-	s := lifecycle.New("test", c, lifecycle.Policy{StartupTimeout: time.Second})
+	s := lifecycle.NewOwner("test", c, lifecycle.Policy{StartupTimeout: time.Second})
 
 	assert.NilError(t, s.Start(t.Context()))
 	assert.Check(t, is.Equal(s.State().State, lifecycle.StateReady))
@@ -297,7 +302,7 @@ func TestSupervisor_StartIsIdempotent(t *testing.T) {
 
 	sess := newFakeSession()
 	c := newScriptedConnector(scriptStep{session: sess})
-	s := lifecycle.New("test", c, lifecycle.Policy{})
+	s := lifecycle.NewOwner("test", c, lifecycle.Policy{})
 
 	assert.NilError(t, s.Start(t.Context()))
 	assert.NilError(t, s.Start(t.Context()))
@@ -317,7 +322,7 @@ func TestSupervisor_RestartAfterDisconnect(t *testing.T) {
 		)
 
 		restarted := make(chan struct{}, 1)
-		s := lifecycle.New("test", c, lifecycle.Policy{
+		s := lifecycle.NewOwner("test", c, lifecycle.Policy{
 			Backoff: fastBackoff,
 			OnRestart: func(context.Context) {
 				select {
@@ -358,7 +363,7 @@ func TestSupervisor_GivesUpAfterMaxAttempts(t *testing.T) {
 		)
 
 		failed := make(chan error, 1)
-		s := lifecycle.New("test", c, lifecycle.Policy{
+		s := lifecycle.NewOwner("test", c, lifecycle.Policy{
 			MaxAttempts: 3,
 			Backoff:     fastBackoff,
 			OnFailed: func(err error) {
@@ -390,7 +395,7 @@ func TestSupervisor_RestartNeverGoesToFailed(t *testing.T) {
 		c := newScriptedConnector(scriptStep{session: sess1})
 
 		failed := make(chan struct{}, 1)
-		s := lifecycle.New("test", c, lifecycle.Policy{
+		s := lifecycle.NewOwner("test", c, lifecycle.Policy{
 			Restart: lifecycle.RestartNever,
 			OnFailed: func(error) {
 				select {
@@ -424,7 +429,7 @@ func TestSupervisor_RestartAndWait(t *testing.T) {
 			scriptStep{session: sess1},
 			scriptStep{session: sess2},
 		)
-		s := lifecycle.New("test", c, lifecycle.Policy{Backoff: fastBackoff})
+		s := lifecycle.NewOwner("test", c, lifecycle.Policy{Backoff: fastBackoff})
 
 		assert.NilError(t, s.Start(t.Context()))
 
@@ -441,7 +446,7 @@ func TestSupervisor_StopIdempotent(t *testing.T) {
 
 	sess := newFakeSession()
 	c := newScriptedConnector(scriptStep{session: sess})
-	s := lifecycle.New("test", c, lifecycle.Policy{})
+	s := lifecycle.NewOwner("test", c, lifecycle.Policy{})
 
 	assert.NilError(t, s.Start(t.Context()))
 	assert.NilError(t, s.Stop(t.Context()))
@@ -451,7 +456,7 @@ func TestSupervisor_StopIdempotent(t *testing.T) {
 func TestSupervisor_StopBeforeStart(t *testing.T) {
 	t.Parallel()
 	c := newScriptedConnector()
-	s := lifecycle.New("test", c, lifecycle.Policy{})
+	s := lifecycle.NewOwner("test", c, lifecycle.Policy{})
 	assert.NilError(t, s.Stop(t.Context()))
 }
 
@@ -465,7 +470,7 @@ func TestSupervisor_StopWakesRestartAndWait(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		sess := newFakeSession()
 		c := newScriptedConnector(scriptStep{session: sess})
-		s := lifecycle.New("test", c, lifecycle.Policy{Backoff: fastBackoff})
+		s := lifecycle.NewOwner("test", c, lifecycle.Policy{Backoff: fastBackoff})
 		assert.NilError(t, s.Start(t.Context()))
 
 		done := make(chan error, 1)
@@ -500,7 +505,7 @@ func TestSupervisor_FailedWakesRestartAndWait(t *testing.T) {
 			scriptStep{err: errors.New("fail-1")},
 			scriptStep{err: errors.New("fail-2")},
 		)
-		s := lifecycle.New("test", c, lifecycle.Policy{
+		s := lifecycle.NewOwner("test", c, lifecycle.Policy{
 			MaxAttempts: 2,
 			Backoff:     fastBackoff,
 		})
@@ -542,7 +547,7 @@ func TestSupervisor_RecoverFromFailedViaStart(t *testing.T) {
 			scriptStep{session: sess2},        // recovery Start
 			scriptStep{session: sess3},        // RestartAndWait’s reconnect
 		)
-		s := lifecycle.New("test", c, lifecycle.Policy{
+		s := lifecycle.NewOwner("test", c, lifecycle.Policy{
 			MaxAttempts: 2,
 			Backoff:     fastBackoff,
 		})
@@ -590,7 +595,7 @@ func TestSupervisor_PermanentErrorsDontRestart(t *testing.T) {
 		c := newScriptedConnector(scriptStep{session: sess1})
 
 		failedCh := make(chan error, 1)
-		s := lifecycle.New("test", c, lifecycle.Policy{
+		s := lifecycle.NewOwner("test", c, lifecycle.Policy{
 			Backoff: fastBackoff,
 			OnFailed: func(err error) {
 				select {
@@ -635,7 +640,7 @@ func TestSupervisor_PermanentConnectErrorDoesNotRetry(t *testing.T) {
 		)
 
 		failedCh := make(chan error, 1)
-		s := lifecycle.New("test", c, lifecycle.Policy{
+		s := lifecycle.NewOwner("test", c, lifecycle.Policy{
 			MaxAttempts: 5, // budget that must NOT be consumed
 			Backoff:     fastBackoff,
 			OnFailed: func(err error) {
@@ -671,7 +676,7 @@ func TestSupervisor_CleanClosePolicyBoundary(t *testing.T) {
 		c := newScriptedConnector(scriptStep{session: sess1})
 
 		failedCh := make(chan error, 1)
-		s := lifecycle.New("test", c, lifecycle.Policy{
+		s := lifecycle.NewOwner("test", c, lifecycle.Policy{
 			Restart: lifecycle.RestartOnFailure,
 			Backoff: fastBackoff,
 			OnFailed: func(err error) {
@@ -710,7 +715,7 @@ func TestSupervisor_RestartAlwaysReconnectsCleanCloseAndResetsBudget(t *testing.
 		)
 
 		restarted := make(chan struct{}, 2)
-		s := lifecycle.New("test", c, lifecycle.Policy{
+		s := lifecycle.NewOwner("test", c, lifecycle.Policy{
 			Restart:     lifecycle.RestartAlways,
 			MaxAttempts: 1,
 			Backoff:     fastBackoff,
@@ -758,7 +763,7 @@ func TestSupervisor_RestartAlwaysCleanCloseStillHonorsFailedReconnectBudget(t *t
 		)
 
 		failedCh := make(chan error, 1)
-		s := lifecycle.New("test", c, lifecycle.Policy{
+		s := lifecycle.NewOwner("test", c, lifecycle.Policy{
 			Restart:     lifecycle.RestartAlways,
 			MaxAttempts: 2,
 			Backoff:     fastBackoff,
@@ -818,7 +823,7 @@ func TestSupervisor_StopWaitsForWatcher(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		sess := newFakeSession()
 		c := newScriptedConnector(scriptStep{session: sess})
-		s := lifecycle.New("test", c, lifecycle.Policy{})
+		s := lifecycle.NewOwner("test", c, lifecycle.Policy{})
 
 		assert.NilError(t, s.Start(t.Context()))
 		sess.waitParked(t)
@@ -841,7 +846,7 @@ func TestSupervisor_StopConcurrent(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		sess := newFakeSession()
 		c := newScriptedConnector(scriptStep{session: sess})
-		s := lifecycle.New("test", c, lifecycle.Policy{})
+		s := lifecycle.NewOwner("test", c, lifecycle.Policy{})
 
 		assert.NilError(t, s.Start(t.Context()))
 		sess.waitParked(t)
@@ -893,7 +898,7 @@ func TestSupervisor_CrashLoopStopsRestartingAndReportsOnStart(t *testing.T) {
 
 		restarted := make(chan struct{}, 4)
 		failed := make(chan error, 1)
-		s := lifecycle.New("test", c, lifecycle.Policy{
+		s := lifecycle.NewOwner("test", c, lifecycle.Policy{
 			Backoff:   fastBackoff,
 			CrashLoop: lifecycle.CrashLoop{Threshold: 3, Window: time.Minute},
 			OnRestart: func(context.Context) {
@@ -975,7 +980,7 @@ func TestSupervisor_CrashLoopIgnoresCleanDisconnects(t *testing.T) {
 		c := newScriptedConnector(steps...)
 
 		restarted := make(chan struct{}, 10)
-		s := lifecycle.New("test", c, lifecycle.Policy{
+		s := lifecycle.NewOwner("test", c, lifecycle.Policy{
 			Restart:   lifecycle.RestartAlways,
 			Backoff:   fastBackoff,
 			CrashLoop: lifecycle.CrashLoop{Threshold: 3, Window: time.Minute},
@@ -1020,7 +1025,7 @@ func TestSupervisor_CrashLoopIgnoresForcedRestart(t *testing.T) {
 		}
 		c := newScriptedConnector(steps...)
 
-		s := lifecycle.New("test", c, lifecycle.Policy{
+		s := lifecycle.NewOwner("test", c, lifecycle.Policy{
 			Backoff:   fastBackoff,
 			CrashLoop: lifecycle.CrashLoop{Threshold: 3, Window: time.Minute},
 		})
@@ -1055,7 +1060,7 @@ func TestSupervisor_CrashLoopStopIsClean(t *testing.T) {
 		)
 
 		failed := make(chan error, 1)
-		s := lifecycle.New("test", c, lifecycle.Policy{
+		s := lifecycle.NewOwner("test", c, lifecycle.Policy{
 			Backoff:   fastBackoff,
 			CrashLoop: lifecycle.CrashLoop{Threshold: 3, Window: time.Minute},
 			OnFailed: func(err error) {
@@ -1102,7 +1107,7 @@ func TestSupervisor_PendingCrashLoopErrorIsNonConsuming(t *testing.T) {
 		)
 
 		failed := make(chan error, 1)
-		s := lifecycle.New("test", c, lifecycle.Policy{
+		s := lifecycle.NewOwner("test", c, lifecycle.Policy{
 			Backoff:   fastBackoff,
 			CrashLoop: lifecycle.CrashLoop{Threshold: 3, Window: time.Minute},
 			OnFailed: func(err error) {
@@ -1160,7 +1165,7 @@ func TestSupervisor_CrashLoopWindowPrunesOldCrashes(t *testing.T) {
 		c := newScriptedConnector(steps...)
 
 		restarted := make(chan struct{}, 10)
-		s := lifecycle.New("test", c, lifecycle.Policy{
+		s := lifecycle.NewOwner("test", c, lifecycle.Policy{
 			Backoff:   fastBackoff,
 			CrashLoop: lifecycle.CrashLoop{Threshold: 3, Window: 20 * time.Millisecond},
 			OnRestart: func(context.Context) {
@@ -1210,7 +1215,7 @@ func TestSupervisor_CrashLoopStopWinningRaceReportsStopped(t *testing.T) {
 		release := make(chan struct{})
 		restarted := make(chan struct{}, 4)
 		var thirdCrash atomic.Bool
-		s := lifecycle.New("test", c, lifecycle.Policy{
+		s := lifecycle.NewOwner("test", c, lifecycle.Policy{
 			Backoff:   fastBackoff,
 			CrashLoop: lifecycle.CrashLoop{Threshold: 3, Window: time.Minute},
 			OnRestart: func(context.Context) {
