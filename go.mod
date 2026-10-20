@@ -38,7 +38,7 @@ require (
 	github.com/docker/cli v29.9.1+incompatible
 	github.com/docker/go-units v0.5.0
 	github.com/docker/portcullis v1.1.3
-	github.com/dop251/goja v0.0.0-20261014135309-2cb8274eed06
+	github.com/dop251/goja v0.0.0-20261019185110-cf7b1419c9c0
 	github.com/expr-lang/expr v1.17.8
 	github.com/fatih/color v1.19.0
 	github.com/fsnotify/fsnotify v1.10.1
