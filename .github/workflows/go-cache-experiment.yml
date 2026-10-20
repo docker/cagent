@@ -4,145 +4,112 @@ on:
   pull_request:
     paths:
       - .github/workflows/go-cache-experiment.yml
-      - .github/scripts/go-cache.py
-      - .github/scripts/go-cache.mjs
-      - .github/scripts/go-cache.test.mjs
+      - .github/actions/setup-go/**
+      - .github/actions/trim-go-cache/**
   workflow_dispatch:
 
 permissions:
   contents: read
-  actions: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-env:
-  BASELINE_CACHE: gobuild-v2-Linux-test-linux-2998ac6f17ba805ddfef85cfb70198cc5de67e292b62ebbe4d275ad074831053-6016455056b244e9ba24c5b553b0837950a176b4
-
 jobs:
-  prepare:
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: false
-      - uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
-        with:
-          version: 3.53.1
-          checksum: a54a408f6861ff921f6e87774180db31bacd8c1e7c944ca696db9fea49a82fc7
-      - name: Download modules
-        run: go mod download
-      - name: Archive modules
-        run: tar -I 'zstd -T0 -3' -cf "$RUNNER_TEMP/modules.tar.zst" -C "$(go env GOMODCACHE)" .
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: experiment-modules
-          path: ${{ runner.temp }}/modules.tar.zst
-          compression-level: 0
-          retention-days: 3
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: experiment-pruned-cache
-          run-id: 39504417698
-          github-token: ${{ github.token }}
-          path: ${{ runner.temp }}/candidate
-      - name: Restore candidate
-        run: |
-          mkdir -p "$(go env GOCACHE)"
-          tar -I zstd -xf "$RUNNER_TEMP/candidate/pruned-cache.tar.zst" -C "$(go env GOCACHE)"
-      - name: Save candidate through Actions Cache
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: /home/runner/.cache/go-build
-          key: gobuild-v3-Linux-test-linux-${{ hashFiles('go.sum') }}-${{ github.sha }}
-
-  compare:
-    needs: prepare
+  seed:
     strategy:
       fail-fast: false
       matrix:
-        cache: [baseline, pruned]
-        repeat: [1, 2]
-    name: compare-${{ matrix.cache }}-${{ matrix.repeat }}
-    runs-on: ubuntu-latest
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: $/.github/actions/setup-go
         with:
-          go-version-file: go.mod
-          cache: false
-      - uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
-        with:
-          version: 3.53.1
-          checksum: a54a408f6861ff921f6e87774180db31bacd8c1e7c944ca696db9fea49a82fc7
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: experiment-modules
-          path: ${{ runner.temp }}/modules
-      - name: Restore identical modules
+          save: 'false'
+          cache-name: ${{ runner.os == 'Windows' && 'test-windows' || 'test-linux' }}
+      - if: runner.os == 'Windows'
+        name: Exclude build paths from Defender
+        continue-on-error: true
+        shell: pwsh
         run: |
-          mkdir -p "$(go env GOMODCACHE)"
-          tar -I zstd -xf "$RUNNER_TEMP/modules/modules.tar.zst" -C "$(go env GOMODCACHE)"
-      - name: Start measurement
-        run: date +%s > "$RUNNER_TEMP/cache-measure-start"
-      - if: matrix.cache == 'baseline'
-        name: Restore baseline cache
+          $paths = @($env:GITHUB_WORKSPACE, $env:RUNNER_TEMP, (go env GOROOT), (go env GOPATH), (go env GOCACHE), (go env GOMODCACHE))
+          Add-MpPreference -ExclusionPath $paths
+      - name: Test pruning helper
+        run: node --test .github/actions/trim-go-cache/go-cache.test.mjs
+      - id: paths
+        shell: bash
+        run: echo "build=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+      - name: Save candidate cache after successful validation
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.paths.outputs.build }}
+          key: gobuild-v3-${{ runner.os }}-${{ runner.os == 'Windows' && 'test-windows' || 'test-linux' }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+      # Validate the same LIFO post-action ordering used by setup-go on main.
+      - uses: $/.github/actions/trim-go-cache
+        with:
+          path: ${{ steps.paths.outputs.build }}
+      - name: Warm packages and tests
+        shell: bash
+        env:
+          TEST_OUTPUT: ${{ runner.os == 'Windows' && 'NUL' || '/dev/null' }}
+        run: |
+          go build ./...
+          go test -c -o "$TEST_OUTPUT" ./...
+
+  restore:
+    needs: seed
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: $/.github/actions/setup-go
+        with:
+          save: 'false'
+          cache-name: ${{ runner.os == 'Windows' && 'test-windows' || 'test-linux' }}
+      - if: runner.os == 'Windows'
+        name: Exclude build paths from Defender
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $paths = @($env:GITHUB_WORKSPACE, $env:RUNNER_TEMP, (go env GOROOT), (go env GOPATH), (go env GOCACHE), (go env GOMODCACHE))
+          Add-MpPreference -ExclusionPath $paths
+      - name: Restore exact candidate
+        id: candidate
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: /home/runner/.cache/go-build
-          key: ${{ env.BASELINE_CACHE }}
+          path: ${{ runner.os == 'Windows' && format('{0}\go-build', runner.temp) || '/home/runner/.cache/go-build' }}
+          key: gobuild-v3-${{ runner.os }}-${{ runner.os == 'Windows' && 'test-windows' || 'test-linux' }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
           fail-on-cache-miss: true
-      - if: matrix.cache == 'pruned'
-        name: Restore pruned cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: /home/runner/.cache/go-build
-          key: gobuild-v3-Linux-test-linux-${{ hashFiles('go.sum') }}-${{ github.sha }}
-          fail-on-cache-miss: true
+      - name: Require candidate hit
+        shell: bash
+        env:
+          CACHE_HIT: ${{ steps.candidate.outputs.cache-hit }}
+        run: test "$CACHE_HIT" = true
+      - name: Inventory restored cache
+        shell: bash
+        run: node .github/actions/trim-go-cache/go-cache.mjs stats "$(go env GOCACHE)"
       - name: Simulate a source change
-        # Invalidate the TUI and its dependents in both arms, without changing behavior.
+        shell: bash
         run: |
           printf '\n// Cache experiment: changed source on the next commit.\n' >> pkg/tui/tui.go
       - name: Build
         run: task build
       - name: Test
-        # A freshly prepared cache must not win by carrying cached test results.
-        run: |
-          set -a
-          source .env.test
-          set +a
-          set -o pipefail
-          go test -count=1 -json ./... | go run ./scripts/gotestreport -out "$RUNNER_TEMP/go-test.json"
-      - name: Test binary
-        run: |
-          task deploy-local
-          set -a
-          source .env.test
-          set +a
-          go test -count=1 -tags=binary_required ./e2e/binary/...
-      - name: Report elapsed time
+        run: task test-ci
+      - name: Upload test report
         if: always()
-        env:
-          CACHE_MODE: ${{ matrix.cache }}
-          REPEAT: ${{ matrix.repeat }}
-        run: |
-          elapsed=$(( $(date +%s) - $(cat "$RUNNER_TEMP/cache-measure-start") ))
-          printf '| %s | %s | %s seconds |\n' "$CACHE_MODE" "$REPEAT" "$elapsed" | tee -a "$GITHUB_STEP_SUMMARY"
-          printf '{"mode":"%s","repeat":%s,"elapsed":%s}\n' "$CACHE_MODE" "$REPEAT" "$elapsed" > "$RUNNER_TEMP/result.json"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: experiment-result-${{ matrix.cache }}-${{ matrix.repeat }}
-          path: |
-            ${{ runner.temp }}/result.json
-            ${{ runner.temp }}/go-test.json
+          name: go-cache-validation-${{ runner.os }}
+          path: ${{ runner.temp }}/go-test.json
           retention-days: 3
