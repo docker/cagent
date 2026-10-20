@@ -522,8 +522,13 @@ On Claude models whose server checks thinking prefixes (Haiku 5.5, Opus 5.5,
 Sonnet 5.5 and Fable 5.1), Docker Agent defaults to
 `thinking.block_binding.prefix_mismatch_behavior: drop_block`: when earlier
 history changes, the API drops invalidated thinking instead of rejecting the
-request. Dropped blocks are reported in logs. To enforce append-only history
-strictly, set `provider_opts.thinking_prefix_mismatch: error`. You can explicitly
+request. Dropped blocks are reported in logs. Docker Agent does not default to
+`error` because it changes earlier history itself during a session: automatic
+compaction (on by default) and agent handoffs rewrite the history, or the system
+prompt and tools, often in the middle of a tool loop, and under `error` every
+later request in the session would then be rejected. To enforce append-only
+history strictly anyway, set `provider_opts.thinking_prefix_mismatch: error`, and
+avoid compaction, handoffs, `num_history_items` and toolsets that start late. You can explicitly
 select `drop_block` on other supported Claude models too. Both modes attach
 `thinking-binding-controls-2026-08-01`; neither repairs corrupted signatures.
 
