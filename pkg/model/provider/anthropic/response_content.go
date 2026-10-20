@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -174,10 +175,102 @@ func toolInput(raw string) any {
 	return v
 }
 
+// thinkingPrefix returns the thinking blocks that open msg's own recorded
+// response when they still match its flattened thinking. A runtime transform
+// (sanitized tool names, redacted arguments) changes the rest of the turn but
+// not its signed thinking, which can then be replayed before the current text
+// and tool calls. ok is false when the thinking changed or is interleaved with
+// other blocks.
+func thinkingPrefix(msg *chat.Message) ([]anthropic.ContentBlockParamUnion, bool) {
+	if !msg.HasOwnRawContent(providerStateName) {
+		return nil, false
+	}
+	var blocks []anthropic.ContentBlockUnion
+	if json.Unmarshal(msg.ProviderState.Content, &blocks) != nil {
+		return nil, false
+	}
+	views := make([]rawBlock, len(blocks))
+	for i, b := range blocks {
+		views[i] = rawBlock{Type: b.Type, Thinking: b.Thinking, Signature: b.Signature}
+	}
+	n, ok := intactLeadingThinking(msg, views)
+	if !ok {
+		return nil, false
+	}
+	params := make([]anthropic.ContentBlockParamUnion, 0, n)
+	for i := range n {
+		if views[i].skip() {
+			continue
+		}
+		if blocks[i].AsAny() == nil {
+			return nil, false
+		}
+		params = append(params, blocks[i].ToParam())
+	}
+	return params, len(params) > 0
+}
+
+// betaThinkingPrefix is thinkingPrefix for the Beta Messages API.
+func betaThinkingPrefix(msg *chat.Message) ([]anthropic.BetaContentBlockParamUnion, bool) {
+	if !msg.HasOwnRawContent(providerStateName) {
+		return nil, false
+	}
+	var blocks []anthropic.BetaContentBlockUnion
+	if json.Unmarshal(msg.ProviderState.Content, &blocks) != nil {
+		return nil, false
+	}
+	views := make([]rawBlock, len(blocks))
+	for i, b := range blocks {
+		views[i] = rawBlock{Type: b.Type, Thinking: b.Thinking, Signature: b.Signature}
+	}
+	n, ok := intactLeadingThinking(msg, views)
+	if !ok {
+		return nil, false
+	}
+	params := make([]anthropic.BetaContentBlockParamUnion, 0, n)
+	for i := range n {
+		if views[i].skip() {
+			continue
+		}
+		if blocks[i].AsAny() == nil {
+			return nil, false
+		}
+		params = append(params, blocks[i].ToParam())
+	}
+	return params, len(params) > 0
+}
+
+// intactLeadingThinking returns the number of thinking and redacted_thinking
+// blocks that open the recorded response. ok is true when they concatenate to
+// msg's flattened thinking, end with its signature, and no thinking follows
+// the other blocks.
+func intactLeadingThinking(msg *chat.Message, views []rawBlock) (int, bool) {
+	isThinking := func(b rawBlock) bool { return b.Type == "thinking" || b.Type == "redacted_thinking" }
+	n := 0
+	for n < len(views) && isThinking(views[n]) {
+		n++
+	}
+	if n == 0 || slices.ContainsFunc(views[n:], isThinking) {
+		return 0, false
+	}
+	var thinking strings.Builder
+	var signature string
+	for _, b := range views[:n] {
+		if b.Type == "thinking" {
+			thinking.WriteString(b.Thinking)
+			if b.Signature != "" {
+				signature = b.Signature
+			}
+		}
+	}
+	return n, thinking.String() == msg.ReasoningContent && signature == msg.ThinkingSignature
+}
+
 // flattenedThinking reports whether a non-replayable assistant turn may carry
-// its flattened thinking. A turn with its own raw content was edited since it
-// was recorded: its thinking is omitted, except inside the active tool loop of
-// a thinking request, where the API requires it and the request is refused.
+// its flattened thinking. A turn with its own raw content whose thinking
+// changed since it was recorded loses that thinking, except inside the active
+// tool loop of a thinking request, where the API requires it and the request
+// is refused.
 func (c *Client) flattenedThinking(i, loopStart int, msg *chat.Message) (bool, error) {
 	if !msg.HasOwnRawContent(providerStateName) {
 		return msg.ThinkingSignature != "", nil
@@ -186,8 +279,8 @@ func (c *Client) flattenedThinking(i, loopStart int, msg *chat.Message) (bool, e
 		return false, nil
 	}
 	if i >= loopStart && msg.ThinkingSignature != "" && c.requestThinks() {
-		return false, fmt.Errorf("%s: cannot replay the thinking of an edited assistant turn in the current tool loop; start a new user turn to continue", c.ModelConfig.Model)
+		return false, fmt.Errorf("%s: the thinking of an assistant turn in the current tool loop changed after it was recorded and cannot be replayed; start a new user turn to continue", c.ModelConfig.Model)
 	}
-	slog.Warn("Anthropic: omitting thinking from an edited assistant turn", "index", i)
+	slog.Warn("Anthropic: omitting thinking that changed after it was recorded", "index", i)
 	return false, nil
 }

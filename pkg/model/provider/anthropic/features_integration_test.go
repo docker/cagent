@@ -899,7 +899,7 @@ func TestUnreplayableRawState(t *testing.T) {
 			t.Parallel()
 			srv := newScriptedServer(t, textReply("msg_1", "ok"))
 			_, err := newScriptedClient(srv, cfg).CreateChatCompletionStream(t.Context(), []chat.Message{user("q"), editedToolTurn("t1"), toolResult("t1")}, nil)
-			require.ErrorContains(t, err, "cannot replay the thinking of an edited assistant turn in the current tool loop")
+			require.ErrorContains(t, err, "changed after it was recorded and cannot be replayed")
 			assert.Zero(t, srv.count())
 		})
 
@@ -934,4 +934,47 @@ func TestUnreplayableRawState(t *testing.T) {
 		chatTurn(t, newScriptedClient(srv, cfg), []chat.Message{user("q"), editedToolTurn("t1"), toolResult("t1")}, nil)
 		assert.Equal(t, 1, srv.count())
 	})
+}
+
+// Runtime transforms change a turn's text or tool calls without touching its
+// thinking: the recorded thinking is still replayed inside the tool loop.
+func TestIntactThinkingSurvivesRuntimeTransforms(t *testing.T) {
+	t.Parallel()
+
+	raw := json.RawMessage(`[{"type":"thinking","thinking":"t","signature":"s"},{"type":"tool_use","id":"t1","name":"read\" path=\"x","input":{"token":"abc"}}]`)
+	sanitized := func() chat.Message {
+		msg := chat.Message{
+			Role: chat.MessageRoleAssistant, ReasoningContent: "t", ThinkingSignature: "s",
+			ToolCalls: []tools.ToolCall{{ID: "t1", Type: "function", Function: tools.FunctionCall{Name: "read", Arguments: `{"token":"abc"}`}}},
+		}
+		msg.AttachProviderState(&chat.ProviderState{Provider: providerStateName, Content: raw})
+		return msg
+	}
+	redacted := func() chat.Message {
+		msg := sanitized()
+		msg.ToolCalls[0].Function.Arguments = `{"token":"[REDACTED]"}`
+		return msg
+	}
+
+	cfgs := map[string]latest.ModelConfig{
+		"standard": {Provider: "anthropic", Model: "claude-sonnet-4-5", ThinkingBudget: &latest.ThinkingBudget{Tokens: 2048}, ProviderOpts: map[string]any{"interleaved_thinking": false}},
+		"beta":     {Provider: "anthropic", Model: "claude-fable-5-1"},
+	}
+	for name, cfg := range cfgs {
+		for transform, turn := range map[string]func() chat.Message{"sanitized tool name": sanitized, "redacted arguments": redacted} {
+			t.Run(name+"/"+transform, func(t *testing.T) {
+				t.Parallel()
+				srv := newScriptedServer(t, textReply("msg_1", "ok"))
+				chatTurn(t, newScriptedClient(srv, cfg), []chat.Message{user("q"), turn(), toolResult("t1")}, nil)
+
+				content, _ := srv.request(t, 0).messages()[1]["content"].([]any)
+				require.Len(t, content, 2)
+				first := content[0].(map[string]any)
+				assert.Equal(t, "thinking", first["type"])
+				assert.Equal(t, "s", first["signature"])
+				second := content[1].(map[string]any)
+				assert.Equal(t, "read", second["name"], "the sanitized tool call is sent")
+			})
+		}
+	}
 }

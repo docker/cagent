@@ -189,7 +189,7 @@ func TestUnreplayableNativeBlocks(t *testing.T) {
 		t.Parallel()
 		client := bedrockThinkingClient("anthropic.claude-sonnet-5-5", &latest.ThinkingBudget{Effort: "high"})
 		_, err := client.CreateChatCompletionStream(t.Context(), []chat.Message{user, editedNativeTurn(t), result}, nil)
-		require.ErrorContains(t, err, "cannot replay the thinking of an edited assistant turn in the current tool loop")
+		require.ErrorContains(t, err, "changed after it was recorded and cannot be replayed")
 	})
 
 	t.Run("earlier edited turn is not refused", func(t *testing.T) {
@@ -201,4 +201,41 @@ func TestUnreplayableNativeBlocks(t *testing.T) {
 		t.Parallel()
 		require.NoError(t, checkReplayableThinking("m", false, []chat.Message{user, editedNativeTurn(t), result}))
 	})
+}
+
+// Runtime transforms change a turn's tool calls without touching its thinking:
+// the recorded reasoning is still replayed, and nothing is refused.
+func TestIntactReasoningSurvivesRuntimeTransforms(t *testing.T) {
+	t.Parallel()
+
+	turn := func(t *testing.T, args string) chat.Message {
+		t.Helper()
+		msg := sealedMessage(t, []nativeBlock{
+			{Type: "reasoning", Text: "t", Signature: "s"},
+			{Type: "tool_use", ID: "t1", Name: `read" path="x`, Input: json.RawMessage(`{"token":"abc"}`)},
+		})
+		msg.ToolCalls[0].Function.Name = "read"
+		msg.AttachProviderState(msg.ProviderState)
+		msg.ToolCalls[0].Function.Arguments = args
+		return msg
+	}
+	user := chat.Message{Role: chat.MessageRoleUser, Content: "q"}
+	result := chat.Message{Role: chat.MessageRoleTool, ToolCallID: "t1", Content: "ok"}
+
+	for name, args := range map[string]string{"sanitized tool name": `{"token":"abc"}`, "redacted arguments": `{"token":"[REDACTED]"}`} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			msg := turn(t, args)
+			require.NoError(t, checkReplayableThinking("m", true, []chat.Message{user, msg, result}))
+
+			blocks := convertAssistantContent(&msg)
+			require.Len(t, blocks, 2)
+			reasoning, ok := reasoningOf(t, blocks[0]).(*types.ReasoningContentBlockMemberReasoningText)
+			require.True(t, ok)
+			assert.Equal(t, "s", *reasoning.Value.Signature)
+			tool, ok := blocks[1].(*types.ContentBlockMemberToolUse)
+			require.True(t, ok)
+			assert.Equal(t, "read", *tool.Value.Name, "the sanitized tool call is sent")
+		})
+	}
 }

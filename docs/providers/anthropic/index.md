@@ -510,10 +510,13 @@ Note: `thinking_display` applies to both `thinking_budget` with token counts and
 Docker Agent preserves the original ordered assistant content blocks, including
 multiple thinking blocks, omitted thinking, redacted thinking and their signatures.
 A hook or user edit invalidates raw replay so stale content cannot override it.
-The edited turn then loses its thinking, with a warning in the logs. If that turn
-belongs to the tool loop the next request continues, and thinking is on, the API
-needs its original signed thinking: Docker Agent refuses the request with an
-error instead, and a new user turn starts a fresh loop.
+When only the rest of the turn changed (for example a sanitized tool name or a
+redacted tool argument), its recorded thinking is still replayed, followed by the
+current text and tool calls. When the thinking itself changed, the turn loses it,
+with a warning in the logs. If that turn belongs to the tool loop the next
+request continues, and thinking is on, the API needs its original signed
+thinking: Docker Agent refuses the request with an error instead, and a new user
+turn starts a fresh loop.
 
 On Claude models whose server checks thinking prefixes (Haiku 5.5, Opus 5.5,
 Sonnet 5.5 and Fable 5.1), Docker Agent defaults to

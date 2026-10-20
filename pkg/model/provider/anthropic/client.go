@@ -424,7 +424,9 @@ func (c *Client) convertMessagesWithDeferred(ctx context.Context, messages []cha
 			contentBlocks := make([]anthropic.ContentBlockParamUnion, 0)
 
 			// Include thinking blocks when present to preserve extended thinking context
-			if include, err := c.flattenedThinking(i, loopStart, msg); err != nil {
+			if thinking, ok := thinkingPrefix(msg); ok {
+				contentBlocks = append(contentBlocks, thinking...)
+			} else if include, err := c.flattenedThinking(i, loopStart, msg); err != nil {
 				return nil, err
 			} else if include {
 				contentBlocks = append(contentBlocks, anthropic.NewThinkingBlock(msg.ThinkingSignature, msg.ReasoningContent))

@@ -80,7 +80,9 @@ func (c *Client) convertBetaMessagesWithDeferred(ctx context.Context, messages [
 
 			// With interleaved thinking, we can include thinking blocks anywhere
 			// If we have thinking content, include it first (conventional order)
-			if include, err := c.flattenedThinking(i, loopStart, msg); err != nil {
+			if thinking, ok := betaThinkingPrefix(msg); ok {
+				contentBlocks = append(contentBlocks, thinking...)
+			} else if include, err := c.flattenedThinking(i, loopStart, msg); err != nil {
 				return nil, err
 			} else if include {
 				contentBlocks = append(contentBlocks,

@@ -134,12 +134,57 @@ func replayNativeBlocks(msg *chat.Message) ([]types.ContentBlock, bool) {
 	if err := json.Unmarshal(state.Content, &blocks); err != nil || !nativeBlocksDescribe(msg, blocks) {
 		return nil, false
 	}
+	return toContentBlocks(blocks)
+}
+
+// leadingReasoning returns the reasoning blocks that open msg's own recorded
+// response when they still match its flattened thinking. A runtime transform
+// (sanitized tool names, redacted arguments) changes the rest of the turn but
+// not its signed reasoning, which can then be replayed before the current text
+// and tool calls. ok is false when the reasoning changed or is interleaved
+// with other blocks.
+func leadingReasoning(msg *chat.Message) ([]types.ContentBlock, bool) {
+	if !msg.HasOwnRawContent(providerName) {
+		return nil, false
+	}
+	var blocks []nativeBlock
+	if json.Unmarshal(msg.ProviderState.Content, &blocks) != nil {
+		return nil, false
+	}
+	isReasoning := func(b nativeBlock) bool { return b.Type == "reasoning" || b.Type == "redacted_reasoning" }
+	n := 0
+	for n < len(blocks) && isReasoning(blocks[n]) {
+		n++
+	}
+	if n == 0 || slices.ContainsFunc(blocks[n:], isReasoning) {
+		return nil, false
+	}
+	var text strings.Builder
+	var signature string
+	for _, b := range blocks[:n] {
+		if b.Type == "reasoning" {
+			text.WriteString(b.Text)
+			if b.Signature != "" {
+				signature = b.Signature
+			}
+		}
+	}
+	if text.String() != msg.ReasoningContent || signature != msg.ThinkingSignature {
+		return nil, false
+	}
+	out, ok := toContentBlocks(blocks[:n])
+	return out, ok && len(out) > 0
+}
+
+// toContentBlocks converts recorded blocks to request blocks. Unsigned
+// reasoning (cut off by max_tokens, or another vendor's) cannot be verified
+// by the API and is skipped. ok is false for an unknown or malformed block.
+func toContentBlocks(blocks []nativeBlock) ([]types.ContentBlock, bool) {
 	out := make([]types.ContentBlock, 0, len(blocks))
 	for _, b := range blocks {
 		switch b.Type {
 		case "reasoning":
 			if b.Signature == "" {
-				// Unsigned reasoning cannot be verified by the API.
 				continue
 			}
 			out = append(out, &types.ContentBlockMemberReasoningContent{
@@ -210,8 +255,8 @@ func sameJSON(arguments string, input json.RawMessage) bool {
 }
 
 // checkReplayableThinking refuses a thinking request whose active tool loop
-// holds an assistant turn edited since its blocks were recorded: the API
-// requires that turn's signed thinking, which can no longer be replayed.
+// holds an assistant turn whose reasoning changed since it was recorded: the
+// API requires that turn's signed thinking, which can no longer be replayed.
 func checkReplayableThinking(model string, thinks bool, messages []chat.Message) error {
 	if !thinks {
 		return nil
@@ -221,8 +266,11 @@ func checkReplayableThinking(model string, thinks bool, messages []chat.Message)
 		if msg.Role != chat.MessageRoleAssistant || msg.ThinkingSignature == "" || !msg.HasOwnRawContent(providerName) {
 			continue
 		}
-		if _, ok := replayNativeBlocks(msg); !ok {
-			return fmt.Errorf("%s: cannot replay the thinking of an edited assistant turn in the current tool loop; start a new user turn to continue", model)
+		if _, ok := replayNativeBlocks(msg); ok {
+			continue
+		}
+		if _, ok := leadingReasoning(msg); !ok {
+			return fmt.Errorf("%s: the thinking of an assistant turn in the current tool loop changed after it was recorded and cannot be replayed; start a new user turn to continue", model)
 		}
 	}
 	return nil
