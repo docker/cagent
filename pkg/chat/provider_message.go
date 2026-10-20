@@ -97,6 +97,29 @@ func (m *Message) ReplayableProviderState(provider string) *ProviderState {
 	return s
 }
 
+// HasOwnRawContent reports whether m carries at least one raw content block
+// recorded by provider. A state holding only request context has none.
+func (m *Message) HasOwnRawContent(provider string) bool {
+	s := m.ProviderState
+	if s == nil || s.Provider != provider {
+		return false
+	}
+	var blocks []json.RawMessage
+	return json.Unmarshal(s.Content, &blocks) == nil && len(blocks) > 0
+}
+
+// ActiveToolLoopStart returns the index of the first message after the last
+// user message: the assistant turns and tool results of the tool loop the
+// next request continues.
+func ActiveToolLoopStart(messages []Message) int {
+	for i, msg := range slices.Backward(messages) {
+		if msg.Role == MessageRoleUser {
+			return i + 1
+		}
+	}
+	return 0
+}
+
 func (s *ProviderState) Clone() *ProviderState {
 	if s == nil {
 		return nil

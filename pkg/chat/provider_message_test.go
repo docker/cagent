@@ -131,3 +131,32 @@ func TestReplayableProviderState_Version(t *testing.T) {
 		assert.Equal(t, want, msg.ReplayableProviderState("p") != nil, "version %d", version)
 	}
 }
+
+func TestHasOwnRawContent(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		state *ProviderState
+		want  bool
+	}{
+		"no state":         {nil, false},
+		"foreign provider": {&ProviderState{Provider: "other", Content: json.RawMessage(`[{}]`)}, false},
+		"empty array":      {&ProviderState{Provider: "p", Content: json.RawMessage(`[]`)}, false},
+		"malformed":        {&ProviderState{Provider: "p", Content: json.RawMessage(`{`)}, false},
+		"one block":        {&ProviderState{Provider: "p", Content: json.RawMessage(`[{}]`)}, true},
+	} {
+		msg := Message{Role: MessageRoleAssistant, ProviderState: tc.state}
+		assert.Equal(t, tc.want, msg.HasOwnRawContent("p"), name)
+	}
+}
+
+func TestActiveToolLoopStart(t *testing.T) {
+	t.Parallel()
+
+	u := Message{Role: MessageRoleUser}
+	a := Message{Role: MessageRoleAssistant}
+	tool := Message{Role: MessageRoleTool}
+	assert.Equal(t, 1, ActiveToolLoopStart([]Message{u, a, tool, a, tool}))
+	assert.Equal(t, 3, ActiveToolLoopStart([]Message{u, a, u, a, tool, tool}))
+	assert.Equal(t, 0, ActiveToolLoopStart([]Message{a, tool}))
+}
