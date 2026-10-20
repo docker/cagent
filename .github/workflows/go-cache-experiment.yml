@@ -103,7 +103,11 @@ jobs:
         run: |
           printf '\n// Cache experiment: changed source on the next commit.\n' >> pkg/tui/tui.go
       - name: Build
+        if: runner.os != 'Windows'
         run: task build
+      - name: Build on Windows
+        if: runner.os == 'Windows'
+        run: go build ./...
       - name: Test
         run: task test-ci
       - name: Upload test report
