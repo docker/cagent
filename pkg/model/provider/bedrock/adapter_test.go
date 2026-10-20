@@ -121,7 +121,7 @@ func TestStreamAdapter_RecordsInterleavedBlocks(t *testing.T) {
 		reasoningText(0, "a"), reasoningSignature(0, "s1"), blockStop(0),
 		textDelta(1, "hi"), blockStop(1),
 		toolStart(2, "t1", "f"), toolInputDelta(2, `{"x":`), toolInputDelta(2, `1}`), blockStop(2),
-		reasoningSignature(3, "s2"), blockStop(3),
+		reasoningText(3, "b"), reasoningSignature(3, "s2"), blockStop(3),
 		messageStop(types.StopReasonToolUse), metadata(),
 	))
 	require.NoError(t, err)
@@ -130,7 +130,7 @@ func TestStreamAdapter_RecordsInterleavedBlocks(t *testing.T) {
 		{Type: "reasoning", Text: "a", Signature: "s1"},
 		{Type: "text", Text: "hi"},
 		{Type: "tool_use", ID: "t1", Name: "f", Input: json.RawMessage(`{"x":1}`)},
-		{Type: "reasoning", Signature: "s2"},
+		{Type: "reasoning", Text: "b", Signature: "s2"},
 	}, decodeBlocks(t, finalState(deltas)))
 }
 
