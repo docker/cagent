@@ -177,6 +177,7 @@ The nine Claude 5.x models listed in the [Anthropic provider guide](../anthropic
 - Effort levels and `adaptive` are sent as adaptive thinking. An integer token budget becomes adaptive thinking with the model's default effort.
 - `temperature`, `top_p` and `top_k` are never sent.
 - `thinking_budget: none` sends `thinking: {"type": "disabled"}` on Haiku 5.5, Opus 5 and Sonnet 5. The other six get adaptive thinking with `low` effort and a startup warning.
+- Mythos 5 is refused at startup: AWS serves it only through Bedrock Mantle, which Docker Agent does not support. Use Mythos 5.1, which is available on Converse, or the Claude API.
 
 > [!NOTE]
 > **Not yet verified live**

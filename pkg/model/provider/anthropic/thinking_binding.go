@@ -11,6 +11,9 @@ import (
 )
 
 func validateThinkingOptions(cfg *latest.ModelConfig) error {
+	if err := validateFallbacks(cfg); err != nil {
+		return err
+	}
 	if err := validateThinkingDisplay(cfg); err != nil {
 		return err
 	}

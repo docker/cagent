@@ -44,6 +44,12 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 		return nil, errors.New("model type must be 'amazon-bedrock'")
 	}
 
+	if c5, ok := modelinfo.LookupClaude5(cfg.Model); ok && c5.BedrockMantleOnly {
+		err := fmt.Errorf("amazon-bedrock: model %q is only available on Bedrock Mantle, which docker-agent does not support", cfg.Model)
+		slog.ErrorContext(ctx, "Bedrock client creation failed", "error", err)
+		return nil, err
+	}
+
 	globalOptions := options.Apply(opts...)
 
 	// Check for bearer token

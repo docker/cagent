@@ -267,7 +267,7 @@ func TestThinkingPrefixMismatch_ExplicitOption(t *testing.T) {
 		client := newScriptedClient(srv, latest.ModelConfig{
 			Provider: "anthropic", Model: "claude-sonnet-4-5",
 			ThinkingBudget: &latest.ThinkingBudget{Tokens: 2048},
-			ProviderOpts:   map[string]any{"fallbacks": []any{"claude-fable-5-1"}},
+			ProviderOpts:   map[string]any{"fallbacks": []any{"claude-fable-5-2"}},
 		})
 		chatTurn(t, client, []chat.Message{user("hello")}, nil)
 
@@ -435,15 +435,21 @@ func TestThinkingDisplayUpdates(t *testing.T) {
 		for name, cfg := range map[string]*latest.ModelConfig{
 			"sonnet 5": {Provider: "anthropic", Model: "claude-sonnet-5", ProviderOpts: map[string]any{"thinking_display": "updates"}},
 			"mythos 5": {Provider: "anthropic", Model: "claude-mythos-5", ProviderOpts: map[string]any{"thinking_display": "updates"}},
-			"fallback": {Provider: "anthropic", Model: "claude-fable-5", ProviderOpts: map[string]any{
-				"thinking_display": "updates", "fallbacks": []any{"claude-sonnet-5"},
+			// Fallback chains with a Claude 5.x model are rejected earlier (#4584),
+			// so the display check is exercised with IDs outside the 5.x table.
+			"fallback": {Provider: "anthropic", Model: "claude-fable-5-2", ProviderOpts: map[string]any{
+				"thinking_display": "updates", "fallbacks": []any{"claude-opus-4-8"},
 			}},
 		} {
 			_, err := NewClient(t.Context(), cfg, env)
 			require.ErrorContains(t, err, "does not support thinking_display: updates", name)
 		}
-		ok, err := NewClient(t.Context(), &latest.ModelConfig{Provider: "anthropic", Model: "claude-fable-5-1", ProviderOpts: map[string]any{
+		_, err := NewClient(t.Context(), &latest.ModelConfig{Provider: "anthropic", Model: "claude-fable-5-1", ProviderOpts: map[string]any{
 			"thinking_display": "updates", "fallbacks": []any{"claude-mythos-5-1"},
+		}}, env)
+		require.ErrorContains(t, err, "issues/4584", "a 5.x fallback chain is rejected before the display check")
+		ok, err := NewClient(t.Context(), &latest.ModelConfig{Provider: "anthropic", Model: "claude-fable-5-2", ProviderOpts: map[string]any{
+			"thinking_display": "updates", "fallbacks": []any{"claude-fable-5-3"},
 		}}, env)
 		require.NoError(t, err)
 		assert.NotNil(t, ok)

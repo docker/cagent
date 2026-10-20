@@ -30,7 +30,7 @@ func TestThinkingBindingBehavior(t *testing.T) {
 		"mythos 5":                            {model: "claude-mythos-5"},
 		"sonnet 5":                            {model: "claude-sonnet-5"},
 		"opus 5":                              {model: "claude-opus-5"},
-		"fallback checks":                     {model: "claude-opus-4-7", opts: map[string]any{"fallbacks": []any{"claude-sonnet-5", "claude-fable-5-1"}}, want: "drop_block"},
+		"fallback checks":                     {model: "claude-opus-4-7", opts: map[string]any{"fallbacks": []any{"claude-sonnet-4-6", "claude-fable-5-2"}}, want: "drop_block"},
 		"explicit error":                      {model: "claude-fable-5-1", opts: map[string]any{"thinking_prefix_mismatch": "error"}, want: "error"},
 		"explicit on old":                     {model: "claude-sonnet-4-6", opts: map[string]any{"thinking_prefix_mismatch": "drop_block"}, want: "drop_block"},
 		"non-string is ignored":               {model: "claude-sonnet-4-6", opts: map[string]any{"thinking_prefix_mismatch": 1}},
@@ -72,7 +72,7 @@ func TestApplyThinkingBinding(t *testing.T) {
 
 	t.Run("thinking omitted is not turned on", func(t *testing.T) {
 		t.Parallel()
-		c := clientWithModel("claude-sonnet-4-6", nil, map[string]any{"fallbacks": []any{"claude-fable-5-1"}})
+		c := clientWithModel("claude-sonnet-4-6", nil, map[string]any{"fallbacks": []any{"claude-fable-5-2"}})
 		params := anthropic.BetaMessageNewParams{}
 		c.applyBetaThinkingConfig(&params, 8192)
 		c.applyThinkingBinding(&params)
