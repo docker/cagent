@@ -1,0 +1,155 @@
+name: Go cache experiment
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/go-cache-experiment.yml
+      - .github/scripts/go-cache.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  BASELINE_CACHE: gobuild-v2-Linux-test-linux-2998ac6f17ba805ddfef85cfb70198cc5de67e292b62ebbe4d275ad074831053-6016455056b244e9ba24c5b553b0837950a176b4
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+        with:
+          version: 3.53.1
+          checksum: a54a408f6861ff921f6e87774180db31bacd8c1e7c944ca696db9fea49a82fc7
+      - name: Download modules
+        run: go mod download
+      - name: Archive modules
+        run: tar -I 'zstd -T0 -3' -cf "$RUNNER_TEMP/modules.tar.zst" -C "$(go env GOMODCACHE)" .
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: experiment-modules
+          path: ${{ runner.temp }}/modules.tar.zst
+          compression-level: 0
+          retention-days: 3
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/go-build
+          key: ${{ env.BASELINE_CACHE }}
+          fail-on-cache-miss: true
+      - name: Inventory baseline cache
+        run: python3 .github/scripts/go-cache.py stats "$(go env GOCACHE)" | tee "$RUNNER_TEMP/baseline-cache.json"
+      - name: Mark inherited cache entries
+        run: python3 .github/scripts/go-cache.py mark "$(go env GOCACHE)" --marker "$RUNNER_TEMP/cache-start"
+      - name: Populate working cache
+        run: |
+          task build
+          task test-ci
+          task test-binary
+      - name: Remove unused inherited entries
+        run: |
+          python3 .github/scripts/go-cache.py prune "$(go env GOCACHE)" --marker "$RUNNER_TEMP/cache-start"
+          python3 .github/scripts/go-cache.py stats "$(go env GOCACHE)" | tee "$RUNNER_TEMP/pruned-cache.json"
+          tar -I 'zstd -T0 -3' -cf "$RUNNER_TEMP/pruned-cache.tar.zst" -C "$(go env GOCACHE)" .
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: experiment-pruned-cache
+          path: ${{ runner.temp }}/pruned-cache.tar.zst
+          compression-level: 0
+          retention-days: 3
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: experiment-inventory
+          path: ${{ runner.temp }}/*-cache.json
+          retention-days: 3
+
+  compare:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        cache: [baseline, pruned, none]
+        repeat: [1, 2]
+    name: compare-${{ matrix.cache }}-${{ matrix.repeat }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+        with:
+          version: 3.53.1
+          checksum: a54a408f6861ff921f6e87774180db31bacd8c1e7c944ca696db9fea49a82fc7
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: experiment-modules
+          path: ${{ runner.temp }}/modules
+      - name: Restore identical modules
+        run: |
+          mkdir -p "$(go env GOMODCACHE)"
+          tar -I zstd -xf "$RUNNER_TEMP/modules/modules.tar.zst" -C "$(go env GOMODCACHE)"
+      - name: Start measurement
+        run: date +%s > "$RUNNER_TEMP/cache-measure-start"
+      - if: matrix.cache == 'baseline'
+        name: Restore baseline cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/go-build
+          key: ${{ env.BASELINE_CACHE }}
+          fail-on-cache-miss: true
+      - if: matrix.cache == 'pruned'
+        name: Download pruned cache
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: experiment-pruned-cache
+          path: ${{ runner.temp }}/pruned
+      - if: matrix.cache == 'pruned'
+        name: Extract pruned cache
+        run: |
+          mkdir -p "$(go env GOCACHE)"
+          tar -I zstd -xf "$RUNNER_TEMP/pruned/pruned-cache.tar.zst" -C "$(go env GOCACHE)"
+      - name: Build
+        run: task build
+      - name: Test
+        # A freshly prepared cache must not win by carrying cached test results.
+        run: |
+          set -a
+          source .env.test
+          set +a
+          set -o pipefail
+          go test -count=1 -json ./... | go run ./scripts/gotestreport -out "$RUNNER_TEMP/go-test.json"
+      - name: Test binary
+        run: task test-binary
+      - name: Report elapsed time
+        if: always()
+        env:
+          CACHE_MODE: ${{ matrix.cache }}
+          REPEAT: ${{ matrix.repeat }}
+        run: |
+          elapsed=$(( $(date +%s) - $(cat "$RUNNER_TEMP/cache-measure-start") ))
+          printf '| %s | %s | %s seconds |\n' "$CACHE_MODE" "$REPEAT" "$elapsed" | tee -a "$GITHUB_STEP_SUMMARY"
+          printf '{"mode":"%s","repeat":%s,"elapsed":%s}\n' "$CACHE_MODE" "$REPEAT" "$elapsed" > "$RUNNER_TEMP/result.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: experiment-result-${{ matrix.cache }}-${{ matrix.repeat }}
+          path: |
+            ${{ runner.temp }}/result.json
+            ${{ runner.temp }}/go-test.json
+          retention-days: 3
