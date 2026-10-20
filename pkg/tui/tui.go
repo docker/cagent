@@ -313,7 +313,7 @@ type themeFileWatcher interface {
 // can inject a fake implementation via WithTranscriber and so that the TUI
 // does not depend on a concrete audio backend.
 type Transcriber interface {
-	Run(ctx context.Context, handler transcribe.TranscriptHandler, ready func(context.Context)) error
+	Run(ctx context.Context, finish <-chan struct{}, handler transcribe.TranscriptHandler, ready func(context.Context)) error
 	IsSupported() bool
 }
 
@@ -2032,6 +2032,7 @@ func (m *appModel) handleSwitchTab(sessionID string) (tea.Model, tea.Cmd) {
 	}
 	m.cancelSidebarPlanEdit()
 	if outgoing != m.tabs[sessionID] {
+		m.cancelSpeechSend(outgoing)
 		m.parkAttention(outgoing)
 	}
 
@@ -2398,14 +2399,7 @@ func (m *appModel) handleKeyPress(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.isTranscribing() {
 		switch {
 		case key.Matches(msg, transcriptionEnterKey):
-			m.speechMu.Lock()
-			onOriginTab := m.speech != nil && m.speech.tab == m.activeTab
-			m.speechMu.Unlock()
-			model, cmd := m.handleStopSpeak()
-			if !onOriginTab {
-				return model, cmd
-			}
-			return model, tea.Batch(cmd, m.activeTab.editor.SendContent())
+			return m.handleFinishSpeak()
 
 		case key.Matches(msg, transcriptionEscapeKey):
 			return m.handleStopSpeak()

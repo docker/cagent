@@ -24,6 +24,7 @@ typedef struct {
     SInt64 packet;
     uintptr_t handle;
     pthread_mutex_t mutex;
+    bool started;
     bool stopping;
     OSStatus error;
 } Capture;
@@ -40,7 +41,7 @@ static void AudioInputCallback(
 ) {
     Capture *capture = userData;
     pthread_mutex_lock(&capture->mutex);
-    if (capture->stopping || capture->error != noErr) {
+    if (capture->error != noErr) {
         pthread_mutex_unlock(&capture->mutex);
         return;
     }
@@ -57,7 +58,7 @@ static void AudioInputCallback(
         }
     }
 
-    if (capture->error == noErr) {
+    if (!capture->stopping && capture->error == noErr) {
         capture->error = AudioQueueEnqueueBuffer(queue, buffer, 0, NULL);
     }
     if (capture->error != noErr) {
@@ -73,8 +74,10 @@ static OSStatus freeCapture(Capture *capture) {
 
     OSStatus status = noErr;
     if (capture->queue != NULL) {
-        // Synchronous disposal joins callbacks and releases all queue buffers.
-        status = AudioQueueDispose(capture->queue, true);
+        // Stop delivers partially filled buffers before disposal joins callbacks.
+        if (capture->started) status = AudioQueueStop(capture->queue, true);
+        OSStatus disposeStatus = AudioQueueDispose(capture->queue, true);
+        if (status == noErr) status = disposeStatus;
     }
     if (capture->file != NULL) {
         OSStatus fileStatus = AudioFileClose(capture->file);
@@ -135,6 +138,7 @@ static Capture *startCapture(const char *filePath, double rate, uintptr_t handle
     }
     *status = AudioQueueStart(capture->queue, NULL);
     if (*status != noErr) goto fail;
+    capture->started = true;
     return capture;
 
 fail:

@@ -127,7 +127,9 @@ export OPENAI_API_KEY=your_openai_api_key
 docker agent run agent.yaml
 ```
 
-Run `/speak` to start voice input. Press <kbd>Enter</kbd> to stop and send the transcribed message, or <kbd>Escape</kbd> to stop without sending it.
+Run `/speak` to start voice input. Press <kbd>Enter</kbd> to finish transcription and send the message once the final text arrives. Press <kbd>Escape</kbd> to cancel without sending; text already received stays in the draft. Errors or a finalization timeout keep the draft instead of sending a partial message.
+
+Dictation stays with the tab where it started. Switching tabs while transcription finishes keeps the text in the original draft without sending it.
 
 ### Plans Sidebar
 

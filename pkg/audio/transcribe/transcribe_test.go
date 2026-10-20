@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -26,7 +27,10 @@ func (f captureFunc) Run(ctx context.Context, path string, handler capture.Audio
 
 func testTranscriber(t *testing.T, handler func(*websocket.Conn)) *Transcriber {
 	t.Helper()
+	var connections sync.WaitGroup
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		connections.Add(1)
+		defer connections.Done()
 		assert.Equal(t, "Bearer test-api-key", r.Header.Get("Authorization"))
 		assert.Equal(t, "realtime=v1", r.Header.Get("OpenAI-Beta"))
 		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
@@ -41,7 +45,10 @@ func testTranscriber(t *testing.T, handler func(*websocket.Conn)) *Transcriber {
 		assert.Equal(t, "session.update", config["type"])
 		handler(conn)
 	}))
-	t.Cleanup(server.Close)
+	t.Cleanup(func() {
+		server.Close()
+		connections.Wait()
+	})
 	return &Transcriber{
 		apiKey: "test-api-key", endpoint: "ws" + strings.TrimPrefix(server.URL, "http"), supported: true,
 		capture: captureFunc(func(ctx context.Context, _ string, _ capture.AudioHandler, ready func()) error {
@@ -69,7 +76,7 @@ func TestRun_MissingAPIKey(t *testing.T) {
 	t.Parallel()
 	transcriber := New("")
 	transcriber.supported = true
-	err := transcriber.Run(t.Context(), nil, nil)
+	err := transcriber.Run(t.Context(), nil, nil, nil)
 	require.EqualError(t, err, "/speak sends audio directly to OpenAI; set a separate OPENAI_API_KEY environment variable even when chat uses Docker's models gateway, which does not support /speak")
 }
 
@@ -79,14 +86,14 @@ func TestRun_CanceledBeforeStart(t *testing.T) {
 	cancel()
 	transcriber := New("test-api-key")
 	transcriber.supported = true
-	require.NoError(t, transcriber.Run(ctx, nil, func(context.Context) { t.Error("canceled run became ready") }))
+	require.NoError(t, transcriber.Run(ctx, nil, nil, func(context.Context) { t.Error("canceled run became ready") }))
 }
 
 func TestRun_Unsupported(t *testing.T) {
 	t.Parallel()
 	transcriber := New("test-api-key")
 	transcriber.supported = false
-	require.ErrorIs(t, transcriber.Run(t.Context(), nil, nil), ErrNotSupported)
+	require.ErrorIs(t, transcriber.Run(t.Context(), nil, nil, nil), ErrNotSupported)
 }
 
 func TestRun_ConnectionFailure(t *testing.T) {
@@ -94,7 +101,7 @@ func TestRun_ConnectionFailure(t *testing.T) {
 	transcriber := New("test-api-key")
 	transcriber.supported = true
 	transcriber.endpoint = ":invalid"
-	err := transcriber.Run(t.Context(), nil, nil)
+	err := transcriber.Run(t.Context(), nil, nil, nil)
 	require.ErrorContains(t, err, "connect /speak directly to OpenAI Realtime API")
 }
 
@@ -105,7 +112,7 @@ func TestRun_CaptureFailure(t *testing.T) {
 	transcriber.capture = captureFunc(func(context.Context, string, capture.AudioHandler, func()) error {
 		return failure
 	})
-	require.ErrorIs(t, transcriber.Run(t.Context(), nil, func(context.Context) { t.Error("failed capture became ready") }), failure)
+	require.ErrorIs(t, transcriber.Run(t.Context(), nil, nil, func(context.Context) { t.Error("failed capture became ready") }), failure)
 }
 
 func TestRun_AudioAndTranscript(t *testing.T) {
@@ -118,8 +125,12 @@ func TestRun_AudioAndTranscript(t *testing.T) {
 		}
 		assert.Equal(t, "input_audio_buffer.append", audio["type"])
 		assert.Equal(t, base64.StdEncoding.EncodeToString([]byte("audio")), audio["audio"])
+		if err := conn.WriteJSON(map[string]string{"type": "input_audio_buffer.committed", "item_id": "item-1"}); err != nil {
+			t.Error(err)
+			return
+		}
 		if err := conn.WriteJSON(map[string]string{
-			"type": "conversation.item.input_audio_transcription.delta", "delta": "hello",
+			"type": "conversation.item.input_audio_transcription.completed", "item_id": "item-1", "transcript": "hello",
 		}); err != nil {
 			t.Error(err)
 			return
@@ -138,7 +149,7 @@ func TestRun_AudioAndTranscript(t *testing.T) {
 	})
 	done := make(chan error, 1)
 	go func() {
-		done <- transcriber.Run(ctx, func(_ context.Context, delta string) {
+		done <- transcriber.Run(ctx, nil, func(_ context.Context, delta string) {
 			assert.Equal(t, "hello", delta)
 			cancel()
 		}, func(context.Context) {})
@@ -164,7 +175,7 @@ func TestRun_ServerFailure(t *testing.T) {
 				<-ctx.Done()
 				return nil
 			})
-			err := transcriber.Run(t.Context(), nil, nil)
+			err := transcriber.Run(t.Context(), nil, nil, nil)
 			require.Error(t, err)
 			if serverError {
 				require.ErrorContains(t, err, "not allowed")
@@ -183,8 +194,8 @@ func TestRun_ConcurrentRuns(t *testing.T) {
 	defer cancelSecond()
 	ready := make(chan struct{}, 2)
 	doneFirst, doneSecond := make(chan error, 1), make(chan error, 1)
-	go func() { doneFirst <- transcriber.Run(first, nil, func(context.Context) { ready <- struct{}{} }) }()
-	go func() { doneSecond <- transcriber.Run(second, nil, func(context.Context) { ready <- struct{}{} }) }()
+	go func() { doneFirst <- transcriber.Run(first, nil, nil, func(context.Context) { ready <- struct{}{} }) }()
+	go func() { doneSecond <- transcriber.Run(second, nil, nil, func(context.Context) { ready <- struct{}{} }) }()
 	for range 2 {
 		select {
 		case <-ready:
@@ -206,8 +217,12 @@ func TestRun_ConcurrentRuns(t *testing.T) {
 func TestRun_CancelBlockedHandler(t *testing.T) {
 	t.Parallel()
 	transcriber := testTranscriber(t, func(conn *websocket.Conn) {
+		if err := conn.WriteJSON(map[string]string{"type": "input_audio_buffer.committed", "item_id": "item-1"}); err != nil {
+			t.Error(err)
+			return
+		}
 		if err := conn.WriteJSON(map[string]string{
-			"type": "conversation.item.input_audio_transcription.delta", "delta": "hello",
+			"type": "conversation.item.input_audio_transcription.completed", "item_id": "item-1", "transcript": "hello",
 		}); err != nil {
 			t.Error(err)
 			return
@@ -219,7 +234,7 @@ func TestRun_CancelBlockedHandler(t *testing.T) {
 	entered := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
-		done <- transcriber.Run(ctx, func(ctx context.Context, _ string) {
+		done <- transcriber.Run(ctx, nil, func(ctx context.Context, _ string) {
 			close(entered)
 			<-ctx.Done()
 		}, nil)
@@ -249,7 +264,7 @@ func TestRun_AudioOverflowCancelsBlockedWrite(t *testing.T) {
 		return nil
 	})
 	done := make(chan error, 1)
-	go func() { done <- transcriber.Run(t.Context(), nil, nil) }()
+	go func() { done <- transcriber.Run(t.Context(), nil, nil, nil) }()
 	require.ErrorContains(t, waitRun(t, done), "audio upload fell behind capture")
 }
 
@@ -269,7 +284,7 @@ func TestRun_CancelDuringUpgrade(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- transcriber.Run(ctx, nil, nil) }()
+	go func() { done <- transcriber.Run(ctx, nil, nil, nil) }()
 	select {
 	case <-entered:
 	case <-time.After(5 * time.Second):
@@ -292,7 +307,7 @@ func TestRun_ServerFailureCancelsBlockedReady(t *testing.T) {
 	})
 	done := make(chan error, 1)
 	go func() {
-		done <- transcriber.Run(t.Context(), nil, func(ctx context.Context) {
+		done <- transcriber.Run(t.Context(), nil, nil, func(ctx context.Context) {
 			close(ready)
 			<-ctx.Done()
 		})

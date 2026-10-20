@@ -3,27 +3,42 @@ package tui
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"strings"
+	"sync"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/docker/docker-agent/pkg/tui/components/editor"
 	"github.com/docker/docker-agent/pkg/tui/components/notification"
+	"github.com/docker/docker-agent/pkg/tui/messages"
 )
 
 type speechRun struct {
 	cancel context.CancelFunc
+	finish chan struct{}
 	done   chan struct{}
-	events chan speechEvent
+	wake   chan struct{}
 	tab    *tabModel
 	editor editor.Editor
 	err    error // Read only after done closes.
+
+	mu      sync.Mutex
+	pending strings.Builder
+	ready   bool
+
+	// Only the UI loop requests completion and decides whether to send the draft.
+	stopping bool
+	send     bool
 }
 
-type speechEvent struct {
-	run   *speechRun
-	delta string
-	ready bool
-	ended bool
+type speechEvent struct{ run *speechRun }
+
+func (r *speechRun) notify() {
+	select {
+	case r.wake <- struct{}{}:
+	default:
+	}
 }
 
 func (m *appModel) isTranscribing() bool {
@@ -41,25 +56,27 @@ func (m *appModel) handleStartSpeak() (tea.Model, tea.Cmd) {
 	ctx, cancel := context.WithCancel(m.speechCtx)
 	run := &speechRun{
 		cancel: cancel,
+		finish: make(chan struct{}),
 		done:   make(chan struct{}),
-		events: make(chan speechEvent, 1),
+		wake:   make(chan struct{}, 1),
 		tab:    m.activeTab,
 		editor: m.activeTab.editor,
 	}
 	m.speech = run
-	send := func(ctx context.Context, event speechEvent) {
-		event.run = run
-		select {
-		case run.events <- event:
-		case <-ctx.Done():
-		}
-	}
 	go func() {
 		defer close(run.done)
 		defer cancel()
-		run.err = m.transcriber.Run(ctx, func(ctx context.Context, delta string) {
-			send(ctx, speechEvent{delta: delta})
-		}, func(ctx context.Context) { send(ctx, speechEvent{ready: true}) })
+		run.err = m.transcriber.Run(ctx, run.finish, func(_ context.Context, delta string) {
+			run.mu.Lock()
+			run.pending.WriteString(delta)
+			run.mu.Unlock()
+			run.notify()
+		}, func(context.Context) {
+			run.mu.Lock()
+			run.ready = true
+			run.mu.Unlock()
+			run.notify()
+		})
 	}()
 	return m, waitForSpeech(run)
 }
@@ -67,17 +84,10 @@ func (m *appModel) handleStartSpeak() (tea.Model, tea.Cmd) {
 func waitForSpeech(run *speechRun) tea.Cmd {
 	return func() tea.Msg {
 		select {
-		case event := <-run.events:
-			return event
+		case <-run.wake:
 		case <-run.done:
-			// Deliver any final queued delta before the terminal event.
-			select {
-			case event := <-run.events:
-				return event
-			default:
-				return speechEvent{run: run, ended: true}
-			}
 		}
+		return speechEvent{run: run}
 	}
 }
 
@@ -88,26 +98,44 @@ func (m *appModel) handleSpeechEvent(event speechEvent) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	run := event.run
-	if event.ended {
+	var done bool
+	select {
+	case <-run.done:
+		done = true
+	default:
+	}
+	// Notifications carry no text: even a notification in flight cannot lose a delta.
+	run.mu.Lock()
+	text, ready := run.pending.String(), run.ready
+	run.pending.Reset()
+	run.ready = false
+	run.mu.Unlock()
+	if text != "" {
+		run.editor.InsertText(text)
+	}
+
+	if done {
 		m.speech = nil
-		var notice tea.Cmd
-		if run.err != nil {
-			notice = notification.ErrorCmd(fmt.Sprintf("Transcription failed: %v", run.err))
+		var result tea.Cmd
+		switch {
+		case run.err != nil:
+			result = notification.ErrorCmd(fmt.Sprintf("Transcription failed: %v", run.err))
+		case run.send && m.activeTab == run.tab && m.activeTab.editor == run.editor:
+			result = m.sendSpeechDraft(run)
+		case run.stopping:
+			result = notification.SuccessCmd("Stopped listening")
 		}
-		return m, tea.Batch(run.editor.SetRecording(false), notice)
+		return m, tea.Batch(run.editor.SetRecording(false), result)
 	}
-	if event.ready {
-		return m, tea.Batch(
-			run.editor.SetRecording(true),
-			notification.InfoCmd("🎤 Listening... (ENTER to send or ESC to cancel)"),
-			waitForSpeech(run),
-		)
+
+	var started tea.Cmd
+	if ready && !run.stopping {
+		started = tea.Batch(run.editor.SetRecording(true), notification.InfoCmd("🎤 Listening... (ENTER to send or ESC to cancel)"))
 	}
-	run.editor.InsertText(event.delta)
-	return m, waitForSpeech(run)
+	return m, tea.Batch(started, waitForSpeech(run))
 }
 
-// stopSpeech joins the run before releasing its resources or allowing another run.
+// stopSpeech discards a run whose editor or application is being torn down.
 func (m *appModel) stopSpeech() *speechRun {
 	return m.stopSpeechForTab(nil)
 }
@@ -123,14 +151,61 @@ func (m *appModel) stopSpeechForTab(tab *tabModel) *speechRun {
 		run.cancel()
 		<-run.done
 		m.speech = nil
+		if run.err != nil {
+			slog.Warn("Failed to stop transcription", "error", run.err)
+		}
 	}
 	return run
 }
 
 func (m *appModel) handleStopSpeak() (tea.Model, tea.Cmd) {
-	run := m.stopSpeech()
-	if run == nil {
-		return m, nil
+	m.speechMu.Lock()
+	defer m.speechMu.Unlock()
+	if run := m.speech; run != nil {
+		run.stopping, run.send = true, false
+		run.cancel()
 	}
-	return m, tea.Batch(run.editor.SetRecording(false), notification.SuccessCmd("Stopped listening"))
+	// The existing subscription applies pending text and reports the final outcome.
+	return m, nil
+}
+
+func (m *appModel) handleFinishSpeak() (tea.Model, tea.Cmd) {
+	m.speechMu.Lock()
+	defer m.speechMu.Unlock()
+	if run := m.speech; run != nil && !run.stopping {
+		run.stopping = true
+		run.send = m.activeTab == run.tab
+		close(run.finish)
+		return m, notification.InfoCmd("Finishing transcription… (ESC to cancel)")
+	}
+	return m, nil
+}
+
+func (m *appModel) sendSpeechDraft(run *speechRun) tea.Cmd {
+	cmd := run.editor.SendContent()
+	if cmd == nil {
+		return nil
+	}
+	var tabID string
+	for id, tab := range m.tabs {
+		if tab == run.tab {
+			tabID = id
+			break
+		}
+	}
+	return func() tea.Msg {
+		return messages.RoutedMsg{
+			SessionID: tabID,
+			Inner:     cmd(),
+			Valid:     func() bool { return m.tabs[tabID] == run.tab && run.tab.editor == run.editor },
+		}
+	}
+}
+
+func (m *appModel) cancelSpeechSend(tab *tabModel) {
+	m.speechMu.Lock()
+	defer m.speechMu.Unlock()
+	if run := m.speech; run != nil && run.tab == tab {
+		run.send = false
+	}
 }

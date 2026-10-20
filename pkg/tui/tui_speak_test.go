@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/docker/docker-agent/pkg/audio/transcribe"
 	"github.com/docker/docker-agent/pkg/tui/components/notification"
+	"github.com/docker/docker-agent/pkg/tui/messages"
 )
 
 type fakeTranscriber struct {
@@ -22,21 +24,24 @@ type fakeTranscriber struct {
 	err       error
 	calls     atomic.Int32
 	cleaned   atomic.Bool
-	handler   func(context.Context, transcribe.TranscriptHandler, func(context.Context)) error
+	handler   func(context.Context, <-chan struct{}, transcribe.TranscriptHandler, func(context.Context)) error
 }
 
 func (f *fakeTranscriber) IsSupported() bool { return f.supported }
-func (f *fakeTranscriber) Run(ctx context.Context, handler transcribe.TranscriptHandler, ready func(context.Context)) error {
+func (f *fakeTranscriber) Run(ctx context.Context, finish <-chan struct{}, handler transcribe.TranscriptHandler, ready func(context.Context)) error {
 	f.calls.Add(1)
 	defer f.cleaned.Store(true)
 	if f.handler != nil {
-		return f.handler(ctx, handler, ready)
+		return f.handler(ctx, finish, handler, ready)
 	}
 	if f.err != nil {
 		return f.err
 	}
 	ready(ctx)
-	<-ctx.Done()
+	select {
+	case <-ctx.Done():
+	case <-finish:
+	}
 	return nil
 }
 
@@ -57,13 +62,34 @@ func nextSpeechEvent(t *testing.T, cmd tea.Cmd) speechEvent {
 	return event
 }
 
+func waitSpeechDone(t *testing.T, run *speechRun) {
+	t.Helper()
+	select {
+	case <-run.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("transcription did not finish")
+	}
+}
+
+func requireSpeechError(t *testing.T, cmd tea.Cmd, text string) {
+	t.Helper()
+	msgs := collectMsgs(cmd)
+	for _, msg := range msgs {
+		if show, ok := msg.(notification.ShowMsg); ok {
+			require.Equal(t, notification.TypeError, show.Type)
+			require.Contains(t, show.Text, text)
+			return
+		}
+	}
+	t.Fatal("missing error notification")
+}
+
 func TestHandleStartSpeak_NoOpIfAlreadyRunning(t *testing.T) {
 	t.Parallel()
 	ft := &fakeTranscriber{}
 	m := newSpeakTestModel(t, ft)
 	_, cmd := m.handleStartSpeak()
-	event := nextSpeechEvent(t, cmd)
-	assert.True(t, event.ready)
+	nextSpeechEvent(t, cmd)
 	_, cmd = m.handleStartSpeak()
 	assert.Nil(t, cmd)
 	assert.EqualValues(t, 1, ft.calls.Load())
@@ -71,24 +97,17 @@ func TestHandleStartSpeak_NoOpIfAlreadyRunning(t *testing.T) {
 	assert.True(t, ft.cleaned.Load())
 }
 
-func TestHandleStartSpeak_ReturnsErrorNotification(t *testing.T) {
+func TestSpeech_StopPreservesStartupError(t *testing.T) {
 	t.Parallel()
-	m := newSpeakTestModel(t, &fakeTranscriber{err: errors.New("boom")})
+	m := newSpeakTestModel(t, &fakeTranscriber{err: errors.New("missing API key")})
 	_, cmd := m.handleStartSpeak()
-	event := nextSpeechEvent(t, cmd)
-	assert.True(t, event.ended)
-	_, cmd = m.handleSpeechEvent(event)
+	run := m.speech
+	waitSpeechDone(t, run)
+	terminal := nextSpeechEvent(t, cmd)
+	m.handleStopSpeak()
+	_, cmd = m.handleSpeechEvent(terminal)
 	assert.False(t, m.isTranscribing())
-	msgs := collectMsgs(cmd)
-	var found bool
-	for _, msg := range msgs {
-		if show, ok := msg.(notification.ShowMsg); ok {
-			found = true
-			assert.Equal(t, notification.TypeError, show.Type)
-			assert.Contains(t, show.Text, "boom")
-		}
-	}
-	assert.True(t, found)
+	requireSpeechError(t, cmd, "missing API key")
 }
 
 func TestHandleStopSpeak_NoOpWhenNotRunning(t *testing.T) {
@@ -98,29 +117,35 @@ func TestHandleStopSpeak_NoOpWhenNotRunning(t *testing.T) {
 	assert.Nil(t, cmd)
 }
 
-func TestHandleStopSpeak_CancelsBlockedNotification(t *testing.T) {
+func TestSpeech_StopRetainsInflightText(t *testing.T) {
 	t.Parallel()
-	ft := &fakeTranscriber{}
-	m := newSpeakTestModel(t, ft)
-	_, _ = m.handleStartSpeak() // No consumer for the readiness notification.
+	m := newSpeakTestModel(t, &fakeTranscriber{handler: func(ctx context.Context, _ <-chan struct{}, handler transcribe.TranscriptHandler, _ func(context.Context)) error {
+		handler(ctx, " final words")
+		<-ctx.Done()
+		return nil
+	}})
+	ed := &speechEditor{text: "first words"}
+	m.activeTab.editor = ed
+	_, cmd := m.handleStartSpeak()
 	run := m.speech
-	_, cmd := m.handleStopSpeak()
-	require.NotNil(t, cmd)
+	inflight := nextSpeechEvent(t, cmd)
+	m.handleStopSpeak()
+	waitSpeechDone(t, run)
+	_, _ = m.handleSpeechEvent(inflight)
+	assert.Equal(t, "first words final words", ed.text)
 	assert.False(t, m.isTranscribing())
-	assert.True(t, ft.cleaned.Load())
-	_, stale := m.handleSpeechEvent(speechEvent{run: run, ready: true})
-	assert.Nil(t, stale)
+	_, cmd = m.handleSpeechEvent(inflight)
+	assert.Nil(t, cmd)
+	assert.Equal(t, "first words final words", ed.text)
 }
 
-func TestSpeech_IgnoresPreviousRun(t *testing.T) {
+func TestSpeech_IgnoresDiscardedRun(t *testing.T) {
 	t.Parallel()
 	m := newSpeakTestModel(t, &fakeTranscriber{})
 	_, _ = m.handleStartSpeak()
 	previous := m.stopSpeech()
 	_, _ = m.handleStartSpeak()
-	_, cmd := m.handleSpeechEvent(speechEvent{run: previous, delta: "stale"})
-	assert.Nil(t, cmd)
-	_, cmd = m.handleSpeechEvent(speechEvent{run: previous, ended: true})
+	_, cmd := m.handleSpeechEvent(speechEvent{run: previous})
 	assert.Nil(t, cmd)
 	assert.True(t, m.isTranscribing())
 }
@@ -128,7 +153,7 @@ func TestSpeech_IgnoresPreviousRun(t *testing.T) {
 func TestSpeech_ShutdownJoinsCapture(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		release := make(chan struct{})
-		ft := &fakeTranscriber{handler: func(ctx context.Context, _ transcribe.TranscriptHandler, ready func(context.Context)) error {
+		ft := &fakeTranscriber{handler: func(ctx context.Context, _ <-chan struct{}, _ transcribe.TranscriptHandler, ready func(context.Context)) error {
 			ready(ctx)
 			<-ctx.Done()
 			<-release
@@ -157,15 +182,40 @@ func TestSpeech_ShutdownJoinsCapture(t *testing.T) {
 	})
 }
 
+func TestSpeech_StopDoesNotBlockUI(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		release := make(chan struct{})
+		m := newSpeakTestModel(t, &fakeTranscriber{handler: func(ctx context.Context, _ <-chan struct{}, _ transcribe.TranscriptHandler, ready func(context.Context)) error {
+			ready(ctx)
+			<-ctx.Done()
+			<-release
+			return nil
+		}})
+		_, cmd := m.handleStartSpeak()
+		run := m.speech
+		nextSpeechEvent(t, cmd)
+		m.handleStopSpeak()
+		synctest.Wait()
+		assert.True(t, m.isTranscribing(), "keep the run until cleanup completes")
+		_, cmd = m.handleStartSpeak()
+		assert.Nil(t, cmd, "do not overlap capture during cleanup")
+		close(release)
+		waitSpeechDone(t, run)
+		_, _ = m.handleSpeechEvent(speechEvent{run: run})
+		assert.False(t, m.isTranscribing())
+	})
+}
+
 func TestSpeech_ParentCancellation(t *testing.T) {
 	t.Parallel()
 	ft := &fakeTranscriber{}
 	m := newSpeakTestModel(t, ft)
-	_, cmd := m.handleStartSpeak()
-	event := nextSpeechEvent(t, cmd)
+	_, _ = m.handleStartSpeak()
+	run := m.speech
 	m.cancelSpeech()
-	ended := nextSpeechEvent(t, waitForSpeech(event.run))
-	assert.True(t, ended.ended)
+	waitSpeechDone(t, run)
+	_, _ = m.handleSpeechEvent(speechEvent{run: run})
+	assert.False(t, m.isTranscribing())
 	assert.True(t, ft.cleaned.Load())
 }
 
@@ -174,6 +224,7 @@ type speechEditor struct {
 
 	text      string
 	recording bool
+	sent      []string
 }
 
 func (e *speechEditor) InsertText(text string) { e.text += text }
@@ -182,89 +233,99 @@ func (e *speechEditor) SetRecording(recording bool) tea.Cmd {
 	return nil
 }
 
-func TestSpeech_StaysOnOriginTab(t *testing.T) {
+func (e *speechEditor) SendContent() tea.Cmd {
+	e.sent = append(e.sent, e.text)
+	return nil
+}
+
+func TestSpeech_FinishSendsAllTextOnce(t *testing.T) {
 	t.Parallel()
-	ft := &fakeTranscriber{handler: func(ctx context.Context, handler transcribe.TranscriptHandler, ready func(context.Context)) error {
-		ready(ctx)
-		handler(ctx, "dictation")
-		<-ctx.Done()
+	m := newSpeakTestModel(t, &fakeTranscriber{handler: func(ctx context.Context, finish <-chan struct{}, handler transcribe.TranscriptHandler, _ func(context.Context)) error {
+		handler(ctx, "first")
+		<-finish
+		handler(ctx, " last")
 		return nil
-	}}
-	m := newSpeakTestModel(t, ft)
-	origin := &speechEditor{}
-	m.activeTab.editor = origin
-	_, cmd := m.handleStartSpeak()
-	ready := nextSpeechEvent(t, cmd)
-	_, _ = m.handleSpeechEvent(ready)
-	assert.True(t, origin.recording)
-
-	other := &speechEditor{}
-	m.activeTab = &tabModel{editor: other}
-	delta := nextSpeechEvent(t, waitForSpeech(ready.run))
-	_, _ = m.handleSpeechEvent(delta)
-	assert.Equal(t, "dictation", origin.text)
-	assert.Empty(t, other.text)
-	m.handleStopSpeak()
-	assert.False(t, origin.recording)
-	assert.False(t, other.recording)
-}
-
-func TestSpeech_StopWhileStarting(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		ft := &fakeTranscriber{handler: func(ctx context.Context, _ transcribe.TranscriptHandler, _ func(context.Context)) error {
-			<-ctx.Done()
-			return nil
-		}}
-		m := newSpeakTestModel(t, ft)
-		_, cmd := m.handleStartSpeak()
-		m.handleStopSpeak()
-		assert.True(t, nextSpeechEvent(t, cmd).ended)
-		assert.False(t, m.isTranscribing())
-		assert.True(t, ft.cleaned.Load())
-	})
-}
-
-func TestSpeech_RuntimeFailureClearsRecording(t *testing.T) {
-	t.Parallel()
-	ft := &fakeTranscriber{handler: func(ctx context.Context, _ transcribe.TranscriptHandler, ready func(context.Context)) error {
-		ready(ctx)
-		return errors.New("connection lost")
-	}}
-	m := newSpeakTestModel(t, ft)
+	}})
 	ed := &speechEditor{}
 	m.activeTab.editor = ed
 	_, cmd := m.handleStartSpeak()
-	ready := nextSpeechEvent(t, cmd)
-	_, _ = m.handleSpeechEvent(ready)
-	assert.True(t, ed.recording)
-	ended := nextSpeechEvent(t, waitForSpeech(ready.run))
-	_, cmd = m.handleSpeechEvent(ended)
-	assert.False(t, ed.recording)
-	assert.False(t, m.isTranscribing())
-	require.NotEmpty(t, collectMsgs(cmd))
+	run := m.speech
+	inflight := nextSpeechEvent(t, cmd)
+	m.handleFinishSpeak()
+	m.handleFinishSpeak()
+	assert.Empty(t, ed.sent)
+	waitSpeechDone(t, run)
+	_, _ = m.handleSpeechEvent(inflight)
+	assert.Equal(t, []string{"first last"}, ed.sent)
+	_, _ = m.handleSpeechEvent(inflight)
+	assert.Len(t, ed.sent, 1)
 }
 
-func TestSpeech_DeltaUsesRunContext(t *testing.T) {
+func TestSpeech_FinishFailureKeepsDraft(t *testing.T) {
 	t.Parallel()
-	ft := &fakeTranscriber{handler: func(ctx context.Context, handler transcribe.TranscriptHandler, _ func(context.Context)) error {
-		runCtx, cancel := context.WithCancel(ctx)
-		cancel()
-		handler(runCtx, "ignored")
-		return errors.New("capture failed")
-	}}
-	m := newSpeakTestModel(t, ft)
+	m := newSpeakTestModel(t, &fakeTranscriber{handler: func(ctx context.Context, finish <-chan struct{}, handler transcribe.TranscriptHandler, _ func(context.Context)) error {
+		handler(ctx, "keep this")
+		<-finish
+		return errors.New("final transcription timed out")
+	}})
+	ed := &speechEditor{}
+	m.activeTab.editor = ed
 	_, _ = m.handleStartSpeak()
-	select {
-	case <-m.speech.done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("transcript callback ignored internal cancellation")
-	}
+	run := m.speech
+	m.handleFinishSpeak()
+	waitSpeechDone(t, run)
+	_, cmd := m.handleSpeechEvent(speechEvent{run: run})
+	requireSpeechError(t, cmd, "timed out")
+	assert.Equal(t, "keep this", ed.text)
+	assert.Empty(t, ed.sent)
+}
+
+func TestSpeech_SwitchTabWhileFinishingKeepsOriginDraft(t *testing.T) {
+	t.Parallel()
+	m := newSpeakTestModel(t, &fakeTranscriber{handler: func(ctx context.Context, finish <-chan struct{}, handler transcribe.TranscriptHandler, _ func(context.Context)) error {
+		<-finish
+		handler(ctx, "origin")
+		return nil
+	}})
+	origin := &speechEditor{}
+	m.activeTab.editor = origin
+	_, _ = m.handleStartSpeak()
+	run := m.speech
+	m.handleFinishSpeak()
+	other := &speechEditor{}
+	m.activeTab = &tabModel{editor: other}
+	waitSpeechDone(t, run)
+	_, _ = m.handleSpeechEvent(speechEvent{run: run})
+	assert.Equal(t, "origin", origin.text)
+	assert.Empty(t, origin.sent)
+	assert.Empty(t, other.text)
+	assert.Empty(t, other.sent)
+}
+
+func TestSpeech_EscapeCancelsPendingSend(t *testing.T) {
+	t.Parallel()
+	m := newSpeakTestModel(t, &fakeTranscriber{handler: func(ctx context.Context, finish <-chan struct{}, handler transcribe.TranscriptHandler, _ func(context.Context)) error {
+		<-finish
+		handler(ctx, "draft")
+		<-ctx.Done()
+		return nil
+	}})
+	ed := &speechEditor{}
+	m.activeTab.editor = ed
+	_, _ = m.handleStartSpeak()
+	run := m.speech
+	m.handleFinishSpeak()
+	m.handleStopSpeak()
+	waitSpeechDone(t, run)
+	_, _ = m.handleSpeechEvent(speechEvent{run: run})
+	assert.Equal(t, "draft", ed.text)
+	assert.Empty(t, ed.sent)
 }
 
 func TestSpeech_ExitSafetyNetCoversBlockedCleanup(t *testing.T) {
 	t.Parallel()
 	release := make(chan struct{})
-	ft := &fakeTranscriber{handler: func(ctx context.Context, _ transcribe.TranscriptHandler, ready func(context.Context)) error {
+	ft := &fakeTranscriber{handler: func(ctx context.Context, _ <-chan struct{}, _ transcribe.TranscriptHandler, ready func(context.Context)) error {
 		ready(ctx)
 		<-ctx.Done()
 		<-release
@@ -287,45 +348,81 @@ func TestSpeech_ExitSafetyNetCoversBlockedCleanup(t *testing.T) {
 	}
 }
 
-func TestSpeech_ServerFailureBeforeReadyConsumed(t *testing.T) {
+func TestSpeech_StopPreservesCleanupError(t *testing.T) {
 	t.Parallel()
-	ft := &fakeTranscriber{handler: func(ctx context.Context, _ transcribe.TranscriptHandler, ready func(context.Context)) error {
+	m := newSpeakTestModel(t, &fakeTranscriber{handler: func(ctx context.Context, _ <-chan struct{}, _ transcribe.TranscriptHandler, ready func(context.Context)) error {
 		ready(ctx)
-		return errors.New("server disconnected")
-	}}
-	m := newSpeakTestModel(t, ft)
-	_, _ = m.handleStartSpeak()
-	select {
-	case <-m.speech.done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("readiness delivery blocked reporting failure")
-	}
+		<-ctx.Done()
+		return errors.New("dispose failed")
+	}})
+	_, cmd := m.handleStartSpeak()
+	run := m.speech
+	nextSpeechEvent(t, cmd)
+	m.handleStopSpeak()
+	waitSpeechDone(t, run)
+	_, cmd = m.handleSpeechEvent(speechEvent{run: run})
+	requireSpeechError(t, cmd, "dispose failed")
 }
 
-func TestSpeech_FailedRunCancelsReadyBehindTranscript(t *testing.T) {
-	t.Parallel()
-	ft := &fakeTranscriber{handler: func(ctx context.Context, handler transcribe.TranscriptHandler, ready func(context.Context)) error {
-		runCtx, cancel := context.WithCancel(ctx)
-		defer cancel()
-		handler(runCtx, "queued before ready")
-		cancel()
-		ready(runCtx)
-		return errors.New("server failed")
-	}}
-	m := newSpeakTestModel(t, ft)
-	_, _ = m.handleStartSpeak()
-	select {
-	case <-m.speech.done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("readiness ignored internal cancellation behind a queued transcript")
-	}
+type routedSpeechEditor struct{ speechEditor }
+
+func (e *routedSpeechEditor) SendContent() tea.Cmd {
+	content := e.text
+	return func() tea.Msg { return messages.SendMsg{Content: content} }
 }
 
-func TestSpeech_DrainsFinalDeltaBeforeCompletion(t *testing.T) {
+func TestSpeech_SendStaysScopedUntilConsumption(t *testing.T) {
 	t.Parallel()
-	run := &speechRun{done: make(chan struct{}), events: make(chan speechEvent, 1)}
-	run.events <- speechEvent{run: run, delta: "final"}
-	close(run.done)
-	assert.Equal(t, "final", nextSpeechEvent(t, waitForSpeech(run)).delta)
-	assert.True(t, nextSpeechEvent(t, waitForSpeech(run)).ended)
+	m := newSpeakTestModel(t, &fakeTranscriber{})
+	ed := &routedSpeechEditor{}
+	ed.text = "dictation"
+	m.activeTab.editor = ed
+	run := &speechRun{tab: m.activeTab, editor: ed}
+	cmd := m.sendSpeechDraft(run)
+	origin := m.activeTab
+	m.activeTab = &tabModel{editor: &speechEditor{}}
+	routed, ok := cmd().(messages.RoutedMsg)
+	require.True(t, ok)
+	assert.Equal(t, "test", routed.SessionID)
+	assert.Equal(t, messages.SendMsg{Content: "dictation"}, routed.Inner)
+	assert.True(t, routed.Valid())
+	origin.editor = &speechEditor{}
+	assert.False(t, routed.Valid(), "a replacement editor must invalidate the queued send")
+}
+
+func TestSpeech_CoalescedNotificationsLoseNoText(t *testing.T) {
+	t.Parallel()
+	m := newSpeakTestModel(t, &fakeTranscriber{handler: func(ctx context.Context, _ <-chan struct{}, handler transcribe.TranscriptHandler, _ func(context.Context)) error {
+		for range 100 {
+			handler(ctx, "x")
+		}
+		return nil
+	}})
+	ed := &speechEditor{}
+	m.activeTab.editor = ed
+	_, cmd := m.handleStartSpeak()
+	run := m.speech
+	waitSpeechDone(t, run)
+	_, _ = m.handleSpeechEvent(nextSpeechEvent(t, cmd))
+	assert.Equal(t, strings.Repeat("x", 100), ed.text)
+	assert.False(t, m.isTranscribing())
+}
+
+func TestSpeech_LeavingAndReturningRevokesSend(t *testing.T) {
+	t.Parallel()
+	m := newSpeakTestModel(t, &fakeTranscriber{handler: func(ctx context.Context, finish <-chan struct{}, handler transcribe.TranscriptHandler, _ func(context.Context)) error {
+		<-finish
+		handler(ctx, "keep draft")
+		return nil
+	}})
+	ed := &speechEditor{}
+	m.activeTab.editor = ed
+	_, _ = m.handleStartSpeak()
+	run := m.speech
+	m.handleFinishSpeak()
+	m.cancelSpeechSend(m.activeTab)
+	waitSpeechDone(t, run)
+	_, _ = m.handleSpeechEvent(speechEvent{run: run})
+	assert.Equal(t, "keep draft", ed.text)
+	assert.Empty(t, ed.sent)
 }
