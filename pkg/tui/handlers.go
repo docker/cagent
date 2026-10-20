@@ -1244,69 +1244,6 @@ func (m *appModel) handleAttachFile(filePath string) (tea.Model, tea.Cmd) {
 	})
 }
 
-// --- Speech-to-text ---
-
-func (m *appModel) handleStartSpeak() (tea.Model, tea.Cmd) {
-	if m.transcriber.IsRunning() {
-		return m, nil
-	}
-
-	// Close any previous channel to unblock stale waitForTranscript goroutines.
-	m.closeTranscriptCh()
-
-	ch := make(chan string, 100)
-	m.transcriptCh = ch
-	err := m.transcriber.Start(m.ctx(), func(delta string) {
-		select {
-		case ch <- delta:
-		default:
-		}
-	})
-	if err != nil {
-		m.closeTranscriptCh()
-		return m, notification.ErrorCmd(fmt.Sprintf("Failed to start listening: %v", err))
-	}
-
-	return m, tea.Batch(
-		notification.InfoCmd("🎤 Listening... (ENTER to send or ESC to cancel)"),
-		m.activeTab.editor.SetRecording(true),
-		m.waitForTranscript(),
-	)
-}
-
-func (m *appModel) handleStopSpeak() (tea.Model, tea.Cmd) {
-	if !m.transcriber.IsRunning() {
-		return m, nil
-	}
-
-	m.transcriber.Stop()
-	m.closeTranscriptCh()
-
-	return m, tea.Batch(m.activeTab.editor.SetRecording(false), notification.SuccessCmd("Stopped listening"))
-}
-
-// waitForTranscript returns a command that blocks until the next transcript
-// delta arrives and delivers it as a SpeakTranscriptMsg.
-func (m *appModel) waitForTranscript() tea.Cmd {
-	ch := m.transcriptCh
-	return func() tea.Msg {
-		delta, ok := <-ch
-		if !ok {
-			return nil
-		}
-		return messages.SpeakTranscriptMsg{Delta: delta}
-	}
-}
-
-// closeTranscriptCh closes the transcript channel and sets it to nil,
-// unblocking any goroutines waiting in waitForTranscript.
-func (m *appModel) closeTranscriptCh() {
-	if m.transcriptCh != nil {
-		close(m.transcriptCh)
-		m.transcriptCh = nil
-	}
-}
-
 func (m *appModel) handleElicitationResponse(action tools.ElicitationAction, content map[string]any, elicitationID string) (tea.Model, tea.Cmd) {
 	if err := m.application.ResumeElicitation(m.ctx(), action, content, elicitationID); err != nil {
 		slog.Error("Failed to resume elicitation", "action", action, "error", err)
