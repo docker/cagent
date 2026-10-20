@@ -103,3 +103,24 @@ func TestConvertAssistantContent_FallsBackWhenEdited(t *testing.T) {
 	flattened.ProviderState = nil
 	assert.Equal(t, convertAssistantContent(&flattened), convertAssistantContent(&msg))
 }
+
+// Unsigned reasoning (thinking cut off by max_tokens, or another vendor's
+// reasoning on Bedrock) cannot be verified, so it is never replayed. It still
+// counts toward the message match, as on the Anthropic replay path.
+func TestConvertAssistantContent_SkipsUnsignedReasoning(t *testing.T) {
+	t.Parallel()
+
+	msg := sealedMessage(t, []nativeBlock{
+		{Type: "reasoning", Text: "a", Signature: "s1"},
+		{Type: "reasoning", Text: "cut"},
+		{Type: "text", Text: "hi"},
+	})
+	blocks := convertAssistantContent(&msg)
+
+	require.Len(t, blocks, 2)
+	signed, ok := reasoningOf(t, blocks[0]).(*types.ReasoningContentBlockMemberReasoningText)
+	require.True(t, ok)
+	assert.Equal(t, "s1", *signed.Value.Signature)
+	_, ok = blocks[1].(*types.ContentBlockMemberText)
+	assert.True(t, ok)
+}
