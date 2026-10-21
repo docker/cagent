@@ -144,6 +144,9 @@ jobs:
           min-severity: low
           version: v1.30.0
 
+      - name: Go cache pruning tests
+        run: node --test .github/actions/trim-go-cache/go-cache.test.mjs
+
       - name: Workflow invariants
         run: ./scripts/workflow-lint.sh
 
