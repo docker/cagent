@@ -43,3 +43,34 @@ func TestServerSideFallbackRequests(t *testing.T) {
 		}
 	})
 }
+
+// Fallbacks route legacy configurations through the beta Messages API, which
+// must send the same request as the standard path did: sampling settings when
+// thinking is off, and no interleaved thinking when it was opted out.
+func TestServerFallbackKeepsLegacyRequestShape(t *testing.T) {
+	t.Parallel()
+
+	env := map[string]string{"ANTHROPIC_API_KEY": "test-key"}
+	t.Run("sampling without thinking", func(t *testing.T) {
+		t.Parallel()
+		req := captureFinalRequest(t, latest.ModelConfig{
+			Provider: "anthropic", Model: "claude-sonnet-4-5", Temperature: new(0.3), TopP: new(0.9),
+			ProviderOpts: map[string]any{"fallbacks": []any{"claude-haiku-4-5"}},
+		}, env)
+		assert.Equal(t, "beta=true", req.query)
+		assert.Nil(t, req.body["thinking"])
+		assert.InDelta(t, 0.3, req.body["temperature"], 1e-9)
+		assert.InDelta(t, 0.9, req.body["top_p"], 1e-9)
+	})
+
+	t.Run("interleaved thinking opt-out", func(t *testing.T) {
+		t.Parallel()
+		req := captureFinalRequest(t, latest.ModelConfig{
+			Provider: "anthropic", Model: "claude-sonnet-4-5", ThinkingBudget: &latest.ThinkingBudget{Tokens: 2048},
+			ProviderOpts: map[string]any{"fallbacks": []any{"claude-haiku-4-5"}, "interleaved_thinking": false},
+		}, env)
+		assert.Equal(t, "beta=true", req.query)
+		assert.NotContains(t, strings.Join(req.header.Values("anthropic-beta"), ","), "interleaved-thinking")
+		assert.Nil(t, req.body["temperature"], "no sampling with thinking on")
+	})
+}

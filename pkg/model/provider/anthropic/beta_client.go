@@ -64,9 +64,11 @@ func (c *Client) createBetaStream(
 
 	sys, transient := c.betaSystemContext(messages)
 
-	betas := []anthropic.AnthropicBeta{
-		anthropic.AnthropicBetaInterleavedThinking2025_05_14,
-		"fine-grained-tool-streaming-2025-05-14",
+	betas := []anthropic.AnthropicBeta{"fine-grained-tool-streaming-2025-05-14"}
+	// Requests reach this path for other reasons (fallbacks, structured
+	// output, ...); an explicit interleaved_thinking: false still holds.
+	if _, set := c.ModelConfig.ProviderOpts["interleaved_thinking"]; !set || c.interleavedThinkingEnabled() {
+		betas = append([]anthropic.AnthropicBeta{anthropic.AnthropicBetaInterleavedThinking2025_05_14}, betas...)
 	}
 
 	params := anthropic.BetaMessageNewParams{
@@ -96,6 +98,17 @@ func (c *Client) createBetaStream(
 	// which don't require thinking.
 	c.applyBetaThinkingConfig(&params, maxTokens)
 	c.applyThinkingBinding(&params)
+
+	// As on the standard path: sampling only applies with thinking off.
+	thinkingEnabled := params.Thinking.OfEnabled != nil || params.Thinking.OfAdaptive != nil
+	if !thinkingEnabled && !rejectsSampling(c.ModelConfig.Model) {
+		if c.ModelConfig.Temperature != nil {
+			params.Temperature = param.NewOpt(*c.ModelConfig.Temperature)
+		}
+		if c.ModelConfig.TopP != nil {
+			params.TopP = param.NewOpt(*c.ModelConfig.TopP)
+		}
+	}
 
 	// Forward task_budget via `output_config.task_budget` (Anthropic
 	// Opus 4.7+) and enable the corresponding beta header. Older Claude
