@@ -280,6 +280,23 @@ mainLoop:
 				providerState = choice.Delta.ProviderState
 			}
 
+			// A server fallback supersedes the declined model's tool calls and
+			// thinking: they must never run, and the next request drops them.
+			// Its text stays, as the API keeps it.
+			if fb := choice.Delta.ServerFallback; fb != nil {
+				responseStarted = true
+				if len(toolCalls) > 0 {
+					slog.WarnContext(ctx, "Dropping tool calls superseded by a server fallback",
+						"agent", a.Name(), "tool_calls", len(toolCalls), "from", fb.From, "to", fb.To)
+				}
+				toolCalls = nil
+				clear(toolCallIndex)
+				clear(emittedPartial)
+				fullReasoningContent.Reset()
+				thinkingSignature = ""
+				events.Emit(Warning(fmt.Sprintf("%s declined this turn; %s continues it.", fb.From, fb.To), a.Name()))
+			}
+
 			// A terminal chunk can also carry media; collect it before returning.
 			if len(choice.Delta.Media) > 0 {
 				responseStarted = true
