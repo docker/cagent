@@ -197,3 +197,33 @@ func TestSnapshotFallbackIsNotMemoized(t *testing.T) {
 	assert.True(t, secondFetched, "a fetch failure must not be memoized; the next lookup must retry")
 	assert.Equal(t, 12345, m.Limit.Context, "the recovered fetch must serve fresh data, not the snapshot")
 }
+
+// Haiku 5.5 prices the whole request at a higher rate above 100,000 prompt
+// tokens: https://platform.claude.com/docs/en/about-claude/pricing.
+func TestEmbeddedSnapshotHaiku55ContextTier(t *testing.T) {
+	t.Parallel()
+
+	db := embeddedSnapshot()
+	require.NotNil(t, db)
+	for _, tc := range []struct {
+		provider, model string
+		base, tier      Rates
+	}{
+		{"anthropic", "claude-haiku-5-5", Rates{0.1, 0.5, 0.01, 0.125}, Rates{0.5, 2.5, 0.05, 0.625}},
+		{"amazon-bedrock", "global.anthropic.claude-haiku-5-5", Rates{0.1, 0.5, 0.01, 0.125}, Rates{0.5, 2.5, 0.05, 0.625}},
+		{"amazon-bedrock", "us.anthropic.claude-haiku-5-5", Rates{0.11, 0.55, 0.011, 0.1375}, Rates{0.55, 2.75, 0.055, 0.6875}},
+	} {
+		t.Run(tc.provider+"/"+tc.model, func(t *testing.T) {
+			t.Parallel()
+			m, ok := db.Providers[tc.provider].Models[tc.model]
+			require.True(t, ok)
+			require.NotNil(t, m.Cost)
+			require.Len(t, m.Cost.Tiers, 1)
+			assert.Equal(t, TierSpec{Type: "context", Size: 100_000}, m.Cost.Tiers[0].Tier)
+
+			assert.Equal(t, tc.base, m.Cost.RatesFor(99_999))
+			assert.Equal(t, tc.base, m.Cost.RatesFor(100_000), "the threshold itself is still the base band")
+			assert.Equal(t, tc.tier, m.Cost.RatesFor(100_001))
+		})
+	}
+}
