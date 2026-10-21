@@ -347,9 +347,10 @@ See the full schema on the [Model Configuration](../../configuration/models/inde
 
 ## Server-Side Fallbacks
 
-When the primary model refuses a request (stop reason `refusal`), Anthropic
-can retry the request with backup models in a single round trip. Set
-`fallbacks` in `provider_opts` to a list of model IDs, in priority order:
+When the primary model refuses a request (stop reason `refusal`), the Claude
+API can retry it on a fallback model in a single round trip. Set `fallbacks`
+in `provider_opts` to `default`, to use the fallback Anthropic recommends for
+the refusal's category:
 
 ```yaml
 models:
@@ -357,6 +358,12 @@ models:
     provider: anthropic
     model: claude-opus-4-8
     provider_opts:
+      fallbacks: default
+```
+
+Or list up to three distinct models, tried in order:
+
+```yaml
       fallbacks:
         - claude-opus-4-7
         - claude-sonnet-4-6
@@ -365,17 +372,28 @@ models:
 > [!WARNING]
 > **Not yet available with Claude 5.x**
 >
-> A fallback can change the serving model mid-response, which Docker Agent does not handle yet. A `fallbacks` list is rejected at startup when the primary model or any fallback is a Claude 5.x model (Haiku 5.5, Opus 5/5.5, Sonnet 5/5.5, Fable 5/5.1, Mythos 5/5.1). Support is tracked in [#4584](https://github.com/docker/docker-agent/issues/4584).
+> A fallback can change the serving model mid-response, which Docker Agent does not handle yet. `fallbacks` is rejected at startup when the primary model or any listed fallback is a Claude 5.x model (Haiku 5.5, Opus 5/5.5, Sonnet 5/5.5, Fable 5/5.1, Mythos 5/5.1). Support is tracked in [#4584](https://github.com/docker/docker-agent/issues/4584).
 
-Docker Agent automatically attaches the required
-`server-side-fallback-2026-06-01` beta header and forwards the option as
-`fallbacks: [{"model": "..."}]`. The response's `model` field reports which
-model actually served the request.
+Docker Agent sends the `server-side-fallback-2026-07-01` beta header, which
+accepts both forms, through the beta Messages API. The response's `model`
+field reports which model actually served the request.
+
+Rules checked at startup:
+
+- A list holds at most three models, each distinct and different from the
+  primary model. Any other value is a configuration error.
+- Server-side fallback is a Claude API feature: `fallbacks` is rejected on
+  Vertex AI, Bedrock, a gateway, or a `base_url` other than
+  `https://api.anthropic.com`. It isn't available on the Message Batches API
+  either.
+- Claude Haiku 5.5 has no server-side fallback: a list is rejected, and
+  `default` only logs that it has no effect.
 
 Fallback models receive the exact same request as the primary model
 (thinking configuration, task budget, beta features, ...), so list only
-models that accept the same request shape. Not available on Bedrock, Vertex
-AI, or the Message Batches API.
+models that accept the same request shape.
+
+See [Refusals and fallback](https://platform.claude.com/docs/en/build-with-claude/refusals-and-fallback#server-side-fallback).
 
 ## Native Compaction
 
