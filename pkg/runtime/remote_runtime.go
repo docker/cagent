@@ -747,79 +747,58 @@ func (r *RemoteRuntime) handleOAuthElicitation(ctx context.Context, sessionID st
 	oauthCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	slog.DebugContext(ctx, "Creating OAuth callback server")
-	callbackServer := oauthflow.NewCallbackServer()
-	defer func() {
-		// Detach from ctx's cancellation (the request may be done) but
-		// keep its trace context for the shutdown.
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer shutdownCancel()
-		if err := callbackServer.Shutdown(shutdownCtx); err != nil {
-			slog.ErrorContext(ctx, "Failed to shutdown callback server", "error", err)
+	var redirectURI, clientID, clientSecret, authMethod, verifier, state string
+	prepared := false
+	code, receivedState, err := oauthflow.RequestAuthorizationCode(oauthCtx, 0, func(ctx context.Context, address oauthflow.CallbackAddress) (oauthflow.AuthorizationRequest, error) {
+		redirectURI = address.RedirectURI()
+		if authMetadata.RegistrationEndpoint != "" {
+			slog.DebugContext(ctx, "Attempting dynamic client registration")
+			clientID, clientSecret, authMethod, err = oauthflow.RegisterClient(ctx, &authMetadata, redirectURI, nil)
+			if err != nil {
+				slog.ErrorContext(ctx, "Dynamic client registration failed", "error", err)
+				return oauthflow.AuthorizationRequest{}, fmt.Errorf("failed to register client: %w", err)
+			}
+			slog.DebugContext(ctx, "Client registered successfully", "client_id", clientID)
+		} else {
+			err := errors.New("authorization server does not support dynamic client registration")
+			slog.ErrorContext(ctx, "Client registration not supported", "error", err)
+			return oauthflow.AuthorizationRequest{}, err
 		}
-	}()
 
-	if err := callbackServer.Start(ctx); err != nil {
-		slog.ErrorContext(ctx, "Failed to start callback server", "error", err)
-		_ = r.client.ResumeElicitation(ctx, sessionID, "decline", nil, req.ElicitationID)
-		return fmt.Errorf("failed to start callback server: %w", err)
-	}
-
-	redirectURI := callbackServer.GetRedirectURI()
-	slog.DebugContext(ctx, "Callback server started", "redirect_uri", redirectURI)
-
-	var clientID, clientSecret, authMethod string
-	if authMetadata.RegistrationEndpoint != "" {
-		slog.DebugContext(ctx, "Attempting dynamic client registration")
-		clientID, clientSecret, authMethod, err = oauthflow.RegisterClient(oauthCtx, &authMetadata, redirectURI, nil)
+		state, err = oauthflow.GenerateState()
 		if err != nil {
-			slog.ErrorContext(ctx, "Dynamic client registration failed", "error", err)
-			_ = r.client.ResumeElicitation(ctx, sessionID, "decline", nil, req.ElicitationID)
-			return fmt.Errorf("failed to register client: %w", err)
+			slog.ErrorContext(ctx, "Failed to generate state", "error", err)
+			return oauthflow.AuthorizationRequest{}, fmt.Errorf("failed to generate state: %w", err)
 		}
-		slog.DebugContext(ctx, "Client registered successfully", "client_id", clientID)
-	} else {
-		err := errors.New("authorization server does not support dynamic client registration")
-		slog.ErrorContext(ctx, "Client registration not supported", "error", err)
-		_ = r.client.ResumeElicitation(ctx, sessionID, "decline", nil, req.ElicitationID)
-		return err
-	}
 
-	state, err := oauthflow.GenerateState()
-	if err != nil {
-		slog.ErrorContext(ctx, "Failed to generate state", "error", err)
-		_ = r.client.ResumeElicitation(ctx, sessionID, "decline", nil, req.ElicitationID)
-		return fmt.Errorf("failed to generate state: %w", err)
-	}
+		verifier = oauthflow.GeneratePKCEVerifier()
 
-	callbackServer.SetExpectedState(state)
-	verifier := oauthflow.GeneratePKCEVerifier()
+		authURL := oauthflow.BuildAuthorizationURL(
+			authMetadata.AuthorizationEndpoint,
+			clientID,
+			redirectURI,
+			state,
+			oauth2.S256ChallengeFromVerifier(verifier),
+			resourceIndicator,
+			nil,
+		)
 
-	authURL := oauthflow.BuildAuthorizationURL(
-		authMetadata.AuthorizationEndpoint,
-		clientID,
-		redirectURI,
-		state,
-		oauth2.S256ChallengeFromVerifier(verifier),
-		resourceIndicator,
-		nil,
-	)
+		slog.DebugContext(ctx, "Authorization URL built", "url", authURL)
 
-	slog.DebugContext(ctx, "Authorization URL built", "url", authURL)
-
-	slog.DebugContext(ctx, "Requesting authorization code")
-	code, receivedState, err := oauthflow.RequestAuthorizationCode(oauthCtx, authURL, callbackServer, state)
+		prepared = true
+		return oauthflow.AuthorizationRequest{URL: authURL, State: state}, nil
+	})
 	if err != nil {
 		slog.ErrorContext(ctx, "Failed to get authorization code", "error", err)
 		_ = r.client.ResumeElicitation(ctx, sessionID, "decline", nil, req.ElicitationID)
+		if !prepared {
+			return err
+		}
 		return fmt.Errorf("failed to get authorization code: %w", err)
 	}
-
 	if receivedState != state {
-		err := fmt.Errorf("state mismatch: expected %s, got %s", state, receivedState)
-		slog.ErrorContext(ctx, "State mismatch in authorization response", "error", err)
 		_ = r.client.ResumeElicitation(ctx, sessionID, "decline", nil, req.ElicitationID)
-		return err
+		return errors.New("state mismatch in authorization response")
 	}
 
 	slog.DebugContext(ctx, "Authorization code received, exchanging for token")
