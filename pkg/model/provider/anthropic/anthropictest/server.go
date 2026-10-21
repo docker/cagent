@@ -145,6 +145,27 @@ func FallbackMidOutputReply(id, from, to, before, after, toolID string) string {
 	return body(events...)
 }
 
+// FallbackChainReply is a turn handed down a chain of models: each one
+// writes a short text, then declines to the next, which ends the turn.
+func FallbackChainReply(id string, models ...string) string {
+	events := []sse{messageStart(id, models[0], 0)}
+	var iterations []any
+	index := 0
+	for i, model := range models {
+		events = append(events, textBlock(index, "from "+model)...)
+		index++
+		if i == len(models)-1 {
+			iterations = append(iterations, iteration("fallback_message", model))
+			break
+		}
+		iterations = append(iterations, iteration("message", model))
+		events = append(events, fallbackBlock(index, model, models[i+1])...)
+		index++
+	}
+	events = append(events, messageDelta("end_turn", map[string]any{"input_tokens": 0, "output_tokens": 7, "iterations": iterations}), event("message_stop", nil))
+	return body(events...)
+}
+
 // StickyReply is a turn sticky routing sent straight to the fallback model:
 // no marker, only the model and a fallback_message iteration show it.
 func StickyReply(id, to, text string) string {

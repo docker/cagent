@@ -9,6 +9,8 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
 
 	"github.com/docker/docker-agent/pkg/chat"
+	"github.com/docker/docker-agent/pkg/model/provider/base"
+	"github.com/docker/docker-agent/pkg/model/provider/contracts"
 	"github.com/docker/docker-agent/pkg/tools"
 )
 
@@ -27,6 +29,10 @@ type betaStreamAdapter struct {
 	message        anthropic.BetaMessage
 	rawLost        bool
 	requestContext json.RawMessage
+	// config is the dispatching client's; served is the model a server
+	// fallback handed the turn to, empty when the dispatched model served it.
+	config base.Config
+	served string
 }
 
 // newBetaStreamAdapter creates a new Beta stream adapter
@@ -35,6 +41,7 @@ func (c *Client) newBetaStreamAdapter(stream *ssestream.Stream[anthropic.BetaRaw
 		retryableStream: retryableStream[anthropic.BetaRawMessageStreamEventUnion]{stream: stream},
 		trackUsage:      trackUsage,
 		toolIDByBlock:   map[int64]string{},
+		config:          c.Config,
 	}
 }
 
@@ -77,6 +84,9 @@ func (a *betaStreamAdapter) Recv() (chat.MessageStreamResponse, error) {
 				},
 			}
 			response.Choices[0].Delta.ToolCalls = []tools.ToolCall{toolCall}
+		case anthropic.BetaFallbackBlock:
+			a.served = block.To.Model
+			response.Choices[0].Delta.ServerFallback = &chat.ServerFallback{From: block.From.Model, To: block.To.Model}
 		case anthropic.BetaThinkingBlock:
 			if block.Thinking != "" {
 				response.Choices[0].Delta.ReasoningContent = block.Thinking
@@ -110,6 +120,13 @@ func (a *betaStreamAdapter) Recv() (chat.MessageStreamResponse, error) {
 		}
 	case anthropic.BetaRawMessageDeltaEvent:
 		a.stopReason = eventVariant.Delta.StopReason
+		// Sticky routing sends no marker: only a fallback_message iteration
+		// shows that a fallback model served the turn.
+		for _, it := range a.message.Usage.Iterations {
+			if it.Type == "fallback_message" && a.served == "" {
+				a.served = it.Model
+			}
+		}
 		if a.trackUsage {
 			response.Usage = betaUsageFromMessage(a.message.Usage)
 		}
@@ -144,6 +161,20 @@ func (a *betaStreamAdapter) accumulate(event anthropic.BetaRawMessageStreamEvent
 		a.rawLost = true
 		slog.Debug("Anthropic Beta: raw response capture disabled", "error", err)
 	}
+}
+
+// ServedBy reports the model a server fallback handed the turn to.
+func (a *betaStreamAdapter) ServedBy() (contracts.ServingModel, bool) {
+	if a.served == "" {
+		return contracts.ServingModel{}, false
+	}
+	cfg := a.config
+	cfg.ModelConfig.Model = a.served
+	// The primary's display name and cost overrides don't describe the
+	// fallback model, which is priced from the catalogue.
+	cfg.ModelConfig.DisplayModel = ""
+	cfg.ModelConfig.Cost = nil
+	return contracts.ServingModel{ID: cfg.ID(), Config: cfg}, true
 }
 
 // Close closes the Beta stream

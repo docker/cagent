@@ -580,6 +580,9 @@ func finalModelFor(serving *provider.ServingModel, dispatched provider.Provider)
 }
 
 func servingModelFrom(stream chat.MessageStream) *provider.ServingModel {
+	if served, ok := provider.ServedBy(stream); ok {
+		return &served
+	}
 	if stream, ok := stream.(provider.ServingStream); ok {
 		return new(stream.ServingModel())
 	}

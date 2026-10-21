@@ -198,6 +198,16 @@ type MessageDelta struct {
 	// pointer — a scalar field silently dropped every blob but the last. See
 	// [MediaDelta].
 	Media []MediaDelta `json:"media,omitempty"`
+	// ServerFallback marks the point where the provider handed the turn to
+	// a fallback model: work streamed before it is superseded.
+	ServerFallback *ServerFallback `json:"server_fallback,omitempty"`
+}
+
+// ServerFallback is a provider-side handoff from one model to the next
+// within a single response.
+type ServerFallback struct {
+	From string `json:"from"`
+	To   string `json:"to"`
 }
 
 // MessageStreamChoice represents a choice in a streaming response
