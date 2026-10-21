@@ -63,30 +63,49 @@ type secretsEngine struct {
 
 // secretsEngineLookup is one session lookup shared by concurrent callers.
 type secretsEngineLookup struct {
-	done  chan struct{} // closed once token and err are set
-	token string
-	err   error
+	done    chan struct{} // closed once session and err are set
+	session dockerhub.UserSession
+	err     error
 }
 
-// secretsEngineToken returns a usable token from the secrets engine and caches it.
-func secretsEngineToken(ctx context.Context) (string, bool) {
-	token, err := defaultSecretsEngine().fetch(ctx)
+// secretsEngineToken returns a usable token from the secrets engine and its account, and caches both.
+func secretsEngineToken(ctx context.Context) (string, DockerHubInfo, bool) {
+	session, err := defaultSecretsEngine().fetch(ctx)
+	token, claims := session.AccessToken, session.Claims
 	switch {
 	case err != nil:
 		slog.DebugContext(ctx, "Skipping the secrets engine", "error", err)
-		return "", false
+		return "", DockerHubInfo{}, false
 	case token == "":
 		slog.DebugContext(ctx, "No Docker Hub session in the secrets engine")
-		return "", false
-	case !usable(token):
-		slog.DebugContext(ctx, "The secrets engine served a token that expired, is about to, or was refused",
+		return "", DockerHubInfo{}, false
+	case claims.Username == "":
+		slog.WarnContext(ctx, "The secrets engine served a session without an account",
+			"fingerprint", tokenFingerprint(token))
+		return "", DockerHubInfo{}, false
+	case session.ExpiresWithin(hubauth.ExpiryLeeway):
+		slog.DebugContext(ctx, "The secrets engine served a session that expired, is about to, or has no expiry",
 			"fingerprint", tokenFingerprint(token),
-			"expires_in", expiresIn(token))
-		return "", false
-	case !remember(token, SourceSecretsEngine):
-		return "", false
+			"expires_at", sessionExpiry(session))
+		return "", DockerHubInfo{}, false
+	case wasRejected(token):
+		slog.DebugContext(ctx, "The secrets engine served a token Docker refused",
+			"fingerprint", tokenFingerprint(token))
+		return "", DockerHubInfo{}, false
 	}
-	return token, true
+
+	account := DockerHubInfo{Username: claims.Username, Email: claims.Email}
+	if !rememberSession(token, SourceSecretsEngine, account, claims.ExpiresAt.Time) {
+		return "", DockerHubInfo{}, false
+	}
+	return token, account, true
+}
+
+func sessionExpiry(session dockerhub.UserSession) string {
+	if exp := session.Claims.ExpiresAt; exp != nil && !exp.IsZero() {
+		return exp.UTC().Format(time.RFC3339)
+	}
+	return "none"
 }
 
 // SecretsEngineError returns why the last secrets engine lookup failed, or nil, once any running lookup ends.
@@ -95,10 +114,10 @@ func SecretsEngineError() error {
 }
 
 // fetch waits at most half of ctx's remaining time for the shared lookup.
-func (e *secretsEngine) fetch(ctx context.Context) (string, error) {
+func (e *secretsEngine) fetch(ctx context.Context) (dockerhub.UserSession, error) {
 	lookup, err := e.join(ctx)
 	if err != nil {
-		return "", err
+		return dockerhub.UserSession{}, err
 	}
 
 	wait, cancel := context.WithTimeout(ctx, secretsEngineWait(ctx))
@@ -106,12 +125,12 @@ func (e *secretsEngine) fetch(ctx context.Context) (string, error) {
 
 	select {
 	case <-lookup.done:
-		return lookup.token, lookup.err
+		return lookup.session, lookup.err
 	case <-wait.Done():
 		if err := ctx.Err(); err != nil {
-			return "", err
+			return dockerhub.UserSession{}, err
 		}
-		return "", errSecretsEngineSlow
+		return dockerhub.UserSession{}, errSecretsEngineSlow
 	}
 }
 
@@ -144,7 +163,7 @@ func (e *secretsEngine) join(ctx context.Context) (*secretsEngineLookup, error) 
 
 // run reads the session; a failure is logged and starts the cooldown.
 func (e *secretsEngine) run(ctx context.Context, lookup *secretsEngineLookup) {
-	token, err := e.session(ctx)
+	session, err := e.session(ctx)
 	if err != nil {
 		e.logError(ctx, err)
 	}
@@ -158,7 +177,7 @@ func (e *secretsEngine) run(ctx context.Context, lookup *secretsEngineLookup) {
 	}
 	e.lastErr = err
 	e.inflight = nil
-	lookup.token, lookup.err = token, err
+	lookup.session, lookup.err = session, err
 	close(lookup.done)
 }
 
@@ -180,10 +199,10 @@ func (e *secretsEngine) lastError() error {
 	return e.lastErr
 }
 
-// session returns the default account's access token, or "" when signed out.
-func (e *secretsEngine) session(ctx context.Context) (string, error) {
+// session returns the default account's session, or none when signed out; a missing or non-JWT token fails.
+func (e *secretsEngine) session(ctx context.Context) (dockerhub.UserSession, error) {
 	if e.clientErr != nil {
-		return "", e.clientErr
+		return dockerhub.UserSession{}, e.clientErr
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, secretsEngineBudget)
@@ -192,11 +211,13 @@ func (e *secretsEngine) session(ctx context.Context) (string, error) {
 	session, err := e.client.GetDefaultSession(ctx)
 	switch {
 	case err == nil:
-		return session.AccessToken, nil
+		return session, nil
+	case errors.Is(err, dockerhub.ErrInvalidAccessToken), errors.Is(err, dockerhub.ErrMissingAccessToken):
+		return dockerhub.UserSession{}, err
 	case errors.Is(err, dockerhub.ErrNoSession):
-		return "", nil
+		return dockerhub.UserSession{}, nil
 	default:
-		return "", err
+		return dockerhub.UserSession{}, err
 	}
 }
 

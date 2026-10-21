@@ -3,6 +3,7 @@
 package desktop
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,8 @@ import (
 	"github.com/docker/secrets-engine/x/secrets"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/docker/docker-agent/pkg/hubauth"
 )
 
 func TestGetTokenFromSecretsEngine(t *testing.T) {
@@ -97,13 +100,143 @@ func TestGetTokenFromSecretsEngine(t *testing.T) {
 		assert.Equal(t, 0, backend.refreshes())
 	})
 
-	t.Run("GetUserInfo names the account of an engine token", func(t *testing.T) {
-		backend := &fakeBackend{token: makeIdentityToken(t, "claims-user", "claims@example.com")}
-		backend.info = &DockerHubInfo{Username: "desktop-user", Email: "desktop@example.com"}
-		installFakeBackend(t, backend)
-		installFakeEngine(t, &fakeEngine{token: makeIdentityToken(t, "engine-user", "engine@example.com")})
+	t.Run("a token that is not a JWT falls back to Docker Desktop", func(t *testing.T) {
+		fromDesktop := makeToken(t, time.Now().Add(time.Hour))
+		installFakeBackend(t, &fakeBackend{token: fromDesktop})
+		installFakeEngine(t, &fakeEngine{token: "dckr_pat_0123456789abcdef", username: "engine-user"})
 
-		assert.Equal(t, DockerHubInfo{Username: "engine-user", Email: "engine@example.com"}, GetUserInfo(t.Context()))
+		token, source := GetTokenWithSource(t.Context())
+		assert.Equal(t, fromDesktop, token)
+		assert.Equal(t, SourceDesktop, source)
+		require.ErrorIs(t, SecretsEngineError(), dockerhub.ErrInvalidAccessToken)
+	})
+
+	for _, tt := range []struct {
+		name   string
+		engine func(token string) *fakeEngine
+	}{
+		{name: "a session without claims", engine: func(token string) *fakeEngine {
+			return &fakeEngine{token: token, noClaims: true}
+		}},
+		{name: "a session without an expiry", engine: func(token string) *fakeEngine {
+			return &fakeEngine{token: token, noExpiry: true}
+		}},
+		{name: "a session the engine says is expiring", engine: func(token string) *fakeEngine {
+			return &fakeEngine{token: token, expiresAt: time.Now().Add(10 * time.Second)}
+		}},
+	} {
+		t.Run(tt.name+" falls back to Docker Desktop", func(t *testing.T) {
+			fromDesktop := makeToken(t, time.Now().Add(time.Hour))
+			installFakeBackend(t, &fakeBackend{token: fromDesktop})
+			installFakeEngine(t, tt.engine(makeToken(t, time.Now().Add(time.Hour))))
+
+			token, source := GetTokenWithSource(t.Context())
+			assert.Equal(t, fromDesktop, token)
+			assert.Equal(t, SourceDesktop, source)
+		})
+	}
+
+	t.Run("a cached engine token is dropped as its session nears expiry", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			fromDesktop := makeToken(t, time.Now().Add(time.Hour))
+			installFakeBackend(t, &fakeBackend{token: fromDesktop})
+			installFakeEngine(t, &fakeEngine{
+				token:     makeToken(t, time.Now().Add(time.Hour)),
+				expiresAt: time.Now().Add(40 * time.Second),
+			})
+
+			_, source := GetTokenWithSource(t.Context())
+			require.Equal(t, SourceSecretsEngine, source)
+
+			time.Sleep(15 * time.Second) //nolint:forbidigo // Fake time: the session is within the leeway, the cache is not stale yet.
+
+			token, source := GetTokenWithSource(t.Context())
+			assert.Equal(t, fromDesktop, token)
+			assert.Equal(t, SourceDesktop, source)
+		})
+	})
+}
+
+func TestGetUserInfoFromSecretsEngine(t *testing.T) {
+	desktopAccount := DockerHubInfo{Username: "desktop-user", Email: "desktop@example.com"}
+	engineAccount := DockerHubInfo{Username: "engine-user", Email: "engine@example.com"}
+
+	t.Run("names the account of the engine session", func(t *testing.T) {
+		backend := &fakeBackend{token: makeIdentityToken(t, "claims-user", "claims@example.com")}
+		backend.info = &desktopAccount
+		installFakeBackend(t, backend)
+		installFakeEngine(t, &fakeEngine{
+			token:    makeIdentityToken(t, "jwt-user", "jwt@example.com"),
+			username: engineAccount.Username,
+			email:    engineAccount.Email,
+		})
+
+		assert.Equal(t, engineAccount, GetUserInfo(t.Context()))
+	})
+
+	t.Run("names the engine account of a cached engine token", func(t *testing.T) {
+		backend := &fakeBackend{}
+		backend.info = &desktopAccount
+		installFakeBackend(t, backend)
+		engine := &fakeEngine{
+			token:    makeToken(t, time.Now().Add(time.Hour)),
+			username: engineAccount.Username,
+			email:    engineAccount.Email,
+		}
+		installFakeEngine(t, engine)
+
+		_, source := GetTokenWithSource(t.Context())
+		require.Equal(t, SourceSecretsEngine, source)
+		lookups := engine.lookupCount()
+
+		assert.Equal(t, engineAccount, GetUserInfo(t.Context()))
+		assert.Equal(t, lookups, engine.lookupCount())
+	})
+
+	t.Run("reads Docker Desktop for an engine session without claims", func(t *testing.T) {
+		backend := &fakeBackend{}
+		backend.info = &desktopAccount
+		installFakeBackend(t, backend)
+		installFakeEngine(t, &fakeEngine{token: makeToken(t, time.Now().Add(time.Hour)), noClaims: true})
+
+		assert.Equal(t, desktopAccount, GetUserInfo(t.Context()))
+	})
+
+	t.Run("reads Docker Desktop for a cached Docker Desktop token", func(t *testing.T) {
+		backend := &fakeBackend{token: makeIdentityToken(t, "claims-user", "claims@example.com")}
+		backend.info = &desktopAccount
+		installFakeBackend(t, backend)
+		engine := &fakeEngine{}
+		installFakeEngine(t, engine)
+
+		_, source := GetTokenWithSource(t.Context())
+		require.Equal(t, SourceDesktop, source)
+		engine.setToken(makeToken(t, time.Now().Add(time.Hour)))
+
+		assert.Equal(t, desktopAccount, GetUserInfo(t.Context()))
+	})
+
+	t.Run("reads Docker Desktop for a token that is not a JWT", func(t *testing.T) {
+		backend := &fakeBackend{}
+		backend.info = &desktopAccount
+		installFakeBackend(t, backend)
+		installFakeEngine(t, &fakeEngine{token: "dckr_pat_0123456789abcdef", username: engineAccount.Username})
+
+		assert.Equal(t, desktopAccount, GetUserInfo(t.Context()))
+	})
+
+	t.Run("reads Docker Desktop before a stalled engine uses up the deadline", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			backend := &fakeBackend{token: makeToken(t, time.Now().Add(-time.Hour)), loggedIn: true}
+			backend.info = &desktopAccount
+			installFakeBackend(t, backend)
+			installFakeEngine(t, &fakeEngine{block: true})
+
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+
+			assert.Equal(t, desktopAccount, GetUserInfo(ctx))
+		})
 	})
 
 	t.Run("a refused engine token is not served again", func(t *testing.T) {
@@ -161,9 +294,9 @@ func TestSecretsEngineCooldown(t *testing.T) {
 			fake := &fakeEngine{}
 			engine := newTestEngine(t, fake)
 
-			token, err := engine.fetch(t.Context())
+			session, err := engine.fetch(t.Context())
 			require.NoError(t, err)
-			assert.Empty(t, token)
+			assert.Empty(t, session.AccessToken)
 			lookups := fake.lookupCount()
 
 			_, err = engine.fetch(t.Context())
@@ -263,9 +396,9 @@ func TestSecretsEngineCallerDeadline(t *testing.T) {
 			_, err := engine.fetch(canceled)
 			require.ErrorIs(t, err, context.Canceled)
 
-			token, err := engine.fetch(t.Context())
+			session, err := engine.fetch(t.Context())
 			require.NoError(t, err)
-			assert.Equal(t, fromEngine, token)
+			assert.Equal(t, fromEngine, session.AccessToken)
 			assert.Equal(t, 2, fake.lookupCount(), "one profile and one session read")
 		})
 	})
@@ -279,19 +412,19 @@ func TestSecretsEngineConcurrentLookups(t *testing.T) {
 		fake := &fakeEngine{token: fromEngine, delay: time.Second}
 		engine := newTestEngine(t, fake)
 
-		tokens := make([]string, 32)
+		sessions := make([]dockerhub.UserSession, 32)
 		errs := make([]error, 32)
 		var wg sync.WaitGroup
-		for i := range tokens {
+		for i := range sessions {
 			wg.Go(func() {
-				tokens[i], errs[i] = engine.fetch(t.Context())
+				sessions[i], errs[i] = engine.fetch(t.Context())
 			})
 		}
 		wg.Wait()
 
 		require.NoError(t, errors.Join(errs...))
-		for _, token := range tokens {
-			assert.Equal(t, fromEngine, token)
+		for _, session := range sessions {
+			assert.Equal(t, fromEngine, session.AccessToken)
 		}
 
 		assert.Equal(t, 2, fake.lookupCount(), "concurrent callers share one lookup")
@@ -362,12 +495,36 @@ func endCooldown(engine *secretsEngine) {
 }
 
 type fakeEngine struct {
-	mu      sync.Mutex
-	token   string
-	err     error
-	block   bool
-	delay   time.Duration
-	lookups int
+	mu        sync.Mutex
+	token     string
+	username  string
+	email     string
+	expiresAt time.Time
+	noClaims  bool
+	noExpiry  bool
+	err       error
+	block     bool
+	delay     time.Duration
+	lookups   int
+}
+
+// claims are what the engine stores alongside the token: its account, and the token's expiry unless overridden.
+func (e *fakeEngine) claims(token string) dockerhub.Claims {
+	if e.noClaims {
+		return dockerhub.Claims{}
+	}
+	claims := dockerhub.Claims{Username: cmp.Or(e.username, "testuser"), Email: e.email}
+	if e.noExpiry {
+		return claims
+	}
+	exp := e.expiresAt
+	if exp.IsZero() {
+		exp, _ = hubauth.Expiry(token)
+	}
+	if !exp.IsZero() {
+		claims.ExpiresAt = &dockerhub.NumericDate{Time: exp}
+	}
+	return claims
 }
 
 func (e *fakeEngine) setToken(token string) {
@@ -392,6 +549,7 @@ func (e *fakeEngine) GetSecrets(ctx context.Context, pattern secrets.Pattern) ([
 	e.mu.Lock()
 	e.lookups++
 	token, err, block, delay := e.token, e.err, e.block, e.delay
+	claims := e.claims(token)
 	e.mu.Unlock()
 
 	if block {
@@ -417,7 +575,7 @@ func (e *fakeEngine) GetSecrets(ctx context.Context, pattern secrets.Pattern) ([
 	case "docker/auth/metadata/hub/default":
 		value = dockerhub.Profile{UserID: "docker/auth/hub/testuser", Username: "testuser"}
 	case "docker/auth/hub/testuser":
-		value = dockerhub.UserSession{AccessToken: token}
+		value = dockerhub.UserSession{AccessToken: token, Claims: claims}
 	default:
 		return nil, secrets.ErrNotFound
 	}

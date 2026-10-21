@@ -361,36 +361,26 @@ func TestEveryRefusedTokenStaysRefused(t *testing.T) {
 func TestGetUserInfo(t *testing.T) {
 	desktopAccount := DockerHubInfo{Username: "desktop-user", Email: "desktop@example.com"}
 
-	t.Run("names the account of the token in use", func(t *testing.T) {
+	t.Run("prefers what Docker Desktop reports", func(t *testing.T) {
 		backend := &fakeBackend{token: makeIdentityToken(t, "claims-user", "claims@example.com")}
 		backend.info = &desktopAccount
 		installFakeBackend(t, backend)
 
+		assert.Equal(t, desktopAccount, GetUserInfo(t.Context()))
+	})
+
+	t.Run("keeps Docker Desktop's email when the token carries none", func(t *testing.T) {
+		backend := &fakeBackend{token: makeIdentityToken(t, desktopAccount.Username, "")}
+		backend.info = &desktopAccount
+		installFakeBackend(t, backend)
+
+		assert.Equal(t, desktopAccount, GetUserInfo(t.Context()))
+	})
+
+	t.Run("falls back to the token claims", func(t *testing.T) {
+		installFakeBackend(t, &fakeBackend{token: makeIdentityToken(t, "claims-user", "claims@example.com")})
+
 		assert.Equal(t, DockerHubInfo{Username: "claims-user", Email: "claims@example.com"}, GetUserInfo(t.Context()))
-	})
-
-	t.Run("falls back to Docker Desktop for a token without an account", func(t *testing.T) {
-		backend := &fakeBackend{token: makeToken(t, time.Now().Add(time.Hour))}
-		backend.info = &desktopAccount
-		installFakeBackend(t, backend)
-
-		assert.Equal(t, desktopAccount, GetUserInfo(t.Context()))
-	})
-
-	t.Run("falls back to Docker Desktop for a personal access token", func(t *testing.T) {
-		backend := &fakeBackend{token: "dckr_pat_0123456789abcdef", loggedIn: true}
-		backend.info = &desktopAccount
-		installFakeBackend(t, backend)
-
-		assert.Equal(t, desktopAccount, GetUserInfo(t.Context()))
-	})
-
-	t.Run("falls back to Docker Desktop without a token", func(t *testing.T) {
-		backend := &fakeBackend{}
-		backend.info = &desktopAccount
-		installFakeBackend(t, backend)
-
-		assert.Equal(t, desktopAccount, GetUserInfo(t.Context()))
 	})
 
 	t.Run("reports nothing without a token", func(t *testing.T) {
