@@ -154,8 +154,14 @@ func (r *Runner) Run(ctx context.Context, ttyOut, out io.Writer, isTTY bool) ([]
 	fmt.Fprintf(out, "Running %d evaluations with concurrency %d\n\n", len(evals), r.Concurrency)
 
 	progress := newProgressBar(ttyOut, out, r.TTYFd, len(evals), isTTY)
-	progress.start()
-	defer progress.stop()
+	// Keep rendering until workers finish, even after evaluation cancellation.
+	progressCtx, stopProgress := context.WithCancel(context.WithoutCancel(ctx))
+	var progressWG sync.WaitGroup
+	progressWG.Go(func() { progress.run(progressCtx) })
+	defer func() {
+		stopProgress()
+		progressWG.Wait()
+	}()
 
 	results := make([]Result, len(evals))
 
