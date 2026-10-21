@@ -1119,12 +1119,14 @@ func TestSharedClientConcurrentSessions(t *testing.T) {
 	}
 
 	require.Equal(t, 2, srv.count())
+	var matched []string
 	for i := range 2 {
 		raw := srv.request(t, i).raw
 		for _, c := range conversations {
 			if !strings.Contains(raw, "system-"+c.marker) {
 				continue
 			}
+			matched = append(matched, c.marker)
 			for _, want := range []string{"question-" + c.marker, "contents-" + c.marker, "tool_" + c.marker} {
 				assert.Contains(t, raw, want)
 			}
@@ -1133,4 +1135,5 @@ func TestSharedClientConcurrentSessions(t *testing.T) {
 			}
 		}
 	}
+	assert.ElementsMatch(t, []string{"alpha", "beta"}, matched, "each conversation is sent exactly once, as itself")
 }
