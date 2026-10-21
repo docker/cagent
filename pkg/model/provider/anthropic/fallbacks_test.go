@@ -76,3 +76,83 @@ func TestNewClient_RejectsClaude5Fallbacks(t *testing.T) {
 	_, err := NewClient(t.Context(), cfg, environment.NewMapEnvProvider(map[string]string{"ANTHROPIC_API_KEY": "k"}))
 	require.ErrorContains(t, err, "issues/4584")
 }
+
+func TestParseFallbacks(t *testing.T) {
+	t.Parallel()
+
+	valid := map[string]struct {
+		value any
+		want  fallbackSpec
+	}{
+		"absent":       {},
+		"empty list":   {value: []any{}},
+		"default":      {value: "default", want: fallbackSpec{Default: true}},
+		"one model":    {value: []any{"claude-opus-4-8"}, want: fallbackSpec{Models: []string{"claude-opus-4-8"}}},
+		"three models": {value: []any{"a", "b", "c"}, want: fallbackSpec{Models: []string{"a", "b", "c"}}},
+		"string slice": {value: []string{"a"}, want: fallbackSpec{Models: []string{"a"}}},
+	}
+	for name, tc := range valid {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			opts := map[string]any{}
+			if tc.value != nil {
+				opts["fallbacks"] = tc.value
+			}
+			got, err := parseFallbacks(opts)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+
+	invalid := map[string]any{
+		"other string": "claude-opus-4-8",
+		"four models":  []any{"a", "b", "c", "d"},
+		"duplicate":    []any{"a", "a"},
+		"empty entry":  []any{"a", ""},
+		"non-string":   []any{"a", 1},
+		"object entry": []any{map[string]any{"model": "a"}},
+		"wrong type":   42,
+	}
+	for name, value := range invalid {
+		t.Run("invalid "+name, func(t *testing.T) {
+			t.Parallel()
+			_, err := parseFallbacks(map[string]any{"fallbacks": value})
+			require.ErrorContains(t, err, "fallbacks")
+		})
+	}
+}
+
+func TestValidateFallbackSpec(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		model     string
+		fallbacks any
+		wantErr   string
+	}{
+		"list":                   {model: "claude-opus-4-8", fallbacks: []any{"claude-sonnet-4-6"}},
+		"default":                {model: "claude-opus-4-8", fallbacks: "default"},
+		"entry equals primary":   {model: "claude-opus-4-8", fallbacks: []any{"claude-opus-4-8"}, wantErr: "same as the model"},
+		"malformed":              {model: "claude-opus-4-8", fallbacks: "nope", wantErr: "fallbacks"},
+		"haiku 5.5 list":         {model: "claude-haiku-5-5", fallbacks: []any{"claude-sonnet-4-6"}, wantErr: "no server-side fallback"},
+		"haiku 5.5 default only": {model: "claude-haiku-5-5", fallbacks: "default"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			err := validateFallbackSpec(&latest.ModelConfig{Provider: "anthropic", Model: tc.model, ProviderOpts: map[string]any{"fallbacks": tc.fallbacks}})
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tc.wantErr)
+		})
+	}
+}
+
+func TestNewClient_RejectsMalformedFallbacks(t *testing.T) {
+	t.Parallel()
+
+	cfg := &latest.ModelConfig{Provider: "anthropic", Model: "claude-opus-4-8", ProviderOpts: map[string]any{"fallbacks": "claude-sonnet-4-6"}}
+	_, err := NewClient(t.Context(), cfg, environment.NewMapEnvProvider(map[string]string{"ANTHROPIC_API_KEY": "k"}))
+	require.ErrorContains(t, err, `fallbacks must be "default" or a list`)
+}

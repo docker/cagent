@@ -17,10 +17,14 @@ type Claude5Model struct {
 	// BedrockMantleOnly reports that AWS serves the model only through
 	// Bedrock Mantle, not the runtime/Converse API docker-agent uses.
 	BedrockMantleOnly bool
+	// NoServerSideFallback reports that the Claude API has no server-side
+	// fallback for the model: `fallbacks: "default"` has no effect and a
+	// list is a 400.
+	NoServerSideFallback bool
 }
 
 var claude5Models = map[string]Claude5Model{
-	"claude-haiku-5-5":  {CanDisableThinking: true, ChecksThinkingPrefix: true},
+	"claude-haiku-5-5":  {CanDisableThinking: true, ChecksThinkingPrefix: true, NoServerSideFallback: true},
 	"claude-opus-5":     {CanDisableThinking: true},
 	"claude-opus-5-5":   {ChecksThinkingPrefix: true},
 	"claude-sonnet-5":   {CanDisableThinking: true},

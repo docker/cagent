@@ -16,7 +16,7 @@ func TestLookupClaude5(t *testing.T) {
 		id   string
 		want Claude5Model
 	}{
-		{"claude-haiku-5-5", Claude5Model{CanDisableThinking: true, ChecksThinkingPrefix: true}},
+		{"claude-haiku-5-5", Claude5Model{CanDisableThinking: true, ChecksThinkingPrefix: true, NoServerSideFallback: true}},
 		{"claude-opus-5", Claude5Model{CanDisableThinking: true}},
 		{"claude-opus-5-5", Claude5Model{ChecksThinkingPrefix: true}},
 		{"claude-sonnet-5", Claude5Model{CanDisableThinking: true}},
@@ -31,7 +31,7 @@ func TestLookupClaude5(t *testing.T) {
 		{"global.anthropic.claude-fable-5-1", Claude5Model{ChecksThinkingPrefix: true}},
 		{"claude-opus-5-5@20261001", Claude5Model{ChecksThinkingPrefix: true}},
 		{"vendor/claude-fable-5-1", Claude5Model{ChecksThinkingPrefix: true}},
-		{"CLAUDE-HAIKU-5-5", Claude5Model{CanDisableThinking: true, ChecksThinkingPrefix: true}},
+		{"CLAUDE-HAIKU-5-5", Claude5Model{CanDisableThinking: true, ChecksThinkingPrefix: true, NoServerSideFallback: true}},
 	}
 	for _, tc := range known {
 		t.Run(tc.id, func(t *testing.T) {
