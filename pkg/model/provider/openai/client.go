@@ -281,6 +281,7 @@ var openModelHostProviders = map[string]bool{
 	"daoxe":        true,
 	"ovhcloud":     true,
 	"openrouter":   true,
+	"opper":        true,
 	"nebius":       true,
 	"nvidia":       true,
 	"cerebras":     true,

@@ -89,6 +89,13 @@ func TestAvailableProviders_NoGateway(t *testing.T) {
 			expectedProvider: "atlascloud",
 		},
 		{
+			name: "opper api key present",
+			envVars: map[string]string{
+				"OPPER_API_KEY": "test-key",
+			},
+			expectedProvider: "opper",
+		},
+		{
 			name: "baseten api key present",
 			envVars: map[string]string{
 				"BASETEN_API_KEY": "test-key",
@@ -334,6 +341,15 @@ func TestAutoModelConfig(t *testing.T) {
 			},
 			expectedProvider:  "api-route",
 			expectedModel:     "gpt-6.1-sol",
+			expectedMaxTokens: 32000,
+		},
+		{
+			name: "opper provider",
+			envVars: map[string]string{
+				"OPPER_API_KEY": "test-key",
+			},
+			expectedProvider:  "opper",
+			expectedModel:     "claude-sonnet-4-6",
 			expectedMaxTokens: 32000,
 		},
 		{
