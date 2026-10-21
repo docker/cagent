@@ -3,6 +3,78 @@
 All notable changes to this project will be documented in this file.
 
 
+## [v1.152.0] - 2026-10-21
+
+This release delivers significant Claude 5.x support improvements, RAG sharing optimizations, security hardening for the REST API, and history load performance gains.
+
+## What's New
+
+- Adds syntax highlighting for scripts in common shell wrappers, including Python, Node/JavaScript, Ruby, Perl, and shell heredocs in the TUI
+- Adds an explicit Claude 5.x model table covering nine models, replacing name-based guesses for request policy on Anthropic Direct, Vertex, and Bedrock
+- Adds warnings and refusals when Claude 5.x cannot honor `thinking_budget none`, and rejects final assistant prefill for Claude 5.x
+- Refuses server-side fallback involving Claude 5.x and refuses Claude Mythos 5 on Bedrock (unsupported configurations)
+- Adds versioned, attributed provider raw state (`ProviderState` gains `Version` and `Model` fields) with explicit policy for unreplayable thinking blocks
+- Adds helpers for raw-state replay policy and seals provider state after generated media
+
+## Improvements
+
+- Deduplicates history entries in linear time on load, replacing a quadratic scan-and-splice approach
+- Redacts loaded history messages concurrently across available CPU workers, reducing sequential redaction overhead
+- Shares a single RAG index, file watcher, and embedding concurrency cap across all agents referencing the same RAG definition, eliminating redundant re-indexing
+- Accumulates Bedrock native block text in a `strings.Builder` instead of copying immutable strings on every delta, fixing quadratic behavior on Bedrock streams
+
+## Bug Fixes
+
+- Fixes OAuth token endpoint auth method: registration now requests `client_secret_post` unless the server only offers `basic` or `none`, and token exchange follows the registered method
+- Fixes OAuth default: omitted `token_endpoint_auth_methods_supported` and `token_endpoint_auth_method` now default to `client_secret_basic`
+- Locks down the REST session API against CSRF and DNS rebinding: rejects cross-origin requests on all methods, validates `Host` headers on unauthenticated TCP listeners, and requires tokens on non-loopback listeners
+- Fixes Anthropic Haiku 5.x: omits sampling parameters (e.g. temperature) that the model rejects
+- Fixes RAG: skips re-embedding files already indexed by another store, and does not attribute shared background indexing to a session
+- Fixes Bedrock: captures, persists, and replays native Claude reasoning blocks in order; never replays unsigned reasoning blocks
+- Fixes Anthropic: preserves thinking blocks from another provider's raw state
+- Fixes structured output on Claude 5.x: fails correctly without a prefill retry
+- Fixes provider factory: keeps VertexAI out of the factory's dependencies; scopes the Claude 5.x thinking warning to Model Garden and zero budgets
+- Fixes images in tool results: restores typed image attachments after tool replies, handles the explicit-cache path, and preserves following user text on message merge
+- Fixes theme watcher races: `ThemeWatcher` now uses a blocking, context-owned `Run` method instead of an internally managed goroutine
+- Fixes transcription: preserves transcripts and errors through dictation finalization; `Capturer.Run` and `Transcriber.Run` are now context-owned per run
+- Replaces models removed from the models.dev snapshot
+
+## Technical Changes
+
+- Refreshes the embedded models.dev catalog snapshot (+661 added, -71 removed, ~381 modified)
+- Updates Go to 1.27.3, picking up security fixes
+### Pull Requests
+
+- [#4584](https://github.com/docker/docker-agent/pull/4584) - feat(anthropic): reject server-side fallback involving Claude 5.x until #4584
+- [#4595](https://github.com/docker/docker-agent/pull/4595) - fix(oauth): send the registered token auth method
+- [#4631](https://github.com/docker/docker-agent/pull/4631) - chore: refresh models.dev snapshot (+661 -71 ~381)
+- [#4632](https://github.com/docker/docker-agent/pull/4632) - fix: lock down REST session API against CSRF and DNS rebinding
+- [#4633](https://github.com/docker/docker-agent/pull/4633) - perf(history): deduplicate entries in linear time on load
+- [#4635](https://github.com/docker/docker-agent/pull/4635) - chore(deps): bump portcullis to v1.1.2
+- [#4638](https://github.com/docker/docker-agent/pull/4638) - docs: update CHANGELOG.md for v1.151.0
+- [#4639](https://github.com/docker/docker-agent/pull/4639) - perf(history): redact loaded messages concurrently
+- [#4640](https://github.com/docker/docker-agent/pull/4640) - fix(anthropic): omit sampling params for Haiku 5.x
+- [#4647](https://github.com/docker/docker-agent/pull/4647) - test(teamloader): stop LSP tests from auto-installing gopls
+- [#4648](https://github.com/docker/docker-agent/pull/4648) - test(runtime): make TestHandleStream_ContextCancellation deterministic
+- [#4649](https://github.com/docker/docker-agent/pull/4649) - feat: highlight scripts in common shell wrappers
+- [#4650](https://github.com/docker/docker-agent/pull/4650) - fix(rag): share one index across agents referencing the same RAG
+- [#4657](https://github.com/docker/docker-agent/pull/4657) - fix(claude): explicit Claude 5.x model table for request policy
+- [#4658](https://github.com/docker/docker-agent/pull/4658) - feat(claude): refuse Claude 5.x fallbacks and Mythos 5 on Bedrock
+- [#4661](https://github.com/docker/docker-agent/pull/4661) - fix: preserve images in tool results
+- [#4662](https://github.com/docker/docker-agent/pull/4662) - docs: document TUI shell command syntax highlighting (2026-10-20)
+- [#4663](https://github.com/docker/docker-agent/pull/4663) - chore: bump direct Go dependencies
+- [#4666](https://github.com/docker/docker-agent/pull/4666) - fix(bedrock): capture and replay native Claude reasoning blocks
+- [#4667](https://github.com/docker/docker-agent/pull/4667) - perf(bedrock): accumulate native block text in a strings.Builder
+- [#4668](https://github.com/docker/docker-agent/pull/4668) - feat(provider): versioned raw state and explicit policy for unreplayable thinking
+- [#4669](https://github.com/docker/docker-agent/pull/4669) - test: disable tool installation when loading examples
+- [#4670](https://github.com/docker/docker-agent/pull/4670) - test: shrink GitHub archive file-count fixtures
+- [#4673](https://github.com/docker/docker-agent/pull/4673) - fix: harden context-owned theme watching
+- [#4674](https://github.com/docker/docker-agent/pull/4674) - refactor: make transcription and capture context-owned per run
+- [#4675](https://github.com/docker/docker-agent/pull/4675) - test: speed up test fixtures and completion checks
+- [#4676](https://github.com/docker/docker-agent/pull/4676) - ci: prune unused Go build-cache entries before saving
+- [#4679](https://github.com/docker/docker-agent/pull/4679) - bump Go to 1.27.3
+
+
 ## [v1.151.0] - 2026-10-19
 
 This release adds Atlas Cloud and API Route as new provider aliases, introduces live background agent visibility in the sidebar, streaming file previews in the lean TUI, and the Command Code harness type, alongside numerous bug fixes for A2A compatibility, provider cloning, think tool concurrency, and TUI settings.
@@ -7014,3 +7086,5 @@ This release improves the terminal user interface with better error handling and
 [v1.150.0]: https://github.com/docker/docker-agent/releases/tag/v1.150.0
 
 [v1.151.0]: https://github.com/docker/docker-agent/releases/tag/v1.151.0
+
+[v1.152.0]: https://github.com/docker/docker-agent/releases/tag/v1.152.0
