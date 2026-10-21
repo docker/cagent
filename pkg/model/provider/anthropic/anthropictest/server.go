@@ -79,18 +79,18 @@ func TextReply(id, text string, inputTokens int64) string {
 	)
 }
 
-// ThinkingToolReply is signed thinking followed by one tool call.
-func ThinkingToolReply(id, thinking, signature, toolID, toolName string, inputTokens int64) string {
+// ThinkingTextReply is signed thinking followed by a text answer.
+func ThinkingTextReply(id, thinking, signature, text string, inputTokens int64) string {
 	return body(
 		messageStart(id, inputTokens),
 		event("content_block_start", map[string]any{"index": 0, "content_block": map[string]any{"type": "thinking", "thinking": "", "signature": ""}}),
 		event("content_block_delta", map[string]any{"index": 0, "delta": map[string]any{"type": "thinking_delta", "thinking": thinking}}),
 		event("content_block_delta", map[string]any{"index": 0, "delta": map[string]any{"type": "signature_delta", "signature": signature}}),
 		event("content_block_stop", map[string]any{"index": 0}),
-		event("content_block_start", map[string]any{"index": 1, "content_block": map[string]any{"type": "tool_use", "id": toolID, "name": toolName, "input": map[string]any{}}}),
-		event("content_block_delta", map[string]any{"index": 1, "delta": map[string]any{"type": "input_json_delta", "partial_json": "{}"}}),
+		event("content_block_start", map[string]any{"index": 1, "content_block": map[string]any{"type": "text", "text": ""}}),
+		event("content_block_delta", map[string]any{"index": 1, "delta": map[string]any{"type": "text_delta", "text": text}}),
 		event("content_block_stop", map[string]any{"index": 1}),
-		messageDelta("tool_use", map[string]any{"output_tokens": 7}),
+		messageDelta("end_turn", map[string]any{"output_tokens": 7}),
 		event("message_stop", nil),
 	)
 }
