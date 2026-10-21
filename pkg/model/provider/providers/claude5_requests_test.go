@@ -36,14 +36,20 @@ type recorded struct {
 // answers 400 so only the request is under test.
 func captureFinalRequest(t *testing.T, cfg latest.ModelConfig, env map[string]string, opts ...options.Opt) recorded {
 	t.Helper()
-	return captureRequest(t, func(wrapper options.Opt) provider.Provider {
+	return captureHistoryRequest(t, cfg, env, []chat.Message{{Role: chat.MessageRoleUser, Content: "hello"}}, opts...)
+}
+
+// captureHistoryRequest is captureFinalRequest for a whole conversation.
+func captureHistoryRequest(t *testing.T, cfg latest.ModelConfig, env map[string]string, history []chat.Message, opts ...options.Opt) recorded {
+	t.Helper()
+	return captureRequest(t, history, func(wrapper options.Opt) provider.Provider {
 		p, err := providers.NewDefaultRegistry().New(t.Context(), &cfg, environment.NewMapEnvProvider(env), append(opts, wrapper)...)
 		require.NoError(t, err)
 		return p
 	})
 }
 
-func captureRequest(t *testing.T, build func(wrapper options.Opt) provider.Provider) recorded {
+func captureRequest(t *testing.T, history []chat.Message, build func(wrapper options.Opt) provider.Provider) recorded {
 	t.Helper()
 	var (
 		mu   sync.Mutex
@@ -66,7 +72,7 @@ func captureRequest(t *testing.T, build func(wrapper options.Opt) provider.Provi
 		})
 	})
 
-	stream, err := build(wrapper).CreateChatCompletionStream(t.Context(), []chat.Message{{Role: chat.MessageRoleUser, Content: "hello"}}, nil)
+	stream, err := build(wrapper).CreateChatCompletionStream(t.Context(), history, nil)
 	if err == nil {
 		for {
 			if _, err := stream.Recv(); err != nil {
@@ -181,7 +187,7 @@ func TestClaude5FinalRequests(t *testing.T) {
 
 	t.Run("title clone on opus 5.5", func(t *testing.T) {
 		t.Parallel()
-		req := captureRequest(t, func(wrapper options.Opt) provider.Provider {
+		req := captureRequest(t, []chat.Message{{Role: chat.MessageRoleUser, Content: "hello"}}, func(wrapper options.Opt) provider.Provider {
 			cfg := latest.ModelConfig{Provider: "anthropic", Model: "claude-opus-5-5"}
 			base, err := providers.NewDefaultRegistry().New(t.Context(), &cfg, environment.NewMapEnvProvider(anthropicEnv), wrapper)
 			require.NoError(t, err)
