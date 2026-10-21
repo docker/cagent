@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -116,4 +117,59 @@ func TestClaude5LocalCompactionLifecycle(t *testing.T) {
 	thinking, _ := last.Body["thinking"].(map[string]any)
 	binding, _ := thinking["block_binding"].(map[string]any)
 	assert.Equal(t, "drop_block", binding["prefix_mismatch_behavior"])
+}
+
+// Native compaction stores the signed block and its per-iteration usage;
+// after a reload, the next request replays the block verbatim with the
+// compaction beta, and the summary's cost covers every iteration.
+func TestClaude5NativeCompactionLifecycle(t *testing.T) {
+	t.Parallel()
+
+	server := anthropictest.NewServer(t,
+		anthropictest.TextReply("msg_1", "a1", 36_500),
+		anthropictest.CompactionReply("msg_compact", "SUMMARY", "sig-c", [2]int64{30_000, 400}, [2]int64{3_000, 600}),
+		anthropictest.TextReply("msg_2", "a2", 100),
+		anthropictest.TextReply("msg_3", "a3", 100),
+	)
+	dbPath := filepath.Join(t.TempDir(), "sessions.db")
+	native := map[string]any{"native_compaction": true}
+	rt := claude5Runtime(t, server, native, openSessionStore(t, dbPath))
+
+	sess := session.New(session.WithUserMessage("u1"))
+	requireNoErrorEvents(t, drainRunStream(t, rt, sess))
+	sess.AddMessage(session.UserMessage("u2"))
+	events := drainRunStream(t, rt, sess)
+	requireNoErrorEvents(t, events)
+	require.Equal(t, 1, countCompactionStarts(events), "the 36.5k-token turn crosses 90% of the 40k window")
+
+	loaded, err := openSessionStore(t, dbPath).GetSession(t.Context(), sess.ID)
+	require.NoError(t, err)
+	var summary *session.Item
+	for i := range loaded.Messages {
+		if loaded.Messages[i].Summary != "" {
+			summary = &loaded.Messages[i]
+		}
+	}
+	require.NotNil(t, summary)
+	require.NotNil(t, summary.Compaction)
+	assert.Contains(t, string(summary.Compaction.Block), `"signature":"sig-c"`)
+	assert.Len(t, summary.Compaction.Iterations, 2)
+	// $1/$2 per MTok: (30,000 + 2×400 + 3,000 + 2×600) / 1M.
+	assert.InDelta(t, 0.035, summary.Cost, 1e-9)
+
+	loaded.AddMessage(session.UserMessage("u3"))
+	reloaded := claude5Runtime(t, server, native, openSessionStore(t, dbPath))
+	requireNoErrorEvents(t, drainRunStream(t, reloaded, loaded))
+
+	requests := server.Requests()
+	require.Len(t, requests, 4, "turn 1, compaction, turn 2, turn 3 after reload")
+	last := requests[3]
+	assert.Contains(t, last.Betas, "compact-2026-09-04")
+	messages, _ := last.Body["messages"].([]any)
+	require.NotEmpty(t, messages)
+	first, _ := json.Marshal(messages[0])
+	assert.Contains(t, string(first), `"type":"compaction"`, "the conversation resumes from the compaction block")
+	assert.Contains(t, string(first), `"signature":"sig-c"`, "the block is replayed verbatim")
+	assert.Contains(t, string(first), `"encrypted_content":"enc-msg_compact"`)
+	assert.Len(t, messages, 3, "block, a2, u3: the compacted history is not resent")
 }
