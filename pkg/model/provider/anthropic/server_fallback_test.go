@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -208,4 +211,70 @@ func TestServerFallbackProjection(t *testing.T) {
 		assert.Contains(t, string(data), `"signature":"sig-n"`)
 		assert.NotContains(t, string(data), "sig-d")
 	})
+}
+
+// Two concurrent streams on one client: the one that fell back reports its
+// markers and serving model, the other reports neither.
+func TestServerFallbackStatePerStream(t *testing.T) {
+	t.Parallel()
+
+	const from, to = "claude-opus-4-8", "claude-sonnet-4-6"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		w.Header().Set("content-type", "text/event-stream")
+		if strings.Contains(string(raw), "falls-back") {
+			_, _ = w.Write([]byte(anthropictest.FallbackMidOutputReply("m1", from, to, "before ", "after", "t1")))
+			return
+		}
+		_, _ = w.Write([]byte(anthropictest.TextReply("m2", "plain", 10)))
+	}))
+	t.Cleanup(srv.Close)
+	client := fallbackClient(&scriptedServer{Server: srv})
+
+	type outcome struct {
+		markers []chat.ServerFallback
+		served  string
+		err     error
+	}
+	prompts := []string{"falls-back", "plain"}
+	results := make([]outcome, len(prompts))
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i, prompt := range prompts {
+		wg.Go(func() {
+			<-start
+			stream, err := client.CreateChatCompletionStream(t.Context(), []chat.Message{user(prompt)}, nil)
+			if err != nil {
+				results[i].err = err
+				return
+			}
+			defer stream.Close()
+			for {
+				resp, err := stream.Recv()
+				if err != nil {
+					if !errors.Is(err, io.EOF) {
+						results[i].err = err
+					}
+					break
+				}
+				for _, c := range resp.Choices {
+					if c.Delta.ServerFallback != nil {
+						results[i].markers = append(results[i].markers, *c.Delta.ServerFallback)
+					}
+				}
+			}
+			if model, ok := stream.(contracts.ServedStream).ServedBy(); ok {
+				results[i].served = model.Config.ModelConfig.Model
+			}
+		})
+	}
+	close(start)
+	wg.Wait()
+
+	require.NoError(t, results[0].err)
+	require.NoError(t, results[1].err)
+	assert.Equal(t, []chat.ServerFallback{{From: from, To: to}}, results[0].markers)
+	assert.Equal(t, to, results[0].served)
+	assert.Empty(t, results[1].markers)
+	assert.Empty(t, results[1].served)
 }
