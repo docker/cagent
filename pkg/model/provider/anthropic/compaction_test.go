@@ -248,7 +248,7 @@ func TestCompaction_StandardPathWithoutBlock(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			srv := newScriptedServer(t, textReply("msg_1", "ok"))
-			client := newScriptedClient(srv, latest.ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-6"})
+			client := newScriptedClient(srv, latest.ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-6", ProviderOpts: map[string]any{"native_compaction": true}})
 			chatTurn(t, client, []chat.Message{summaryMessage(compaction), user("u3")}, nil)
 
 			req := srv.request(t, 0)
@@ -263,7 +263,7 @@ func TestCompaction_EditedSummaryIsNotReplayed(t *testing.T) {
 	t.Parallel()
 	signed := &chat.CompactionResult{Provider: providerStateName, Summary: "S", Block: json.RawMessage(`{"type":"compaction","content":"S","encrypted_content":"e","signature":"s"}`)}
 	srv := newScriptedServer(t, textReply("msg_1", "ok"))
-	client := newScriptedClient(srv, latest.ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-6"})
+	client := newScriptedClient(srv, latest.ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-6", ProviderOpts: map[string]any{"native_compaction": true}})
 	redacted := summaryMessage(signed)
 	redacted.Content = chat.SummaryMessageContent("[REDACTED]")
 	chatTurn(t, client, []chat.Message{redacted, user("u3")}, nil)
