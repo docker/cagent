@@ -27,6 +27,7 @@ func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 
 type recorded struct {
 	path   string
+	query  string
 	header http.Header
 	body   map[string]any
 }
@@ -58,7 +59,7 @@ func captureRequest(t *testing.T, history []chat.Message, build func(wrapper opt
 	wrapper := options.WithHTTPTransportWrapper(func(http.RoundTripper) http.RoundTripper {
 		return roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 			raw, _ := io.ReadAll(req.Body)
-			r := recorded{path: req.URL.Path, header: req.Header.Clone()}
+			r := recorded{path: req.URL.Path, query: req.URL.RawQuery, header: req.Header.Clone()}
 			_ = json.Unmarshal(raw, &r.body)
 			mu.Lock()
 			reqs = append(reqs, r)

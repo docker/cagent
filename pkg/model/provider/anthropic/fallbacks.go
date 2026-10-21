@@ -8,17 +8,15 @@ import (
 	"slices"
 
 	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/anthropics/anthropic-sdk-go/option"
+	"github.com/anthropics/anthropic-sdk-go/shared/constant"
 
 	"github.com/docker/docker-agent/pkg/config/latest"
-	"github.com/docker/docker-agent/pkg/model/provider/providerutil"
 	"github.com/docker/docker-agent/pkg/modelinfo"
 )
 
-// serverSideFallbackBeta enables the `fallbacks` request parameter, which
-// lets Anthropic reroute refused requests to backup models in a single round
-// trip.
-const serverSideFallbackBeta anthropic.AnthropicBeta = "server-side-fallback-2026-06-01"
+// serverSideFallbackBeta enables the `fallbacks` request parameter. The July
+// date accepts both "default" and explicit lists.
+const serverSideFallbackBeta = anthropic.AnthropicBetaServerSideFallback2026_07_01
 
 // maxFallbacks is the longest list the API accepts.
 const maxFallbacks = 3
@@ -31,6 +29,22 @@ type fallbackSpec struct {
 }
 
 func (s fallbackSpec) enabled() bool { return s.Default || len(s.Models) > 0 }
+
+func (s fallbackSpec) param() anthropic.BetaFallbacksParamUnion {
+	if s.Default {
+		return anthropic.BetaFallbacksParamUnion{OfDefault: constant.ValueOf[constant.Default]()}
+	}
+	list := make([]anthropic.BetaFallbackParam, len(s.Models))
+	for i, m := range s.Models {
+		list[i] = anthropic.BetaFallbackParam{Model: m}
+	}
+	return anthropic.BetaFallbacksParamUnion{OfBetaFallbackArray: list}
+}
+
+func fallbacksEnabled(opts map[string]any) bool {
+	spec, _ := parseFallbacks(opts)
+	return spec.enabled()
+}
 
 // claudeAPIHost is the only host that serves server-side fallback.
 const claudeAPIHost = "api.anthropic.com"
@@ -118,32 +132,6 @@ func validateFallbackSpec(cfg *latest.ModelConfig) error {
 		}
 	}
 	return nil
-}
-
-// fallbackModels extracts the `fallbacks` provider_opt: a list of model IDs,
-// in priority order. Returns nil when the option is absent or malformed.
-//
-// Fallback models receive the exact same request as the primary model
-// (thinking configuration, task budget, beta features, ...), so they must
-// accept the same request shape — Anthropic rejects the fallback attempt
-// otherwise.
-func fallbackModels(opts map[string]any) []string {
-	models, ok := providerutil.GetProviderOptStringSlice(opts, "fallbacks")
-	if !ok || len(models) == 0 {
-		return nil
-	}
-	slog.Debug("Anthropic provider_opts: enabling server-side fallbacks", "models", models)
-	return models
-}
-
-// fallbacksBody returns the request option that injects the `fallbacks` body
-// field. The wire shape is [{"model": "..."}, ...].
-func fallbacksBody(models []string) option.RequestOption {
-	fallbacks := make([]map[string]string, len(models))
-	for i, m := range models {
-		fallbacks[i] = map[string]string{"model": m}
-	}
-	return option.WithJSONSet("fallbacks", fallbacks)
 }
 
 // validateFallbacks rejects server-side fallback when any model in the chain
