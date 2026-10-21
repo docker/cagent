@@ -136,17 +136,20 @@ func (c *Client) CompactConversation(ctx context.Context, messages []chat.Messag
 		return nil, errors.New("anthropic: unsigned compaction block")
 	}
 	var usage chat.Usage
+	var iterations []chat.Usage
 	if c.TrackUsageEnabled() {
 		// On-demand compaction bills iterations, not the zero top-level totals.
 		for _, iteration := range response.Usage.Iterations {
-			usage.Add(&chat.Usage{
+			u := chat.Usage{
 				InputTokens: iteration.InputTokens, OutputTokens: iteration.OutputTokens,
 				CacheWriteTokens: iteration.CacheCreationInputTokens, CachedInputTokens: iteration.CacheReadInputTokens,
-			})
+			}
+			usage.Add(&u)
+			iterations = append(iterations, u)
 		}
 	}
 	return &chat.CompactionResult{
 		Summary: block.Content, Block: json.RawMessage(block.RawJSON()), Provider: providerStateName,
-		Model: response.Model, Usage: usage, RequestContext: requestContext,
+		Model: response.Model, Usage: usage, Iterations: iterations, RequestContext: requestContext,
 	}, nil
 }

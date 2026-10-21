@@ -96,6 +96,10 @@ func TestCompactConversation_UsageAccounting(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, result)
 		assert.Equal(t, chat.Usage{InputTokens: 1100, OutputTokens: 210, CacheWriteTokens: 4, CachedInputTokens: 6}, result.Usage)
+		assert.Equal(t, []chat.Usage{
+			{InputTokens: 100, OutputTokens: 10, CacheWriteTokens: 1, CachedInputTokens: 2},
+			{InputTokens: 1000, OutputTokens: 200, CacheWriteTokens: 3, CachedInputTokens: 4},
+		}, result.Iterations, "each iteration is kept so it can be priced on its own")
 	})
 
 	t.Run("track_usage false reports nothing", func(t *testing.T) {
