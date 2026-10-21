@@ -60,11 +60,16 @@ func TestHandleStream_ServerFallbackDropsSupersededWork(t *testing.T) {
 	assert.Equal(t, "new plan", res.ReasoningContent)
 
 	var warnings []string
+	var retracted [][]string
 	for _, ev := range events {
-		if w, ok := ev.(*WarningEvent); ok {
-			warnings = append(warnings, w.Message)
+		switch ev := ev.(type) {
+		case *WarningEvent:
+			warnings = append(warnings, ev.Message)
+		case *ToolCallsRetractedEvent:
+			retracted = append(retracted, ev.ToolCallIDs)
 		}
 	}
+	assert.Equal(t, [][]string{{"declined"}}, retracted, "the UI drops the pending call")
 	require.Len(t, warnings, 1)
 	assert.Contains(t, warnings[0], "claude-a")
 	assert.Contains(t, warnings[0], "claude-b")
@@ -81,4 +86,23 @@ func TestHandleStream_ServerFallbackWithoutSupersededWork(t *testing.T) {
 
 	assert.Empty(t, res.Calls)
 	assert.Equal(t, "hi", res.Content)
+}
+
+// A refusal voids the tool calls already shown to the user.
+func TestHandleStream_RefusalRetractsToolCalls(t *testing.T) {
+	t.Parallel()
+
+	_, events := runServerFallbackStream(t, newStreamBuilder().
+		AddToolCallName("call_1", "rm_rf").
+		AddToolCallArguments("call_1", `{"path":"/"}`).
+		AddRefusal().
+		Build())
+
+	var retracted []string
+	for _, ev := range events {
+		if ev, ok := ev.(*ToolCallsRetractedEvent); ok {
+			retracted = append(retracted, ev.ToolCallIDs...)
+		}
+	}
+	assert.Equal(t, []string{"call_1"}, retracted)
 }

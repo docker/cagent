@@ -118,6 +118,9 @@ func (p *chatPage) handleRuntimeEvent(msg tea.Msg) (bool, tea.Cmd) {
 		return true, p.handleShellCommand(msg)
 
 	// ===== Tool Events =====
+	case *runtime.ToolCallsRetractedEvent:
+		p.messages.RemoveToolCalls(msg.ToolCallIDs)
+		return true, nil
 	case *runtime.PartialToolCallEvent:
 		return true, p.handlePartialToolCall(msg)
 

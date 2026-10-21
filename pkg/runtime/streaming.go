@@ -288,6 +288,7 @@ mainLoop:
 				if len(toolCalls) > 0 {
 					slog.WarnContext(ctx, "Dropping tool calls superseded by a server fallback",
 						"agent", a.Name(), "tool_calls", len(toolCalls), "from", fb.From, "to", fb.To)
+					events.Emit(ToolCallsRetracted(toolCallIDs(toolCalls), a.Name()))
 				}
 				toolCalls = nil
 				clear(toolCallIndex)
@@ -386,6 +387,7 @@ mainLoop:
 					if len(toolCalls) > 0 {
 						slog.WarnContext(ctx, "Dropping tool calls from refused turn",
 							"agent", a.Name(), "tool_calls", len(toolCalls))
+						events.Emit(ToolCallsRetracted(toolCallIDs(toolCalls), a.Name()))
 						toolCalls = nil
 						openAIResponse = nil
 					}
@@ -512,4 +514,12 @@ mainLoop:
 		Usage:             messageUsage,
 		ResponseStarted:   responseStarted,
 	}, nil
+}
+
+func toolCallIDs(calls []tools.ToolCall) []string {
+	ids := make([]string, len(calls))
+	for i, tc := range calls {
+		ids[i] = tc.ID
+	}
+	return ids
 }

@@ -212,6 +212,7 @@ Event types include:
 - `agent_choice` — Streamed text content (partial responses)
 - `agent_choice_reasoning` — Streamed reasoning content
 - `partial_tool_call` — Streamed tool-call arguments, keyed by `tool_call.id`. The first one also carries `tool_definition`
+- `tool_calls_retracted` — Tool calls announced by `partial_tool_call` that will never run, listed in `tool_call_ids`: the model refused, or a server fallback handed the turn to another model
 - `tool_call` — Agent requesting tool execution
 - `tool_call_output` — Streamed output of a running tool, keyed by `tool_call_id`
 - `tool_call_confirmation` — Tool call waiting for user approval

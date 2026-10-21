@@ -86,6 +86,7 @@ type Model interface {
 	AddCancelledMessage() tea.Cmd
 	AddWelcomeMessage(content string) tea.Cmd
 	AddOrUpdateToolCall(agentName string, toolCall tools.ToolCall, toolDef tools.Tool, status types.ToolStatus) tea.Cmd
+	RemoveToolCalls(toolCallIDs []string)
 	AppendToolOutput(msg *runtime.ToolCallOutputEvent) tea.Cmd
 	AddToolResult(msg *runtime.ToolCallResponseEvent, status types.ToolStatus) tea.Cmd
 	AppendToLastMessage(agentName, content string) tea.Cmd
@@ -2439,13 +2440,38 @@ func (m *model) removeSpinner() {
 }
 
 func (m *model) removePendingToolCallMessages() {
+	m.removeToolCallMessages(func(msg *types.Message) bool {
+		return msg.ToolStatus == types.ToolStatusPending || msg.ToolStatus == types.ToolStatusRunning
+	})
+}
+
+// RemoveToolCalls drops tool calls that will never run, whether they render
+// on their own or inside a reasoning block.
+func (m *model) RemoveToolCalls(toolCallIDs []string) {
+	for i, msg := range m.messages {
+		if msg.Type != types.MessageTypeAssistantReasoningBlock || i >= len(m.views) {
+			continue
+		}
+		if block, ok := m.views[i].(*reasoningblock.Model); ok {
+			for _, id := range toolCallIDs {
+				if block.RemoveToolCall(id) {
+					m.invalidateItem(i)
+				}
+			}
+		}
+	}
+	m.removeToolCallMessages(func(msg *types.Message) bool {
+		return slices.Contains(toolCallIDs, msg.ToolCall.ID)
+	})
+}
+
+func (m *model) removeToolCallMessages(match func(*types.Message) bool) {
 	toolCallMessages := make([]*types.Message, 0, len(m.messages))
 	views := make([]layout.Model, 0, len(m.views))
 	removedBeforeGroup := 0
 
 	for i, msg := range m.messages {
-		if msg.Type == types.MessageTypeToolCall &&
-			(msg.ToolStatus == types.ToolStatusPending || msg.ToolStatus == types.ToolStatusRunning) {
+		if msg.Type == types.MessageTypeToolCall && match(msg) {
 			if i < m.groupStart {
 				removedBeforeGroup++
 			}

@@ -98,6 +98,7 @@ func NewClient(baseURL string, opts ...ClientOption) (*Client, error) {
 			"session_summary":         func() Event { return &SessionSummaryEvent{} },
 			"session_compaction":      func() Event { return &SessionCompactionEvent{} },
 			"partial_tool_call":       func() Event { return &PartialToolCallEvent{} },
+			"tool_calls_retracted":    func() Event { return &ToolCallsRetractedEvent{} },
 			"max_iterations_reached":  func() Event { return &MaxIterationsReachedEvent{} },
 			"budget_usage":            func() Event { return &BudgetUsageEvent{} },
 			"budget_exceeded":         func() Event { return &BudgetExceededEvent{} },

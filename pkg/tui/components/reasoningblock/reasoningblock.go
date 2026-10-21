@@ -3,6 +3,7 @@ package reasoningblock
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -336,6 +337,32 @@ func (m *Model) UpdateToolResult(toolCallID, content string, status types.ToolSt
 		return initCmd
 	}
 	return nil
+}
+
+// RemoveToolCall drops a tool call that will never run. It reports whether
+// the block held it.
+func (m *Model) RemoveToolCall(toolCallID string) bool {
+	k := slices.IndexFunc(m.toolEntries, func(e toolEntry) bool { return e.msg.ToolCall.ID == toolCallID })
+	if k < 0 {
+		return false
+	}
+	animation.StopView(m.toolEntries[k].view)
+	m.toolEntries = slices.Delete(m.toolEntries, k, k+1)
+	items := m.contentItems[:0]
+	for _, item := range m.contentItems {
+		if item.kind == contentItemTool {
+			if item.toolIndex == k {
+				continue
+			}
+			if item.toolIndex > k {
+				item.toolIndex--
+			}
+		}
+		items = append(items, item)
+	}
+	m.contentItems = items
+	m.cache = nil
+	return true
 }
 
 // HasToolCall returns true if the block contains the given tool call ID.
