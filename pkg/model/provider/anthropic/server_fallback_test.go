@@ -1,6 +1,7 @@
 package anthropic
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/model/provider/anthropic/anthropictest"
 	"github.com/docker/docker-agent/pkg/model/provider/contracts"
+	"github.com/docker/docker-agent/pkg/tools"
 )
 
 func fallbackClient(srv *scriptedServer) *Client {
@@ -99,5 +101,111 @@ func TestServerFallbackStream(t *testing.T) {
 		model, ok := stream.(contracts.ServedStream).ServedBy()
 		require.True(t, ok, "the handoff happened before the cut")
 		assert.Equal(t, to, model.Config.ModelConfig.Model)
+	})
+}
+
+// fallbackTurn is a turn the runtime recorded after a server fallback: the
+// raw blocks are intact, while the flattened fields hold only the thinking
+// and tool calls after the final marker, since the runtime dropped the rest.
+func fallbackTurn(t *testing.T, raw, content, reasoning, signature string, calls ...string) chat.Message {
+	t.Helper()
+	msg := chat.Message{Role: chat.MessageRoleAssistant, Content: content, ReasoningContent: reasoning, ThinkingSignature: signature}
+	for _, id := range calls {
+		msg.ToolCalls = append(msg.ToolCalls, tools.ToolCall{ID: id, Type: "function", Function: tools.FunctionCall{Name: "read", Arguments: `{}`}})
+	}
+	msg.AttachProviderState(&chat.ProviderState{Provider: providerStateName, Version: chat.ProviderStateVersion, Model: "claude-sonnet-4-6", Content: json.RawMessage(raw)})
+	data, err := json.Marshal(msg)
+	require.NoError(t, err)
+	var reloaded chat.Message
+	require.NoError(t, json.Unmarshal(data, &reloaded))
+	return reloaded
+}
+
+const (
+	fbMarker   = `{"type":"fallback","from":{"model":"claude-opus-4-8"},"to":{"model":"claude-sonnet-4-6"},"trigger":{"type":"refusal","category":"cyber"}}`
+	fbMarker2  = `{"type":"fallback","from":{"model":"claude-sonnet-4-6"},"to":{"model":"claude-opus-4-7"},"trigger":{"type":"refusal","category":"cyber"}}`
+	fbDeclined = `{"type":"thinking","thinking":"declined","signature":"sig-d"}`
+	fbNew      = `{"type":"thinking","thinking":"new","signature":"sig-n"}`
+)
+
+func blockTypes(t *testing.T, v any) []string {
+	t.Helper()
+	data, err := json.Marshal(v)
+	require.NoError(t, err)
+	var blocks []map[string]any
+	require.NoError(t, json.Unmarshal(data, &blocks))
+	types := make([]string, len(blocks))
+	for i, b := range blocks {
+		types[i], _ = b["type"].(string)
+		if id, ok := b["id"].(string); ok {
+			types[i] += ":" + id
+		}
+	}
+	return types
+}
+
+// The next request keeps the markers and the text, and drops what the
+// declining models produced before the final marker, as the docs' continuation
+// table requires. Without the fallback beta, the markers go too: no thinking
+// is left before them, so nothing depends on their position.
+func TestServerFallbackProjection(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		msg                chat.Message
+		withMarkers, plain []string
+	}{
+		"mid output": {
+			msg: fallbackTurn(t, `[`+fbDeclined+`,{"type":"text","text":"before "},{"type":"tool_use","id":"t-declined","name":"read","input":{}},`+fbMarker+`,`+fbNew+`,{"type":"text","text":"after"},{"type":"tool_use","id":"t-kept","name":"read","input":{}}]`,
+				"before after", "new", "sig-n", "t-kept"),
+			withMarkers: []string{"text", "fallback", "thinking", "text", "tool_use:t-kept"},
+			plain:       []string{"text", "thinking", "text", "tool_use:t-kept"},
+		},
+		"two markers": {
+			msg: fallbackTurn(t, `[{"type":"text","text":"a "},`+fbMarker+`,{"type":"redacted_thinking","data":"r"},{"type":"text","text":"b "},`+fbMarker2+`,{"type":"text","text":"c"}]`,
+				"a b c", "", ""),
+			withMarkers: []string{"text", "fallback", "text", "fallback", "text"},
+			plain:       []string{"text", "text", "text"},
+		},
+		"server tools before the marker": {
+			msg: fallbackTurn(t, `[{"type":"server_tool_use","id":"s-paired","name":"web_search","input":{"query":"q"}},{"type":"web_search_tool_result","tool_use_id":"s-paired","content":[]},{"type":"server_tool_use","id":"s-open","name":"web_search","input":{"query":"q"}},`+fbMarker+`,{"type":"text","text":"answer"}]`,
+				"answer", "", ""),
+			withMarkers: []string{"server_tool_use:s-paired", "web_search_tool_result", "fallback", "text"},
+			plain:       []string{"server_tool_use:s-paired", "web_search_tool_result", "text"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			beta, ok, err := betaReplayContent(&tc.msg, true)
+			require.NoError(t, err)
+			require.True(t, ok, "replayed raw, not rebuilt")
+			assert.Equal(t, tc.withMarkers, blockTypes(t, beta))
+
+			beta, ok, err = betaReplayContent(&tc.msg, false)
+			require.NoError(t, err)
+			require.True(t, ok)
+			assert.Equal(t, tc.plain, blockTypes(t, beta))
+		})
+	}
+
+	t.Run("standard Messages API", func(t *testing.T) {
+		t.Parallel()
+		msg := fallbackTurn(t, `[`+fbDeclined+`,{"type":"text","text":"before "},`+fbMarker+`,{"type":"text","text":"after"}]`, "before after", "", "")
+		blocks, ok, err := replayContent(&msg)
+		require.NoError(t, err, "a marker must not reach the standard converter")
+		require.True(t, ok)
+		assert.Equal(t, []string{"text", "text"}, blockTypes(t, blocks))
+	})
+
+	t.Run("signed thinking after the marker is replayed verbatim", func(t *testing.T) {
+		t.Parallel()
+		msg := fallbackTurn(t, `[`+fbDeclined+`,`+fbMarker+`,`+fbNew+`,{"type":"text","text":"x"}]`, "x", "new", "sig-n")
+		beta, ok, err := betaReplayContent(&msg, true)
+		require.NoError(t, err)
+		require.True(t, ok)
+		data, err := json.Marshal(beta)
+		require.NoError(t, err)
+		assert.Contains(t, string(data), `"signature":"sig-n"`)
+		assert.NotContains(t, string(data), "sig-d")
 	})
 }

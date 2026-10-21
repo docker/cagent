@@ -56,7 +56,7 @@ func replayContent(msg *chat.Message) ([]anthropic.ContentBlockParamUnion, bool,
 		return nil, false, nil
 	}
 	var blocks []anthropic.ContentBlockUnion
-	if err := json.Unmarshal(state.Content, &blocks); err != nil {
+	if err := json.Unmarshal(projectServerFallback(state.Content, false), &blocks); err != nil {
 		return nil, false, fmt.Errorf("anthropic: decoding raw response content: %w", err)
 	}
 	views := make([]rawBlock, len(blocks))
@@ -82,14 +82,15 @@ func replayContent(msg *chat.Message) ([]anthropic.ContentBlockParamUnion, bool,
 	return params, true, nil
 }
 
-// betaReplayContent is replayContent for the Beta Messages API.
-func betaReplayContent(msg *chat.Message) ([]anthropic.BetaContentBlockParamUnion, bool, error) {
+// betaReplayContent is replayContent for the Beta Messages API. keepMarkers
+// keeps server fallback markers, for requests that send the fallback beta.
+func betaReplayContent(msg *chat.Message, keepMarkers bool) ([]anthropic.BetaContentBlockParamUnion, bool, error) {
 	state := msg.ReplayableProviderState(providerStateName)
 	if state == nil {
 		return nil, false, nil
 	}
 	var blocks []anthropic.BetaContentBlockUnion
-	if err := json.Unmarshal(state.Content, &blocks); err != nil {
+	if err := json.Unmarshal(projectServerFallback(state.Content, keepMarkers), &blocks); err != nil {
 		return nil, false, fmt.Errorf("anthropic: decoding raw response content: %w", err)
 	}
 	views := make([]rawBlock, len(blocks))
@@ -181,12 +182,12 @@ func toolInput(raw string) any {
 // only those, so the signed and redacted thinking blocks stay valid. ok is
 // false when the thinking changed, the tool calls no longer line up, or the
 // state is from a format this build cannot read.
-func recoveredContent(msg *chat.Message) (json.RawMessage, bool) {
+func recoveredContent(msg *chat.Message, keepMarkers bool) (json.RawMessage, bool) {
 	state := msg.ProviderState
 	if !msg.HasOwnRawContent(providerStateName) || state.Version > chat.ProviderStateVersion {
 		return nil, false
 	}
-	decoder := json.NewDecoder(bytes.NewReader(state.Content))
+	decoder := json.NewDecoder(bytes.NewReader(projectServerFallback(state.Content, keepMarkers)))
 	decoder.UseNumber()
 	var blocks []map[string]any
 	if decoder.Decode(&blocks) != nil {
@@ -244,7 +245,7 @@ func recoveredContent(msg *chat.Message) (json.RawMessage, bool) {
 
 // recoveredParams is recoveredContent decoded for the Messages API.
 func recoveredParams(msg *chat.Message) ([]anthropic.ContentBlockParamUnion, bool) {
-	raw, ok := recoveredContent(msg)
+	raw, ok := recoveredContent(msg, false)
 	if !ok {
 		return nil, false
 	}
@@ -266,8 +267,8 @@ func recoveredParams(msg *chat.Message) ([]anthropic.ContentBlockParamUnion, boo
 }
 
 // betaRecoveredParams is recoveredContent decoded for the Beta Messages API.
-func betaRecoveredParams(msg *chat.Message) ([]anthropic.BetaContentBlockParamUnion, bool) {
-	raw, ok := recoveredContent(msg)
+func betaRecoveredParams(msg *chat.Message, keepMarkers bool) ([]anthropic.BetaContentBlockParamUnion, bool) {
+	raw, ok := recoveredContent(msg, keepMarkers)
 	if !ok {
 		return nil, false
 	}
@@ -297,7 +298,7 @@ func recordedThinking(msg *chat.Message) bool {
 		return true
 	}
 	var blocks []rawBlock
-	if json.Unmarshal(state.Content, &blocks) != nil {
+	if json.Unmarshal(projectServerFallback(state.Content, false), &blocks) != nil {
 		return true
 	}
 	return slices.ContainsFunc(blocks, func(b rawBlock) bool {
@@ -322,4 +323,65 @@ func (c *Client) flattenedThinking(i, loopStart int, msg *chat.Message) (bool, e
 	}
 	slog.Warn("Anthropic: omitting thinking that changed after it was recorded", "index", i)
 	return false, nil
+}
+
+// projectServerFallback returns a recorded response as the next request must
+// send it after a server fallback: the fallback markers, text, and every block
+// after the final marker stay; thinking, redacted_thinking, connector_text and
+// client tool_use before it go, and so does a server_tool_use without its
+// result. Kept blocks are byte-for-byte, so signatures stay valid.
+//
+// keepMarkers is false for requests without the fallback beta. The markers
+// only anchor the thinking around them, and none is left before the final one.
+func projectServerFallback(content json.RawMessage, keepMarkers bool) json.RawMessage {
+	var blocks []json.RawMessage
+	if json.Unmarshal(content, &blocks) != nil {
+		return content
+	}
+	type head struct {
+		Type      string `json:"type"`
+		ID        string `json:"id"`
+		ToolUseID string `json:"tool_use_id"`
+	}
+	heads := make([]head, len(blocks))
+	final := -1
+	results := map[string]bool{}
+	for i, b := range blocks {
+		_ = json.Unmarshal(b, &heads[i])
+		if heads[i].Type == "fallback" {
+			final = i
+		}
+		if heads[i].ToolUseID != "" {
+			results[heads[i].ToolUseID] = true
+		}
+	}
+	if final < 0 {
+		return content
+	}
+	kept := make([]json.RawMessage, 0, len(blocks))
+	for i, b := range blocks {
+		h := heads[i]
+		if h.Type == "fallback" {
+			if keepMarkers {
+				kept = append(kept, b)
+			}
+			continue
+		}
+		if i < final {
+			switch h.Type {
+			case "thinking", "redacted_thinking", "connector_text", "tool_use":
+				continue
+			case "server_tool_use":
+				if !results[h.ID] {
+					continue
+				}
+			}
+		}
+		kept = append(kept, b)
+	}
+	out, err := json.Marshal(kept)
+	if err != nil {
+		return content
+	}
+	return out
 }
