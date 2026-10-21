@@ -49,6 +49,8 @@ func TestValidateFallbacks(t *testing.T) {
 		{name: "empty", model: "claude-fable-5-1", fallbacks: []any{}},
 		{name: "no 5.x model", model: "claude-opus-4-8", fallbacks: []any{"claude-opus-4-7"}},
 		{name: "malformed is ignored", model: "claude-fable-5-1", fallbacks: "not-a-list"},
+		{name: "default on 5.x primary", model: "claude-fable-5-1", fallbacks: "default", wantModel: "claude-fable-5-1"},
+		{name: "default on legacy primary", model: "claude-opus-4-8", fallbacks: "default"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

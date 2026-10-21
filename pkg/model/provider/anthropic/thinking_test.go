@@ -164,6 +164,12 @@ func TestValidateThinkingDisplay(t *testing.T) {
 			},
 			wantErr: `model "claude-sonnet-4-6" does not support thinking_display: "display"`,
 		},
+		{
+			// The server picks default targets, so only the primary is checked.
+			name:  "display with default fallbacks",
+			model: "claude-sonnet-4-5",
+			opts:  map[string]any{"thinking_display": "display", "fallbacks": "default"},
+		},
 	}
 
 	for _, tt := range tests {

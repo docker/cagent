@@ -67,6 +67,14 @@ func parseFallbacks(opts map[string]any) (fallbackSpec, error) {
 	return fallbackSpec{Models: models}, nil
 }
 
+// fallbackTargets returns the explicit fallback models; none for "default",
+// whose targets the server picks. Construction has already validated the
+// option, so a malformed value reads as none.
+func fallbackTargets(opts map[string]any) []string {
+	spec, _ := parseFallbacks(opts)
+	return spec.Models
+}
+
 // validateFallbackSpec checks the rules the API enforces with a 400, so a bad
 // config fails at client construction.
 func validateFallbackSpec(cfg *latest.ModelConfig) error {
@@ -119,11 +127,11 @@ func fallbacksBody(models []string) option.RequestOption {
 // the client does not handle yet. Malformed lists stay ignored, as in
 // [fallbackModels].
 func validateFallbacks(cfg *latest.ModelConfig) error {
-	fallbacks, ok := providerutil.GetProviderOptStringSlice(cfg.ProviderOpts, "fallbacks")
-	if !ok || len(fallbacks) == 0 {
+	spec, _ := parseFallbacks(cfg.ProviderOpts)
+	if !spec.Default && len(spec.Models) == 0 {
 		return nil
 	}
-	for _, model := range append([]string{cfg.Model}, fallbacks...) {
+	for _, model := range append([]string{cfg.Model}, spec.Models...) {
 		if _, ok := modelinfo.LookupClaude5(model); ok {
 			return fmt.Errorf("anthropic: server-side fallback involving Claude 5.x model %q is not supported yet (see https://github.com/docker/docker-agent/issues/4584)", model)
 		}
