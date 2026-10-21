@@ -3,6 +3,7 @@ package anthropic
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -1065,4 +1066,74 @@ func TestRecordedThinkingRecovery(t *testing.T) {
 			require.ErrorContains(t, err, "cannot be replayed")
 		})
 	}
+}
+
+// One client serves every conversation of a team load (AGENTS.md, "Client and
+// Session Lifetimes"): concurrent requests must not share any state.
+func TestSharedClientConcurrentSessions(t *testing.T) {
+	t.Parallel()
+
+	srv := newScriptedServer(t, textReply("msg_1", "ok"))
+	client := newScriptedClient(srv, latest.ModelConfig{Provider: "anthropic", Model: "claude-sonnet-5-5"})
+
+	type conversation struct{ marker, other string }
+	conversations := []conversation{{"alpha", "beta"}, {"beta", "alpha"}}
+	start := make(chan struct{})
+	errs := make(chan error, len(conversations))
+	var wg sync.WaitGroup
+	for _, c := range conversations {
+		wg.Go(func() {
+			<-start
+			messages := []chat.Message{
+				system("system-" + c.marker),
+				{Role: chat.MessageRoleUser, MultiContent: []chat.MessagePart{
+					{Type: chat.MessagePartTypeText, Text: "question-" + c.marker},
+					{Type: chat.MessagePartTypeDocument, Document: &chat.Document{
+						Name: "doc-" + c.marker + ".txt", MimeType: "text/plain",
+						Source: chat.DocumentSource{InlineText: "contents-" + c.marker},
+					}},
+				}},
+			}
+			requestTools := []tools.Tool{{Name: "tool_" + c.marker, Parameters: map[string]any{"type": "object"}}}
+			stream, err := client.CreateChatCompletionStream(t.Context(), messages, requestTools)
+			if err != nil {
+				errs <- err
+				return
+			}
+			defer stream.Close()
+			for {
+				if _, err := stream.Recv(); err != nil {
+					if !errors.Is(err, io.EOF) {
+						errs <- err
+					}
+					return
+				}
+			}
+		})
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+
+	require.Equal(t, 2, srv.count())
+	var matched []string
+	for i := range 2 {
+		raw := srv.request(t, i).raw
+		for _, c := range conversations {
+			if !strings.Contains(raw, "system-"+c.marker) {
+				continue
+			}
+			matched = append(matched, c.marker)
+			for _, want := range []string{"question-" + c.marker, "contents-" + c.marker, "tool_" + c.marker} {
+				assert.Contains(t, raw, want)
+			}
+			for _, leaked := range []string{"system-" + c.other, "question-" + c.other, "contents-" + c.other, "tool_" + c.other} {
+				assert.NotContains(t, raw, leaked)
+			}
+		}
+	}
+	assert.ElementsMatch(t, []string{"alpha", "beta"}, matched, "each conversation is sent exactly once, as itself")
 }
