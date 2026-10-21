@@ -8,6 +8,7 @@ import (
 
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
+	"github.com/docker/docker-agent/pkg/model/provider/options"
 )
 
 func TestFallbackModels(t *testing.T) {
@@ -157,4 +158,33 @@ func TestNewClient_RejectsMalformedFallbacks(t *testing.T) {
 	cfg := &latest.ModelConfig{Provider: "anthropic", Model: "claude-opus-4-8", ProviderOpts: map[string]any{"fallbacks": "claude-sonnet-4-6"}}
 	_, err := NewClient(t.Context(), cfg, environment.NewMapEnvProvider(map[string]string{"ANTHROPIC_API_KEY": "k"}))
 	require.ErrorContains(t, err, `fallbacks must be "default" or a list`)
+}
+
+func TestNewClient_FallbacksOnlyOnClaudeAPI(t *testing.T) {
+	t.Parallel()
+
+	env := environment.NewMapEnvProvider(map[string]string{"ANTHROPIC_API_KEY": "k"})
+	for name, tc := range map[string]struct {
+		baseURL string
+		opts    []options.Opt
+		wantErr string
+	}{
+		"claude api":          {},
+		"explicit claude api": {baseURL: "https://api.anthropic.com"},
+		"custom base_url":     {baseURL: "https://proxy.example.com", wantErr: "requires the Claude API"},
+		"gateway":             {opts: []options.Opt{options.WithGateway("https://gateway.example.com")}, wantErr: "requires the Claude API"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			for _, fallbacks := range []any{"default", []any{"claude-sonnet-4-6"}} {
+				cfg := &latest.ModelConfig{Provider: "anthropic", Model: "claude-opus-4-8", BaseURL: tc.baseURL, ProviderOpts: map[string]any{"fallbacks": fallbacks}}
+				_, err := NewClient(t.Context(), cfg, env, tc.opts...)
+				if tc.wantErr == "" {
+					require.NoError(t, err)
+					continue
+				}
+				require.ErrorContains(t, err, tc.wantErr)
+			}
+		})
+	}
 }

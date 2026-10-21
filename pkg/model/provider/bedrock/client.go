@@ -50,6 +50,12 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 		return nil, err
 	}
 
+	if providerutil.HasProviderOpt(cfg.ProviderOpts, "fallbacks") {
+		err := errors.New("amazon-bedrock: fallbacks requires the Claude API and is not available on Bedrock")
+		slog.ErrorContext(ctx, "Bedrock client creation failed", "error", err)
+		return nil, err
+	}
+
 	globalOptions := options.Apply(opts...)
 
 	// Check for bearer token

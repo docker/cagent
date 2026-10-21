@@ -1,8 +1,10 @@
 package anthropic
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"slices"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -26,6 +28,28 @@ const maxFallbacks = 3
 type fallbackSpec struct {
 	Default bool
 	Models  []string
+}
+
+func (s fallbackSpec) enabled() bool { return s.Default || len(s.Models) > 0 }
+
+// claudeAPIHost is the only host that serves server-side fallback.
+const claudeAPIHost = "api.anthropic.com"
+
+// validateFallbackHost rejects fallbacks unless requests go straight to the
+// Claude API: other platforms and proxies don't support the parameter.
+func validateFallbackHost(cfg *latest.ModelConfig, gateway string) error {
+	if spec, _ := parseFallbacks(cfg.ProviderOpts); !spec.enabled() {
+		return nil
+	}
+	if gateway != "" {
+		return errors.New("anthropic: fallbacks requires the Claude API and is not available through a gateway")
+	}
+	if cfg.BaseURL != "" {
+		if u, err := url.Parse(cfg.BaseURL); err != nil || u.Hostname() != claudeAPIHost {
+			return fmt.Errorf("anthropic: fallbacks requires the Claude API and is not available through base_url %q", cfg.BaseURL)
+		}
+	}
+	return nil
 }
 
 // parseFallbacks reads the `fallbacks` provider_opt: "default", or a list of

@@ -66,6 +66,10 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 		return nil, err
 	}
 	globalOptions := options.Apply(opts...)
+	if err := validateFallbackHost(cfg, globalOptions.Gateway()); err != nil {
+		slog.ErrorContext(ctx, "Anthropic client creation failed", "error", err)
+		return nil, err
+	}
 
 	anthropicClient := &Client{
 		Config: base.Config{
