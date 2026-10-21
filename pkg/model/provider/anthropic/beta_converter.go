@@ -30,7 +30,6 @@ func (c *Client) convertBetaMessagesWithDeferred(ctx context.Context, messages [
 	var betaMessages []anthropic.BetaMessageParam
 	deferredByCallID := deferredToolNamesByCallID(requestTools)
 	loopStart := chat.ActiveToolLoopStart(messages)
-	keepMarkers := fallbacksEnabled(c.ModelConfig.ProviderOpts)
 
 	for i := 0; i < len(messages); i++ {
 		msg := &messages[i]
@@ -71,13 +70,13 @@ func (c *Client) convertBetaMessagesWithDeferred(ctx context.Context, messages [
 			continue
 		}
 		if msg.Role == chat.MessageRoleAssistant {
-			if blocks, ok, err := betaReplayContent(msg, keepMarkers); err != nil {
+			if blocks, ok, err := betaReplayContent(msg); err != nil {
 				return nil, err
 			} else if ok {
 				betaMessages = append(betaMessages, anthropic.BetaMessageParam{Role: anthropic.BetaMessageParamRoleAssistant, Content: blocks})
 				continue
 			}
-			if blocks, ok := betaRecoveredParams(msg, keepMarkers); ok {
+			if blocks, ok := betaRecoveredParams(msg); ok {
 				betaMessages = append(betaMessages, anthropic.BetaMessageParam{Role: anthropic.BetaMessageParamRoleAssistant, Content: blocks})
 				continue
 			}

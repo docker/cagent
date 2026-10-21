@@ -82,15 +82,15 @@ func replayContent(msg *chat.Message) ([]anthropic.ContentBlockParamUnion, bool,
 	return params, true, nil
 }
 
-// betaReplayContent is replayContent for the Beta Messages API. keepMarkers
-// keeps server fallback markers, for requests that send the fallback beta.
-func betaReplayContent(msg *chat.Message, keepMarkers bool) ([]anthropic.BetaContentBlockParamUnion, bool, error) {
+// betaReplayContent is replayContent for the Beta Messages API, which keeps
+// server fallback markers.
+func betaReplayContent(msg *chat.Message) ([]anthropic.BetaContentBlockParamUnion, bool, error) {
 	state := msg.ReplayableProviderState(providerStateName)
 	if state == nil {
 		return nil, false, nil
 	}
 	var blocks []anthropic.BetaContentBlockUnion
-	if err := json.Unmarshal(projectServerFallback(state.Content, keepMarkers), &blocks); err != nil {
+	if err := json.Unmarshal(projectServerFallback(state.Content, true), &blocks); err != nil {
 		return nil, false, fmt.Errorf("anthropic: decoding raw response content: %w", err)
 	}
 	views := make([]rawBlock, len(blocks))
@@ -267,8 +267,8 @@ func recoveredParams(msg *chat.Message) ([]anthropic.ContentBlockParamUnion, boo
 }
 
 // betaRecoveredParams is recoveredContent decoded for the Beta Messages API.
-func betaRecoveredParams(msg *chat.Message, keepMarkers bool) ([]anthropic.BetaContentBlockParamUnion, bool) {
-	raw, ok := recoveredContent(msg, keepMarkers)
+func betaRecoveredParams(msg *chat.Message) ([]anthropic.BetaContentBlockParamUnion, bool) {
+	raw, ok := recoveredContent(msg, true)
 	if !ok {
 		return nil, false
 	}
@@ -331,8 +331,9 @@ func (c *Client) flattenedThinking(i, loopStart int, msg *chat.Message) (bool, e
 // client tool_use before it go, and so does a server_tool_use without its
 // result. Kept blocks are byte-for-byte, so signatures stay valid.
 //
-// keepMarkers is false for requests without the fallback beta. The markers
-// only anchor the thinking around them, and none is left before the final one.
+// keepMarkers is false on the standard Messages API, whose types have no
+// fallback block. Dropping the markers is safe there: they only anchor the
+// thinking around them, and none is left before the final one.
 func projectServerFallback(content json.RawMessage, keepMarkers bool) json.RawMessage {
 	var blocks []json.RawMessage
 	if json.Unmarshal(content, &blocks) != nil {

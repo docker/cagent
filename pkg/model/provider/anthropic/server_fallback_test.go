@@ -176,8 +176,8 @@ func blockTypes(t *testing.T, v any) []string {
 
 // The next request keeps the markers and the text, and drops what the
 // declining models produced before the final marker, as the docs' continuation
-// table requires. Without the fallback beta, the markers go too: no thinking
-// is left before them, so nothing depends on their position.
+// table requires. The standard Messages API has no fallback block, so the
+// markers go too: no thinking is left before them.
 func TestServerFallbackProjection(t *testing.T) {
 	t.Parallel()
 
@@ -206,15 +206,15 @@ func TestServerFallbackProjection(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			beta, ok, err := betaReplayContent(&tc.msg, true)
+			beta, ok, err := betaReplayContent(&tc.msg)
 			require.NoError(t, err)
 			require.True(t, ok, "replayed raw, not rebuilt")
 			assert.Equal(t, tc.withMarkers, blockTypes(t, beta))
 
-			beta, ok, err = betaReplayContent(&tc.msg, false)
+			standard, ok, err := replayContent(&tc.msg)
 			require.NoError(t, err)
 			require.True(t, ok)
-			assert.Equal(t, tc.plain, blockTypes(t, beta))
+			assert.Equal(t, tc.plain, blockTypes(t, standard))
 		})
 	}
 
@@ -230,7 +230,7 @@ func TestServerFallbackProjection(t *testing.T) {
 	t.Run("signed thinking after the marker is replayed verbatim", func(t *testing.T) {
 		t.Parallel()
 		msg := fallbackTurn(t, `[`+fbDeclined+`,`+fbMarker+`,`+fbNew+`,{"type":"text","text":"x"}]`, "x", "new", "sig-n")
-		beta, ok, err := betaReplayContent(&msg, true)
+		beta, ok, err := betaReplayContent(&msg)
 		require.NoError(t, err)
 		require.True(t, ok)
 		data, err := json.Marshal(beta)
