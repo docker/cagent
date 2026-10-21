@@ -75,6 +75,11 @@ var Aliases = map[string]Alias{
 		BaseURL:     "https://api.atlascloud.ai/v1",
 		TokenEnvVar: "ATLASCLOUD_API_KEY",
 	},
+	"opper": {
+		APIType:     "openai",
+		BaseURL:     "https://api.opper.ai/v3/compat",
+		TokenEnvVar: "OPPER_API_KEY",
+	},
 	"mistral": {
 		APIType:     "openai",
 		BaseURL:     "https://api.mistral.ai/v1",

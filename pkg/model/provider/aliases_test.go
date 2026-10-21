@@ -41,6 +41,7 @@ func TestCatalogAliases(t *testing.T) {
 		"openrouter":   {APIType: "openai", BaseURL: "https://openrouter.ai/api/v1", TokenEnvVar: "OPENROUTER_API_KEY"},
 		"api-route":    {APIType: "openai", BaseURL: "https://global.api-route.com/v1", TokenEnvVar: "API_ROUTE_API_KEY"},
 		"atlascloud":   {APIType: "openai", BaseURL: "https://api.atlascloud.ai/v1", TokenEnvVar: "ATLASCLOUD_API_KEY"},
+		"opper":        {APIType: "openai", BaseURL: "https://api.opper.ai/v3/compat", TokenEnvVar: "OPPER_API_KEY"},
 		"baseten":      {APIType: "openai", BaseURL: "https://inference.baseten.co/v1", TokenEnvVar: "BASETEN_API_KEY"},
 		"daoxe":        {APIType: "openai", BaseURL: "https://api.daoxe.com/v1", TokenEnvVar: "DAOXE_API_KEY"},
 		"ovhcloud":     {APIType: "openai", BaseURL: "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1", TokenEnvVar: "OVH_AI_ENDPOINTS_ACCESS_TOKEN"},
