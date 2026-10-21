@@ -915,7 +915,7 @@ func (r *LocalRuntime) runTurn(
 	// Try primary model with fallback chain if configured. The idle retry
 	// admission callback belongs to this loop invocation so a denial can stop
 	// this exact session before generic model-error handling runs.
-	agentTools = r.toolDeferrals.MarkAt(sess.ID, lastToolCallID(messages), agentTools)
+	agentTools = r.toolDeferrals.MarkAt(sess.ID, lastSuccessfulToolCallID(messages), agentTools)
 	admitIdleRetry := func() error {
 		if r.enforceBudget(ctx, sess, a, events) == iterationStop {
 			return budgetAdmissionError{}
@@ -1939,9 +1939,12 @@ func formatToolWarning(a *agent.Agent, warnings []string) string {
 	return strings.TrimSuffix(builder.String(), "\n")
 }
 
-func lastToolCallID(messages []chat.Message) string {
+// lastSuccessfulToolCallID picks the load point for newly deferred tools.
+// Error results are skipped: Anthropic rejects tool_reference content in an
+// is_error tool_result, and load points never move once set.
+func lastSuccessfulToolCallID(messages []chat.Message) string {
 	for _, message := range slices.Backward(messages) {
-		if message.Role == chat.MessageRoleTool {
+		if message.Role == chat.MessageRoleTool && !message.IsError {
 			return message.ToolCallID
 		}
 	}
