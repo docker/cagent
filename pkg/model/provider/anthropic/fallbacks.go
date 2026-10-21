@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"os"
 	"slices"
+	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
@@ -58,9 +60,14 @@ func validateFallbackHost(cfg *latest.ModelConfig, gateway string) error {
 	if gateway != "" {
 		return errors.New("anthropic: fallbacks requires the Claude API and is not available through a gateway")
 	}
-	if cfg.BaseURL != "" {
-		if u, err := url.Parse(cfg.BaseURL); err != nil || u.Hostname() != claudeAPIHost {
-			return fmt.Errorf("anthropic: fallbacks requires the Claude API and is not available through base_url %q", cfg.BaseURL)
+	// Without base_url, the SDK falls back to ANTHROPIC_BASE_URL.
+	baseURL := cfg.BaseURL
+	if baseURL == "" {
+		baseURL = os.Getenv("ANTHROPIC_BASE_URL")
+	}
+	if baseURL != "" {
+		if u, err := url.Parse(baseURL); err != nil || !strings.EqualFold(u.Hostname(), claudeAPIHost) {
+			return fmt.Errorf("anthropic: fallbacks requires the Claude API and is not available through base URL %q", baseURL)
 		}
 	}
 	return nil
@@ -125,7 +132,7 @@ func validateFallbackSpec(cfg *latest.ModelConfig) error {
 	}
 	if m, ok := modelinfo.LookupClaude5(cfg.Model); ok && m.NoServerSideFallback {
 		if len(spec.Models) > 0 {
-			return fmt.Errorf("anthropic: %s has no server-side fallback; remove fallbacks or use \"default\"", cfg.Model)
+			return fmt.Errorf("anthropic: %s has no server-side fallback; remove the fallbacks list", cfg.Model)
 		}
 		if spec.Default {
 			slog.Warn("Anthropic: fallbacks: default has no effect on this model", "model", cfg.Model)
@@ -136,8 +143,8 @@ func validateFallbackSpec(cfg *latest.ModelConfig) error {
 
 // validateFallbacks rejects server-side fallback when any model in the chain
 // is Claude 5.x: a fallback can change the serving model mid-response, which
-// the client does not handle yet. Malformed lists stay ignored, as in
-// [fallbackModels].
+// the client does not handle yet. Malformed values are reported by
+// [validateFallbackSpec].
 func validateFallbacks(cfg *latest.ModelConfig) error {
 	spec, _ := parseFallbacks(cfg.ProviderOpts)
 	if !spec.Default && len(spec.Models) == 0 {

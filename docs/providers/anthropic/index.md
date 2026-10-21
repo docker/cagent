@@ -383,15 +383,18 @@ Rules checked at startup:
 - A list holds at most three models, each distinct and different from the
   primary model. Any other value is a configuration error.
 - Server-side fallback is a Claude API feature: `fallbacks` is rejected on
-  Vertex AI, Bedrock, a gateway, or a `base_url` other than
-  `https://api.anthropic.com`. It isn't available on the Message Batches API
-  either.
-- Claude Haiku 5.5 has no server-side fallback: a list is rejected, and
-  `default` only logs that it has no effect.
+  Vertex AI, Bedrock, a gateway, or a base URL (`base_url` or
+  `ANTHROPIC_BASE_URL`) whose host isn't `api.anthropic.com`. It isn't
+  available on the Message Batches API either.
+- Claude Haiku 5.5 has no server-side fallback. Once Claude 5.x chains are
+  supported, a list will be rejected and `default` will only log that it has
+  no effect.
 
 Fallback models receive the exact same request as the primary model
 (thinking configuration, task budget, beta features, ...), so list only
-models that accept the same request shape.
+models that accept the same request shape. With `default` the server picks
+the fallback, so per-model options such as `thinking_display` are checked
+against the primary model only.
 
 See [Refusals and fallback](https://platform.claude.com/docs/en/build-with-claude/refusals-and-fallback#server-side-fallback).
 

@@ -27,7 +27,6 @@ func TestValidateFallbacks(t *testing.T) {
 		{name: "absent", model: "claude-fable-5-1"},
 		{name: "empty", model: "claude-fable-5-1", fallbacks: []any{}},
 		{name: "no 5.x model", model: "claude-opus-4-8", fallbacks: []any{"claude-opus-4-7"}},
-		{name: "malformed is ignored", model: "claude-fable-5-1", fallbacks: "not-a-list"},
 		{name: "default on 5.x primary", model: "claude-fable-5-1", fallbacks: "default", wantModel: "claude-fable-5-1"},
 		{name: "default on legacy primary", model: "claude-opus-4-8", fallbacks: "default"},
 	}
@@ -149,6 +148,7 @@ func TestNewClient_FallbacksOnlyOnClaudeAPI(t *testing.T) {
 	}{
 		"claude api":          {},
 		"explicit claude api": {baseURL: "https://api.anthropic.com"},
+		"host case":           {baseURL: "https://API.anthropic.com/"},
 		"custom base_url":     {baseURL: "https://proxy.example.com", wantErr: "requires the Claude API"},
 		"gateway":             {opts: []options.Opt{options.WithGateway("https://gateway.example.com")}, wantErr: "requires the Claude API"},
 	} {
@@ -165,4 +165,19 @@ func TestNewClient_FallbacksOnlyOnClaudeAPI(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The SDK reads ANTHROPIC_BASE_URL when base_url is unset, so it must pass
+// the same check. Not parallel: it sets the process environment.
+func TestNewClient_FallbacksCheckEnvBaseURL(t *testing.T) {
+	t.Setenv("ANTHROPIC_BASE_URL", "https://litellm.internal")
+
+	env := environment.NewMapEnvProvider(map[string]string{"ANTHROPIC_API_KEY": "k"})
+	cfg := &latest.ModelConfig{Provider: "anthropic", Model: "claude-opus-4-8", ProviderOpts: map[string]any{"fallbacks": "default"}}
+	_, err := NewClient(t.Context(), cfg, env)
+	require.ErrorContains(t, err, `not available through base URL "https://litellm.internal"`)
+
+	cfg.BaseURL = "https://api.anthropic.com"
+	_, err = NewClient(t.Context(), cfg, env)
+	require.NoError(t, err, "an explicit base_url takes precedence over the environment")
 }
