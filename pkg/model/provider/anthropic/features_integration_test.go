@@ -644,7 +644,7 @@ func TestCachePreservingUpdates_RawReplayThenCompaction(t *testing.T) {
 	)
 	client := newScriptedClient(srv, latest.ModelConfig{
 		Provider: "anthropic", Model: "claude-fable-5-1",
-		ProviderOpts: map[string]any{cachePreservingUpdatesOpt: true},
+		ProviderOpts: map[string]any{cachePreservingUpdatesOpt: true, "native_compaction": true},
 	})
 	read, write := cuTool("read"), cuTool("write")
 

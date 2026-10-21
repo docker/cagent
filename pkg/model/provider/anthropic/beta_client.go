@@ -128,7 +128,7 @@ func (c *Client) createBetaStream(
 	}
 
 	configureCacheDiagnostics(&params, messages, c.ModelConfig.ProviderOpts)
-	if hasNativeCompaction(messages) {
+	if c.hasNativeCompaction(messages) {
 		params.Betas = append(params.Betas, nativeCompactionBeta)
 	}
 	var requestContext json.RawMessage

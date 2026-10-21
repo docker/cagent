@@ -396,9 +396,10 @@ and replaces the whole history with a signed compaction block. This first
 implementation is synchronous and compacts the whole history: it does not run
 in the background or preserve a recent tail. Legacy per-call hook extras are
 not included in the compaction snapshot; they are applied again on the next
-normal turn. The block is persisted alongside a readable summary; the
-Anthropic provider replays the block on later requests (including after a model
-switch), while other providers receive the readable text.
+normal turn. The block is persisted alongside a readable summary; Anthropic
+models with `native_compaction` set replay the block on later requests
+(including after a model switch), while other models, Vertex AI included,
+receive the readable text.
 
 - The compaction request goes through the same `before_llm_call` hooks and
   message transforms as a regular model call, so builtins such as
