@@ -3836,6 +3836,88 @@ func TestReprobe_NewToolsAvailableAfterToolCall(t *testing.T) {
 	assert.Contains(t, toolsetInfoCounts, 2, "ToolsetInfo with count=2 expected after reprobe")
 }
 
+// TestReprobe_DeferredToolsSkipErrorLoadPoint covers docker-agent#4671: when a
+// parallel batch ends with an error result, newly deferred tools must anchor
+// at a successful result. Anthropic rejects tool_reference content in an
+// is_error tool_result, and the load point is resent on every later request.
+func TestReprobe_DeferredToolsSkipErrorLoadPoint(t *testing.T) {
+	t.Parallel()
+
+	sess := session.New(session.WithUserMessage("Install MCP and update todos"))
+	sess.Title = "deferral load point test"
+	sess.ToolsApproved = true
+
+	installTool := tools.Tool{
+		Name:       "install_mcp",
+		Parameters: map[string]any{},
+		Handler: func(context.Context, tools.ToolCall, tools.Runtime) (*tools.ToolCallResult, error) {
+			return tools.ResultSuccess("installed"), nil
+		},
+	}
+	failingTool := tools.Tool{
+		Name:       "update_todos",
+		Parameters: map[string]any{},
+		Handler: func(context.Context, tools.ToolCall, tools.Runtime) (*tools.ToolCallResult, error) {
+			// Batch calls run in parallel and record results as they finish:
+			// wait for install_mcp so the error result lands last.
+			assert.Eventually(t, func() bool {
+				return slices.ContainsFunc(sess.GetAllMessages(), func(m session.Message) bool {
+					return m.Message.Role == chat.MessageRoleTool && m.Message.ToolCallID == "call_1"
+				})
+			}, 5*time.Second, time.Millisecond)
+			return tools.ResultError("todo not found"), nil
+		},
+	}
+
+	turn1 := newStreamBuilder().
+		AddToolCallName("call_1", "install_mcp").
+		AddToolCallArguments("call_1", `{}`).
+		AddToolCallName("call_2", "update_todos").
+		AddToolCallArguments("call_2", `{}`).
+		AddToolCallStopWithUsage(5, 5).
+		Build()
+	turn2 := newStreamBuilder().
+		AddContent("done").
+		AddStopWithUsage(3, 3).
+		Build()
+
+	prov := &recordingProvider{
+		id:      "test/mock-model",
+		streams: []*mockStream{turn1, turn2},
+	}
+	root := agent.New("root", "test",
+		agent.WithModel(prov),
+		agent.WithToolSets(
+			newStubToolSet(nil, []tools.Tool{installTool, failingTool}, nil),
+			&flappyRuntimeToolSet{newTool: tools.Tool{Name: "mcp_hello", Parameters: map[string]any{}}, failUntil: 2},
+		),
+	)
+	rt, err := NewLocalRuntime(t.Context(), team.New(team.WithAgents(root)), WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	require.NoError(t, err)
+	rt.registerDefaultTools()
+
+	for range rt.RunStream(t.Context(), sess) {
+	}
+
+	var toolResults []chat.Message
+	for _, msg := range sess.GetAllMessages() {
+		if msg.Message.Role == chat.MessageRoleTool {
+			toolResults = append(toolResults, msg.Message)
+		}
+	}
+	require.Len(t, toolResults, 2)
+	require.Equal(t, "call_2", toolResults[1].ToolCallID, "the error result must be last to exercise the bug")
+	require.True(t, toolResults[1].IsError)
+
+	prov.mu.Lock()
+	defer prov.mu.Unlock()
+	require.GreaterOrEqual(t, len(prov.recordedCalls), 2, "expected at least 2 model calls")
+	idx := slices.IndexFunc(prov.recordedCalls[1], func(tool tools.Tool) bool { return tool.Name == "mcp_hello" })
+	require.NotEqual(t, -1, idx, "turn 2 must include mcp_hello after reprobe")
+	assert.True(t, prov.recordedCalls[1][idx].Deferred)
+	assert.Equal(t, "call_1", prov.recordedCalls[1][idx].DeferredAtToolCallID)
+}
+
 // TestReprobe_NoChangeMeansNoExtraEvents verifies that reprobe is a no-op
 // (no extra ToolsetInfo events, no panics) when no new tools appear after
 // a tool call.

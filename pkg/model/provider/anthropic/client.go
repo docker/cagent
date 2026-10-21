@@ -266,7 +266,7 @@ func (c *Client) CreateChatCompletionStream(
 		return c.createBetaStream(ctx, client, messages, requestTools, maxTokens)
 	}
 
-	requestTools = c.toolsWithSupportedDeferral(requestTools)
+	requestTools = c.toolsWithSupportedDeferral(ctx, requestTools, messages)
 	allTools, err := convertTools(requestTools)
 	if err != nil {
 		slog.ErrorContext(ctx, "Failed to convert tools for Anthropic request", "error", err)
@@ -713,19 +713,46 @@ func (c *Client) supportsDeferredTools() bool {
 	return modelinfo.SupportsDeferredTools(c.ModelConfig.Provider, c.ModelConfig.Model)
 }
 
-func (c *Client) toolsWithSupportedDeferral(requestTools []tools.Tool) []tools.Tool {
-	if c.supportsDeferredTools() {
+// toolsWithSupportedDeferral sends deferred tools as regular tools when the
+// request can't load them: the model lacks tool search, or the load point is
+// an error result, where Anthropic rejects tool_reference content.
+func (c *Client) toolsWithSupportedDeferral(ctx context.Context, requestTools []tools.Tool, messages []chat.Message) []tools.Tool {
+	if !c.supportsDeferredTools() {
+		return withoutDeferral(requestTools, func(tools.Tool) bool { return true })
+	}
+	errorResults := errorToolResultIDs(messages)
+	atErrorResult := func(tool tools.Tool) bool {
+		return tool.Deferred && errorResults[tool.DeferredAtToolCallID]
+	}
+	if !slices.ContainsFunc(requestTools, atErrorResult) {
 		return requestTools
 	}
+	slog.WarnContext(ctx, "Anthropic: deferred tools are anchored at an error tool result, loading them upfront")
+	return withoutDeferral(requestTools, atErrorResult)
+}
+
+func withoutDeferral(requestTools []tools.Tool, undefer func(tools.Tool) bool) []tools.Tool {
 	result := slices.Clip(slices.Clone(requestTools))
 	if result == nil {
 		result = []tools.Tool{}
 	}
 	for i := range result {
-		result[i].Deferred = false
-		result[i].DeferredAtToolCallID = ""
+		if undefer(result[i]) {
+			result[i].Deferred = false
+			result[i].DeferredAtToolCallID = ""
+		}
 	}
 	return result
+}
+
+func errorToolResultIDs(messages []chat.Message) map[string]bool {
+	ids := make(map[string]bool)
+	for i := range messages {
+		if messages[i].Role == chat.MessageRoleTool && messages[i].IsError && messages[i].ToolCallID != "" {
+			ids[messages[i].ToolCallID] = true
+		}
+	}
+	return ids
 }
 
 func convertTools(tooles []tools.Tool) ([]anthropic.ToolUnionParam, error) {

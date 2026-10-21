@@ -63,7 +63,7 @@ func (c *Client) CompactConversation(ctx context.Context, messages []chat.Messag
 	if err != nil {
 		return nil, err
 	}
-	requestTools = c.toolsWithSupportedDeferral(requestTools)
+	requestTools = c.toolsWithSupportedDeferral(ctx, requestTools, messages)
 	allTools, err := convertBetaTools(requestTools)
 	if err != nil {
 		return nil, err
