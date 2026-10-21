@@ -70,7 +70,7 @@ func (s *Server) Requests() []Request {
 // TextReply is a plain text answer reporting inputTokens.
 func TextReply(id, text string, inputTokens int64) string {
 	return body(
-		messageStart(id, inputTokens),
+		messageStart(id, "claude-test", inputTokens),
 		event("content_block_start", map[string]any{"index": 0, "content_block": map[string]any{"type": "text", "text": ""}}),
 		event("content_block_delta", map[string]any{"index": 0, "delta": map[string]any{"type": "text_delta", "text": text}}),
 		event("content_block_stop", map[string]any{"index": 0}),
@@ -82,7 +82,7 @@ func TextReply(id, text string, inputTokens int64) string {
 // ThinkingTextReply is signed thinking followed by a text answer.
 func ThinkingTextReply(id, thinking, signature, text string, inputTokens int64) string {
 	return body(
-		messageStart(id, inputTokens),
+		messageStart(id, "claude-test", inputTokens),
 		event("content_block_start", map[string]any{"index": 0, "content_block": map[string]any{"type": "thinking", "thinking": "", "signature": ""}}),
 		event("content_block_delta", map[string]any{"index": 0, "delta": map[string]any{"type": "thinking_delta", "thinking": thinking}}),
 		event("content_block_delta", map[string]any{"index": 0, "delta": map[string]any{"type": "signature_delta", "signature": signature}}),
@@ -103,7 +103,7 @@ func CompactionReply(id, summary, signature string, iterations ...[2]int64) stri
 		usage = append(usage, map[string]any{"type": "compaction", "input_tokens": it[0], "output_tokens": it[1]})
 	}
 	return body(
-		messageStart(id, 0),
+		messageStart(id, "claude-test", 0),
 		event("content_block_start", map[string]any{"index": 0, "content_block": map[string]any{"type": "compaction", "content": nil, "encrypted_content": "", "signature": nil}}),
 		event("content_block_delta", map[string]any{"index": 0, "delta": map[string]any{"type": "compaction_delta", "content": summary, "encrypted_content": "enc-" + id}}),
 		event("content_block_delta", map[string]any{"index": 0, "delta": map[string]any{"type": "signature_delta", "signature": signature}}),
@@ -111,6 +111,80 @@ func CompactionReply(id, summary, signature string, iterations ...[2]int64) stri
 		messageDelta("compaction", map[string]any{"input_tokens": 0, "output_tokens": 0, "iterations": usage}),
 		event("message_stop", nil),
 	)
+}
+
+// FallbackBeforeOutputReply is a turn that from declined before any output:
+// message_start already names to, and the fallback marker comes first.
+func FallbackBeforeOutputReply(id, from, to, text string) string {
+	events := append([]sse{messageStart(id, to, 0)}, fallbackBlock(0, from, to)...)
+	events = append(events, textBlock(1, text)...)
+	events = append(events, messageDelta("end_turn", fallbackUsage(from, to)), event("message_stop", nil))
+	return body(events...)
+}
+
+// FallbackMidOutputReply is a turn that from declined mid-output, after its
+// signed thinking, the text before and a complete client tool call toolID;
+// to continues with the text after.
+func FallbackMidOutputReply(id, from, to, before, after, toolID string) string {
+	events := []sse{
+		messageStart(id, from, 0),
+		event("content_block_start", map[string]any{"index": 0, "content_block": map[string]any{"type": "thinking", "thinking": "", "signature": ""}}),
+		event("content_block_delta", map[string]any{"index": 0, "delta": map[string]any{"type": "thinking_delta", "thinking": "declined plan"}}),
+		event("content_block_delta", map[string]any{"index": 0, "delta": map[string]any{"type": "signature_delta", "signature": "sig-declined"}}),
+		event("content_block_stop", map[string]any{"index": 0}),
+	}
+	events = append(events, textBlock(1, before)...)
+	events = append(events,
+		event("content_block_start", map[string]any{"index": 2, "content_block": map[string]any{"type": "tool_use", "id": toolID, "name": "record", "input": map[string]any{}}}),
+		event("content_block_delta", map[string]any{"index": 2, "delta": map[string]any{"type": "input_json_delta", "partial_json": "{}"}}),
+		event("content_block_stop", map[string]any{"index": 2}),
+	)
+	events = append(events, fallbackBlock(3, from, to)...)
+	events = append(events, textBlock(4, after)...)
+	events = append(events, messageDelta("end_turn", fallbackUsage(from, to)), event("message_stop", nil))
+	return body(events...)
+}
+
+// StickyReply is a turn sticky routing sent straight to the fallback model:
+// no marker, only the model and a fallback_message iteration show it.
+func StickyReply(id, to, text string) string {
+	events := []sse{messageStart(id, to, 0)}
+	events = append(events, textBlock(0, text)...)
+	events = append(events, messageDelta("end_turn", map[string]any{
+		"input_tokens": 0, "output_tokens": 7,
+		"iterations": []any{iteration("fallback_message", to)},
+	}), event("message_stop", nil))
+	return body(events...)
+}
+
+// fallbackBlock is a fallback marker: a block start and stop with no deltas.
+func fallbackBlock(index int, from, to string) []sse {
+	return []sse{
+		event("content_block_start", map[string]any{"index": index, "content_block": map[string]any{
+			"type": "fallback", "from": map[string]any{"model": from}, "to": map[string]any{"model": to},
+			"trigger": map[string]any{"type": "refusal", "category": "cyber"},
+		}}),
+		event("content_block_stop", map[string]any{"index": index}),
+	}
+}
+
+func textBlock(index int, text string) []sse {
+	return []sse{
+		event("content_block_start", map[string]any{"index": index, "content_block": map[string]any{"type": "text", "text": ""}}),
+		event("content_block_delta", map[string]any{"index": index, "delta": map[string]any{"type": "text_delta", "text": text}}),
+		event("content_block_stop", map[string]any{"index": index}),
+	}
+}
+
+func fallbackUsage(from, to string) map[string]any {
+	return map[string]any{
+		"input_tokens": 0, "output_tokens": 7,
+		"iterations": []any{iteration("message", from), iteration("fallback_message", to)},
+	}
+}
+
+func iteration(typ, model string) map[string]any {
+	return map[string]any{"type": typ, "model": model, "input_tokens": 10, "output_tokens": 7, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}
 }
 
 type sse struct {
@@ -126,9 +200,9 @@ func event(name string, data map[string]any) sse {
 	return sse{name, data}
 }
 
-func messageStart(id string, inputTokens int64) sse {
+func messageStart(id, model string, inputTokens int64) sse {
 	return event("message_start", map[string]any{"message": map[string]any{
-		"id": id, "type": "message", "role": "assistant", "model": "claude-test", "content": []any{},
+		"id": id, "type": "message", "role": "assistant", "model": model, "content": []any{},
 		"usage": map[string]any{"input_tokens": inputTokens, "output_tokens": 0},
 	}})
 }
