@@ -163,5 +163,7 @@ func TestRemoveToolCalls(t *testing.T) {
 		}
 	}
 	assert.Equal(t, []string{"kept"}, standalone)
-	assert.NotPanics(t, func() { _ = block.View() })
+	block.SetExpanded(true)
+	view := block.View()
+	assert.NotContains(t, view, "in-block", "the retracted call no longer renders")
 }

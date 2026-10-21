@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
@@ -85,6 +86,8 @@ func (a *betaStreamAdapter) Recv() (chat.MessageStreamResponse, error) {
 			}
 			response.Choices[0].Delta.ToolCalls = []tools.ToolCall{toolCall}
 		case anthropic.BetaFallbackBlock:
+			// The declined model's tool calls are superseded.
+			a.toolCall = false
 			a.served = block.To.Model
 			response.Choices[0].Delta.ServerFallback = &chat.ServerFallback{From: block.From.Model, To: block.To.Model}
 		case anthropic.BetaThinkingBlock:
@@ -122,9 +125,12 @@ func (a *betaStreamAdapter) Recv() (chat.MessageStreamResponse, error) {
 		a.stopReason = eventVariant.Delta.StopReason
 		// Sticky routing sends no marker: only a fallback_message iteration
 		// shows that a fallback model served the turn.
-		for _, it := range a.message.Usage.Iterations {
-			if it.Type == "fallback_message" && a.served == "" {
-				a.served = it.Model
+		if a.served == "" {
+			for _, it := range slices.Backward(a.message.Usage.Iterations) {
+				if it.Type == "fallback_message" {
+					a.served = it.Model
+					break
+				}
 			}
 		}
 		if a.trackUsage {

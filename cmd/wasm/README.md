@@ -265,6 +265,7 @@ cancels the previous). Safe to call before the call has started running.
 | --- | --- |
 | `delta` | `content?` or `reasoning?` — a streamed chunk. |
 | `tool_call_delta` | `id, name, arguments` — a streamed chunk of a tool call's arguments. |
+| `tool_calls_retracted` | `ids` — tool calls announced by `tool_call_delta` that will never run (refusal or server fallback). |
 | `tool_call` | `id, name, args` — the call is about to run. |
 | `tool_confirmation` | `id, name, args` — the runtime waits for `confirm()`. |
 | `tool_output` | `id, name, output` — incremental output of a running call. |

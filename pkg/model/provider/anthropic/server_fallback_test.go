@@ -68,6 +68,12 @@ func TestServerFallbackStream(t *testing.T) {
 			markers: []chat.ServerFallback{{From: from, To: "claude-opus-4-7"}, {From: "claude-opus-4-7", To: to}}, served: to,
 		},
 		"sticky routing": {reply: anthropictest.StickyReply("m", to, "hi"), served: to},
+		// Other iteration types (compaction, advisor) don't name the server.
+		"sticky routing among other iterations": {
+			reply: strings.Replace(anthropictest.StickyReply("m", to, "hi"), `"iterations":[`,
+				`"iterations":[{"type":"compaction","model":"`+from+`","input_tokens":1,"output_tokens":1},`, 1),
+			served: to,
+		},
 		// message_start names "claude-test", not the dispatched model: a
 		// response model alone is no fallback.
 		"no fallback": {reply: anthropictest.TextReply("m", "hi", 10)},
@@ -91,6 +97,27 @@ func TestServerFallbackStream(t *testing.T) {
 			assert.Equal(t, tc.served, model.Config.ModelConfig.Model)
 		})
 	}
+
+	t.Run("a superseded tool call doesn't make the turn a tool turn", func(t *testing.T) {
+		t.Parallel()
+		stream, err := fallbackClient(newScriptedServer(t, anthropictest.FallbackMidOutputReply("m", from, to, "before", "after", "t1"))).CreateChatCompletionStream(t.Context(), []chat.Message{user("q")}, nil)
+		require.NoError(t, err)
+		defer stream.Close()
+		var finish chat.FinishReason
+		for {
+			resp, err := stream.Recv()
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			require.NoError(t, err)
+			for _, c := range resp.Choices {
+				if c.FinishReason != "" {
+					finish = c.FinishReason
+				}
+			}
+		}
+		assert.Equal(t, chat.FinishReasonStop, finish)
+	})
 
 	t.Run("stream cut after the marker", func(t *testing.T) {
 		t.Parallel()

@@ -43,6 +43,7 @@ func TestHandleStream_ServerFallbackDropsSupersededWork(t *testing.T) {
 
 	res, events := runServerFallbackStream(t, newStreamBuilder().
 		AddReasoning("declined plan").
+		AddThinkingSignature("sig-declined").
 		AddContent("before ").
 		AddToolCallName("declined", "rm_rf").
 		AddToolCallArguments("declined", `{"path":"/"}`).
@@ -58,6 +59,7 @@ func TestHandleStream_ServerFallbackDropsSupersededWork(t *testing.T) {
 	assert.Equal(t, "kept", res.Calls[0].ID)
 	assert.Equal(t, "before after", res.Content)
 	assert.Equal(t, "new plan", res.ReasoningContent)
+	assert.Empty(t, res.ThinkingSignature, "the declined model's signature goes with its thinking")
 
 	var warnings []string
 	var retracted [][]string
@@ -105,4 +107,11 @@ func TestHandleStream_RefusalRetractsToolCalls(t *testing.T) {
 		}
 	}
 	assert.Equal(t, []string{"call_1"}, retracted)
+}
+
+func (b *streamBuilder) AddThinkingSignature(signature string) *streamBuilder {
+	b.responses = append(b.responses, chat.MessageStreamResponse{
+		Choices: []chat.MessageStreamChoice{{Index: 0, Delta: chat.MessageDelta{ThinkingSignature: signature}}},
+	})
+	return b
 }
