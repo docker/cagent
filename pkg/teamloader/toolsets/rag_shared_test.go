@@ -118,13 +118,18 @@ agents:
 	}
 	assert.Equal(t, 1, embedder.count("first version"), "initial indexing runs once")
 
-	// The watcher registers asynchronously after Start, so retry the write;
-	// identical content is never re-embedded, and the interval outlasts the
-	// watcher's 2s debounce so each write gets processed.
+	// Retry writes after the watcher's 2s debounce, but observe completion promptly.
+	var lastWrite time.Time
 	require.Eventually(t, func() bool {
-		_ = os.WriteFile(note, []byte("second version"), 0o644)
-		return embedder.count("second version") > 0
-	}, 30*time.Second, 3*time.Second)
+		if embedder.count("second version") > 0 {
+			return true
+		}
+		if time.Since(lastWrite) >= 3*time.Second {
+			_ = os.WriteFile(note, []byte("second version"), 0o644)
+			lastWrite = time.Now()
+		}
+		return false
+	}, 30*time.Second, 10*time.Millisecond)
 	// Give any duplicate watcher time past its debounce to fire.
 	assert.Never(t, func() bool { return embedder.count("second version") > 1 }, 3*time.Second, 100*time.Millisecond,
 		"a change is re-embedded once")
