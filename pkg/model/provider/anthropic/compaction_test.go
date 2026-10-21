@@ -215,7 +215,7 @@ func summaryMessage(result *chat.CompactionResult) chat.Message {
 func TestCompaction_NextRequestReplaysBlock(t *testing.T) {
 	t.Parallel()
 	srv := newScriptedServer(t, compactionReply("msg_c", "Summary.", "sig-c"), textReply("msg_1", "continuing"))
-	client := compactionClient(srv, nil)
+	client := compactionClient(srv, map[string]any{"native_compaction": true})
 	result, err := client.CompactConversation(t.Context(), compactableHistory(), cuTools("read"), "")
 	require.NoError(t, err)
 
@@ -298,7 +298,7 @@ func TestCompaction_RejectsMalformedHistory(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			srv := newScriptedServer(t, textReply("msg_1", "ok"))
-			_, err := compactionClient(srv, nil).CreateChatCompletionStream(t.Context(), tc.hist, nil)
+			_, err := compactionClient(srv, map[string]any{"native_compaction": true}).CreateChatCompletionStream(t.Context(), tc.hist, nil)
 			require.ErrorContains(t, err, tc.wantErr)
 			assert.Equal(t, 0, srv.count())
 		})
@@ -309,9 +309,31 @@ func TestCompaction_OnlyBlockCanResume(t *testing.T) {
 	t.Parallel()
 	signed := &chat.CompactionResult{Provider: providerStateName, Summary: "S", Block: json.RawMessage(`{"type":"compaction","content":"S","signature":"s"}`)}
 	srv := newScriptedServer(t, textReply("msg_1", "continued"))
-	client := compactionClient(srv, map[string]any{cachePreservingUpdatesOpt: true})
+	client := compactionClient(srv, map[string]any{cachePreservingUpdatesOpt: true, "native_compaction": true})
 	chatTurn(t, client, []chat.Message{summaryMessage(signed)}, nil)
 	request := srv.request(t, 0)
 	assert.Equal(t, []string{"user"}, roles(request.body))
 	assert.Contains(t, request.betas, nativeCompactionBeta)
+}
+
+// directCompaction is a signed block recorded by a Claude API client.
+func directCompaction() *chat.CompactionResult {
+	return &chat.CompactionResult{
+		Provider: providerStateName, Summary: "Summary.",
+		Block: json.RawMessage(`{"type":"compaction","content":"Summary.","signature":"sig-c"}`),
+	}
+}
+
+// Only a client configured for native compaction replays the block; others,
+// like Vertex, which cannot enable it, send the summary text.
+func TestCompaction_NotReplayedWithoutNativeCompaction(t *testing.T) {
+	t.Parallel()
+	srv := newScriptedServer(t, textReply("msg_1", "continuing"))
+	client := compactionClient(srv, nil)
+	chatTurn(t, client, []chat.Message{system("You are terse."), summaryMessage(directCompaction()), user("u3")}, nil)
+
+	req := srv.request(t, 0)
+	assert.NotContains(t, req.betas, nativeCompactionBeta)
+	assert.NotContains(t, req.raw, `"type":"compaction"`)
+	assert.Contains(t, req.raw, "Summary.")
 }

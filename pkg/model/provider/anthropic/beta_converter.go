@@ -33,7 +33,7 @@ func (c *Client) convertBetaMessagesWithDeferred(ctx context.Context, messages [
 
 	for i := 0; i < len(messages); i++ {
 		msg := &messages[i]
-		if compact, ok, err := compactionMessage(msg); err != nil {
+		if compact, ok, err := c.compactionMessage(msg); err != nil {
 			return nil, err
 		} else if ok {
 			if len(betaMessages) != 0 {

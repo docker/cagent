@@ -262,7 +262,7 @@ func (c *Client) CreateChatCompletionStream(
 		c.ModelOptions.StructuredOutput() != nil ||
 		!c.ModelConfig.TaskBudget.IsZero() || c.thinkingBindingBehavior() != "" ||
 		c.progressUpdatesEnabled() ||
-		cacheDiagnosticsEnabled(c.ModelConfig.ProviderOpts) || cachePreservingUpdatesEnabled(c.ModelConfig.ProviderOpts) || hasNativeCompaction(messages) {
+		cacheDiagnosticsEnabled(c.ModelConfig.ProviderOpts) || cachePreservingUpdatesEnabled(c.ModelConfig.ProviderOpts) || c.hasNativeCompaction(messages) {
 		return c.createBetaStream(ctx, client, messages, requestTools, maxTokens)
 	}
 
