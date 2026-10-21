@@ -148,6 +148,10 @@ func TestCompactConversation_Safeguards(t *testing.T) {
 			reply:   sseBody(messageStart("m", nil), compactionBlock("S", nil), blockStop(0), messageDelta("compaction", nil), messageStop),
 			wantErr: "unsigned compaction block",
 		},
+		"refusal": {
+			reply:   sseBody(messageStart("m", nil), messageDelta("refusal", nil), messageStop),
+			wantErr: `unexpected compaction stop reason "refusal"`,
+		},
 		"empty signature": {
 			reply:   sseBody(messageStart("m", nil), compactionBlock("S", ""), blockStop(0), messageDelta("compaction", nil), messageStop),
 			wantErr: "unsigned compaction block",
