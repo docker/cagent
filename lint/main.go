@@ -77,6 +77,7 @@ var programCops = []prog.Cop{
 	rubocops.NewLintFieldsSeqLookup(),
 	rubocops.NewLintSlicesConcat(cop.WithScope(outsideFrozenConfig)),
 	ChannelDirection,
+	// SplitGoroutineLifetime, // Enable after migrating the remaining split-lifecycle APIs.
 	rubocops.NewLintCancellationLoop(cop.WithScope(outsideFrozenConfig)),
 	rubocops.NewLintChannelStateCheck(cop.WithScope(outsideFrozenConfig)),
 	rubocops.NewLintClosedChannelLoop(cop.WithScope(outsideFrozenConfig)),

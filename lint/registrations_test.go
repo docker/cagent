@@ -20,7 +20,7 @@ func TestCopRegistrations(t *testing.T) {
 		counts[c.Name()]++
 	}
 	assert.Len(t, counts, 67)
-	for _, name := range []string{"Lint/ContextFirstParameter", "Lint/NoContextField"} {
+	for _, name := range []string{"Lint/ContextFirstParameter", "Lint/NoContextField", "Lint/SplitGoroutineLifetime"} {
 		assert.NotContains(t, counts, name)
 	}
 	for name, count := range counts {
