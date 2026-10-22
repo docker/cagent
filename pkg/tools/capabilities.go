@@ -14,6 +14,14 @@ type Startable interface {
 	Stop(ctx context.Context) error
 }
 
+// Runnable is implemented by toolsets with background work but no startup handshake.
+// Run blocks until cancellation and joins all work before returning. It must not
+// run concurrently on the same toolset. NewStartable owns a detached run until
+// Stop; Startable takes precedence when both capabilities are present.
+type Runnable interface {
+	Run(ctx context.Context)
+}
+
 // StartReporter is implemented by toolsets whose live lifecycle state can
 // be queried independently of the StartableToolSet wrapper's latched state
 // (e.g. an MCP toolset whose supervisor lost the session in the background).

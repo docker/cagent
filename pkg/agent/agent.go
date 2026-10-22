@@ -28,6 +28,7 @@ type Agent struct {
 	welcomeMessage          string
 	instruction             string
 	toolsets                []*tools.StartableToolSet
+	ownedToolsets           []*tools.StartableToolSet
 	models                  []provider.Provider
 	fallbackModels          []provider.Provider                 // Fallback models to try if primary fails
 	fallbackRetries         int                                 // Number of retries per fallback model with exponential backoff
@@ -699,7 +700,7 @@ func (a *Agent) DrainWarnings() []string {
 
 func (a *Agent) StopToolSets(ctx context.Context) error {
 	var errs []error
-	for _, toolSet := range a.toolsets {
+	for _, toolSet := range slices.Concat(a.toolsets, a.ownedToolsets) {
 		// StopIfStarted checks-and-stops atomically under the toolset's
 		// lifecycle lock, so a toolset that was never started is left
 		// untouched, an in-flight Start that settles in time is stopped
