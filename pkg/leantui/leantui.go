@@ -89,7 +89,6 @@ func Run(ctx context.Context, cfg Config) error {
 
 	keys := make(chan ui.Key, 64)
 	events := make(chan any, 256)
-	resizes := make(chan [2]int, 4)
 	done := make(chan struct{})
 
 	fileCompletion := completions.NewFileCompletionAt(loopCtx, cfg.WorkingDir)
@@ -125,19 +124,6 @@ func Run(ctx context.Context, cfg Config) error {
 	}()
 	<-subscriptionReady
 	m.app.Start(loopCtx)
-	go func() {
-		for {
-			w, h, ok := term.Resized()
-			if !ok {
-				return
-			}
-			select {
-			case resizes <- [2]int{w, h}:
-			case <-done:
-				return
-			}
-		}
-	}()
 
 	if cfg.FirstMessage != nil || cfg.FirstMessageAttachment != "" {
 		first := ""
@@ -156,6 +142,8 @@ func Run(ctx context.Context, cfg Config) error {
 
 	animationTicker := time.NewTicker(100 * time.Millisecond)
 	defer animationTicker.Stop()
+	resizeTicker := time.NewTicker(250 * time.Millisecond)
+	defer resizeTicker.Stop()
 	branchChanges := branchWatcher.Changes()
 
 	probeTimer := time.NewTimer(200 * time.Millisecond)
@@ -186,10 +174,8 @@ func Run(ctx context.Context, cfg Config) error {
 			m.handleEvent(loopCtx, ev)
 			m.publishProgramStatus()
 			m.render()
-		case sz := <-resizes:
-			m.width, m.height = sz[0], sz[1]
-			m.r.SetSize(sz[0], sz[1])
-			m.render()
+		case <-resizeTicker.C:
+			m.resize(term.Size())
 		case <-animationTicker.C:
 			if m.busy || m.screen.Transcript.ToolCount() > 0 {
 				m.spinnerFrame++
@@ -382,6 +368,15 @@ func newModel(term *ui.Terminal, cfg Config) *model {
 		sendMode:         messages.ParseSendMode(userconfig.Get().GetBusySendMode()),
 		hideBanner:       cfg.ShowBanner != nil && !*cfg.ShowBanner,
 	}
+}
+
+func (m *model) resize(width, height int) {
+	if width == m.width && height == m.height {
+		return
+	}
+	m.width, m.height = width, height
+	m.r.SetSize(width, height)
+	m.render()
 }
 
 // render assembles the full frame and reconciles it with the terminal.
