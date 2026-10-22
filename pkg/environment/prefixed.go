@@ -17,23 +17,27 @@ const settingsPrefix = "DOCKER_AGENT_"
 // shadows <NAME>. This keeps values other tools cannot read (such as op://
 // references) out of variables those tools share with docker-agent.
 type PrefixedProvider struct {
-	provider Provider
+	providers []Provider
+	chain     Provider
 }
 
-func NewPrefixedProvider(provider Provider) Provider {
-	return &PrefixedProvider{provider: provider}
+// NewPrefixedProvider looks providers up in order, overrides first.
+func NewPrefixedProvider(providers ...Provider) Provider {
+	return &PrefixedProvider{providers: providers, chain: NewMultiProvider(providers...)}
 }
 
-// Get skips an empty override so a blank line or `export X=` cannot hide a
-// valid <NAME>.
+// Get skips empty overrides source by source, so a blank line or `export X=`
+// hides neither an override in a later source nor a valid <NAME>.
 func (p *PrefixedProvider) Get(ctx context.Context, name string) (string, bool) {
 	names := LookupNames(name)
 	for _, candidate := range names[:len(names)-1] {
-		if value, found := p.provider.Get(ctx, candidate); found && value != "" {
-			return value, true
+		for _, provider := range p.providers {
+			if value, found := provider.Get(ctx, candidate); found && value != "" {
+				return value, true
+			}
 		}
 	}
-	return p.provider.Get(ctx, name)
+	return p.chain.Get(ctx, name)
 }
 
 // LookupNames returns the names checked for name, highest precedence first;

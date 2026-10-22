@@ -707,6 +707,23 @@ func TestFindSource_EmptyOverrideFallsBack(t *testing.T) {
 	assert.Equal(t, "KEY", foundAs)
 }
 
+func TestFindSource_EmptyOverrideDoesNotHideLaterOverride(t *testing.T) {
+	t.Parallel()
+
+	sources := []environment.Source{
+		{Name: "environment", Provider: environment.NewMapEnvProvider(map[string]string{"DOCKER_AGENT_ENV_KEY": ""})},
+		{Name: "config-env-file", Provider: environment.NewMapEnvProvider(map[string]string{"DOCKER_AGENT_ENV_KEY": "override"})},
+	}
+
+	source, foundAs, found := findSource(t.Context(), sources, "KEY")
+	require.True(t, found)
+	assert.Equal(t, "config-env-file", source)
+	assert.Equal(t, "DOCKER_AGENT_ENV_KEY", foundAs)
+
+	value, _ := environment.NewPrefixedProvider(environment.SourceProviders(sources)...).Get(t.Context(), "KEY")
+	assert.Equal(t, "override", value, "doctor and the run-time chain must agree")
+}
+
 func TestFindSource_SkipsSourcesWithoutValue(t *testing.T) {
 	t.Parallel()
 

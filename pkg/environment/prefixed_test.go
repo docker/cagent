@@ -98,3 +98,14 @@ func TestPrefixedProvider_Get(t *testing.T) {
 		})
 	}
 }
+
+func TestPrefixedProvider_EmptyOverrideDoesNotHideLaterSources(t *testing.T) {
+	t.Parallel()
+
+	shell := NewMapEnvProvider(map[string]string{"DOCKER_AGENT_ENV_API_KEY": ""})
+	envFile := NewMapEnvProvider(map[string]string{"DOCKER_AGENT_ENV_API_KEY": "override"})
+
+	value, found := NewPrefixedProvider(shell, envFile).Get(t.Context(), "API_KEY")
+	assert.True(t, found)
+	assert.Equal(t, "override", value)
+}

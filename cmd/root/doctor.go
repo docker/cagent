@@ -219,7 +219,7 @@ func (f *doctorFlags) buildReport(ctx context.Context, agentRef string) (*doctor
 	// the provider table, the auto-selection result, and the agent-file checks
 	// can never disagree with each other. No 1Password wrapper: doctor reports
 	// presence and must not trigger `op` prompts.
-	env := environment.NewPrefixedProvider(environment.NewMultiProvider(environment.SourceProviders(sources)...))
+	env := environment.NewPrefixedProvider(environment.SourceProviders(sources)...)
 
 	report := &doctorReport{ModelsGateway: f.runConfig.ModelsGateway}
 

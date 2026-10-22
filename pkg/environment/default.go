@@ -82,7 +82,7 @@ func NewDefaultProvider() Provider {
 // <NAME> across all of them, and resolves "op://" values through the 1Password
 // CLI. The 1Password wrapper is outermost so an override can be a reference.
 func NewChain(providers ...Provider) Provider {
-	return NewOnePasswordProvider(NewPrefixedProvider(NewMultiProvider(providers...)))
+	return NewOnePasswordProvider(NewPrefixedProvider(providers...))
 }
 
 // SourceProviders returns the providers of sources, in order.
