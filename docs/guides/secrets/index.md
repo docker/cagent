@@ -52,6 +52,26 @@ toolsets:
       GITHUB_PERSONAL_ACCESS_TOKEN: $GITHUB_PERSONAL_ACCESS_TOKEN
 ```
 
+### Docker Agent-only variables
+
+Other tools read the same variables: Claude Code reads `ANTHROPIC_API_KEY`, Codex reads `OPENAI_API_KEY`. To give Docker Agent its own value, prefix the name with `DOCKER_AGENT_ENV_`. Docker Agent looks up `DOCKER_AGENT_ENV_<NAME>` before `<NAME>`, and other tools ignore it:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...                                        # used by other tools
+export DOCKER_AGENT_ENV_ANTHROPIC_API_KEY="op://Personal/Anthropic/api-key" # used by Docker Agent
+docker agent run agent.yaml
+```
+
+- The prefix works for every variable Docker Agent resolves through its secret chain: provider API keys, `${VAR}` references in MCP `env`, `DOCKER_TOKEN`. Voice transcription in the TUI still reads `OPENAI_API_KEY` directly.
+- `DOCKER_AGENT_ENV_<NAME>` wins over `<NAME>` across all [sources](#overview) and `--env-from-file`: an override in the Docker Agent env file beats a plain shell export.
+- An empty override is ignored, so `export DOCKER_AGENT_ENV_ANTHROPIC_API_KEY=` falls back to `ANTHROPIC_API_KEY`.
+- Docker Agent's own settings (`DOCKER_AGENT_*`) are never overridden this way.
+- The value can be a [1Password reference](#1password-references).
+- `docker agent doctor` shows which name supplied each credential.
+
+> [!NOTE]
+> With `--sandbox`, the provider API keys that the sandbox proxy injects itself (such as `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`) are not read through Docker Agent, so neither the prefix nor `op://` references apply to them. Other variables are resolved on the host, prefix included, and forwarded under their plain name.
+
 ## Env Files
 
 For convenience, you can store secrets in a `.env` file and pass it to Docker Agent with `--env-from-file`:
