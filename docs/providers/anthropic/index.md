@@ -389,6 +389,10 @@ Rules checked at startup:
   available on the Message Batches API either.
 - Claude Haiku 5.5 has no server-side fallback: a list is rejected, and
   `default` only logs that it has no effect.
+- The request must be valid for every listed model, or the API rejects it up
+  front: `temperature`, `top_p`, `top_k` or a token `thinking_budget` on an
+  older primary is rejected when a listed fallback (such as a Claude 5.x model)
+  refuses it.
 
 Fallback models receive the exact same request as the primary model
 (thinking configuration, task budget, beta features, ...), so list only
@@ -396,7 +400,7 @@ models that accept the same request shape. With `default` the server picks
 the fallback, so per-model options such as `thinking_display` are checked
 against the primary model only. The API makes one exception itself: when a Claude
 Sonnet 5.5 request with `between_tools` thinking falls back to Claude Sonnet 5,
-that attempt runs with thinking disabled.
+that attempt runs with thinking disabled ([fallback list rules](https://platform.claude.com/docs/en/build-with-claude/refusals-and-fallback#naming-your-own-fallback-models)).
 
 See [Refusals and fallback](https://platform.claude.com/docs/en/build-with-claude/refusals-and-fallback#server-side-fallback).
 

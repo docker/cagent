@@ -10,6 +10,7 @@ import (
 
 	"github.com/docker/docker-agent/pkg/chat"
 	"github.com/docker/docker-agent/pkg/config/latest"
+	"github.com/docker/docker-agent/pkg/model/provider"
 	"github.com/docker/docker-agent/pkg/model/provider/base"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 )
@@ -37,7 +38,7 @@ func TestAttemptsCost(t *testing.T) {
 		"anthropic/claude-sonnet-4-6": {Input: 3, Output: 15},
 	}}
 	dispatched := base.Config{ModelConfig: latest.ModelConfig{Provider: "anthropic", Model: "claude-opus-4-8"}}
-	declined := chat.UsageAttempt{Model: "claude-opus-4-8", Billed: true, InputTokens: 1_000_000, OutputTokens: 100_000}
+	declined := chat.UsageAttempt{Model: "claude-opus-4-8", Billed: true, Dispatched: true, InputTokens: 1_000_000, OutputTokens: 100_000}
 	served := chat.UsageAttempt{Model: "claude-sonnet-4-6", Billed: true, InputTokens: 1_000_000, OutputTokens: 200_000}
 
 	for name, tc := range map[string]struct {
@@ -54,6 +55,14 @@ func TestAttemptsCost(t *testing.T) {
 		"an uncatalogued attempt leaves the turn unpriced": {
 			attempts:   []chat.UsageAttempt{declined, {Model: "claude-unknown", Billed: true, InputTokens: 1}},
 			dispatched: dispatched,
+		},
+		// The API may report a resolved, dated ID for the requested model.
+		"the dispatched attempt keeps its config under a resolved ID": {
+			attempts: []chat.UsageAttempt{{Model: "claude-opus-4-8-20260901", Billed: true, Dispatched: true, InputTokens: 1_000_000, OutputTokens: 100_000}, served},
+			dispatched: base.Config{ModelConfig: latest.ModelConfig{
+				Provider: "anthropic", Model: "claude-opus-4-8", Cost: &latest.CostConfig{Input: 1, Output: 1},
+			}},
+			want: new(7.1),
 		},
 		"the dispatched model keeps its alias and cost override": {
 			attempts: []chat.UsageAttempt{declined, served},
@@ -76,4 +85,15 @@ func TestAttemptsCost(t *testing.T) {
 			assert.InDelta(t, *tc.want, *got, 1e-9)
 		})
 	}
+}
+
+// Behind a router, the requested model's attempt is priced with the leaf the
+// router dispatched to, not the router's own config.
+func TestDispatchedConfig(t *testing.T) {
+	t.Parallel()
+
+	router := base.Config{ModelConfig: latest.ModelConfig{Provider: "anthropic", Model: "router"}}
+	leaf := provider.ServingModel{Config: base.Config{ModelConfig: latest.ModelConfig{Provider: "anthropic", Model: "claude-sonnet-5-5"}}}
+	assert.Equal(t, router, dispatchedConfig(streamResult{}, router))
+	assert.Equal(t, leaf.Config, dispatchedConfig(streamResult{Dispatched: &leaf}, router))
 }

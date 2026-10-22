@@ -970,7 +970,7 @@ func (r *LocalRuntime) runTurn(
 	// table); see computeMessageCost.
 	msgCost := computeMessageCost(res.Usage, m)
 	if len(res.UsageAttempts) > 0 && usedModel != nil {
-		msgCost = attemptsCost(ctx, res.UsageAttempts, usedModel.BaseConfig(), r.modelsStore)
+		msgCost = attemptsCost(ctx, res.UsageAttempts, dispatchedConfig(res, usedModel.BaseConfig()), r.modelsStore)
 	}
 	if res.Usage != nil {
 		modelName := "unknown"

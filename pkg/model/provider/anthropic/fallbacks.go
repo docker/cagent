@@ -130,6 +130,20 @@ func validateFallbackSpec(cfg *latest.ModelConfig) error {
 	if slices.Contains(spec.Models, cfg.Model) {
 		return fmt.Errorf("anthropic: fallback %q is the same as the model", cfg.Model)
 	}
+	// The request must be valid for every listed model, or the API rejects it
+	// up front. Claude 5.x and newer Opus models refuse sampling settings and
+	// token thinking budgets that older primaries send.
+	_, topK := cfg.ProviderOpts["top_k"]
+	samples := cfg.Temperature != nil || cfg.TopP != nil || topK
+	tokenThinking := cfg.ThinkingBudget != nil && cfg.ThinkingBudget.Tokens > 0
+	for _, m := range spec.Models {
+		if samples && rejectsSampling(m) && !rejectsSampling(cfg.Model) {
+			return fmt.Errorf("anthropic: fallback %q rejects temperature, top_p and top_k; remove them or that fallback", m)
+		}
+		if tokenThinking && modelinfo.RejectsTokenThinking(m) && !modelinfo.RejectsTokenThinking(cfg.Model) {
+			return fmt.Errorf("anthropic: fallback %q rejects a token thinking budget; use an effort level or remove that fallback", m)
+		}
+	}
 	if m, ok := modelinfo.LookupClaude5(cfg.Model); ok && m.NoServerSideFallback {
 		if len(spec.Models) > 0 {
 			return fmt.Errorf("anthropic: %s has no server-side fallback; remove the fallbacks list", cfg.Model)

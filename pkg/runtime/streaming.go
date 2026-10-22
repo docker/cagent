@@ -79,6 +79,9 @@ type streamResult struct {
 	// the response across models; Usage describes only the last one.
 	UsageAttempts []chat.UsageAttempt
 	Serving       *provider.ServingModel
+	// Dispatched is the endpoint the request went to (e.g. a router's leaf),
+	// before a server fallback handed it to another model.
+	Dispatched *provider.ServingModel
 }
 
 // handleStream reads a chat.MessageStream to completion, emitting streaming

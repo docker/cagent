@@ -243,12 +243,15 @@ type Usage struct {
 // UsageAttempt is one attempt of a response a server fallback spread across
 // models, billed at that model's rates unless Billed is false.
 type UsageAttempt struct {
-	Model             string `json:"model"`
-	Billed            bool   `json:"billed"`
-	InputTokens       int64  `json:"input_tokens"`
-	OutputTokens      int64  `json:"output_tokens"`
-	CachedInputTokens int64  `json:"cached_input_tokens"`
-	CacheWriteTokens  int64  `json:"cached_write_tokens"`
+	Model  string `json:"model"`
+	Billed bool   `json:"billed"`
+	// Dispatched marks the attempt of the requested model, whose reported ID
+	// may be a resolved form of the configured one.
+	Dispatched        bool  `json:"dispatched,omitempty"`
+	InputTokens       int64 `json:"input_tokens"`
+	OutputTokens      int64 `json:"output_tokens"`
+	CachedInputTokens int64 `json:"cached_input_tokens"`
+	CacheWriteTokens  int64 `json:"cached_write_tokens"`
 }
 
 // Usage returns the attempt's token counts as a Usage.

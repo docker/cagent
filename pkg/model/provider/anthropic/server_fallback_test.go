@@ -387,6 +387,17 @@ func TestServerFallbackAttempts(t *testing.T) {
 			reply: anthropictest.StickyReply("m", to, "hi"),
 			want:  []attempt{{to, true}},
 		},
+		// Without a marker for the declined hop, its category is unknown: bill it.
+		"marker missing": {
+			reply: func() string {
+				r := anthropictest.FallbackBeforeOutputReply("m", from, to, "cyber", "hi")
+				start := strings.Index(r, "event: content_block_start")
+				end := strings.Index(r, "event: content_block_stop")
+				end += strings.Index(r[end:], "\n\n") + 2
+				return r[:start] + r[end:]
+			}(),
+			want: []attempt{{from, true}, {to, true}},
+		},
 		"no fallback": {reply: anthropictest.TextReply("m", "hi", 10)},
 		"other iterations only": {
 			reply: strings.Replace(anthropictest.TextReply("m", "hi", 10), `"output_tokens":7`,
@@ -398,12 +409,18 @@ func TestServerFallbackAttempts(t *testing.T) {
 			stream, err := fallbackClient(newScriptedServer(t, tc.reply)).CreateChatCompletionStream(t.Context(), []chat.Message{user("q")}, nil)
 			require.NoError(t, err)
 			defer stream.Close()
+			attempts := finalAttempts(t, stream)
 			var got []attempt
-			for _, a := range finalAttempts(t, stream) {
+			for _, a := range attempts {
 				got = append(got, attempt{a.Model, a.Billed})
-				assert.Positive(t, a.InputTokens, "each attempt carries its own tokens")
+				// The scripted iterations report 10 fresh, 3 cache-read and 4
+				// cache-write input tokens, and 7 output tokens.
+				assert.Equal(t, chat.Usage{InputTokens: 10, CachedInputTokens: 3, CacheWriteTokens: 4, OutputTokens: a.OutputTokens}, *a.Usage())
 			}
 			assert.Equal(t, tc.want, got)
+			for i, a := range attempts {
+				assert.Equal(t, i == 0 && a.Model == from, a.Dispatched, "only the requested model's attempt is dispatched")
+			}
 		})
 	}
 }

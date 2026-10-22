@@ -9,9 +9,9 @@ import (
 
 // attemptsCost prices a response a server fallback spread across models: each
 // billed attempt at its own model's rates, never the top-level usage, which
-// only repeats the last attempt. The dispatched model keeps its display alias
-// and cost override; other models are priced from the catalogue. Nil when any
-// billed attempt cannot be priced.
+// only repeats the last attempt. The dispatched attempt keeps its config,
+// display alias and cost override; other models are priced from the
+// catalogue. Nil when any billed attempt cannot be priced.
 func attemptsCost(ctx context.Context, attempts []chat.UsageAttempt, dispatched base.Config, store ModelStore) *float64 {
 	var total float64
 	for _, attempt := range attempts {
@@ -19,7 +19,7 @@ func attemptsCost(ctx context.Context, attempts []chat.UsageAttempt, dispatched 
 			continue
 		}
 		cfg := dispatched
-		if attempt.Model != dispatched.ModelConfig.Model {
+		if !attempt.Dispatched {
 			cfg.ModelConfig.Model = attempt.Model
 			cfg.ModelConfig.DisplayModel = ""
 			cfg.ModelConfig.Cost = nil

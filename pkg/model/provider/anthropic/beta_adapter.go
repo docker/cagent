@@ -237,13 +237,14 @@ func serverFallbackAttempts(iterations []anthropic.BetaIterationsUsageItemUnion,
 		}
 		billed := true
 		if it.Type == "message" {
-			if knownCategories && it.OutputTokens == 0 && !billedBeforeOutput[categories[hop]] {
+			// An empty category isn't a known unbilled refusal: bill it.
+			if knownCategories && it.OutputTokens == 0 && categories[hop] != "" && !billedBeforeOutput[categories[hop]] {
 				billed = false
 			}
 			hop++
 		}
 		attempts = append(attempts, chat.UsageAttempt{
-			Model: it.Model, Billed: billed,
+			Model: it.Model, Billed: billed, Dispatched: len(attempts) == 0 && it.Type == "message",
 			InputTokens: it.InputTokens, OutputTokens: it.OutputTokens,
 			CachedInputTokens: it.CacheReadInputTokens, CacheWriteTokens: it.CacheCreationInputTokens,
 		})

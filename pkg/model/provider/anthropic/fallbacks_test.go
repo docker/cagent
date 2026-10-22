@@ -166,3 +166,48 @@ func TestNewClient_FallbacksCheckEnvBaseURL(t *testing.T) {
 	_, err = NewClient(t.Context(), cfg, env)
 	require.NoError(t, err, "an explicit base_url takes precedence over the environment")
 }
+
+// The request must be valid for every listed model: a Claude 5.x fallback
+// can't take the sampling settings or token budget an older primary sends.
+func TestValidateFallbackRequestShape(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		cfg     latest.ModelConfig
+		wantErr string
+	}{
+		"temperature": {
+			cfg:     latest.ModelConfig{Model: "claude-opus-4-6", Temperature: new(0.7)},
+			wantErr: "rejects temperature",
+		},
+		"top_k": {
+			cfg:     latest.ModelConfig{Model: "claude-opus-4-6", ProviderOpts: map[string]any{"top_k": 5}},
+			wantErr: "rejects temperature",
+		},
+		"token budget": {
+			cfg:     latest.ModelConfig{Model: "claude-sonnet-4-5", ThinkingBudget: &latest.ThinkingBudget{Tokens: 8000}},
+			wantErr: "rejects a token thinking budget",
+		},
+		"effort":      {cfg: latest.ModelConfig{Model: "claude-opus-4-6", ThinkingBudget: &latest.ThinkingBudget{Effort: "high"}}},
+		"no sampling": {cfg: latest.ModelConfig{Model: "claude-opus-4-6"}},
+		// The primary already refuses them, so they're never sent.
+		"both refuse sampling":     {cfg: latest.ModelConfig{Model: "claude-fable-5-1", Temperature: new(0.7)}},
+		"both refuse token budget": {cfg: latest.ModelConfig{Model: "claude-opus-4-6", ThinkingBudget: &latest.ThinkingBudget{Tokens: 8000}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			cfg := tc.cfg
+			cfg.Provider = "anthropic"
+			if cfg.ProviderOpts == nil {
+				cfg.ProviderOpts = map[string]any{}
+			}
+			cfg.ProviderOpts["fallbacks"] = []any{"claude-sonnet-5-5"}
+			err := validateFallbackSpec(&cfg)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tc.wantErr)
+		})
+	}
+}
