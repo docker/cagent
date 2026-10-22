@@ -48,3 +48,10 @@ func (s *StartableToolSet) isStartedLocked(wait bool) bool {
 	}
 	return true
 }
+
+func nonblockingReporterStarted(reporter StartReporter) bool {
+	if owner, ok := reporter.(*StartableToolSet); ok {
+		return owner.TryIsHealthy()
+	}
+	return reporter.IsStarted()
+}

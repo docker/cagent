@@ -403,7 +403,7 @@ func (s *StartableToolSet) TryIsHealthy() bool {
 	healthy := s.isStartedLocked(false)
 	if healthy {
 		if reporter, ok := As[StartReporter](s.ToolSet); ok {
-			healthy = reporter.IsStarted()
+			healthy = nonblockingReporterStarted(reporter)
 		}
 	}
 	if s.unlock() {
@@ -423,7 +423,7 @@ func (s *StartableToolSet) TryIsAvailable() bool {
 	available := !s.attempted || s.isStartedLocked(false)
 	if available && s.started {
 		if reporter, ok := As[StartReporter](s.ToolSet); ok {
-			available = reporter.IsStarted()
+			available = nonblockingReporterStarted(reporter)
 		}
 	}
 	if s.unlock() {
