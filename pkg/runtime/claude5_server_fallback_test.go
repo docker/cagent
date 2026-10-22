@@ -13,6 +13,7 @@ import (
 	"github.com/docker/docker-agent/pkg/agent"
 	"github.com/docker/docker-agent/pkg/chat"
 	"github.com/docker/docker-agent/pkg/model/provider/anthropic/anthropictest"
+	"github.com/docker/docker-agent/pkg/modelsdev"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/tools"
 )
@@ -67,7 +68,11 @@ func TestServerFallbackLifecycle(t *testing.T) {
 	}})
 	opts := map[string]any{"fallbacks": []any{fallback}}
 	dbPath := filepath.Join(t.TempDir(), "sessions.db")
-	rt := anthropicRuntime(t, server, primary, opts, openSessionStore(t, dbPath), record)
+	models := catalogStore{costs: map[string]modelsdev.Cost{
+		"anthropic/" + primary:  {Input: 10, Output: 50},
+		"anthropic/" + fallback: {Input: 3, Output: 15},
+	}}
+	rt := anthropicRuntime(t, server, primary, opts, openSessionStore(t, dbPath), models, record)
 
 	sess := session.New(session.WithUserMessage("u1"), session.WithToolsApproved(true))
 	requireNoErrorEvents(t, drainRunStream(t, rt, sess))
@@ -78,16 +83,24 @@ func TestServerFallbackLifecycle(t *testing.T) {
 
 	loaded, err := openSessionStore(t, dbPath).GetSession(t.Context(), sess.ID)
 	require.NoError(t, err)
-	var models []string
+	var served []string
+	var costs []float64
 	for _, item := range loaded.Messages {
 		if item.Message != nil && item.Message.Message.Role == chat.MessageRoleAssistant {
-			models = append(models, item.Message.Message.Model)
+			served = append(served, item.Message.Message.Model)
+			costs = append(costs, item.Message.Message.Cost)
 		}
 	}
-	assert.Equal(t, []string{"anthropic/" + fallback, "anthropic/" + fallback}, models, "the marker and sticky routing both name the serving model")
+	assert.Equal(t, []string{"anthropic/" + fallback, "anthropic/" + fallback}, served, "the marker and sticky routing both name the serving model")
+	// Each scripted attempt reports 10 input and 7 output tokens. The handoff
+	// turn bills the declined Opus attempt and the Sonnet one; the sticky turn
+	// bills Sonnet only.
+	require.Len(t, costs, 2)
+	assert.InDelta(t, (10*10+7*50+10*3+7*15)/1e6, costs[0], 1e-12)
+	assert.InDelta(t, (10*3+7*15)/1e6, costs[1], 1e-12)
 
 	loaded.AddMessage(session.UserMessage("u3"))
-	reloaded := anthropicRuntime(t, server, primary, opts, openSessionStore(t, dbPath), record)
+	reloaded := anthropicRuntime(t, server, primary, opts, openSessionStore(t, dbPath), models, record)
 	requireNoErrorEvents(t, drainRunStream(t, reloaded, loaded))
 
 	requests := server.Requests()
