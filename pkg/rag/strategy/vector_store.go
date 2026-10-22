@@ -737,11 +737,8 @@ func (s *VectorStore) buildEmbeddingInputs(ctx context.Context, filePath string,
 		g.SetLimit(s.embeddingConcurrency)
 
 		for i, ch := range chunks {
-			// Check for context cancellation
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			default:
+			if gctx.Err() != nil {
+				break
 			}
 
 			g.Go(func() error {
@@ -776,6 +773,9 @@ func (s *VectorStore) buildEmbeddingInputs(ctx context.Context, filePath string,
 		}
 
 		if err := g.Wait(); err != nil {
+			return nil, err
+		}
+		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 	} else {
