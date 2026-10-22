@@ -10,11 +10,6 @@ import (
 )
 
 func validateThinkingOptions(cfg *latest.ModelConfig) error {
-	// The temporary Claude 5.x block goes first: it covers every rule
-	// validateFallbackSpec has for Claude 5.x models.
-	if err := validateFallbacks(cfg); err != nil {
-		return err
-	}
 	if err := validateFallbackSpec(cfg); err != nil {
 		return err
 	}
