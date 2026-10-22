@@ -18,7 +18,7 @@ Docker Agent needs API keys to talk to model providers (OpenAI, Anthropic, etc.)
 | 2 | [Docker Compose secrets](#docker-compose-secrets) | Files in `/run/secrets/` |
 | 3 | [Docker Agent env file](#docker-agent-env-file) | `~/.config/cagent/.env`, written by `docker agent setup` |
 | 4 | [ChatGPT login](../../providers/chatgpt/index.md) | `CHATGPT_OAUTH_TOKEN` from the account login created by `docker agent setup` |
-| 5 | [Credential helper](#credential-helper) | Custom command declared in `~/.config/cagent/config.yaml` under `credential_helper:` |
+| 5 | [Credential helper](#credential-helper) | Custom command declared in `~/.config/cagent/config.yaml` under `credential_helper:`; supplies `DOCKER_TOKEN` only |
 | 6 | [Docker Desktop](#docker-desktop) | Secrets stored by the Docker Desktop backend (no setup on a Desktop install) |
 
 The first provider that has a value wins. You can mix and match — for example, use environment variables for one key and the Docker Agent env file for another.
@@ -26,7 +26,7 @@ The first provider that has a value wins. You can mix and match — for example,
 > [!NOTE]
 > Older Docker Agent versions could also read secrets from the macOS Keychain and the `pass` password manager. These sources are no longer consulted: migrate any keys stored there to one of the sources above, e.g. by re-running `docker agent setup`.
 
-Whatever provider returns the value, if that value looks like a [1Password secret reference](#1password-references) (it starts with `op://`), Docker Agent resolves it through the `op` CLI before handing it to a model provider or tool.
+Whatever provider returns the value, if that value looks like a [1Password secret reference](#1password-references) (it starts with `op://`), Docker Agent resolves it through the `op` CLI before handing it to a model provider or tool. This applies to every variable, API keys included, and needs no credential helper: `ANTHROPIC_API_KEY=op://Personal/Anthropic/api-key` in any source above is enough.
 
 When Docker Agent runs an agent with `--sandbox` and a Docker AI gateway is configured, the sandbox proxy authenticates gateway requests itself: it injects your Docker login token into HTTPS requests to the gateway host (docker.com domains only). The token never enters the sandbox — inside it, `DOCKER_TOKEN` is a proxy-managed placeholder.
 
@@ -158,7 +158,17 @@ secrets:
 
 ## Credential Helper
 
-Docker Agent can shell out to an external credential helper you define in your user config. This is useful when your organisation already has a secrets daemon you want to reuse (HashiCorp Vault, 1Password CLI, `bitwarden-cli`, etc.).
+Docker Agent can shell out to an external credential helper you define in your user config to obtain the **Docker token** (`DOCKER_TOKEN`) used by the [Docker models gateway](../../configuration/models/index.md). This is useful when your organisation already keeps that token in a secrets daemon (HashiCorp Vault, 1Password CLI, `bitwarden-cli`, etc.).
+
+> [!IMPORTANT]
+> **The credential helper does not serve API keys.** It is consulted for `DOCKER_TOKEN` only. To load provider API keys or MCP tokens from 1Password, store an `op://` reference in any other source instead, for example in the [Docker Agent env file](#docker-agent-env-file):
+>
+> ```bash
+> # ~/.config/cagent/.env
+> ANTHROPIC_API_KEY=op://Personal/Anthropic/api-key
+> ```
+>
+> See [1Password References](#1password-references).
 
 Declare the helper in `~/.config/cagent/config.yaml`:
 
@@ -166,10 +176,10 @@ Declare the helper in `~/.config/cagent/config.yaml`:
 # ~/.config/cagent/config.yaml
 credential_helper:
   command: op
-  args: ["read", "op://Personal/docker-agent"]
+  args: ["read", "op://Personal/Docker/token"]
 ```
 
-The command is invoked with the variable name appended as the final argument, and must print the secret value to stdout.
+The command is run exactly as configured, with no extra arguments, and must print the token to stdout.
 
 ## Docker Desktop
 
@@ -201,6 +211,9 @@ References follow the `op://<vault>/<item>/<field>` format. Make sure the `op` C
 >
 > If the value starts with `op://` but the `op` CLI is not installed, or the reference cannot be read (not signed in, wrong path, locked vault), Docker Agent logs a warning and uses an **empty value** — it never forwards the raw `op://` reference to a model provider or tool. Resolved references (and deterministic failures) are cached for the lifetime of the run; transient failures such as a cancelled lookup are not cached, so a later attempt can retry.
 
+> [!TIP]
+> Other tools that read the same variables (Claude Code, Codex, provider SDKs) do not understand `op://` values. To keep references out of your shell, put them in the [Docker Agent env file](#docker-agent-env-file), which only Docker Agent reads, or point a model at a dedicated variable with [`token_key`](../../configuration/models/index.md).
+
 ## Choosing a Method
 
 | Method | Best for | Setup effort |
@@ -209,7 +222,7 @@ References follow the `op://<vault>/<item>/<field>` format. Make sure the `op` C
 | Env files | Team projects, multiple keys | Low |
 | Docker Agent env file | Keys used across all projects, written by `docker agent setup` | Low |
 | Docker Compose secrets | Containerized deployments, CI/CD | Medium |
-| Credential helper | Reusing an existing secrets daemon (Vault, 1Password CLI, ...) | Medium |
+| Credential helper | Fetching `DOCKER_TOKEN` from an existing secrets daemon (Vault, 1Password CLI, ...) | Medium |
 | 1Password references (`op://`) | Teams already using 1Password | Low |
 
 You can combine methods. For example, store long-lived provider keys in the Docker Agent env file and pass project-specific MCP tokens via env files.
