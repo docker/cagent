@@ -614,7 +614,7 @@ func (s *StartableToolSet) startLocked(ctx context.Context) (err error) {
 	if u, ok := inner.(Unwrapper); ok {
 		inner = u.Unwrap()
 	}
-	if restarter, hasRestarter := As[Restartable](s.ToolSet); recovering && hasRestarter {
+	if restart, hasRestarter := s.restartFunc(); recovering && hasRestarter {
 		s.attempted = true
 		ctx, span := otel.Tracer("github.com/docker/docker-agent/pkg/tools").Start(
 			ctx,
@@ -629,7 +629,7 @@ func (s *StartableToolSet) startLocked(ctx context.Context) (err error) {
 			}
 			span.End()
 		}()
-		if err := restarter.Restart(ctx); err != nil {
+		if err := restart(ctx); err != nil {
 			s.recovering = true
 			s.startStreak.fail()
 			s.recoveryStreak.fail()
@@ -731,13 +731,31 @@ func (s *StartableToolSet) Tools(ctx context.Context) ([]Tool, error) {
 // Callers must use Restart on this wrapper so the lifecycle latch, failure
 // streaks, and retry gate stay synchronized with the underlying toolset.
 func (s *StartableToolSet) CanRestart() bool {
+	_, ok := s.restartFunc()
+	return ok
+}
+
+// restartFunc must not discover capabilities past another lifecycle owner.
+func (s *StartableToolSet) restartFunc() (func(context.Context) error, bool) {
 	if _, startable := As[Startable](s.ToolSet); !startable {
 		if _, runnable := As[Runnable](s.ToolSet); runnable {
-			return false
+			return nil, false
 		}
 	}
-	_, ok := As[Restartable](s.ToolSet)
-	return ok
+	for ts := s.ToolSet; ts != nil; {
+		if owner, ok := ts.(*StartableToolSet); ok {
+			return owner.RestartIfSupported, owner.CanRestart()
+		}
+		if restarter, ok := ts.(Restartable); ok {
+			return restarter.Restart, true
+		}
+		unwrapper, ok := ts.(Unwrapper)
+		if !ok {
+			break
+		}
+		ts = unwrapper.Unwrap()
+	}
+	return nil, false
 }
 
 // RestartIfSupported restarts the underlying toolset under the canonical
@@ -747,15 +765,15 @@ func (s *StartableToolSet) RestartIfSupported(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.unlock()
 
-	restarter, ok := As[Restartable](s.ToolSet)
-	if !ok || !s.CanRestart() {
+	restart, ok := s.restartFunc()
+	if !ok {
 		return errors.New("toolset does not support restart")
 	}
 
 	wasStarted := s.started
 	s.attempted = true
 	s.started = false
-	if err := restarter.Restart(ctx); err != nil {
+	if err := restart(ctx); err != nil {
 		s.recovering = wasStarted || s.recovering
 		s.startStreak.fail()
 		if wasStarted {

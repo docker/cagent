@@ -245,3 +245,46 @@ func TestRunnableRejectsUnownedRestart(t *testing.T) {
 		})
 	}
 }
+
+func TestRunnableNestedRestartOwnership(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		started := make(chan context.Context, 2)
+		release := make(chan struct{})
+		var runs atomic.Int32
+		inner := &restartableRunnable{runnableToolSet: runnableToolSet{run: func(ctx context.Context) {
+			generation := runs.Add(1)
+			started <- ctx
+			if generation == 1 {
+				select {
+				case <-release:
+				case <-ctx.Done():
+				}
+				return
+			}
+			<-ctx.Done()
+		}}}
+		owner := tools.NewStartable(inner)
+		outer := tools.NewStartable(tools.WithName(owner, "worker"))
+		t.Cleanup(func() { require.NoError(t, outer.Stop(t.Context())) })
+		require.NoError(t, outer.Start(t.Context()))
+		first := <-started
+		assert.False(t, owner.CanRestart())
+		assert.False(t, outer.CanRestart())
+		require.ErrorContains(t, outer.RestartIfSupported(t.Context()), "does not support restart")
+		assert.True(t, outer.IsStarted())
+		assert.Zero(t, inner.restarts.Load())
+		close(release)
+		synctest.Wait()
+		require.ErrorIs(t, first.Err(), context.Canceled)
+		assert.False(t, outer.TryIsHealthy())
+		require.NoError(t, outer.Start(t.Context()))
+		second := <-started
+		assert.True(t, owner.IsStarted())
+		assert.True(t, outer.IsStarted())
+		assert.EqualValues(t, 2, runs.Load())
+		assert.Zero(t, inner.restarts.Load())
+		require.NoError(t, outer.StopIfStarted(t.Context()))
+		require.ErrorIs(t, second.Err(), context.Canceled)
+	})
+}
