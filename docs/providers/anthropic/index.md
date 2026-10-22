@@ -390,9 +390,11 @@ Rules checked at startup:
 - Claude Haiku 5.5 has no server-side fallback: a list is rejected, and
   `default` only logs that it has no effect.
 - The request must be valid for every listed model, or the API rejects it up
-  front: `temperature`, `top_p`, `top_k` or a token `thinking_budget` on an
-  older primary is rejected when a listed fallback (such as a Claude 5.x model)
-  refuses it.
+  front. A configuration is rejected when a listed fallback (such as a Claude
+  5.x model) refuses what the request sends: `temperature` or `top_p` (sent
+  only with thinking off), `top_k`, or token-budget thinking, including an
+  effort level that an older model without adaptive thinking turns into a
+  token budget.
 
 Fallback models receive the exact same request as the primary model
 (thinking configuration, task budget, beta features, ...), so list only

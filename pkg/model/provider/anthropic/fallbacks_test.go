@@ -178,15 +178,25 @@ func TestValidateFallbackRequestShape(t *testing.T) {
 	}{
 		"temperature": {
 			cfg:     latest.ModelConfig{Model: "claude-opus-4-6", Temperature: new(0.7)},
-			wantErr: "rejects temperature",
+			wantErr: "sends temperature or top_p",
 		},
 		"top_k": {
 			cfg:     latest.ModelConfig{Model: "claude-opus-4-6", ProviderOpts: map[string]any{"top_k": 5}},
-			wantErr: "rejects temperature",
+			wantErr: "sends top_k",
+		},
+		// With thinking on, the request builder doesn't send temperature.
+		"temperature with thinking on": {
+			cfg: latest.ModelConfig{Model: "claude-opus-4-6", Temperature: new(0.7), ThinkingBudget: &latest.ThinkingBudget{Effort: "high"}},
+		},
+		// Sonnet 4.5 has no adaptive thinking: its effort level goes out as a
+		// token budget, which a Claude 5.x fallback refuses.
+		"effort sent as tokens": {
+			cfg:     latest.ModelConfig{Model: "claude-sonnet-4-5", ThinkingBudget: &latest.ThinkingBudget{Effort: "high"}},
+			wantErr: "thinks with a token budget",
 		},
 		"token budget": {
 			cfg:     latest.ModelConfig{Model: "claude-sonnet-4-5", ThinkingBudget: &latest.ThinkingBudget{Tokens: 8000}},
-			wantErr: "rejects a token thinking budget",
+			wantErr: "thinks with a token budget",
 		},
 		"effort":      {cfg: latest.ModelConfig{Model: "claude-opus-4-6", ThinkingBudget: &latest.ThinkingBudget{Effort: "high"}}},
 		"no sampling": {cfg: latest.ModelConfig{Model: "claude-opus-4-6"}},
