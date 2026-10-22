@@ -101,6 +101,43 @@ func TestRun_ResolvesKeyLazily(t *testing.T) {
 	assert.Equal(t, int32(1), env.gets.Load())
 }
 
+// blockingEnv blocks every lookup until ctx ends, like `op read` at an unlock prompt.
+type blockingEnv struct{ entered chan struct{} }
+
+func (b blockingEnv) Get(ctx context.Context, _ string) (string, bool) {
+	close(b.entered)
+	<-ctx.Done()
+	return "", false
+}
+
+func TestRun_FinishInterruptsKeyLookup(t *testing.T) {
+	t.Parallel()
+	env := blockingEnv{entered: make(chan struct{})}
+	transcriber := New(env)
+	transcriber.supported = true
+	finish := make(chan struct{})
+	done := make(chan error, 1)
+	go func() { done <- transcriber.Run(t.Context(), finish, nil, nil) }()
+
+	<-env.entered
+	close(finish)
+	require.NoError(t, waitRun(t, done))
+}
+
+func TestRun_CancelDuringKeyLookupIsNotAnError(t *testing.T) {
+	t.Parallel()
+	env := blockingEnv{entered: make(chan struct{})}
+	transcriber := New(env)
+	transcriber.supported = true
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- transcriber.Run(ctx, nil, nil, nil) }()
+
+	<-env.entered
+	cancel()
+	require.NoError(t, waitRun(t, done))
+}
+
 func TestRun_MissingAPIKey(t *testing.T) {
 	t.Parallel()
 	transcriber := New(keyEnv(""))

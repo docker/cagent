@@ -80,11 +80,6 @@ func (t *Transcriber) Run(ctx context.Context, finish <-chan struct{}, handler T
 		return nil
 	default:
 	}
-	apiKey, _ := t.env.Get(ctx, "OPENAI_API_KEY")
-	if apiKey == "" {
-		return errors.New("/speak sends audio directly to OpenAI; set a separate OPENAI_API_KEY environment variable even when chat uses Docker's models gateway, which does not support /speak")
-	}
-
 	runCtx, cancel := context.WithCancel(ctx)
 	captureCtx, stopCapture := context.WithCancel(runCtx)
 	finished := make(chan struct{})
@@ -116,6 +111,16 @@ func (t *Transcriber) Run(ctx context.Context, finish <-chan struct{}, handler T
 		<-finished
 		err = errors.Join(err, finishErr)
 	}()
+
+	// The lookup can block on an `op` unlock prompt; finish and cancel must
+	// interrupt it like any other setup step.
+	apiKey, _ := t.env.Get(captureCtx, "OPENAI_API_KEY")
+	if captureCtx.Err() != nil {
+		return nil
+	}
+	if apiKey == "" {
+		return errors.New("/speak sends audio directly to OpenAI; set a separate OPENAI_API_KEY environment variable even when chat uses Docker's models gateway, which does not support /speak")
+	}
 
 	conn, response, err := dial(captureCtx, t.endpoint, http.Header{
 		"Authorization": []string{"Bearer " + apiKey},

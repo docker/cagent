@@ -562,10 +562,12 @@ func New(ctx context.Context, spawner SessionSpawner, initialApp *app.App, initi
 	for _, opt := range opts {
 		opt(m)
 	}
-	if m.envProvider == nil {
-		m.envProvider = environment.NewDefaultProvider()
+	if m.transcriber == nil {
+		if m.envProvider == nil {
+			m.envProvider = environment.NewDefaultProvider()
+		}
+		m.transcriber = transcribe.New(m.envProvider)
 	}
-	m.transcriber = transcribe.New(m.envProvider)
 
 	// Create initial editor (after options are applied so command builder is set)
 	initialEditor := editor.New(historyStore, m.editorOpts()...)
