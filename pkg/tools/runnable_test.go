@@ -265,7 +265,8 @@ func TestRunnableNestedRestartOwnership(t *testing.T) {
 			<-ctx.Done()
 		}}}
 		owner := tools.NewStartable(inner)
-		outer := tools.NewStartable(tools.WithName(owner, "worker"))
+		middle := tools.NewStartable(tools.WithName(owner, "worker"))
+		outer := tools.NewStartable(middle)
 		t.Cleanup(func() { require.NoError(t, outer.Stop(t.Context())) })
 		require.NoError(t, outer.Start(t.Context()))
 		first := <-started
@@ -277,6 +278,8 @@ func TestRunnableNestedRestartOwnership(t *testing.T) {
 		close(release)
 		synctest.Wait()
 		require.ErrorIs(t, first.Err(), context.Canceled)
+		assert.False(t, middle.IsStarted())
+		assert.False(t, outer.IsStarted())
 		assert.False(t, outer.TryIsHealthy())
 		require.NoError(t, outer.Start(t.Context()))
 		second := <-started
