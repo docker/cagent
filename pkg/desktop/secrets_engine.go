@@ -83,7 +83,7 @@ func secretsEngineToken(ctx context.Context) (string, DockerHubInfo, bool) {
 		slog.WarnContext(ctx, "The secrets engine served a session without an account",
 			"fingerprint", tokenFingerprint(token))
 		return "", DockerHubInfo{}, false
-	case session.ExpiresWithin(hubauth.ExpiryLeeway):
+	case claims.ExpiresAt == nil || hubauth.ExpiringAt(claims.ExpiresAt.Time):
 		slog.DebugContext(ctx, "The secrets engine served a session that expired, is about to, or has no expiry",
 			"fingerprint", tokenFingerprint(token),
 			"expires_at", sessionExpiry(session))
@@ -108,7 +108,7 @@ func sessionExpiry(session dockerhub.UserSession) string {
 	return "none"
 }
 
-// SecretsEngineError returns why the last secrets engine lookup failed, or nil, once any running lookup ends.
+// SecretsEngineError returns the last lookup error, or a timeout error while a lookup is still running.
 func SecretsEngineError() error {
 	return defaultSecretsEngine().lastError()
 }
@@ -191,11 +191,13 @@ func (e *secretsEngine) wait() {
 	}
 }
 
-// lastError returns why the last lookup failed, or nil, once any running lookup ends.
+// lastError reports failures without waiting for a lookup the caller already stopped waiting for.
 func (e *secretsEngine) lastError() error {
-	e.wait()
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if e.inflight != nil {
+		return errSecretsEngineSlow
+	}
 	return e.lastErr
 }
 

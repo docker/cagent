@@ -166,7 +166,7 @@ func cachedExpiring() bool {
 	if cache.expiresAt.IsZero() {
 		return hubauth.Expiring(cache.token)
 	}
-	return !time.Now().Add(hubauth.ExpiryLeeway).Before(cache.expiresAt)
+	return hubauth.ExpiringAt(cache.expiresAt)
 }
 
 // usable reports whether a token is worth handing to callers: one that dies

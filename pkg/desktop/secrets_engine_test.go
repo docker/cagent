@@ -451,7 +451,7 @@ func TestSecretsEngineLastError(t *testing.T) {
 		})
 	})
 
-	t.Run("a slow lookup reports the error it ends with", func(t *testing.T) {
+	t.Run("a slow lookup is reported without waiting for it", func(t *testing.T) {
 		t.Parallel()
 		synctest.Test(t, func(t *testing.T) {
 			engine := newTestEngine(t, &fakeEngine{block: true})
@@ -461,8 +461,37 @@ func TestSecretsEngineLastError(t *testing.T) {
 			_, err := engine.fetch(ctx)
 			require.ErrorIs(t, err, errSecretsEngineSlow)
 
+			start := time.Now()
+			require.ErrorIs(t, engine.lastError(), errSecretsEngineSlow)
+			assert.Zero(t, time.Since(start))
+			require.NoError(t, ctx.Err())
+
+			engine.wait()
 			require.ErrorIs(t, engine.lastError(), context.DeadlineExceeded)
 		})
+	})
+}
+
+func TestSecretsEngineDiagnosticsPreserveLegacyAccount(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		account := DockerHubInfo{Username: "legacy-user", Email: "legacy@example.com"}
+		fromDesktop := makeToken(t, time.Now().Add(time.Hour))
+		installFakeBackend(t, &fakeBackend{token: fromDesktop, info: &account})
+		installFakeEngine(t, &fakeEngine{block: true})
+
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+		defer cancel()
+		start := time.Now()
+
+		token, source := GetTokenWithSource(ctx)
+		require.Equal(t, fromDesktop, token)
+		require.Equal(t, SourceDesktop, source)
+		require.Equal(t, time.Second, time.Since(start))
+
+		require.ErrorIs(t, SecretsEngineError(), errSecretsEngineSlow)
+		require.NoError(t, ctx.Err())
+		assert.Equal(t, account, GetUserInfo(ctx))
+		assert.Equal(t, time.Second, time.Since(start))
 	})
 }
 
