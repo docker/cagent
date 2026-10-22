@@ -11,6 +11,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/mattn/go-isatty"
+	"github.com/muesli/cancelreader"
 
 	"github.com/docker/docker-agent/pkg/app"
 	"github.com/docker/docker-agent/pkg/gitbranch"
@@ -90,7 +91,6 @@ func Run(ctx context.Context, cfg Config) error {
 	events := make(chan any, 256)
 	resizes := make(chan [2]int, 4)
 	done := make(chan struct{})
-	defer close(done)
 
 	fileCompletion := completions.NewFileCompletionAt(loopCtx, cfg.WorkingDir)
 	if loader, ok := fileCompletion.(completions.AsyncLoader); ok {
@@ -103,7 +103,15 @@ func Run(ctx context.Context, cfg Config) error {
 		}()
 	}
 
-	go readKeys(term.Reader(), keys, done)
+	keysDone := make(chan struct{})
+	go func() {
+		defer close(keysDone)
+		readKeys(term.Reader(), keys, done)
+	}()
+	defer func() {
+		close(done)
+		<-keysDone
+	}()
 	subscriptionReady := make(chan struct{})
 	go func() {
 		m.app.SubscribeReliable(loopCtx, func(msg tea.Msg) {
@@ -212,7 +220,9 @@ func readKeys(r io.Reader, keys chan<- ui.Key, done <-chan struct{}) {
 		err  error
 	}
 	reads := make(chan readResult)
+	readerDone := make(chan struct{})
 	go func() {
+		defer close(readerDone)
 		for {
 			buf := make([]byte, 8192)
 			n, err := r.Read(buf)
@@ -224,6 +234,17 @@ func readKeys(r io.Reader, keys chan<- ui.Key, done <-chan struct{}) {
 			if err != nil {
 				return
 			}
+		}
+	}()
+	defer func() {
+		select {
+		case <-readerDone:
+			return
+		default:
+		}
+		// Some terminals cannot interrupt Read; do not hang shutdown in that case.
+		if reader, ok := r.(cancelreader.CancelReader); ok && reader.Cancel() {
+			<-readerDone
 		}
 	}()
 	p := &ui.InputParser{}
