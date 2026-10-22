@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"sync/atomic"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
@@ -31,9 +32,11 @@ type betaStreamAdapter struct {
 	rawLost        bool
 	requestContext json.RawMessage
 	// config is the dispatching client's; served is the model a server
-	// fallback handed the turn to, empty when the dispatched model served it.
+	// fallback handed the turn to, unset when the dispatched model served it.
+	// The runtime may read it while the reader goroutine still writes it
+	// (cancellation, idle timeout).
 	config base.Config
-	served string
+	served atomic.Pointer[string]
 }
 
 // newBetaStreamAdapter creates a new Beta stream adapter
@@ -88,7 +91,7 @@ func (a *betaStreamAdapter) Recv() (chat.MessageStreamResponse, error) {
 		case anthropic.BetaFallbackBlock:
 			// The declined model's tool calls are superseded.
 			a.toolCall = false
-			a.served = block.To.Model
+			a.served.Store(&block.To.Model)
 			response.Choices[0].Delta.ServerFallback = &chat.ServerFallback{From: block.From.Model, To: block.To.Model}
 		case anthropic.BetaThinkingBlock:
 			if block.Thinking != "" {
@@ -125,10 +128,10 @@ func (a *betaStreamAdapter) Recv() (chat.MessageStreamResponse, error) {
 		a.stopReason = eventVariant.Delta.StopReason
 		// Sticky routing sends no marker: only a fallback_message iteration
 		// shows that a fallback model served the turn.
-		if a.served == "" {
+		if a.served.Load() == nil {
 			for _, it := range slices.Backward(a.message.Usage.Iterations) {
 				if it.Type == "fallback_message" {
-					a.served = it.Model
+					a.served.Store(&it.Model)
 					break
 				}
 			}
@@ -171,11 +174,12 @@ func (a *betaStreamAdapter) accumulate(event anthropic.BetaRawMessageStreamEvent
 
 // ServedBy reports the model a server fallback handed the turn to.
 func (a *betaStreamAdapter) ServedBy() (contracts.ServingModel, bool) {
-	if a.served == "" {
+	served := a.served.Load()
+	if served == nil {
 		return contracts.ServingModel{}, false
 	}
 	cfg := a.config
-	cfg.ModelConfig.Model = a.served
+	cfg.ModelConfig.Model = *served
 	// The primary's display name and cost overrides don't describe the
 	// fallback model, which is priced from the catalogue.
 	cfg.ModelConfig.DisplayModel = ""

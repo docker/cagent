@@ -59,7 +59,7 @@ func (p *eventProjector) project(ev embeddedchat.Event) []map[string]any {
 			"arguments": e.ToolCall.Function.Arguments,
 		})
 	case *runtime.ToolCallsRetractedEvent:
-		return one(map[string]any{"type": "tool_calls_retracted", "ids": e.ToolCallIDs})
+		return one(map[string]any{"type": "tool_calls_retracted", "ids": stringsToAny(e.ToolCallIDs)})
 	case *runtime.ToolCallEvent:
 		return one(toolCallEvent("tool_call", e.ToolCall))
 	case *runtime.ToolCallConfirmationEvent:

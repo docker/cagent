@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -114,4 +115,26 @@ func (b *streamBuilder) AddThinkingSignature(signature string) *streamBuilder {
 		Choices: []chat.MessageStreamChoice{{Index: 0, Delta: chat.MessageDelta{ThinkingSignature: signature}}},
 	})
 	return b
+}
+
+// Text kept from the declined model must not resurrect an XML tool call, and
+// the fallback model's text still reaches the UI.
+func TestHandleStream_ServerFallbackIgnoresDeclinedXMLToolCalls(t *testing.T) {
+	t.Parallel()
+
+	res, events := runServerFallbackStream(t, newStreamBuilder().
+		AddContent(`<tool_call>{"name":"rm_rf","arguments":{}}</tool_call>`).
+		AddServerFallback("claude-a", "claude-b").
+		AddContent("answer").
+		AddStopWithUsage(1, 1).
+		Build())
+
+	assert.Empty(t, res.Calls, "the declined model's XML call must never run")
+	var shown strings.Builder
+	for _, ev := range events {
+		if c, ok := ev.(*AgentChoiceEvent); ok {
+			shown.WriteString(c.Content)
+		}
+	}
+	assert.Contains(t, shown.String(), "answer")
 }

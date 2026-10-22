@@ -155,6 +155,9 @@ func handleStream(ctx context.Context, cancelStream context.CancelCauseFunc, str
 	// xmlToolCallGate suppresses AgentChoice events once a <tool_call> tag is
 	// seen, preventing raw XML from rendering in the TUI.
 	xmlToolCallGate := false
+	// serverHandoff records a server fallback: the text kept from the declined
+	// model must not be mined for XML tool calls it was never allowed to make.
+	serverHandoff := false
 	for _, t := range agentTools {
 		toolDefMap[t.Name] = t
 	}
@@ -199,7 +202,7 @@ func handleStream(ctx context.Context, cancelStream context.CancelCauseFunc, str
 	// no structured tool calls were received. Called from both the early-return
 	// and EOF paths.
 	applyXMLFallback := func() {
-		if len(toolCalls) > 0 {
+		if len(toolCalls) > 0 || serverHandoff {
 			return
 		}
 		extracted, textBefore, found := extractXMLToolCalls(fullContent.String())
@@ -295,6 +298,8 @@ mainLoop:
 				clear(emittedPartial)
 				fullReasoningContent.Reset()
 				thinkingSignature = ""
+				serverHandoff = true
+				xmlToolCallGate = false
 				events.Emit(Warning(fmt.Sprintf("%s declined this turn; %s continues it.", fb.From, fb.To), a.Name()))
 			}
 

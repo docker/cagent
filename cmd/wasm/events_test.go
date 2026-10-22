@@ -4,6 +4,7 @@ package main
 
 import (
 	"errors"
+	"syscall/js"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -34,7 +35,9 @@ func TestProjectToolEvents(t *testing.T) {
 	def := tools.Tool{Name: "echo"}
 
 	assert.Equal(t, []map[string]any{{"type": "tool_call_delta", "id": "c1", "name": "echo", "arguments": `{"text":"x"}`}}, p.project(raw(runtime.PartialToolCall(call, def, "root"))))
-	assert.Equal(t, []map[string]any{{"type": "tool_calls_retracted", "ids": []string{"c1"}}}, p.project(raw(runtime.ToolCallsRetracted([]string{"c1"}, "root"))))
+	retracted := p.project(raw(runtime.ToolCallsRetracted([]string{"c1"}, "root")))
+	assert.Equal(t, []map[string]any{{"type": "tool_calls_retracted", "ids": []any{"c1"}}}, retracted)
+	assert.NotPanics(t, func() { js.ValueOf(retracted[0]) }, "emit converts the event for JavaScript")
 	assert.Equal(t, []map[string]any{{"type": "tool_call", "id": "c1", "name": "echo", "args": `{"text":"x"}`}}, p.project(raw(runtime.ToolCall(call, def, "root"))))
 	assert.Equal(t, []map[string]any{{"type": "tool_confirmation", "id": "c1", "name": "echo", "args": `{"text":"x"}`}}, p.project(raw(runtime.ToolCallConfirmation(call, def, "root", nil))))
 	assert.Equal(t, []map[string]any{{"type": "tool_output", "id": "c1", "name": "echo", "output": "line"}}, p.project(raw(runtime.ToolCallOutput("c1", def, "line", "root"))))
