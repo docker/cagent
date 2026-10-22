@@ -121,8 +121,11 @@ func (s *Session) close(ctx context.Context) <-chan struct{} {
 	}
 	s.initTurns()
 	s.cleanupDone = make(chan struct{})
+	var terminalsClosed chan error
 	if s.terminals != nil {
-		s.terminals.stop(ctx)
+		s.terminals.retire()
+		terminalsClosed = make(chan error, 1)
+		go func() { terminalsClosed <- s.terminals.cleanup(ctx) }()
 	}
 	var mcpClosed chan error
 	if s.clientMCP != nil {
@@ -143,8 +146,8 @@ func (s *Session) close(ctx context.Context) <-chan struct{} {
 				s.cleanupErr = errors.Join(s.cleanupErr, fmt.Errorf("closing ACP runtime: %w", err))
 			}
 		}
-		if s.terminals != nil {
-			s.cleanupErr = errors.Join(s.cleanupErr, s.terminals.wait())
+		if terminalsClosed != nil {
+			s.cleanupErr = errors.Join(s.cleanupErr, <-terminalsClosed)
 		}
 		if mcpClosed != nil {
 			s.cleanupErr = errors.Join(s.cleanupErr, <-mcpClosed)
