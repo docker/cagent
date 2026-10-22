@@ -112,8 +112,8 @@ type BM25Strategy struct {
 	// BM25 parameters
 	k1           float64 // term frequency saturation parameter (typically 1.2 to 2.0)
 	b            float64 // length normalization parameter (typically 0.75)
+	statsMu      sync.RWMutex
 	avgDocLength float64 // average document length
-	docCount     int     // total number of documents
 
 	// Tokenization helpers (built once per strategy instance)
 	replacer  *strings.Replacer
@@ -333,10 +333,14 @@ func (s *BM25Strategy) Query(ctx context.Context, query string, numResults int, 
 		}
 	}
 
-	// Score each document.
+	s.statsMu.RLock()
+	avgDocLength := s.avgDocLength
+	s.statsMu.RUnlock()
+
+	// Score each document with the same statistics snapshot.
 	scores := make([]database.SearchResult, 0, len(allDocs))
 	for i, doc := range allDocs {
-		score := s.calculateBM25Score(queryTerms, docTermFreqs[i], docLengths[i], df)
+		score := s.calculateBM25Score(queryTerms, docTermFreqs[i], docLengths[i], df, len(allDocs), avgDocLength)
 		if score >= threshold {
 			scores = append(scores, database.SearchResult{
 				Document:   doc,
@@ -475,7 +479,7 @@ func (s *BM25Strategy) tokenize(text string) []string {
 	return filtered
 }
 
-func (s *BM25Strategy) calculateBM25Score(queryTerms []string, docTermFreq map[string]int, docLength float64, df map[string]int) float64 {
+func (s *BM25Strategy) calculateBM25Score(queryTerms []string, docTermFreq map[string]int, docLength float64, df map[string]int, docCount int, avgDocLength float64) float64 {
 	score := 0.0
 
 	for _, queryTerm := range queryTerms {
@@ -492,13 +496,13 @@ func (s *BM25Strategy) calculateBM25Score(queryTerms []string, docTermFreq map[s
 		}
 
 		// IDF calculation
-		idf := math.Log((float64(s.docCount)-float64(termDF)+0.5)/(float64(termDF)+0.5) + 1.0)
+		idf := math.Log((float64(docCount)-float64(termDF)+0.5)/(float64(termDF)+0.5) + 1.0)
 
 		// BM25 formula
 		numerator := tf * (s.k1 + 1.0)
 		lengthRatio := 1.0
-		if s.avgDocLength > 0 {
-			lengthRatio = docLength / s.avgDocLength
+		if avgDocLength > 0 {
+			lengthRatio = docLength / avgDocLength
 		}
 		denominator := tf + s.k1*(1.0-s.b+s.b*lengthRatio)
 		score += idf * (numerator / denominator)
@@ -513,7 +517,6 @@ func (s *BM25Strategy) getAllDocuments(ctx context.Context) ([]database.Document
 	if err != nil {
 		return nil, err
 	}
-	s.docCount = len(docs)
 	return docs, nil
 }
 
@@ -523,20 +526,21 @@ func (s *BM25Strategy) calculateAvgDocLength(ctx context.Context) error {
 		return err
 	}
 
-	if len(docs) == 0 {
-		s.avgDocLength = 0
-		return nil
-	}
-
 	totalLength := 0
 	for _, doc := range docs {
 		totalLength += len(s.tokenize(doc.Content))
 	}
 
-	s.avgDocLength = float64(totalLength) / float64(len(docs))
+	var avgDocLength float64
+	if len(docs) > 0 {
+		avgDocLength = float64(totalLength) / float64(len(docs))
+	}
+	s.statsMu.Lock()
+	s.avgDocLength = avgDocLength
+	s.statsMu.Unlock()
 	slog.DebugContext(ctx, "Calculated average document length",
 		"strategy", s.name,
-		"avgLength", s.avgDocLength,
+		"avgLength", avgDocLength,
 		"docCount", len(docs))
 
 	return nil
