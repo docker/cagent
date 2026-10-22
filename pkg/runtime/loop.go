@@ -2014,7 +2014,7 @@ func (r *LocalRuntime) skillSubSessionTools(ctx context.Context, sess *session.S
 
 	agentTools = filterAllowedTools(agentTools, sess.AllowedTools)
 
-	for _, ts := range sess.ExtraToolSets {
+	for i, ts := range sess.ExtraToolSets {
 		tools.ConfigureHandlers(ts,
 			tools.ScopedElicitationHandler,
 			tools.SamplingScopeHandler,
@@ -2023,12 +2023,10 @@ func (r *LocalRuntime) skillSubSessionTools(ctx context.Context, sess *session.S
 			r.managedOAuth,
 			r.unmanagedOAuthRedirectURI,
 		)
-		if startable, ok := tools.As[tools.Startable](ts); ok {
-			if err := startable.Start(ctx); err != nil {
-				slog.WarnContext(ctx, "Skill toolset failed to start; skipping",
-					"agent", a.Name(), "toolset", tools.DescribeToolSet(ts), "error", err)
-				continue
-			}
+		if err := r.extraToolsetRuns.start(ctx, sess, i, ts); err != nil {
+			slog.WarnContext(ctx, "Skill toolset failed to start; skipping",
+				"agent", a.Name(), "toolset", tools.DescribeToolSet(ts), "error", err)
+			continue
 		}
 		extra, err := ts.Tools(ctx)
 		if err != nil {

@@ -2,6 +2,8 @@ package tools_test
 
 import (
 	"context"
+	"errors"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -197,4 +199,49 @@ func TestRunnablePendingStopHandoff(t *testing.T) {
 		<-finished
 		require.NoError(t, s.StopIfStarted(t.Context()))
 	})
+}
+
+type restartableRunnable struct {
+	runnableToolSet
+
+	restarts atomic.Int32
+}
+
+func (r *restartableRunnable) Restart(context.Context) error {
+	r.restarts.Add(1)
+	return errors.New("restart failed")
+}
+
+func TestRunnableRejectsUnownedRestart(t *testing.T) {
+	t.Parallel()
+	for _, pending := range []bool{false, true} {
+		t.Run(strconv.FormatBool(pending), func(t *testing.T) {
+			t.Parallel()
+			synctest.Test(t, func(t *testing.T) {
+				started := make(chan context.Context, 2)
+				inner := &restartableRunnable{runnableToolSet: runnableToolSet{run: func(ctx context.Context) {
+					started <- ctx
+					<-ctx.Done()
+				}}}
+				s := tools.NewStartable(inner)
+				t.Cleanup(func() { require.NoError(t, s.Stop(t.Context())) })
+				require.NoError(t, s.Start(t.Context()))
+				runCtx := <-started
+				assert.False(t, s.CanRestart())
+				require.ErrorContains(t, s.RestartIfSupported(t.Context()), "does not support restart")
+				assert.Zero(t, inner.restarts.Load())
+				assert.True(t, s.IsStarted(), "rejected restart must not lose the running worker")
+				if pending {
+					s.ExportedPublishStopRequest(t.Context())
+					assert.False(t, s.TryIsStarted())
+				} else {
+					require.NoError(t, s.StopIfStarted(t.Context()))
+				}
+				require.ErrorIs(t, runCtx.Err(), context.Canceled)
+				require.NoError(t, s.Start(t.Context()))
+				runCtx = <-started
+				require.NoError(t, runCtx.Err())
+			})
+		})
+	}
 }

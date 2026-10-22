@@ -1794,7 +1794,10 @@ func WithAllowedTools(names []string) Opt {
 
 // WithExtraToolSets injects additional toolsets into the session on top of
 // the agent's own toolsets. Used by fork-mode skill sub-sessions that declare
-// assistive toolsets.
+// assistive toolsets. Raw Runnable workers are owned until runtime Close;
+// prewrapped toolsets remain owned by their team or embedder. Set extras before
+// execution. Shared workers require one owner: use an explicit NewStartable
+// wrapper to share across runtimes or for noncomparable runnable values.
 func WithExtraToolSets(toolSets []tools.ToolSet) Opt {
 	return func(s *Session) {
 		s.ExtraToolSets = toolSets

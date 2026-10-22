@@ -494,3 +494,12 @@ and cancellation/join, or wrap it once with `tools.NewStartable`. Two independen
 wrappers around the same raw worker are not a shared lifecycle. The wrapper is
 an intentional bridge to legacy host `Start`/`Stop`; it does not make those host
 lifetimes structured.
+
+Raw runnable session extras supplied programmatically are instead adopted once
+by their runtime and joined by `Close`; existing lifecycle wrappers remain
+borrowed. Keep a session's extras fixed during execution. Share one explicit
+wrapper when sharing a worker across runtimes or using a noncomparable runnable
+value across sessions. Runtime adoption deduplicates comparable worker providers
+across decorated references; noncomparable workers are scoped to a session slot.
+Runnable-only workers do not support the separate `Restartable` capability;
+stop and start their canonical wrapper to replace a run.

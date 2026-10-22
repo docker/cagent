@@ -731,6 +731,11 @@ func (s *StartableToolSet) Tools(ctx context.Context) ([]Tool, error) {
 // Callers must use Restart on this wrapper so the lifecycle latch, failure
 // streaks, and retry gate stay synchronized with the underlying toolset.
 func (s *StartableToolSet) CanRestart() bool {
+	if _, startable := As[Startable](s.ToolSet); !startable {
+		if _, runnable := As[Runnable](s.ToolSet); runnable {
+			return false
+		}
+	}
 	_, ok := As[Restartable](s.ToolSet)
 	return ok
 }
@@ -743,7 +748,7 @@ func (s *StartableToolSet) RestartIfSupported(ctx context.Context) error {
 	defer s.unlock()
 
 	restarter, ok := As[Restartable](s.ToolSet)
-	if !ok {
+	if !ok || !s.CanRestart() {
 		return errors.New("toolset does not support restart")
 	}
 
@@ -812,7 +817,7 @@ func (s *StartableToolSet) StopIfStarted(ctx context.Context) error {
 	s.stopRequestCtx = nil
 	s.stopRequestMu.Unlock()
 
-	if !s.started {
+	if !s.started && s.run == nil {
 		return s.stopErr
 	}
 	return s.stopLocked(ctx)
@@ -878,7 +883,7 @@ func (s *StartableToolSet) settleStopRequestAndRelease() bool {
 	ctx := context.WithoutCancel(s.stopRequestCtx)
 	s.stopRequestCtx = nil
 	s.stopRequestMu.Unlock()
-	if s.started {
+	if s.started || s.run != nil {
 		if err := s.stopLocked(ctx); err != nil {
 			slog.WarnContext(ctx, "Failed to stop toolset for a pending shutdown request", "toolset", DescribeToolSet(s), "error", err)
 		}
