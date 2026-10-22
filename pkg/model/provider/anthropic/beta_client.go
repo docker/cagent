@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/anthropics/anthropic-sdk-go/packages/param"
 	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
 
@@ -65,9 +64,11 @@ func (c *Client) createBetaStream(
 
 	sys, transient := c.betaSystemContext(messages)
 
-	betas := []anthropic.AnthropicBeta{
-		anthropic.AnthropicBetaInterleavedThinking2025_05_14,
-		"fine-grained-tool-streaming-2025-05-14",
+	betas := []anthropic.AnthropicBeta{"fine-grained-tool-streaming-2025-05-14"}
+	// Requests reach this path for other reasons (fallbacks, structured
+	// output, ...); an explicit interleaved_thinking: false still holds.
+	if _, set := c.ModelConfig.ProviderOpts["interleaved_thinking"]; !set || c.interleavedThinkingEnabled() {
+		betas = append([]anthropic.AnthropicBeta{anthropic.AnthropicBetaInterleavedThinking2025_05_14}, betas...)
 	}
 
 	params := anthropic.BetaMessageNewParams{
@@ -98,6 +99,17 @@ func (c *Client) createBetaStream(
 	c.applyBetaThinkingConfig(&params, maxTokens)
 	c.applyThinkingBinding(&params)
 
+	// As on the standard path: sampling only applies with thinking off.
+	thinkingEnabled := params.Thinking.OfEnabled != nil || params.Thinking.OfAdaptive != nil
+	if !thinkingEnabled && !rejectsSampling(c.ModelConfig.Model) {
+		if c.ModelConfig.Temperature != nil {
+			params.Temperature = param.NewOpt(*c.ModelConfig.Temperature)
+		}
+		if c.ModelConfig.TopP != nil {
+			params.TopP = param.NewOpt(*c.ModelConfig.TopP)
+		}
+	}
+
 	// Forward task_budget via `output_config.task_budget` (Anthropic
 	// Opus 4.7+) and enable the corresponding beta header. Older Claude
 	// models will reject the field — docker-agent does not gate by model.
@@ -118,13 +130,9 @@ func (c *Client) createBetaStream(
 		slog.DebugContext(ctx, "Anthropic Beta provider_opts: set top_k", "value", topK)
 	}
 
-	// Enable server-side fallbacks when the fallbacks provider_opt is set;
-	// the beta is appended to params.Betas so the SDK composes a single
-	// anthropic-beta header.
-	var requestOpts []option.RequestOption
-	if fallbacks := fallbackModels(c.ModelConfig.ProviderOpts); len(fallbacks) > 0 {
+	if spec, _ := parseFallbacks(c.ModelConfig.ProviderOpts); spec.enabled() {
 		params.Betas = append(params.Betas, serverSideFallbackBeta)
-		requestOpts = append(requestOpts, fallbacksBody(fallbacks))
+		params.Fallbacks = spec.param()
 	}
 
 	configureCacheDiagnostics(&params, messages, c.ModelConfig.ProviderOpts)
@@ -139,7 +147,7 @@ func (c *Client) createBetaStream(
 		}
 		requestContext = updates.RequestContext
 	}
-	stream := client.Beta.Messages.NewStreaming(ctx, params, requestOpts...)
+	stream := client.Beta.Messages.NewStreaming(ctx, params)
 	trackUsage := c.TrackUsageEnabled()
 	ad := c.newBetaStreamAdapter(stream, trackUsage)
 	ad.requestContext = requestContext
@@ -159,7 +167,7 @@ func (c *Client) createBetaStream(
 		slog.WarnContext(ctx, "Retrying with clamped max_tokens after context length error", "original", maxTokens, "clamped", newMaxTokens, "used", used)
 		retryParams := params
 		retryParams.MaxTokens = newMaxTokens
-		return client.Beta.Messages.NewStreaming(ctx, retryParams, requestOpts...)
+		return client.Beta.Messages.NewStreaming(ctx, retryParams)
 	}
 
 	slog.DebugContext(ctx, "Anthropic Beta API chat completion stream created successfully", "model", c.ModelConfig.Model)

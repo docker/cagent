@@ -1566,3 +1566,17 @@ func TestNewClient_RefusesMythos5(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, client)
 }
+
+func TestNewClient_RejectsFallbacks(t *testing.T) {
+	t.Parallel()
+
+	env := environment.NewMapEnvProvider(map[string]string{"AWS_BEARER_TOKEN_BEDROCK": "token", "AWS_REGION": "us-east-1"})
+	for _, fallbacks := range []any{"default", []any{"anthropic.claude-sonnet-4-6"}} {
+		_, err := NewClient(t.Context(), &latest.ModelConfig{Provider: "amazon-bedrock", Model: "anthropic.claude-opus-4-8", ProviderOpts: map[string]any{"fallbacks": fallbacks}}, env)
+		require.ErrorContains(t, err, "requires the Claude API")
+	}
+
+	client, err := NewClient(t.Context(), &latest.ModelConfig{Provider: "amazon-bedrock", Model: "anthropic.claude-opus-4-8", ProviderOpts: map[string]any{"fallbacks": []any{}}}, env)
+	require.NoError(t, err, "an empty list is no fallback")
+	assert.NotNil(t, client)
+}

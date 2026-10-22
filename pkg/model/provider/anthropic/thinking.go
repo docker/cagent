@@ -9,7 +9,6 @@ import (
 
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/effort"
-	"github.com/docker/docker-agent/pkg/model/provider/providerutil"
 	"github.com/docker/docker-agent/pkg/modelinfo"
 )
 
@@ -278,10 +277,7 @@ func validateThinkingDisplay(cfg *latest.ModelConfig) error {
 	if !ok || (display != thinkingDisplayDisplay && display != thinkingDisplayUpdates) {
 		return nil
 	}
-	// Read fallbacks directly (not via fallbackModels) to avoid its
-	// "enabling server-side fallbacks" debug log during validation.
-	fallbacks, _ := providerutil.GetProviderOptStringSlice(cfg.ProviderOpts, "fallbacks")
-	for _, model := range append([]string{cfg.Model}, fallbacks...) {
+	for _, model := range append([]string{cfg.Model}, fallbackTargets(cfg.ProviderOpts)...) {
 		if display == thinkingDisplayUpdates {
 			if !supportsProgressUpdates(model) {
 				return fmt.Errorf("anthropic: model %q does not support thinking_display: updates", model)

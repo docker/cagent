@@ -31,6 +31,7 @@ func TestThinkingBindingBehavior(t *testing.T) {
 		"sonnet 5":                            {model: "claude-sonnet-5"},
 		"opus 5":                              {model: "claude-opus-5"},
 		"fallback checks":                     {model: "claude-opus-4-7", opts: map[string]any{"fallbacks": []any{"claude-sonnet-4-6", "claude-fable-5-2"}}, want: "drop_block"},
+		"default fallbacks keep primary rule": {model: "claude-opus-4-7", opts: map[string]any{"fallbacks": "default"}},
 		"explicit error":                      {model: "claude-fable-5-1", opts: map[string]any{"thinking_prefix_mismatch": "error"}, want: "error"},
 		"explicit on old":                     {model: "claude-sonnet-4-6", opts: map[string]any{"thinking_prefix_mismatch": "drop_block"}, want: "drop_block"},
 		"non-string is ignored":               {model: "claude-sonnet-4-6", opts: map[string]any{"thinking_prefix_mismatch": 1}},

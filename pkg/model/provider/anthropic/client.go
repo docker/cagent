@@ -66,6 +66,10 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 		return nil, err
 	}
 	globalOptions := options.Apply(opts...)
+	if err := validateFallbackHost(cfg, globalOptions.Gateway()); err != nil {
+		slog.ErrorContext(ctx, "Anthropic client creation failed", "error", err)
+		return nil, err
+	}
 
 	anthropicClient := &Client{
 		Config: base.Config{
@@ -258,11 +262,13 @@ func (c *Client) CreateChatCompletionStream(
 	//  - interleaved thinking
 	//  - structured output (requires beta header)
 	//  - task_budget (requires the task-budgets beta header)
+	//  - server-side fallbacks (only the beta types carry fallback blocks)
 	if c.interleavedThinkingEnabled() ||
 		c.ModelOptions.StructuredOutput() != nil ||
 		!c.ModelConfig.TaskBudget.IsZero() || c.thinkingBindingBehavior() != "" ||
 		c.progressUpdatesEnabled() ||
-		cacheDiagnosticsEnabled(c.ModelConfig.ProviderOpts) || cachePreservingUpdatesEnabled(c.ModelConfig.ProviderOpts) || c.hasNativeCompaction(messages) {
+		cacheDiagnosticsEnabled(c.ModelConfig.ProviderOpts) || cachePreservingUpdatesEnabled(c.ModelConfig.ProviderOpts) || c.hasNativeCompaction(messages) ||
+		fallbacksEnabled(c.ModelConfig.ProviderOpts) {
 		return c.createBetaStream(ctx, client, messages, requestTools, maxTokens)
 	}
 
@@ -341,12 +347,7 @@ func (c *Client) CreateChatCompletionStream(
 	// Add fine-grained tool streaming beta header; the standard Messages API
 	// composes the anthropic-beta header manually (no params.Betas field).
 	betas := "fine-grained-tool-streaming-2025-05-14"
-	var requestOpts []option.RequestOption
-	if fallbacks := fallbackModels(c.ModelConfig.ProviderOpts); len(fallbacks) > 0 {
-		betas += "," + serverSideFallbackBeta
-		requestOpts = append(requestOpts, fallbacksBody(fallbacks))
-	}
-	requestOpts = append(requestOpts, option.WithHeader("anthropic-beta", betas))
+	requestOpts := []option.RequestOption{option.WithHeader("anthropic-beta", betas)}
 
 	stream := client.Messages.NewStreaming(ctx, params, requestOpts...)
 	trackUsage := c.TrackUsageEnabled()
