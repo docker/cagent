@@ -85,6 +85,7 @@ func resolveLoginEndpoint() string {
 }
 
 func isDockerHost(host string) bool {
+	host = strings.ToLower(host)
 	return host == "docker.com" || strings.HasSuffix(host, ".docker.com")
 }
 
@@ -99,7 +100,7 @@ func isStagingEndpoint(endpoint string) bool {
 	if err != nil || !isDockerHost(u.Hostname()) {
 		return false
 	}
-	label, _, _ := strings.Cut(u.Hostname(), ".")
+	label, _, _ := strings.Cut(strings.ToLower(u.Hostname()), ".")
 	return strings.HasSuffix(label, "-stage")
 }
 

@@ -176,6 +176,7 @@ func TestLoginEndpointOverride(t *testing.T) {
 		want string
 	}{
 		{name: "unset", url: "", want: defaultLoginEndpoint},
+		{name: "mixed-case docker host", url: "https://HUB-STAGE.DOCKER.COM/v2/users/login", want: "https://HUB-STAGE.DOCKER.COM/v2/users/login"},
 		{name: "docker host", url: "https://hub-stage.docker.com/v2/users/login", want: "https://hub-stage.docker.com/v2/users/login"},
 		{name: "other host", url: "https://evil.example.com/login", want: defaultLoginEndpoint},
 		{name: "plain HTTP", url: "http://hub.docker.com/v2/users/login", want: defaultLoginEndpoint},
@@ -197,6 +198,10 @@ func TestIsStagingEndpoint(t *testing.T) {
 		{endpoint: defaultLoginEndpoint, want: false},
 		{endpoint: "https://hub-stage.docker.com/v2/users/login", want: true},
 		{endpoint: "https://login-stage.docker.com/v2/users/login", want: true},
+		{endpoint: "https://HUB-STAGE.docker.com/v2/users/login", want: true},
+		{endpoint: "https://HuB-StAgE.DoCkEr.CoM/v2/users/login", want: true},
+		{endpoint: "https://HUB.DOCKER.COM/v2/users/login", want: false},
+		{endpoint: "https://HUB-STAGE.DOCKER.COM.evil.example/login", want: false},
 		{endpoint: "https://hub.docker.com/hub-stage/v2/users/login", want: false},
 		{endpoint: "https://hub-stage.example.com/v2/users/login", want: false},
 		{endpoint: "https://hub-stage.docker.com.example.com/login", want: false},
