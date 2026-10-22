@@ -62,7 +62,7 @@ export DOCKER_AGENT_ENV_ANTHROPIC_API_KEY="op://Personal/Anthropic/api-key" # us
 docker agent run agent.yaml
 ```
 
-- The prefix works for every variable Docker Agent resolves through its secret chain: provider API keys, `${VAR}` references in MCP `env`, `DOCKER_TOKEN`. Voice transcription in the TUI still reads `OPENAI_API_KEY` directly.
+- The prefix works for every variable Docker Agent resolves through its secret chain: provider API keys, `${VAR}` references in MCP `env`, `DOCKER_TOKEN`, and the OpenAI key used by `/speak`.
 - `DOCKER_AGENT_ENV_<NAME>` wins over `<NAME>` across all [sources](#overview) and `--env-from-file`: an override in the Docker Agent env file beats a plain shell export.
 - An empty override is ignored: `export DOCKER_AGENT_ENV_ANTHROPIC_API_KEY=` falls back to an override in a later source, then to `ANTHROPIC_API_KEY`.
 - Docker Agent's own settings (`DOCKER_AGENT_*`) are never overridden this way.
