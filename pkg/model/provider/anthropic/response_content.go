@@ -224,7 +224,7 @@ func recoveredContent(msg *chat.Message, keepMarkers bool) (json.RawMessage, boo
 			drop[i] = true
 		}
 	}
-	patched := make([]map[string]any, 0, len(blocks)+1)
+	patched := make([]map[string]any, 0, len(blocks))
 	inserted := len(text) > 0 || msg.Content == ""
 	for i, b := range blocks {
 		if drop[i] {
