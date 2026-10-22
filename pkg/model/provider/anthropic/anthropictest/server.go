@@ -113,12 +113,18 @@ func CompactionReply(id, summary, signature string, iterations ...[2]int64) stri
 	)
 }
 
-// FallbackBeforeOutputReply is a turn that from declined before any output:
-// message_start already names to, and the fallback marker comes first.
-func FallbackBeforeOutputReply(id, from, to, text string) string {
-	events := append([]sse{messageStart(id, to, 0)}, fallbackBlock(0, from, to)...)
+// FallbackBeforeOutputReply is a turn that from declined before any output,
+// in the refusal category: message_start already names to, the fallback
+// marker comes first, and the declined attempt reports no output tokens.
+func FallbackBeforeOutputReply(id, from, to, category, text string) string {
+	events := append([]sse{messageStart(id, to, 0)}, fallbackBlock(0, from, to, category)...)
 	events = append(events, textBlock(1, text)...)
-	events = append(events, messageDelta("end_turn", fallbackUsage(from, to)), event("message_stop", nil))
+	declined := iteration("message", from)
+	declined["output_tokens"] = 0
+	events = append(events, messageDelta("end_turn", map[string]any{
+		"input_tokens": 0, "output_tokens": 7,
+		"iterations": []any{declined, iteration("fallback_message", to)},
+	}), event("message_stop", nil))
 	return body(events...)
 }
 
@@ -139,7 +145,7 @@ func FallbackMidOutputReply(id, from, to, before, after, toolID string) string {
 		event("content_block_delta", map[string]any{"index": 2, "delta": map[string]any{"type": "input_json_delta", "partial_json": "{}"}}),
 		event("content_block_stop", map[string]any{"index": 2}),
 	)
-	events = append(events, fallbackBlock(3, from, to)...)
+	events = append(events, fallbackBlock(3, from, to, "cyber")...)
 	events = append(events, textBlock(4, after)...)
 	events = append(events, messageDelta("end_turn", fallbackUsage(from, to)), event("message_stop", nil))
 	return body(events...)
@@ -159,7 +165,7 @@ func FallbackChainReply(id string, models ...string) string {
 			break
 		}
 		iterations = append(iterations, iteration("message", model))
-		events = append(events, fallbackBlock(index, model, models[i+1])...)
+		events = append(events, fallbackBlock(index, model, models[i+1], "cyber")...)
 		index++
 	}
 	events = append(events, messageDelta("end_turn", map[string]any{"input_tokens": 0, "output_tokens": 7, "iterations": iterations}), event("message_stop", nil))
@@ -179,11 +185,11 @@ func StickyReply(id, to, text string) string {
 }
 
 // fallbackBlock is a fallback marker: a block start and stop with no deltas.
-func fallbackBlock(index int, from, to string) []sse {
+func fallbackBlock(index int, from, to, category string) []sse {
 	return []sse{
 		event("content_block_start", map[string]any{"index": index, "content_block": map[string]any{
 			"type": "fallback", "from": map[string]any{"model": from}, "to": map[string]any{"model": to},
-			"trigger": map[string]any{"type": "refusal", "category": "cyber"},
+			"trigger": map[string]any{"type": "refusal", "category": category},
 		}}),
 		event("content_block_stop", map[string]any{"index": index}),
 	}

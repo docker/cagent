@@ -225,6 +225,9 @@ type MessageStreamResponse struct {
 	Model   string                `json:"model"`
 	Choices []MessageStreamChoice `json:"choices"`
 	Usage   *Usage                `json:"usage,omitempty"`
+	// UsageAttempts lists each model that ran when a server fallback spread
+	// the response across models; Usage describes only the last one.
+	UsageAttempts []UsageAttempt `json:"usage_attempts,omitempty"`
 }
 
 type Usage struct {
@@ -235,6 +238,22 @@ type Usage struct {
 	ReasoningTokens   int64 `json:"reasoning_tokens,omitempty"`
 	// ServiceTier is the actual processing tier reported by the provider, not the requested tier.
 	ServiceTier string `json:"service_tier,omitempty"`
+}
+
+// UsageAttempt is one attempt of a response a server fallback spread across
+// models, billed at that model's rates unless Billed is false.
+type UsageAttempt struct {
+	Model             string `json:"model"`
+	Billed            bool   `json:"billed"`
+	InputTokens       int64  `json:"input_tokens"`
+	OutputTokens      int64  `json:"output_tokens"`
+	CachedInputTokens int64  `json:"cached_input_tokens"`
+	CacheWriteTokens  int64  `json:"cached_write_tokens"`
+}
+
+// Usage returns the attempt's token counts as a Usage.
+func (a UsageAttempt) Usage() *Usage {
+	return &Usage{InputTokens: a.InputTokens, OutputTokens: a.OutputTokens, CachedInputTokens: a.CachedInputTokens, CacheWriteTokens: a.CacheWriteTokens}
 }
 
 // PromptTokens sums the disjoint fresh, cache-read, and cache-write input buckets.
