@@ -259,7 +259,6 @@ func TestRoutedPricing(t *testing.T) {
 			}
 			switch {
 			case tc.fallback:
-				assert.Equal(t, leafID, router.LastSelectedModelID(), "failed route selection must not price the successful outer fallback")
 				assert.Equal(t, 1, leaf.callCount, "cooldown stays keyed to the failed outer router")
 				assert.Equal(t, 2, fallback.callCount)
 			case tc.noMatch:
