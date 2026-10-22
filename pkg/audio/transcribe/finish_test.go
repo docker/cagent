@@ -218,7 +218,7 @@ func TestRun_TranscriptionFailure(t *testing.T) {
 
 func TestRun_FinishBeforeStart(t *testing.T) {
 	t.Parallel()
-	transcriber := New("")
+	transcriber := New(keyEnv(""))
 	transcriber.supported = true
 	finish := make(chan struct{})
 	close(finish)
@@ -235,7 +235,7 @@ func TestRun_FinishDuringUpgrade(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	defer close(release)
-	transcriber := New("test-api-key")
+	transcriber := New(keyEnv("test-api-key"))
 	transcriber.supported = true
 	transcriber.endpoint = "ws" + strings.TrimPrefix(server.URL, "http")
 	transcriber.capture = captureFunc(func(context.Context, string, capture.AudioHandler, func()) error {

@@ -20,6 +20,7 @@ import (
 
 	"github.com/docker/docker-agent/pkg/app"
 	"github.com/docker/docker-agent/pkg/audio/transcribe"
+	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/history"
 	"github.com/docker/docker-agent/pkg/path"
 	"github.com/docker/docker-agent/pkg/plans"
@@ -165,6 +166,7 @@ type appModel struct {
 	completions  completion.Manager
 
 	// Speech-to-text
+	envProvider  environment.Provider
 	transcriber  Transcriber
 	speechMu     sync.Mutex
 	speechCtx    context.Context //nolint:containedctx // Owns transcription across UI and external shutdown.
@@ -399,6 +401,14 @@ func WithAppName(name string) Option {
 	}
 }
 
+// WithEnvProvider sets the secret chain used by /speak to read
+// OPENAI_API_KEY. If not provided, defaults to environment.NewDefaultProvider().
+func WithEnvProvider(env environment.Provider) Option {
+	return func(m *appModel) {
+		m.envProvider = env
+	}
+}
+
 // WithVersion sets the application version.
 //
 // If not provided, defaults to version.Version.
@@ -535,7 +545,6 @@ func New(ctx context.Context, spawner SessionSpawner, initialApp *app.App, initi
 		dialogMgr:                     dialog.New(),
 		completions:                   completion.New(),
 		tour:                          tour.New(),
-		transcriber:                   transcribe.New(os.Getenv("OPENAI_API_KEY")),
 		workingSpinner:                spinner.New(ar, spinner.ModeSpinnerOnly, styles.SpinnerDotsHighlightStyle),
 		focusedPanel:                  PanelEditor,
 		editorLines:                   3,
@@ -553,6 +562,10 @@ func New(ctx context.Context, spawner SessionSpawner, initialApp *app.App, initi
 	for _, opt := range opts {
 		opt(m)
 	}
+	if m.envProvider == nil {
+		m.envProvider = environment.NewDefaultProvider()
+	}
+	m.transcriber = transcribe.New(m.envProvider)
 
 	// Create initial editor (after options are applied so command builder is set)
 	initialEditor := editor.New(historyStore, m.editorOpts()...)

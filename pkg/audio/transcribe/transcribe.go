@@ -17,6 +17,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/docker/docker-agent/pkg/audio/capture"
+	"github.com/docker/docker-agent/pkg/environment"
 )
 
 const (
@@ -37,17 +38,19 @@ type audioCapture interface {
 
 // Transcriber holds configuration; each Run owns its connection and audio capture.
 type Transcriber struct {
-	apiKey        string
+	env           environment.Provider
 	endpoint      string
 	capture       audioCapture
 	supported     bool
 	finishTimeout time.Duration
 }
 
-// New creates a transcriber without opening a connection or microphone.
-func New(apiKey string) *Transcriber {
+// New creates a transcriber without opening a connection or microphone. The
+// OpenAI key is read from env on each Run, so building a TUI never triggers
+// secret resolution such as an `op` unlock prompt.
+func New(env environment.Provider) *Transcriber {
 	return &Transcriber{
-		apiKey:    apiKey,
+		env:       env,
 		endpoint:  openAIRealtimeURL,
 		capture:   capture.NewCapturer(capture.SampleRate24000),
 		supported: audioSupported,
@@ -77,7 +80,8 @@ func (t *Transcriber) Run(ctx context.Context, finish <-chan struct{}, handler T
 		return nil
 	default:
 	}
-	if t.apiKey == "" {
+	apiKey, _ := t.env.Get(ctx, "OPENAI_API_KEY")
+	if apiKey == "" {
 		return errors.New("/speak sends audio directly to OpenAI; set a separate OPENAI_API_KEY environment variable even when chat uses Docker's models gateway, which does not support /speak")
 	}
 
@@ -114,7 +118,7 @@ func (t *Transcriber) Run(ctx context.Context, finish <-chan struct{}, handler T
 	}()
 
 	conn, response, err := dial(captureCtx, t.endpoint, http.Header{
-		"Authorization": []string{"Bearer " + t.apiKey},
+		"Authorization": []string{"Bearer " + apiKey},
 		"OpenAI-Beta":   []string{"realtime=v1"},
 	})
 	if err != nil {
