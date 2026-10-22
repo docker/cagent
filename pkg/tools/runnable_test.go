@@ -291,3 +291,42 @@ func TestRunnableNestedRestartOwnership(t *testing.T) {
 		require.ErrorIs(t, second.Err(), context.Canceled)
 	})
 }
+
+type blockingRestartToolSet struct {
+	entered chan struct{}
+	release chan struct{}
+	calls   atomic.Int32
+}
+
+func (*blockingRestartToolSet) Tools(context.Context) ([]tools.Tool, error) { return nil, nil }
+func (*blockingRestartToolSet) Start(context.Context) error                 { return nil }
+func (*blockingRestartToolSet) Stop(context.Context) error                  { return nil }
+func (r *blockingRestartToolSet) Restart(context.Context) error {
+	r.calls.Add(1)
+	r.entered <- struct{}{}
+	<-r.release
+	return nil
+}
+
+func TestNestedLifecycleBusyIsNotLoss(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		inner := &blockingRestartToolSet{entered: make(chan struct{}, 2), release: make(chan struct{})}
+		owner := tools.NewStartable(inner)
+		middle := tools.NewStartable(owner)
+		outer := tools.NewStartable(middle)
+		require.NoError(t, outer.Start(t.Context()))
+		restarted := make(chan error, 1)
+		go func() { restarted <- owner.RestartIfSupported(t.Context()) }()
+		<-inner.entered
+		started := make(chan error, 1)
+		go func() { started <- outer.Start(t.Context()) }()
+		synctest.Wait()
+		assert.False(t, middle.TryIsHealthy(), "nonblocking probes must not wait for the inner lock")
+		close(inner.release)
+		require.NoError(t, <-restarted)
+		require.NoError(t, <-started)
+		assert.EqualValues(t, 1, inner.calls.Load(), "ordinary Start must not queue a redundant restart")
+		require.NoError(t, outer.StopIfStarted(t.Context()))
+	})
+}

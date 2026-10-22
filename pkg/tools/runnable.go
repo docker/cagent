@@ -35,12 +35,15 @@ func (r *toolsetRun) stop() {
 	<-r.done
 }
 
-// isStartedLocked also accounts for workers that returned on their own.
-func (s *StartableToolSet) isStartedLocked() bool {
+// Blocking reporters must settle inner lifecycle operations before recovery.
+func (s *StartableToolSet) isStartedLocked(wait bool) bool {
 	if !s.started || (s.run != nil && s.run.finished()) {
 		return false
 	}
 	if owner, ok := As[*StartableToolSet](s.ToolSet); ok {
+		if wait {
+			return owner.IsStarted()
+		}
 		return owner.TryIsStarted()
 	}
 	return true

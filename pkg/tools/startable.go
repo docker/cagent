@@ -349,7 +349,7 @@ func (s *StartableToolSet) nowFn() time.Time {
 func (s *StartableToolSet) IsStarted() bool {
 	s.mu.Lock()
 	defer s.unlock()
-	return s.isStartedLocked()
+	return s.isStartedLocked(true)
 }
 
 // TryIsStarted is the non-blocking variant of IsStarted: when another
@@ -386,7 +386,7 @@ func (s *StartableToolSet) TryState() (started, inFlight bool) {
 	if !s.mu.TryLock() {
 		return false, true
 	}
-	started = s.isStartedLocked()
+	started = s.isStartedLocked(false)
 	if s.unlock() {
 		return false, false
 	}
@@ -400,7 +400,7 @@ func (s *StartableToolSet) TryIsHealthy() bool {
 	if !s.mu.TryLock() {
 		return false
 	}
-	healthy := s.isStartedLocked()
+	healthy := s.isStartedLocked(false)
 	if healthy {
 		if reporter, ok := As[StartReporter](s.ToolSet); ok {
 			healthy = reporter.IsStarted()
@@ -420,7 +420,7 @@ func (s *StartableToolSet) TryIsAvailable() bool {
 	if !s.mu.TryLock() {
 		return false
 	}
-	available := !s.attempted || s.isStartedLocked()
+	available := !s.attempted || s.isStartedLocked(false)
 	if available && s.started {
 		if reporter, ok := As[StartReporter](s.ToolSet); ok {
 			available = reporter.IsStarted()
