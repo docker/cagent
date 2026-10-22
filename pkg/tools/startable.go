@@ -277,6 +277,7 @@ type StartableToolSet struct {
 	started    bool
 	attempted  bool
 	recovering bool
+	run        *toolsetRun
 	stopErr    error // Retained until a successful start; pending-stop handoffs must not lose failures.
 
 	// stopRequestMu guards the stop request that StopIfStarted publishes
@@ -339,7 +340,7 @@ func (s *StartableToolSet) nowFn() time.Time {
 }
 
 // IsStarted returns whether the toolset has been successfully started.
-// For toolsets that don't implement Startable, this always returns true.
+// Runnable toolsets report false after Run returns.
 // It waits for any in-flight lifecycle operation (Start/Stop) to settle,
 // so callers deciding whether a Stop is needed observe the final state;
 // use TryIsStarted on paths that must never block. Releasing the lifecycle
@@ -348,7 +349,7 @@ func (s *StartableToolSet) nowFn() time.Time {
 func (s *StartableToolSet) IsStarted() bool {
 	s.mu.Lock()
 	defer s.unlock()
-	return s.started
+	return s.isStartedLocked(true)
 }
 
 // TryIsStarted is the non-blocking variant of IsStarted: when another
@@ -385,7 +386,7 @@ func (s *StartableToolSet) TryState() (started, inFlight bool) {
 	if !s.mu.TryLock() {
 		return false, true
 	}
-	started = s.started
+	started = s.isStartedLocked(false)
 	if s.unlock() {
 		return false, false
 	}
@@ -399,10 +400,10 @@ func (s *StartableToolSet) TryIsHealthy() bool {
 	if !s.mu.TryLock() {
 		return false
 	}
-	healthy := s.started
+	healthy := s.isStartedLocked(false)
 	if healthy {
 		if reporter, ok := As[StartReporter](s.ToolSet); ok {
-			healthy = reporter.IsStarted()
+			healthy = nonblockingReporterStarted(reporter)
 		}
 	}
 	if s.unlock() {
@@ -419,10 +420,10 @@ func (s *StartableToolSet) TryIsAvailable() bool {
 	if !s.mu.TryLock() {
 		return false
 	}
-	available := !s.attempted || s.started
+	available := !s.attempted || s.isStartedLocked(false)
 	if available && s.started {
 		if reporter, ok := As[StartReporter](s.ToolSet); ok {
-			available = reporter.IsStarted()
+			available = nonblockingReporterStarted(reporter)
 		}
 	}
 	if s.unlock() {
@@ -434,7 +435,8 @@ func (s *StartableToolSet) TryIsAvailable() bool {
 // Start starts the toolset with single-flight semantics.
 // Concurrent callers block until the start attempt completes.
 // If start fails, a future call will retry.
-// If the underlying toolset doesn't implement Startable, this is a no-op.
+// Runnable toolsets run until Stop, independent of the startup context.
+// Without Startable or Runnable, this is a no-op.
 func (s *StartableToolSet) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.unlock()
@@ -566,6 +568,13 @@ func (s *StartableToolSet) tryStartLocked(ctx context.Context) error {
 // startLocked implements the start sequence shared by Start and TryStart.
 // s.mu must be held.
 func (s *StartableToolSet) startLocked(ctx context.Context) (err error) {
+	if s.run != nil {
+		if !s.run.finished() {
+			return nil
+		}
+		s.run = nil
+		s.started = false
+	}
 	recovering := s.recovering
 	if recovering {
 		if reporter, ok := As[StartReporter](s.ToolSet); ok && reporter.IsStarted() {
@@ -605,7 +614,7 @@ func (s *StartableToolSet) startLocked(ctx context.Context) (err error) {
 	if u, ok := inner.(Unwrapper); ok {
 		inner = u.Unwrap()
 	}
-	if restarter, hasRestarter := As[Restartable](s.ToolSet); recovering && hasRestarter {
+	if restart, hasRestarter := s.restartFunc(); recovering && hasRestarter {
 		s.attempted = true
 		ctx, span := otel.Tracer("github.com/docker/docker-agent/pkg/tools").Start(
 			ctx,
@@ -620,7 +629,7 @@ func (s *StartableToolSet) startLocked(ctx context.Context) (err error) {
 			}
 			span.End()
 		}()
-		if err := restarter.Restart(ctx); err != nil {
+		if err := restart(ctx); err != nil {
 			s.recovering = true
 			s.startStreak.fail()
 			s.recoveryStreak.fail()
@@ -682,6 +691,9 @@ func (s *StartableToolSet) startLocked(ctx context.Context) (err error) {
 			}
 			return err
 		}
+	} else if runnable, ok := As[Runnable](s.ToolSet); ok {
+		s.attempted = true
+		s.run = startToolsetRun(ctx, runnable)
 	}
 
 	// Successful start: clear streaks and backoff so any future failure is
@@ -719,8 +731,31 @@ func (s *StartableToolSet) Tools(ctx context.Context) ([]Tool, error) {
 // Callers must use Restart on this wrapper so the lifecycle latch, failure
 // streaks, and retry gate stay synchronized with the underlying toolset.
 func (s *StartableToolSet) CanRestart() bool {
-	_, ok := As[Restartable](s.ToolSet)
+	_, ok := s.restartFunc()
 	return ok
+}
+
+// restartFunc must not discover capabilities past another lifecycle owner.
+func (s *StartableToolSet) restartFunc() (func(context.Context) error, bool) {
+	if _, startable := As[Startable](s.ToolSet); !startable {
+		if _, runnable := As[Runnable](s.ToolSet); runnable {
+			return nil, false
+		}
+	}
+	for ts := s.ToolSet; ts != nil; {
+		if owner, ok := ts.(*StartableToolSet); ok {
+			return owner.RestartIfSupported, owner.CanRestart()
+		}
+		if restarter, ok := ts.(Restartable); ok {
+			return restarter.Restart, true
+		}
+		unwrapper, ok := ts.(Unwrapper)
+		if !ok {
+			break
+		}
+		ts = unwrapper.Unwrap()
+	}
+	return nil, false
 }
 
 // RestartIfSupported restarts the underlying toolset under the canonical
@@ -730,7 +765,7 @@ func (s *StartableToolSet) RestartIfSupported(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.unlock()
 
-	restarter, ok := As[Restartable](s.ToolSet)
+	restart, ok := s.restartFunc()
 	if !ok {
 		return errors.New("toolset does not support restart")
 	}
@@ -738,7 +773,7 @@ func (s *StartableToolSet) RestartIfSupported(ctx context.Context) error {
 	wasStarted := s.started
 	s.attempted = true
 	s.started = false
-	if err := restarter.Restart(ctx); err != nil {
+	if err := restart(ctx); err != nil {
 		s.recovering = wasStarted || s.recovering
 		s.startStreak.fail()
 		if wasStarted {
@@ -758,7 +793,7 @@ func (s *StartableToolSet) RestartIfSupported(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the toolset if it implements Startable and resets
+// Stop stops and joins the toolset and resets
 // the started flag so that a subsequent Start will re-initialize.
 func (s *StartableToolSet) Stop(ctx context.Context) error {
 	s.mu.Lock()
@@ -800,7 +835,7 @@ func (s *StartableToolSet) StopIfStarted(ctx context.Context) error {
 	s.stopRequestCtx = nil
 	s.stopRequestMu.Unlock()
 
-	if !s.started {
+	if !s.started && s.run == nil {
 		return s.stopErr
 	}
 	return s.stopLocked(ctx)
@@ -817,7 +852,10 @@ func (s *StartableToolSet) stopLocked(ctx context.Context) error {
 	s.recoveryStreak.reset()
 	s.resetStartBackoff()
 	s.stopErr = nil
-	if startable, ok := As[Startable](s.ToolSet); ok {
+	if s.run != nil {
+		s.run.stop()
+		s.run = nil
+	} else if startable, ok := As[Startable](s.ToolSet); ok {
 		s.stopErr = startable.Stop(ctx)
 	}
 	return s.stopErr
@@ -863,7 +901,7 @@ func (s *StartableToolSet) settleStopRequestAndRelease() bool {
 	ctx := context.WithoutCancel(s.stopRequestCtx)
 	s.stopRequestCtx = nil
 	s.stopRequestMu.Unlock()
-	if s.started {
+	if s.started || s.run != nil {
 		if err := s.stopLocked(ctx); err != nil {
 			slog.WarnContext(ctx, "Failed to stop toolset for a pending shutdown request", "toolset", DescribeToolSet(s), "error", err)
 		}

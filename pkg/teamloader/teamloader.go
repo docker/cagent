@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -556,6 +557,12 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 				}
 				if len(forkToolSets) > 0 {
 					skillSet.SetForkToolSets(forkToolSets)
+					for _, name := range slices.Sorted(maps.Keys(forkToolSets)) {
+						for _, ts := range forkToolSets[name] {
+							owned, _ := tools.As[*tools.StartableToolSet](ts)
+							opts = append(opts, agent.WithOwnedToolSets(owned))
+						}
+					}
 				}
 				if len(forkWarnings) > 0 {
 					opts = append(opts, agent.WithLoadTimeWarnings(forkWarnings))

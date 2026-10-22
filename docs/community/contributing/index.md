@@ -474,3 +474,32 @@ implementer, even to verify the skip path. Validation is limited to pure gate
 units, source placement review, compile-only checks, static analysis and builds.
 Future fixture additions must be guarded before server, proxy, transport, SDK
 flow or browser-session setup, with pure cases and non-Gemini rows kept separate.
+
+## Toolset worker lifetimes
+
+Toolsets with a background loop and no startup handshake can implement
+`tools.Runnable.Run(ctx)` instead of `tools.Startable`. `Run` blocks until
+cancellation and joins its work before returning; timers and other run resources
+stay local. Callers must not run the same toolset concurrently.
+
+Agent, additional-toolset, Code Mode, and fork-skill paths use the canonical
+`tools.NewStartable` wrapper. It owns one run, preserves startup context values
+without inheriting startup cancellation, and cancels and joins on shutdown—even
+with an already-canceled shutdown context. `Startable` takes precedence over
+`Runnable` so existing lifecycle wrappers retain ownership. Fork-skill toolsets
+are started lazily and owned until team shutdown, not one skill invocation.
+
+For direct scheduler users, replace `Start`/`Stop` with a caller-owned `Run(ctx)`
+and cancellation/join, or wrap it once with `tools.NewStartable`. Two independent
+wrappers around the same raw worker are not a shared lifecycle. The wrapper is
+an intentional bridge to legacy host `Start`/`Stop`; it does not make those host
+lifetimes structured.
+
+Raw runnable session extras supplied programmatically are instead adopted once
+by their runtime and joined by `Close`; existing lifecycle wrappers remain
+borrowed. Keep a session's extras fixed during execution. Share one explicit
+wrapper when sharing a worker across runtimes or using a noncomparable runnable
+value across sessions. Runtime adoption deduplicates comparable worker providers
+across decorated references; noncomparable workers are scoped to a session slot.
+Runnable-only workers do not support the separate `Restartable` capability;
+stop and start their canonical wrapper to replace a run.

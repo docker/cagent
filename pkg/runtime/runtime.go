@@ -385,6 +385,8 @@ type LocalRuntime struct {
 
 	bgAgents *agenttool.Handler
 
+	extraToolsetRuns extraToolsetRuns
+
 	// dmrModelLister lists the models pulled locally in Docker Model Runner,
 	// used to populate DMR entries in the model picker. Defaults to
 	// dmrmodels.ListModelsWithMetadata in NewLocalRuntime; left nil by runtimes built directly
@@ -1580,7 +1582,7 @@ func (r *LocalRuntime) SessionStore() session.Store {
 func (r *LocalRuntime) Close() error {
 	r.bgAgents.StopAll()
 	r.OnToolsChanged(nil)
-	return nil
+	return r.extraToolsetRuns.close()
 }
 
 // UpdateSessionTitle persists the session title via the session store.

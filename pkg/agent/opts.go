@@ -34,6 +34,14 @@ func WithToolSets(toolSet ...tools.ToolSet) Opt {
 	}
 }
 
+// WithOwnedToolSets registers lazily started toolsets for agent shutdown without
+// exposing or starting them with the agent's ordinary tools.
+func WithOwnedToolSets(toolsets ...*tools.StartableToolSet) Opt {
+	return func(a *Agent) {
+		a.ownedToolsets = append(a.ownedToolsets, toolsets...)
+	}
+}
+
 // WithAdditionalToolSets appends toolsets without replacing existing lifecycle wrappers.
 // Like other options, apply it before the agent is used by a runtime.
 func WithAdditionalToolSets(toolsets ...tools.ToolSet) Opt {
