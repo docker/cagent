@@ -51,7 +51,7 @@ type EventCallback = ragtypes.EventCallback
 
 type backend interface {
 	Initialize(ctx context.Context) error
-	StartFileWatcher(ctx context.Context) error
+	WatchFiles(ctx context.Context) error
 	Events() <-chan ragtypes.Event
 	Query(ctx context.Context, query string) ([]database.SearchResult, ragtypes.Usage, error)
 	Description() string
@@ -188,7 +188,7 @@ func (t *ToolSet) Start(ctx context.Context) error {
 	}
 
 	t.wg.Go(func() {
-		if err := t.manager.StartFileWatcher(watchCtx); err != nil && !errors.Is(err, context.Canceled) {
+		if err := t.manager.WatchFiles(watchCtx); err != nil && !errors.Is(err, context.Canceled) {
 			slog.ErrorContext(watchCtx, "Failed to start RAG file watcher", "tool", t.toolName, "error", err)
 		}
 	})
