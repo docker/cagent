@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/docker/docker-agent/pkg/audio/capture"
+	"github.com/docker/docker-agent/pkg/environment"
 )
 
 type captureFunc func(context.Context, string, capture.AudioHandler, func()) error
@@ -50,7 +51,7 @@ func testTranscriber(t *testing.T, handler func(*websocket.Conn)) *Transcriber {
 		connections.Wait()
 	})
 	return &Transcriber{
-		apiKey: "test-api-key", endpoint: "ws" + strings.TrimPrefix(server.URL, "http"), supported: true,
+		env: keyEnv("test-api-key"), endpoint: "ws" + strings.TrimPrefix(server.URL, "http"), supported: true,
 		capture: captureFunc(func(ctx context.Context, _ string, _ capture.AudioHandler, ready func()) error {
 			if ready != nil {
 				ready()
@@ -72,9 +73,74 @@ func waitRun(t *testing.T, done <-chan error) error {
 	}
 }
 
+func keyEnv(key string) environment.Provider {
+	return environment.NewMapEnvProvider(map[string]string{"OPENAI_API_KEY": key})
+}
+
+type countingEnv struct {
+	environment.Provider
+
+	gets atomic.Int32
+}
+
+func (c *countingEnv) Get(ctx context.Context, name string) (string, bool) {
+	c.gets.Add(1)
+	return c.Provider.Get(ctx, name)
+}
+
+func TestRun_ResolvesKeyLazily(t *testing.T) {
+	t.Parallel()
+	env := &countingEnv{Provider: keyEnv("test-api-key")}
+	transcriber := New(env)
+	assert.Zero(t, env.gets.Load(), "New must not resolve the key")
+
+	transcriber.supported = true
+	transcriber.endpoint = ":invalid"
+	err := transcriber.Run(t.Context(), nil, nil, nil)
+	require.ErrorContains(t, err, "connect /speak directly to OpenAI Realtime API")
+	assert.Equal(t, int32(1), env.gets.Load())
+}
+
+// blockingEnv blocks every lookup until ctx ends, like `op read` at an unlock prompt.
+type blockingEnv struct{ entered chan struct{} }
+
+func (b blockingEnv) Get(ctx context.Context, _ string) (string, bool) {
+	close(b.entered)
+	<-ctx.Done()
+	return "", false
+}
+
+func TestRun_FinishInterruptsKeyLookup(t *testing.T) {
+	t.Parallel()
+	env := blockingEnv{entered: make(chan struct{})}
+	transcriber := New(env)
+	transcriber.supported = true
+	finish := make(chan struct{})
+	done := make(chan error, 1)
+	go func() { done <- transcriber.Run(t.Context(), finish, nil, nil) }()
+
+	<-env.entered
+	close(finish)
+	require.NoError(t, waitRun(t, done))
+}
+
+func TestRun_CancelDuringKeyLookupIsNotAnError(t *testing.T) {
+	t.Parallel()
+	env := blockingEnv{entered: make(chan struct{})}
+	transcriber := New(env)
+	transcriber.supported = true
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- transcriber.Run(ctx, nil, nil, nil) }()
+
+	<-env.entered
+	cancel()
+	require.NoError(t, waitRun(t, done))
+}
+
 func TestRun_MissingAPIKey(t *testing.T) {
 	t.Parallel()
-	transcriber := New("")
+	transcriber := New(keyEnv(""))
 	transcriber.supported = true
 	err := transcriber.Run(t.Context(), nil, nil, nil)
 	require.EqualError(t, err, "/speak sends audio directly to OpenAI; set a separate OPENAI_API_KEY environment variable even when chat uses Docker's models gateway, which does not support /speak")
@@ -84,21 +150,21 @@ func TestRun_CanceledBeforeStart(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	transcriber := New("test-api-key")
+	transcriber := New(keyEnv("test-api-key"))
 	transcriber.supported = true
 	require.NoError(t, transcriber.Run(ctx, nil, nil, func(context.Context) { t.Error("canceled run became ready") }))
 }
 
 func TestRun_Unsupported(t *testing.T) {
 	t.Parallel()
-	transcriber := New("test-api-key")
+	transcriber := New(keyEnv("test-api-key"))
 	transcriber.supported = false
 	require.ErrorIs(t, transcriber.Run(t.Context(), nil, nil, nil), ErrNotSupported)
 }
 
 func TestRun_ConnectionFailure(t *testing.T) {
 	t.Parallel()
-	transcriber := New("test-api-key")
+	transcriber := New(keyEnv("test-api-key"))
 	transcriber.supported = true
 	transcriber.endpoint = ":invalid"
 	err := transcriber.Run(t.Context(), nil, nil, nil)
@@ -278,7 +344,7 @@ func TestRun_CancelDuringUpgrade(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	defer close(release)
-	transcriber := New("test-api-key")
+	transcriber := New(keyEnv("test-api-key"))
 	transcriber.supported = true
 	transcriber.endpoint = "ws" + strings.TrimPrefix(server.URL, "http")
 	ctx, cancel := context.WithCancel(t.Context())

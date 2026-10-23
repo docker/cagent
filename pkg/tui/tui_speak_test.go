@@ -14,7 +14,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/docker/docker-agent/pkg/app"
 	"github.com/docker/docker-agent/pkg/audio/transcribe"
+	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/tui/components/notification"
 	"github.com/docker/docker-agent/pkg/tui/messages"
 )
@@ -425,4 +427,17 @@ func TestSpeech_LeavingAndReturningRevokesSend(t *testing.T) {
 	_, _ = m.handleSpeechEvent(speechEvent{run: run})
 	assert.Equal(t, "keep draft", ed.text)
 	assert.Empty(t, ed.sent)
+}
+
+func TestNew_KeepsInjectedTranscriber(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	ft := &fakeTranscriber{supported: true}
+
+	a := app.New(t.Context(), stubRuntime{}, &session.Session{ID: "speak", Title: "speak"})
+	m := New(t.Context(), nil, a, "", func() {}, WithTranscriber(ft)).(*appModel)
+	t.Cleanup(m.cleanupManagedResources)
+
+	assert.Same(t, ft, m.transcriber)
 }

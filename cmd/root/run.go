@@ -1108,7 +1108,7 @@ func readInitialMessage(args []string) (*string, error) {
 // tuiOpts returns the TUI options derived from the current flags. args are
 // the run command's positional arguments, used to detect an initial message.
 func (f *runExecFlags) tuiOpts(args []string) []tui.Option {
-	var opts []tui.Option
+	opts := []tui.Option{tui.WithEnvProvider(f.runConfig.EnvProvider())}
 	if f.lean {
 		opts = append(opts, tui.WithLeanMode())
 	}
