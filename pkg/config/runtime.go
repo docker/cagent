@@ -187,7 +187,8 @@ func (runConfig *RuntimeConfig) EnvFilesError() error {
 }
 
 func (runConfig *RuntimeConfig) computedEnvProvider() environment.Provider {
-	defaultEnv := environment.NewDefaultProvider()
+	sources := environment.SourceProviders(environment.DefaultSources())
+	defaultEnv := environment.NewChain(sources...)
 
 	// Make env file paths absolute relative to the working directory.
 	absolutePaths, err := environment.AbsolutePaths(runConfig.WorkingDir, runConfig.EnvFiles)
@@ -205,6 +206,6 @@ func (runConfig *RuntimeConfig) computedEnvProvider() environment.Provider {
 		return defaultEnv
 	}
 
-	// Update the env provider to include env files
-	return environment.NewMultiProvider(envFilesProviders, defaultEnv)
+	// Env files join the same chain so overrides apply across all sources.
+	return environment.NewChain(append([]environment.Provider{envFilesProviders}, sources...)...)
 }
