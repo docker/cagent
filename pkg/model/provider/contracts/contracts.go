@@ -154,6 +154,14 @@ type ServingStream interface {
 	ServingModel() ServingModel
 }
 
+// ServedStream reports, once the stream has ended, the model that served the
+// response when it isn't the dispatched one (e.g. a server-side fallback).
+// Wrappers must forward it rather than snapshot it at creation.
+type ServedStream interface {
+	chat.MessageStream
+	ServedBy() (ServingModel, bool)
+}
+
 // EmbeddingProvider is a provider that supports embeddings.
 type EmbeddingProvider interface {
 	Provider

@@ -28,6 +28,13 @@ import (
 // registry, against server, with a 40k-token context window.
 func claude5Runtime(t *testing.T, server *anthropictest.Server, providerOpts map[string]any, store session.Store) *LocalRuntime {
 	t.Helper()
+	return anthropicRuntime(t, server, "claude-sonnet-5-5", providerOpts, store)
+}
+
+// anthropicRuntime runs a real Anthropic client for model, built by the
+// provider registry, against server, with a 40k-token context window.
+func anthropicRuntime(t *testing.T, server *anthropictest.Server, modelName string, providerOpts map[string]any, store session.Store, agentOpts ...agent.Opt) *LocalRuntime {
+	t.Helper()
 	target, err := url.Parse(server.URL())
 	require.NoError(t, err)
 	reroute := options.WithHTTPTransportWrapper(func(next http.RoundTripper) http.RoundTripper {
@@ -37,12 +44,12 @@ func claude5Runtime(t *testing.T, server *anthropictest.Server, providerOpts map
 			return next.RoundTrip(req)
 		})
 	})
-	cfg := latest.ModelConfig{Provider: "anthropic", Model: "claude-sonnet-5-5", ProviderOpts: providerOpts}
+	cfg := latest.ModelConfig{Provider: "anthropic", Model: modelName, ProviderOpts: providerOpts}
 	env := environment.NewMapEnvProvider(map[string]string{"ANTHROPIC_API_KEY": "test-key"})
 	model, err := providers.NewDefaultRegistry().New(t.Context(), &cfg, env, reroute)
 	require.NoError(t, err)
 
-	root := agent.New("root", "You are terse.", agent.WithModel(model))
+	root := agent.New("root", "You are terse.", append([]agent.Opt{agent.WithModel(model)}, agentOpts...)...)
 	rt, err := NewLocalRuntime(t.Context(), team.New(team.WithAgents(root)),
 		WithSessionStore(store),
 		WithModelStore(mockModelStoreWithCostAndLimit{limit: 40_000, cost: modelsdev.Cost{Input: 1, Output: 2}}))

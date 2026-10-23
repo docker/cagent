@@ -155,6 +155,9 @@ func handleStream(ctx context.Context, cancelStream context.CancelCauseFunc, str
 	// xmlToolCallGate suppresses AgentChoice events once a <tool_call> tag is
 	// seen, preventing raw XML from rendering in the TUI.
 	xmlToolCallGate := false
+	// serverHandoff records a server fallback: the text kept from the declined
+	// model must not be mined for XML tool calls it was never allowed to make.
+	serverHandoff := false
 	for _, t := range agentTools {
 		toolDefMap[t.Name] = t
 	}
@@ -199,7 +202,7 @@ func handleStream(ctx context.Context, cancelStream context.CancelCauseFunc, str
 	// no structured tool calls were received. Called from both the early-return
 	// and EOF paths.
 	applyXMLFallback := func() {
-		if len(toolCalls) > 0 {
+		if len(toolCalls) > 0 || serverHandoff {
 			return
 		}
 		extracted, textBefore, found := extractXMLToolCalls(fullContent.String())
@@ -278,6 +281,26 @@ mainLoop:
 
 			if choice.Delta.ProviderState != nil {
 				providerState = choice.Delta.ProviderState
+			}
+
+			// A server fallback supersedes the declined model's tool calls and
+			// thinking: they must never run, and the next request drops them.
+			// Its text stays, as the API keeps it.
+			if fb := choice.Delta.ServerFallback; fb != nil {
+				responseStarted = true
+				if len(toolCalls) > 0 {
+					slog.WarnContext(ctx, "Dropping tool calls superseded by a server fallback",
+						"agent", a.Name(), "tool_calls", len(toolCalls), "from", fb.From, "to", fb.To)
+					events.Emit(ToolCallsRetracted(toolCallIDs(toolCalls), a.Name()))
+				}
+				toolCalls = nil
+				clear(toolCallIndex)
+				clear(emittedPartial)
+				fullReasoningContent.Reset()
+				thinkingSignature = ""
+				serverHandoff = true
+				xmlToolCallGate = false
+				events.Emit(Warning(fmt.Sprintf("%s declined this turn; %s continues it.", fb.From, fb.To), a.Name()))
 			}
 
 			// A terminal chunk can also carry media; collect it before returning.
@@ -369,6 +392,7 @@ mainLoop:
 					if len(toolCalls) > 0 {
 						slog.WarnContext(ctx, "Dropping tool calls from refused turn",
 							"agent", a.Name(), "tool_calls", len(toolCalls))
+						events.Emit(ToolCallsRetracted(toolCallIDs(toolCalls), a.Name()))
 						toolCalls = nil
 						openAIResponse = nil
 					}
@@ -495,4 +519,12 @@ mainLoop:
 		Usage:             messageUsage,
 		ResponseStarted:   responseStarted,
 	}, nil
+}
+
+func toolCallIDs(calls []tools.ToolCall) []string {
+	ids := make([]string, len(calls))
+	for i, tc := range calls {
+		ids[i] = tc.ID
+	}
+	return ids
 }

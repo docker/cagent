@@ -211,3 +211,10 @@ type routedStream struct {
 func (s *routedStream) ServingModel() contracts.ServingModel {
 	return s.serving
 }
+
+func (s *routedStream) ServedBy() (contracts.ServingModel, bool) {
+	if served, ok := s.MessageStream.(contracts.ServedStream); ok {
+		return served.ServedBy()
+	}
+	return contracts.ServingModel{}, false
+}

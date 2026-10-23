@@ -54,6 +54,7 @@
 //
 //	{type: "delta", content?: string, reasoning?: string}
 //	{type: "tool_call_delta", id, name, arguments}
+//	{type: "tool_calls_retracted", ids}           // drop these deltas: they will never run
 //	{type: "tool_call", id, name, args}
 //	{type: "tool_confirmation", id, name, args}   // answer with confirm()
 //	{type: "tool_output", id, name, output}
