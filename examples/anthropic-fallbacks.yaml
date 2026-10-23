@@ -3,9 +3,6 @@
 # model in a single round trip. `fallbacks: default` uses the model Anthropic
 # recommends for the refusal's category; a list (up to three) is tried in
 # order.
-#
-# Fallback chains that include a Claude 5.x model are rejected until
-# https://github.com/docker/docker-agent/issues/4584 lands.
 models:
   opus:
     provider: anthropic

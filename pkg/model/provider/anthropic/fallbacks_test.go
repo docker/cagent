@@ -11,50 +11,35 @@ import (
 	"github.com/docker/docker-agent/pkg/model/provider/options"
 )
 
-func TestValidateFallbacks(t *testing.T) {
+// Claude 5.x models accept server-side fallback, except that Haiku 5.5 has
+// none: a list is a 400 there, and default has no effect.
+func TestNewClient_Claude5Fallbacks(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		name      string
+	env := environment.NewMapEnvProvider(map[string]string{"ANTHROPIC_API_KEY": "k"})
+	for name, tc := range map[string]struct {
 		model     string
 		fallbacks any
-		wantModel string
+		wantErr   string
 	}{
-		{name: "5.x primary", model: "claude-fable-5-1", fallbacks: []any{"claude-opus-4-8"}, wantModel: "claude-fable-5-1"},
-		{name: "legacy primary, 5.x target", model: "claude-opus-4-8", fallbacks: []any{"claude-sonnet-5-5"}, wantModel: "claude-sonnet-5-5"},
-		{name: "gateway target", model: "claude-opus-4-8", fallbacks: []any{"vendor/claude-opus-5-5"}, wantModel: "vendor/claude-opus-5-5"},
-		{name: "vertex target", model: "claude-opus-4-8", fallbacks: []any{"claude-sonnet-5-5@20261001"}, wantModel: "claude-sonnet-5-5@20261001"},
-		{name: "absent", model: "claude-fable-5-1"},
-		{name: "empty", model: "claude-fable-5-1", fallbacks: []any{}},
-		{name: "no 5.x model", model: "claude-opus-4-8", fallbacks: []any{"claude-opus-4-7"}},
-		{name: "default on 5.x primary", model: "claude-fable-5-1", fallbacks: "default", wantModel: "claude-fable-5-1"},
-		{name: "default on legacy primary", model: "claude-opus-4-8", fallbacks: "default"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+		"fable 5.1 default": {model: "claude-fable-5-1", fallbacks: "default"},
+		"fable 5.1 list":    {model: "claude-fable-5-1", fallbacks: []any{"claude-opus-5-5"}},
+		"legacy to 5.x":     {model: "claude-opus-4-8", fallbacks: []any{"claude-sonnet-5-5"}},
+		"sonnet 5.5 to 5":   {model: "claude-sonnet-5-5", fallbacks: []any{"claude-sonnet-5"}},
+		"haiku 5.5 default": {model: "claude-haiku-5-5", fallbacks: "default"},
+		"haiku 5.5 list":    {model: "claude-haiku-5-5", fallbacks: []any{"claude-sonnet-4-6"}, wantErr: "no server-side fallback"},
+	} {
+		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			cfg := &latest.ModelConfig{Provider: "anthropic", Model: tc.model}
-			if tc.fallbacks != nil {
-				cfg.ProviderOpts = map[string]any{"fallbacks": tc.fallbacks}
-			}
-			err := validateFallbacks(cfg)
-			if tc.wantModel == "" {
-				assert.NoError(t, err)
+			cfg := &latest.ModelConfig{Provider: "anthropic", Model: tc.model, ProviderOpts: map[string]any{"fallbacks": tc.fallbacks}}
+			_, err := NewClient(t.Context(), cfg, env)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
 				return
 			}
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), `"`+tc.wantModel+`"`)
-			assert.Contains(t, err.Error(), "issues/4584")
+			require.ErrorContains(t, err, tc.wantErr)
 		})
 	}
-}
-
-func TestNewClient_RejectsClaude5Fallbacks(t *testing.T) {
-	t.Parallel()
-
-	cfg := &latest.ModelConfig{Provider: "anthropic", Model: "claude-opus-4-8", ProviderOpts: map[string]any{"fallbacks": []any{"claude-fable-5"}}}
-	_, err := NewClient(t.Context(), cfg, environment.NewMapEnvProvider(map[string]string{"ANTHROPIC_API_KEY": "k"}))
-	require.ErrorContains(t, err, "issues/4584")
 }
 
 func TestParseFallbacks(t *testing.T) {
@@ -180,4 +165,59 @@ func TestNewClient_FallbacksCheckEnvBaseURL(t *testing.T) {
 	cfg.BaseURL = "https://api.anthropic.com"
 	_, err = NewClient(t.Context(), cfg, env)
 	require.NoError(t, err, "an explicit base_url takes precedence over the environment")
+}
+
+// The request must be valid for every listed model: a Claude 5.x fallback
+// can't take the sampling settings or token budget an older primary sends.
+func TestValidateFallbackRequestShape(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		cfg     latest.ModelConfig
+		wantErr string
+	}{
+		"temperature": {
+			cfg:     latest.ModelConfig{Model: "claude-opus-4-6", Temperature: new(0.7)},
+			wantErr: "sends temperature or top_p",
+		},
+		"top_k": {
+			cfg:     latest.ModelConfig{Model: "claude-opus-4-6", ProviderOpts: map[string]any{"top_k": 5}},
+			wantErr: "sends top_k",
+		},
+		// With thinking on, the request builder doesn't send temperature.
+		"temperature with thinking on": {
+			cfg: latest.ModelConfig{Model: "claude-opus-4-6", Temperature: new(0.7), ThinkingBudget: &latest.ThinkingBudget{Effort: "high"}},
+		},
+		// Sonnet 4.5 has no adaptive thinking: its effort level goes out as a
+		// token budget, which a Claude 5.x fallback refuses.
+		"effort sent as tokens": {
+			cfg:     latest.ModelConfig{Model: "claude-sonnet-4-5", ThinkingBudget: &latest.ThinkingBudget{Effort: "high"}},
+			wantErr: "thinks with a token budget",
+		},
+		"token budget": {
+			cfg:     latest.ModelConfig{Model: "claude-sonnet-4-5", ThinkingBudget: &latest.ThinkingBudget{Tokens: 8000}},
+			wantErr: "thinks with a token budget",
+		},
+		"effort":      {cfg: latest.ModelConfig{Model: "claude-opus-4-6", ThinkingBudget: &latest.ThinkingBudget{Effort: "high"}}},
+		"no sampling": {cfg: latest.ModelConfig{Model: "claude-opus-4-6"}},
+		// The primary already refuses them, so they're never sent.
+		"both refuse sampling":     {cfg: latest.ModelConfig{Model: "claude-fable-5-1", Temperature: new(0.7)}},
+		"both refuse token budget": {cfg: latest.ModelConfig{Model: "claude-opus-4-6", ThinkingBudget: &latest.ThinkingBudget{Tokens: 8000}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			cfg := tc.cfg
+			cfg.Provider = "anthropic"
+			if cfg.ProviderOpts == nil {
+				cfg.ProviderOpts = map[string]any{}
+			}
+			cfg.ProviderOpts["fallbacks"] = []any{"claude-sonnet-5-5"}
+			err := validateFallbackSpec(&cfg)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tc.wantErr)
+		})
+	}
 }

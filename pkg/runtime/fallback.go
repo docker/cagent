@@ -11,6 +11,7 @@ import (
 	"github.com/docker/docker-agent/pkg/backoff"
 	"github.com/docker/docker-agent/pkg/chat"
 	"github.com/docker/docker-agent/pkg/model/provider"
+	"github.com/docker/docker-agent/pkg/model/provider/base"
 	"github.com/docker/docker-agent/pkg/modelerrors"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 	"github.com/docker/docker-agent/pkg/session"
@@ -391,6 +392,7 @@ func (e *fallbackExecutor) execute(
 			idleTimeout := streamIdleTimeoutFor(modelEntry.provider)
 			res, err := handleStream(streamCtx, streamCancel, stream, a, attemptTools, sess, events, idleTimeout)
 			res.Serving = servingModelFrom(stream)
+			res.Dispatched = dispatchedModelFrom(stream)
 			streamCancel(nil) // always release the child context
 			if err != nil {
 				lastErr = err
@@ -431,6 +433,7 @@ func (e *fallbackExecutor) execute(
 						announceServing(stream)
 						res, err = handleStream(streamCtx, streamCancel, stream, a, attemptTools, sess, events, idleTimeout)
 						res.Serving = servingModelFrom(stream)
+						res.Dispatched = dispatchedModelFrom(stream)
 					}
 					streamCancel(nil)
 					if err == nil {
@@ -587,4 +590,21 @@ func servingModelFrom(stream chat.MessageStream) *provider.ServingModel {
 		return new(stream.ServingModel())
 	}
 	return nil
+}
+
+// dispatchedModelFrom reports the endpoint a stream was sent to, ignoring a
+// server fallback's handoff; nil when the stream doesn't say.
+func dispatchedModelFrom(stream chat.MessageStream) *provider.ServingModel {
+	if stream, ok := stream.(provider.ServingStream); ok {
+		return new(stream.ServingModel())
+	}
+	return nil
+}
+
+// dispatchedConfig is the config that prices the requested model's attempt.
+func dispatchedConfig(res streamResult, fallback base.Config) base.Config {
+	if res.Dispatched != nil {
+		return res.Dispatched.Config
+	}
+	return fallback
 }

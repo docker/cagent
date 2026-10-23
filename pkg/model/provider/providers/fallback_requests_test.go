@@ -74,3 +74,20 @@ func TestServerFallbackKeepsLegacyRequestShape(t *testing.T) {
 		assert.Nil(t, req.body["temperature"], "no sampling with thinking on")
 	})
 }
+
+// A Claude 5.x chain goes out as configured: the server, not the client,
+// adapts the request for each fallback attempt.
+func TestServerFallbackClaude5Request(t *testing.T) {
+	t.Parallel()
+
+	req := captureFinalRequest(t, latest.ModelConfig{
+		Provider: "anthropic", Model: "claude-sonnet-5-5",
+		ProviderOpts: map[string]any{"fallbacks": []any{"claude-sonnet-5"}},
+	}, map[string]string{"ANTHROPIC_API_KEY": "test-key"})
+
+	assert.Equal(t, "beta=true", req.query)
+	assert.Contains(t, strings.Join(req.header.Values("anthropic-beta"), ","), "server-side-fallback-2026-07-01")
+	assert.Equal(t, []any{map[string]any{"model": "claude-sonnet-5"}}, req.body["fallbacks"])
+	assert.Equal(t, "drop_block", field(req.body, "thinking", "block_binding", "prefix_mismatch_behavior"))
+	assert.Equal(t, "adaptive", field(req.body, "thinking", "type"), "no client-side rewrite for the fallback")
+}

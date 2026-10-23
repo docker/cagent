@@ -56,7 +56,7 @@ func TestServerFallbackStream(t *testing.T) {
 		served  string
 	}{
 		"before output": {
-			reply:   anthropictest.FallbackBeforeOutputReply("m", from, to, "hi"),
+			reply:   anthropictest.FallbackBeforeOutputReply("m", from, to, "cyber", "hi"),
 			markers: []chat.ServerFallback{{From: from, To: to}}, served: to,
 		},
 		"mid output": {
@@ -334,5 +334,93 @@ func TestServedByWhileStreaming(t *testing.T) {
 			return
 		default:
 		}
+	}
+}
+
+// finalAttempts drains a stream and returns the attempts it reported.
+func finalAttempts(t *testing.T, stream chat.MessageStream) []chat.UsageAttempt {
+	t.Helper()
+	var attempts []chat.UsageAttempt
+	for {
+		resp, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			return attempts
+		}
+		require.NoError(t, err)
+		if resp.UsageAttempts != nil {
+			attempts = resp.UsageAttempts
+		}
+	}
+}
+
+// Each attempt is billed at its own model; a declined attempt that produced
+// no output is billed only in the categories Anthropic bills.
+func TestServerFallbackAttempts(t *testing.T) {
+	t.Parallel()
+
+	const from, to = "claude-opus-4-8", "claude-sonnet-4-6"
+	type attempt struct {
+		model  string
+		billed bool
+	}
+	for name, tc := range map[string]struct {
+		reply string
+		want  []attempt
+	}{
+		"mid output": {
+			reply: anthropictest.FallbackMidOutputReply("m", from, to, "before", "after", "t1"),
+			want:  []attempt{{from, true}, {to, true}},
+		},
+		"before output, unbilled category": {
+			reply: anthropictest.FallbackBeforeOutputReply("m", from, to, "cyber", "hi"),
+			want:  []attempt{{from, false}, {to, true}},
+		},
+		"before output, billed category": {
+			reply: anthropictest.FallbackBeforeOutputReply("m", from, to, "bio", "hi"),
+			want:  []attempt{{from, true}, {to, true}},
+		},
+		"two hops": {
+			reply: anthropictest.FallbackChainReply("m", from, "claude-opus-4-7", to),
+			want:  []attempt{{from, true}, {"claude-opus-4-7", true}, {to, true}},
+		},
+		"sticky routing": {
+			reply: anthropictest.StickyReply("m", to, "hi"),
+			want:  []attempt{{to, true}},
+		},
+		// Without a marker for the declined hop, its category is unknown: bill it.
+		"marker missing": {
+			reply: func() string {
+				r := anthropictest.FallbackBeforeOutputReply("m", from, to, "cyber", "hi")
+				start := strings.Index(r, "event: content_block_start")
+				end := strings.Index(r, "event: content_block_stop")
+				end += strings.Index(r[end:], "\n\n") + 2
+				return r[:start] + r[end:]
+			}(),
+			want: []attempt{{from, true}, {to, true}},
+		},
+		"no fallback": {reply: anthropictest.TextReply("m", "hi", 10)},
+		"other iterations only": {
+			reply: strings.Replace(anthropictest.TextReply("m", "hi", 10), `"output_tokens":7`,
+				`"output_tokens":7,"iterations":[{"type":"compaction","model":"`+from+`","input_tokens":5,"output_tokens":1}]`, 1),
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			stream, err := fallbackClient(newScriptedServer(t, tc.reply)).CreateChatCompletionStream(t.Context(), []chat.Message{user("q")}, nil)
+			require.NoError(t, err)
+			defer stream.Close()
+			attempts := finalAttempts(t, stream)
+			var got []attempt
+			for _, a := range attempts {
+				got = append(got, attempt{a.Model, a.Billed})
+				// The scripted iterations report 10 fresh, 3 cache-read and 4
+				// cache-write input tokens, and 7 output tokens.
+				assert.Equal(t, chat.Usage{InputTokens: 10, CachedInputTokens: 3, CacheWriteTokens: 4, OutputTokens: a.OutputTokens}, *a.Usage())
+			}
+			assert.Equal(t, tc.want, got)
+			for i, a := range attempts {
+				assert.Equal(t, i == 0 && a.Model == from, a.Dispatched, "only the requested model's attempt is dispatched")
+			}
+		})
 	}
 }

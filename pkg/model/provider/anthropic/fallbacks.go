@@ -13,6 +13,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
 
 	"github.com/docker/docker-agent/pkg/config/latest"
+	"github.com/docker/docker-agent/pkg/model/provider/base"
 	"github.com/docker/docker-agent/pkg/modelinfo"
 )
 
@@ -130,6 +131,22 @@ func validateFallbackSpec(cfg *latest.ModelConfig) error {
 	if slices.Contains(spec.Models, cfg.Model) {
 		return fmt.Errorf("anthropic: fallback %q is the same as the model", cfg.Model)
 	}
+	// The request must be valid for every listed model, or the API rejects it
+	// up front. Claude 5.x and newer Opus models refuse sampling settings and
+	// token thinking budgets that older primaries send. Check what the request
+	// builder actually sends, after it resolves the thinking budget.
+	sent := sentRequestShape(cfg)
+	for _, m := range spec.Models {
+		if sent.sampling && rejectsSampling(m) {
+			return fmt.Errorf("anthropic: the request sends temperature or top_p (thinking is off), which fallback %q rejects; remove them or that fallback", m)
+		}
+		if sent.topK && rejectsSampling(m) {
+			return fmt.Errorf("anthropic: the request sends top_k, which fallback %q rejects; remove it or that fallback", m)
+		}
+		if sent.tokenThinking && modelinfo.RejectsTokenThinking(m) {
+			return fmt.Errorf("anthropic: %s thinks with a token budget, which fallback %q rejects; turn thinking off or remove that fallback", cfg.Model, m)
+		}
+	}
 	if m, ok := modelinfo.LookupClaude5(cfg.Model); ok && m.NoServerSideFallback {
 		if len(spec.Models) > 0 {
 			return fmt.Errorf("anthropic: %s has no server-side fallback; remove the fallbacks list", cfg.Model)
@@ -141,19 +158,26 @@ func validateFallbackSpec(cfg *latest.ModelConfig) error {
 	return nil
 }
 
-// validateFallbacks rejects server-side fallback when any model in the chain
-// is Claude 5.x: a fallback can change the serving model mid-response, which
-// the client does not handle yet. Malformed values are reported by
-// [validateFallbackSpec].
-func validateFallbacks(cfg *latest.ModelConfig) error {
-	spec, _ := parseFallbacks(cfg.ProviderOpts)
-	if !spec.Default && len(spec.Models) == 0 {
-		return nil
+// requestShape is what a request built from a config sends, for the fields a
+// fallback model may refuse.
+type requestShape struct {
+	sampling, topK, tokenThinking bool
+}
+
+// sentRequestShape mirrors the request builder: temperature and top_p only go
+// out with thinking off, top_k whenever set, and the thinking budget after
+// resolution, which turns an effort level into tokens on models without
+// adaptive thinking.
+func sentRequestShape(cfg *latest.ModelConfig) requestShape {
+	c := &Client{Config: base.Config{ModelConfig: *cfg}}
+	budget := c.resolveThinkingBudget()
+	thinking := budget != nil && !budget.IsDisabled()
+	_, adaptive := anthropicThinkingEffort(budget)
+	_, topK := cfg.ProviderOpts["top_k"]
+	primaryRejects := rejectsSampling(cfg.Model)
+	return requestShape{
+		sampling:      !thinking && !primaryRejects && (cfg.Temperature != nil || cfg.TopP != nil),
+		topK:          topK && !primaryRejects,
+		tokenThinking: thinking && !adaptive && budget.Tokens > 0,
 	}
-	for _, model := range append([]string{cfg.Model}, spec.Models...) {
-		if _, ok := modelinfo.LookupClaude5(model); ok {
-			return fmt.Errorf("anthropic: server-side fallback involving Claude 5.x model %q is not supported yet (see https://github.com/docker/docker-agent/issues/4584)", model)
-		}
-	}
-	return nil
 }

@@ -28,12 +28,13 @@ import (
 // registry, against server, with a 40k-token context window.
 func claude5Runtime(t *testing.T, server *anthropictest.Server, providerOpts map[string]any, store session.Store) *LocalRuntime {
 	t.Helper()
-	return anthropicRuntime(t, server, "claude-sonnet-5-5", providerOpts, store)
+	return anthropicRuntime(t, server, "claude-sonnet-5-5", providerOpts, store,
+		mockModelStoreWithCostAndLimit{limit: 40_000, cost: modelsdev.Cost{Input: 1, Output: 2}})
 }
 
 // anthropicRuntime runs a real Anthropic client for model, built by the
-// provider registry, against server, with a 40k-token context window.
-func anthropicRuntime(t *testing.T, server *anthropictest.Server, modelName string, providerOpts map[string]any, store session.Store, agentOpts ...agent.Opt) *LocalRuntime {
+// provider registry, against server, priced and sized by models.
+func anthropicRuntime(t *testing.T, server *anthropictest.Server, modelName string, providerOpts map[string]any, store session.Store, models ModelStore, agentOpts ...agent.Opt) *LocalRuntime {
 	t.Helper()
 	target, err := url.Parse(server.URL())
 	require.NoError(t, err)
@@ -52,7 +53,7 @@ func anthropicRuntime(t *testing.T, server *anthropictest.Server, modelName stri
 	root := agent.New("root", "You are terse.", append([]agent.Opt{agent.WithModel(model)}, agentOpts...)...)
 	rt, err := NewLocalRuntime(t.Context(), team.New(team.WithAgents(root)),
 		WithSessionStore(store),
-		WithModelStore(mockModelStoreWithCostAndLimit{limit: 40_000, cost: modelsdev.Cost{Input: 1, Output: 2}}))
+		WithModelStore(models))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, rt.Close()) })
 	return rt

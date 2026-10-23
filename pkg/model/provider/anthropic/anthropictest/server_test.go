@@ -44,7 +44,7 @@ func TestFallbackRepliesAccumulate(t *testing.T) {
 		reply   string
 		markers int
 	}{
-		"before output": {reply: anthropictest.FallbackBeforeOutputReply("m1", "claude-a", "claude-b", "hi"), markers: 1},
+		"before output": {reply: anthropictest.FallbackBeforeOutputReply("m1", "claude-a", "claude-b", "cyber", "hi"), markers: 1},
 		"mid output":    {reply: anthropictest.FallbackMidOutputReply("m2", "claude-a", "claude-b", "before", "after", "t1"), markers: 1},
 		"sticky":        {reply: anthropictest.StickyReply("m3", "claude-b", "hi")},
 	} {

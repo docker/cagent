@@ -75,7 +75,13 @@ type streamResult struct {
 	Stopped      bool
 	FinishReason chat.FinishReason
 	Usage        *chat.Usage
-	Serving      *provider.ServingModel
+	// UsageAttempts lists each model that ran when a server fallback spread
+	// the response across models; Usage describes only the last one.
+	UsageAttempts []chat.UsageAttempt
+	Serving       *provider.ServingModel
+	// Dispatched is the endpoint the request went to (e.g. a router's leaf),
+	// before a server fallback handed it to another model.
+	Dispatched *provider.ServingModel
 }
 
 // handleStream reads a chat.MessageStream to completion, emitting streaming
@@ -141,6 +147,7 @@ func handleStream(ctx context.Context, cancelStream context.CancelCauseFunc, str
 	var toolCalls []tools.ToolCall
 	var media []chat.MediaDelta
 	var messageUsage *chat.Usage
+	var usageAttempts []chat.UsageAttempt
 	var providerFinishReason chat.FinishReason
 	var responseStarted bool
 
@@ -263,6 +270,9 @@ mainLoop:
 				// Gemini) emit updated usage on every chunk with cumulative
 				// token counts, so the last value is the most accurate.
 				messageUsage = response.Usage
+			}
+			if len(response.UsageAttempts) > 0 {
+				usageAttempts = response.UsageAttempts
 			}
 
 			if len(response.Choices) == 0 {
@@ -416,6 +426,7 @@ mainLoop:
 					Stopped:           len(toolCalls) == 0, // stop only when there are no tool calls to execute
 					FinishReason:      finishReason,
 					Usage:             messageUsage,
+					UsageAttempts:     usageAttempts,
 					ResponseStarted:   responseStarted,
 				}, nil
 			}
@@ -517,6 +528,7 @@ mainLoop:
 		Stopped:           stoppedNoToolCalls,
 		FinishReason:      finishReason,
 		Usage:             messageUsage,
+		UsageAttempts:     usageAttempts,
 		ResponseStarted:   responseStarted,
 	}, nil
 }

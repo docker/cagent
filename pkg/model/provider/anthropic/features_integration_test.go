@@ -436,9 +436,7 @@ func TestThinkingDisplayUpdates(t *testing.T) {
 		for name, cfg := range map[string]*latest.ModelConfig{
 			"sonnet 5": {Provider: "anthropic", Model: "claude-sonnet-5", ProviderOpts: map[string]any{"thinking_display": "updates"}},
 			"mythos 5": {Provider: "anthropic", Model: "claude-mythos-5", ProviderOpts: map[string]any{"thinking_display": "updates"}},
-			// Fallback chains with a Claude 5.x model are rejected earlier (#4584),
-			// so the display check is exercised with IDs outside the 5.x table.
-			"fallback": {Provider: "anthropic", Model: "claude-fable-5-2", ProviderOpts: map[string]any{
+			"fallback": {Provider: "anthropic", Model: "claude-fable-5-1", ProviderOpts: map[string]any{
 				"thinking_display": "updates", "fallbacks": []any{"claude-opus-4-8"},
 			}},
 		} {
@@ -448,7 +446,7 @@ func TestThinkingDisplayUpdates(t *testing.T) {
 		_, err := NewClient(t.Context(), &latest.ModelConfig{Provider: "anthropic", Model: "claude-fable-5-1", ProviderOpts: map[string]any{
 			"thinking_display": "updates", "fallbacks": []any{"claude-mythos-5-1"},
 		}}, env)
-		require.ErrorContains(t, err, "issues/4584", "a 5.x fallback chain is rejected before the display check")
+		require.NoError(t, err, "every model in the chain supports updates")
 		ok, err := NewClient(t.Context(), &latest.ModelConfig{Provider: "anthropic", Model: "claude-fable-5-2", ProviderOpts: map[string]any{
 			"thinking_display": "updates", "fallbacks": []any{"claude-fable-5-3"},
 		}}, env)
